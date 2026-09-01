@@ -1,0 +1,179 @@
+name: Deploy verified repository to Pages
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_id:
+        description: Numeric ID of the draft GitHub Release
+        required: true
+        type: string
+      release_version:
+        description: Release version X.Y.Z and annotated tag
+        required: true
+        type: string
+      source_commit:
+        description: Exact frozen 40-character source commit
+        required: true
+        type: string
+      source_tree:
+        description: Exact frozen 40-character source tree
+        required: true
+        type: string
+      snapshot_sha256:
+        description: Expected SHA-256 of the signed repository archive
+        required: true
+        type: string
+      build_metadata_sha256:
+        description: SHA-256 of canonical BUILD-METADATA.json
+        required: true
+        type: string
+      unsigned_manifest_sha256:
+        description: SHA-256 of canonical UNSIGNED-SHA256SUMS
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  verify:
+    name: Verify signed snapshot
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out verifier and public trust
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          fetch-tags: true
+          ref: ${{ inputs.source_commit }}
+
+      - name: Install public verifier dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends gnupg zstd
+
+      - name: Require exact source and annotated tag
+        env:
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          SOURCE_TREE: ${{ inputs.source_tree }}
+        run: |
+          set -euo pipefail
+          [[ "${RELEASE_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "${SOURCE_COMMIT}" =~ ^[a-f0-9]{40}$ ]]
+          [[ "${SOURCE_TREE}" =~ ^[a-f0-9]{40}$ ]]
+          test "${GITHUB_REF}" = refs/heads/main
+          test "${GITHUB_SHA}" = "${SOURCE_COMMIT}"
+          test "$(git rev-parse --verify 'HEAD^{commit}')" = "${SOURCE_COMMIT}"
+          test "$(git rev-parse --verify 'HEAD^{tree}')" = "${SOURCE_TREE}"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          test "$(git cat-file -t "refs/tags/${RELEASE_VERSION}")" = tag
+          test "$(git rev-parse --verify "refs/tags/${RELEASE_VERSION}^{}")" = "${SOURCE_COMMIT}"
+
+      - name: Read back exact draft assets through the authenticated API
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_HOST: github.com
+          GH_CONFIG_DIR: ${{ runner.temp }}/gh-pages-config
+          HOME: ${{ runner.temp }}/gh-pages-home
+          RELEASE_ID: ${{ inputs.release_id }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          SOURCE_TREE: ${{ inputs.source_tree }}
+          SNAPSHOT_SHA256: ${{ inputs.snapshot_sha256 }}
+          BUILD_METADATA_SHA256: ${{ inputs.build_metadata_sha256 }}
+          UNSIGNED_MANIFEST_SHA256: ${{ inputs.unsigned_manifest_sha256 }}
+        run: |
+          set +x
+          set -euo pipefail
+          umask 077
+          [[ "${RELEASE_ID}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${RELEASE_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "${SOURCE_COMMIT}" =~ ^[a-f0-9]{40}$ ]]
+          [[ "${SOURCE_TREE}" =~ ^[a-f0-9]{40}$ ]]
+          [[ "${SNAPSHOT_SHA256}" =~ ^[a-f0-9]{64}$ ]]
+          [[ "${BUILD_METADATA_SHA256}" =~ ^[a-f0-9]{64}$ ]]
+          [[ "${UNSIGNED_MANIFEST_SHA256}" =~ ^[a-f0-9]{64}$ ]]
+          assets="${RUNNER_TEMP}/draft-assets"
+          release_json="${RUNNER_TEMP}/draft-release.json"
+          install -d -m0700 -- "${assets}" "${GH_CONFIG_DIR}" "${HOME}"
+          timeout --signal=TERM --kill-after=5s 60s \
+            gh api --hostname github.com "/repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" \
+            >"${release_json}"
+          jq -e --argjson id "${RELEASE_ID}" --arg version "${RELEASE_VERSION}" '
+            .id == $id and .tag_name == $version and .name == $version and
+            .draft == true and .prerelease == false and (.assets | length == 12) and
+            ([.assets[].id] | length == (unique | length)) and
+            ([.assets[].name] | length == (unique | length)) and
+            all(.assets[];
+              (.id | type == "number" and . > 0) and
+              (.size | type == "number" and . > 0 and . <= 4294967296) and
+              (.digest | type == "string" and test("^sha256:[a-f0-9]{64}$")) and
+              (.name | test("^[A-Za-z0-9][A-Za-z0-9+._-]*$")) and
+              .state == "uploaded")
+          ' "${release_json}" >/dev/null
+          expected="$(printf '%s\n' \
+            RELEASE-SHA256SUMS RELEASE-SHA256SUMS.sig install.sh \
+            arch-linux-installer.sh arch-linux-installer.sh.sha256 arch-linux-installer.sh.sig \
+            arch-linux.gpg primary-fingerprint signing-subkey-fingerprint \
+            "arch-linux-repository-${RELEASE_VERSION}.tar.zst" \
+            "arch-linux-repository-${RELEASE_VERSION}.tar.zst.sha256" \
+            "arch-linux-repository-${RELEASE_VERSION}.tar.zst.sig" | LC_ALL=C sort)"
+          actual="$(jq -r '.assets[].name' "${release_json}" | LC_ALL=C sort)"
+          test "${actual}" = "${expected}"
+          while IFS=$'\t' read -r name asset_id size api_digest; do
+            temporary="${assets}/.${name}.download"
+            output="${assets}/${name}"
+            install -m0600 -- /dev/null "${temporary}"
+            timeout --signal=TERM --kill-after=5s 900s \
+              gh api --hostname github.com -H 'Accept: application/octet-stream' \
+              "/repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}" >"${temporary}"
+            test "$(stat -c %s -- "${temporary}")" = "${size}"
+            test "sha256:$(sha256sum --binary -- "${temporary}" | awk '{print $1}')" = "${api_digest}"
+            chmod 0644 -- "${temporary}"
+            mv -- "${temporary}" "${output}"
+          done < <(jq -r '.assets[] | [.name, (.id|tostring), (.size|tostring), .digest] | @tsv' \
+            "${release_json}")
+          archive="arch-linux-repository-${RELEASE_VERSION}.tar.zst"
+          printf '%s *%s\n' "${SNAPSHOT_SHA256}" "${assets}/${archive}" |
+            sha256sum --check --strict
+          bash repository/verify-release-assets.sh "${assets}" \
+            --release-version "${RELEASE_VERSION}" \
+            --source-commit "${SOURCE_COMMIT}" \
+            --source-tree "${SOURCE_TREE}" \
+            --build-metadata-sha256 "${BUILD_METADATA_SHA256}" \
+            --unsigned-manifest-sha256 "${UNSIGNED_MANIFEST_SHA256}"
+          python3 repository/safe-extract-snapshot.py \
+            "${assets}/${archive}" "${RUNNER_TEMP}/site"
+          rm -rf -- "${GH_CONFIG_DIR}" "${HOME}"
+
+      - name: Upload verified Pages content
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v4.0.0
+        with:
+          path: ${{ runner.temp }}/site
+
+  deploy:
+    name: Deploy Pages
+    needs: verify
+    permissions:
+      pages: write
+      id-token: write
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy verified content
+        id: deployment
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v4.0.5

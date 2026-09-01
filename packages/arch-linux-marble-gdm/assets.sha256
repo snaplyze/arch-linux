@@ -1,0 +1,13 @@
+eba48c15d2f9bd578f691df052fa543f4f2d9801b73dd4af37c005282712a67c  50.0.0/reviewed/gnome-shell.css
+8086687542b02f7d6c7d36890339dab2f23aad985264ccb2624d9457287a29c2  50.0.0/theme/gnome-shell.css
+8086687542b02f7d6c7d36890339dab2f23aad985264ccb2624d9457287a29c2  50.0.0/theme/gnome-shell-dark.css
+8086687542b02f7d6c7d36890339dab2f23aad985264ccb2624d9457287a29c2  50.0.0/theme/gnome-shell-light.css
+af5447861215e4a01617ce2e9dd329f9fc029ecf60a5b067d0abdd46b209b0c8  50.0.0/theme/calendar-event-disabled.svg
+a3250a2d1bf8c1cde2a3130b6d4343029f0ec7a88d54526117a6911c998c9827  50.0.0/theme/calendar-event-today.svg
+3bed96bb050cb646d77f2cd12427249b4aa10fb4d32b1e9f9a8851079e5d8f78  50.0.0/theme/calendar-event.svg
+7ce9aab6a382710de04d1e867db910c77df9bbece61d5aa5d211d2676c1a141c  50.0.0/theme/workspace-placeholder.svg
+0e8ec6d59a9becdb61ea13b29f018595884b1717485d470d96927e451ca283d4  50.0.0/dconf/profile
+848a1300b74cddaa3bc10fdbd9fc68d24504d4c43eb687dd35eac40900cf897c  50.0.0/dconf/colloid-gdm-defaults
+70df1b782a44ecc109915af2dc70e1bb10921cd6e3e6a5a3d1d389807fcd33fd  50.0.0/dconf/source/00-arch-linux-marble-gdm-icons
+52225c6a1f751bc35099fe0432a5b5a4ab813c3cf08f534c0e5e46935d80f9f1  50.0.0/dconf/source/locks/icon-theme
+ab4212c9361f6a98db341b5e9934b0be023dcb5784ce2168dd96bb8bbe127eb7  systemd/50-arch-linux-marble-gdm.conf

@@ -1,0 +1,5 @@
+2f60b5bf210d6666787a7982bce49914e361ee5be6195ec9bf1356554744a57e  /usr/share/gnome-shell/gnome-shell-theme.gresource
+1cdbe302402ba2ef4e740ccdd41be7dda0b781c060699c4ebae89e241ef86afe  /usr/lib/systemd/user/org.gnome.Shell@.service
+1da5dbbc7edeff89181fa1f4ba025bdf1f6b80973409e879cbb8b1a7265ac1a0  /usr/lib/systemd/user/gnome-session@gnome-login.target.d/gnome-login.session.conf
+4f483c98314e2a4f38059b768822e34f0cda17e3068761427c8b8c7da1101f85  /usr/share/dconf/profile/gdm
+65f1baca7bce9c968c3ac59c92826867a621728828668e0d684147eb5e836edb  /usr/share/gdm/greeter-dconf-defaults

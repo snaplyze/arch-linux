@@ -1,0 +1,12 @@
+title = "Arch Linux Installer secret scanning"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Committed public OpenPGP fingerprints are trust identifiers"
+regexTarget = "match"
+regexes = [
+  '''^REPOSITORY_(PRIMARY|SIGNING_SUBKEY)_FINGERPRINT='[A-F0-9]{40}'$''',
+  '''^BOOTSTRAP_(PRIMARY|SIGNING_SUBKEY)_FINGERPRINT='[A-F0-9]{40}'$''',
+]

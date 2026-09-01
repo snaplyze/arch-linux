@@ -1,0 +1,165 @@
+name: Monthly advisory maintenance
+
+on:
+  schedule:
+    - cron: '17 4 1 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  source-monitor:
+    name: External source advisory
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      iso_status: ${{ steps.iso.outputs.status || 'error' }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Validate and query accepted sources
+        run: |
+          set -euo pipefail
+          python3 maintenance/check-sources.py --network \
+            --report "${RUNNER_TEMP}/sources-report.json"
+
+      - name: Query official Arch ISO metadata
+        id: iso
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python3 maintenance/check-arch-iso.py --github-output "${GITHUB_OUTPUT}"
+
+      - name: Upload advisory report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4.6.2
+        with:
+          name: maintenance-source-report
+          path: ${{ runner.temp }}/sources-report.json
+          if-no-files-found: error
+          retention-days: 30
+
+  reproducibility:
+    name: Advisory build ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        name: [a, b]
+    continue-on-error: true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    container:
+      image: archlinux:base-devel@sha256:714acd1eef9ae997d95691b1c5220ada0076185b77857c1813f02de0fa83cf7b
+    steps:
+      - name: Install build dependencies
+        run: |
+          set -euo pipefail
+          pacman -Syu --noconfirm --needed \
+            bash coreutils curl dconf git glib2 glib2-devel gnupg jq libarchive \
+            python sassc unzip zstd
+
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build independently as an unprivileged user
+        run: |
+          set -euo pipefail
+          useradd --create-home --shell /bin/bash "builder-${{ matrix.name }}"
+          chmod -R a+rX -- "${GITHUB_WORKSPACE}"
+          install -d -m0755 -o "builder-${{ matrix.name }}" -g "builder-${{ matrix.name }}" \
+            "/tmp/repro-${{ matrix.name }}"
+          runuser -u "builder-${{ matrix.name }}" -- env \
+            RUNNER_TEMP="/tmp/repro-${{ matrix.name }}" \
+            bash "${GITHUB_WORKSPACE}/repository/build-packages.sh" \
+            "/tmp/repro-${{ matrix.name }}/unsigned"
+
+      - name: Upload advisory build
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4.6.2
+        with:
+          name: reproducibility-${{ matrix.name }}
+          path: /tmp/repro-${{ matrix.name }}/unsigned
+          if-no-files-found: error
+          retention-days: 7
+
+  advisory:
+    name: Maintain one advisory issue
+    if: always()
+    permissions:
+      contents: read
+      issues: write
+    needs: [source-monitor, reproducibility]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install comparison dependency
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends libarchive-tools
+
+      - name: Download source report
+        id: source-report
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v5.0.0
+        with:
+          name: maintenance-source-report
+          path: ${{ runner.temp }}/source-report
+
+      - name: Download build A
+        id: build-a
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v5.0.0
+        with:
+          name: reproducibility-a
+          path: ${{ runner.temp }}/repro-a
+
+      - name: Download build B
+        id: build-b
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v5.0.0
+        with:
+          name: reproducibility-b
+          path: ${{ runner.temp }}/repro-b
+
+      - name: Compare independent builds
+        id: compare
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          bash repository/compare-package-builds.sh \
+            "${RUNNER_TEMP}/repro-a" "${RUNNER_TEMP}/repro-b"
+
+      - name: Create fallback report when monitoring failed
+        run: |
+          set -euo pipefail
+          report="${RUNNER_TEMP}/source-report/sources-report.json"
+          if [ ! -s "${report}" ]; then
+            mkdir -p -- "$(dirname -- "${report}")"
+            printf '%s\n' '{"automaticChanges":false,"findings":[{"accepted":"available report","detected":"ERROR: source monitor failed","id":"maintenance:source-monitor","impact":"Manual infrastructure review required."}],"mode":"network","schema":1,"status":"advisory"}' >"${report}"
+          fi
+
+      - name: Update the single advisory issue
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPRO_STATUS: ${{ steps.compare.outcome == 'success' && 'match' || 'error' }}
+          ISO_STATUS: ${{ needs.source-monitor.outputs.iso_status || 'error' }}
+        run: |
+          set -euo pipefail
+          python3 maintenance/update-advisory-issue.py \
+            --report "${RUNNER_TEMP}/source-report/sources-report.json" \
+            --reproducibility "${REPRO_STATUS}" \
+            --iso-status "${ISO_STATUS}"

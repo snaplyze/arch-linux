@@ -1,0 +1,252 @@
+{
+  "schema": 1,
+  "policy": "advisory-only",
+  "archPackages": [
+    {
+      "id": "arch:gnome-shell",
+      "source": "https://archlinux.org/packages/extra/x86_64/gnome-shell/json/",
+      "acceptedVersion": "1:50.4-1",
+      "acceptedMajor": 50,
+      "impact": "Stock + Marble real-QEMU before accepting an update."
+    },
+    {
+      "id": "arch:gdm",
+      "source": "https://archlinux.org/packages/extra/x86_64/gdm/json/",
+      "acceptedVersion": "50.2",
+      "acceptedMajor": 50,
+      "impact": "Stock + Marble real-QEMU before accepting an update."
+    }
+  ],
+  "tools": [
+    {
+      "id": "gum:linux-x86_64",
+      "source": "https://api.github.com/repos/charmbracelet/gum/releases/latest",
+      "acceptedVersion": "0.17.0",
+      "acceptedAsset": "gum_0.17.0_Linux_x86_64.tar.gz",
+      "acceptedSha256": "69ee169bd6387331928864e94d47ed01ef649fbfe875baed1bbf27b5377a6fdb",
+      "impact": "Installer UI smoke and a focused VM before accepting an update."
+    },
+    {
+      "id": "tool:starship",
+      "source": "https://api.github.com/repos/starship/starship/releases/latest",
+      "acceptedVersion": "1.26.0",
+      "presetPath": "starship.toml",
+      "presetSha256": "b84828d17d7cbe3c614c0b5eb9ee513a734098b131b0fe72e44915f78b6a8cec",
+      "impact": "Review preset rendering and run the relevant VM scenarios before accepting an update."
+    }
+  ],
+  "gnomeExtensions": [
+    {
+      "id": "gnome-extension:no-screenshot-box",
+      "source": "https://extensions.gnome.org/extension-info/?uuid=no-screenshot-box%40screenshot",
+      "download": "https://extensions.gnome.org/download-extension/no-screenshot-box%40screenshot.shell-extension.zip?version_tag=72860",
+      "bundleTemplate": "https://extensions.gnome.org/extension-data/no-screenshot-boxscreenshot.v{version}.shell-extension.zip",
+      "uuid": "no-screenshot-box@screenshot",
+      "shellMajor": "50",
+      "acceptedVersionTag": 72860,
+      "acceptedExtensionVersion": 6,
+      "acceptedSha256": "6b1c5184579ca03dc9bf0ad6ded39d99e618c8baf4577ff5391cfa185eb0736e",
+      "impact": "Focused source/package review and the relevant Stock/Marble scenario."
+    }
+  ],
+  "aurPins": [
+    {
+      "name": "bibata-cursor-theme-bin",
+      "commit": "5d418e2c328f988b0b5c4fc51e6ca9619bfda293",
+      "treeSha256": "887ea3300b82fd7fd8a46617fd00dc9e596daa99e7865c7353cb7d8073b6e2b4",
+      "srcinfoSha256": "f38772066b7b2510d02ea1b9649df7fc63f4ec37bcec843a1631314c022f3d97",
+      "pkgbuildSha256": "edd7feee7557524eba6ba509169e5106ed8711d421ad73b1045db125eb7763c3"
+    },
+    {
+      "name": "gnome-shell-extension-blur-my-shell",
+      "commit": "8161ae31d9eee1fe235a203c2bb4512793c2c310",
+      "treeSha256": "704e0d036582b00bafb793654ad1310295b4bd14f1791765d6eac76b24848564",
+      "srcinfoSha256": "6dcd291a072f70becc9193aad5ce4f001d669bb7eae0e6c620649d21272c2b5f",
+      "pkgbuildSha256": "8dd8d810175574311426357e4a5d85c9ad138197a35ff413eee0d212a03f944a"
+    },
+    {
+      "name": "gnome-shell-extension-clipboard-indicator",
+      "commit": "275daf0bd317ff8df1db651e50bcb31f1f9b4c47",
+      "treeSha256": "19b0112d63ca955b662ce0f11c655a51f314b3217c7d70fcef55aeeebbabaced",
+      "srcinfoSha256": "e66d52fd6625773f33460d30cf7be140b6ebeb350cf0b274434339a75f88e0dc",
+      "pkgbuildSha256": "0d7981518298ae9389a7a63f3ec9918c9f66c8805a24cd20690c661c1ec64fa8"
+    },
+    {
+      "name": "gnome-shell-extension-dash-to-dock",
+      "commit": "a1733fcd3f774b768a701dc8fd1414934645f478",
+      "treeSha256": "9ab94834886058a417fdd33fd1a3719583490e485392b7c2dbdcce2d6fc1e4ee",
+      "srcinfoSha256": "e663abc1001af20b97068a3b5cee7d361e6c8625f9015081faa5956fcd51199e",
+      "pkgbuildSha256": "b40333107e29b2f866c6d78a29622a30c76c1bc9d3d06cf800c3e9be1dcb81de"
+    },
+    {
+      "name": "gnome-shell-extension-just-perfection-desktop",
+      "commit": "57e67cabe41c94858bd7f3cbe2c80eacc491b7cc",
+      "treeSha256": "8b238aa4db622d608810b62d64c74b7b87beea3c44b8aebd1a59d91d5c58f2e0",
+      "srcinfoSha256": "9bbd8b52402236f642dcd926dc5a20e137b1d36a474f369ac53bf1ad560f383d",
+      "pkgbuildSha256": "9f0fe0d3c9088b49c67ee1638218aff9ebddbd01f91c976b89139775be47578f"
+    },
+    {
+      "name": "paru",
+      "commit": "329be2113c590046cb29858c23d9b96a8d7bd586",
+      "treeSha256": "bdd43155bc97eac5f0075b5eb6bb5aeea483fdeef429a144c6989558e49dfea8",
+      "srcinfoSha256": "e84755034a22e0ecff5638ee4e96c69a7697f7f6a3ed781f1eeb53742d45be34",
+      "pkgbuildSha256": "514ced7c6bf3be8a3528a383ac4f30e16df696cacdea7d43b88b095d8375658d"
+    },
+    {
+      "name": "paru-bin",
+      "commit": "92a55429afbec4fceeb2cef843245105307444d2",
+      "treeSha256": "18272d20abd4fd30e6e379b8eb7096359898b7fa29bcb5c8419fdbee4369b7f2",
+      "srcinfoSha256": "cb5cce5e588194d4da003d8309d7a8ef964b7b0ccafa4ba19764c1b5d1dce6a3",
+      "pkgbuildSha256": "a6fc599a68d24528fd532184ce5e2f55a907783a9aeb4763971f7c2ae644ff43"
+    },
+    {
+      "name": "paru-git",
+      "commit": "f099fdc4d8efd4e4622a8f238b59b6fc540e8304",
+      "treeSha256": "29f0752db0ac2710e03a2ce3a14eee5fcb66b63b7a7683be9a88496270ca367e",
+      "srcinfoSha256": "59b834ecd905340a10138cd7d3e92ed8b7b62f5801984b448d0879d06417b6a0",
+      "pkgbuildSha256": "ad02c2dcf3044439adccb0ffe60d6dc5c3f8fd839b6aad1d96f14bbb98526c0a"
+    },
+    {
+      "name": "pikaur",
+      "commit": "29d9831c6f4327cc0e3ad1c42dc8f961e98c099e",
+      "treeSha256": "6a42c4067e41134f3914a8a265655ee5193032dd3bdd2149948180f44441fe86",
+      "srcinfoSha256": "9d1ee4f74af33d589778ef1793eed874688441deeac5551733dbff40f4f2e43d",
+      "pkgbuildSha256": "92d1939e236bb67ce0c61f0b4aa4ba9ec9716e0e1a994637ae9013074f26065a"
+    },
+    {
+      "name": "plymouth-theme-archlinux",
+      "commit": "3347bb2b0ace31f6fa07e080f2886cd04e3fea1d",
+      "treeSha256": "508d4c782543fa72a01284c28f43db55819bab23f7915eb3abae2beb2fb4d9c9",
+      "srcinfoSha256": "e32dcb0c9c1492b9b7e627ff9bced6138a213fa83f841f2c4f8d1ac7a90a9c14",
+      "pkgbuildSha256": "da96a3a7ed16473f6ab7c73fe9dc586a861e62919362bb60f63f0c1b035f8e2b"
+    },
+    {
+      "name": "trizen",
+      "commit": "8b3bbabdd25e9247a18681ddc27aa287657c86ab",
+      "treeSha256": "a027080e35d0bd24a744d471a8e26b18237d0c9f0eda871eea0ccc0712f01ac5",
+      "srcinfoSha256": "f34517a663d3fbd9780a4c965300466ab29e5b6c58fde235d7191e650a133ad4",
+      "pkgbuildSha256": "c96a513f286ead7dd8015f620b1eb69c4fa2142461a2d78c31c9cbdc90a3a57d"
+    },
+    {
+      "name": "yay",
+      "commit": "cb43f84828ab4f9700f7c6f9c6d7a923d4cfaff0",
+      "treeSha256": "106c05ca8ea07cd95f44c87f046975db8a9781aab73bd8d9657f172b3b2d9f5c",
+      "srcinfoSha256": "fdc02c822ec787e647001d541aab9d7d26b66d6526b049bc2be480133cdd1163",
+      "pkgbuildSha256": "88387e6e4c2a057f1353a71f5198f13d9a1a6c1f5fed34d9bdcaffd4db244daf"
+    }
+  ],
+  "upstreams": [
+    {
+      "id": "upstream:marble-release",
+      "source": "https://api.github.com/repos/imarkoff/Marble-shell-theme/releases/latest",
+      "git": "https://github.com/imarkoff/Marble-shell-theme.git",
+      "acceptedTag": "50.0.0",
+      "acceptedCommit": "df788bc3d9d2147bcdeaedb907b90ced64f0ad48",
+      "acceptedAssetId": 490305209,
+      "acceptedAsset": "Marble-shell-filled-50.zip",
+      "acceptedAssetSize": 170376,
+      "acceptedSha256": "2b5c99f676b93ad6288921c108459b3679360e33935a4f98b8c283f82eecec11",
+      "impact": "Reproducible six-package validation and Marble real-QEMU."
+    },
+    {
+      "id": "upstream:colloid-gtk",
+      "git": "https://github.com/vinceliuice/Colloid-gtk-theme.git",
+      "acceptedCommit": "6c2dc65865628bda9fdc8157a30cd5eda6fd41f9",
+      "acceptedArchiveSha256": "bab6d8903f1eec46e48c7cf10f262e39ea19ce3d731f1d6204e330ec928a0a29",
+      "impact": "Reproducible six-package validation and Marble real-QEMU."
+    },
+    {
+      "id": "upstream:colloid-icons",
+      "git": "https://github.com/vinceliuice/Colloid-icon-theme.git",
+      "acceptedCommit": "fa07485895a2443f7cfbceefe9dcdde798a05215",
+      "acceptedArchiveSha256": "27be4c8bf046bdfcac592b691b42abd38fda3dccb2659a46b77ecb7c7dc5eee7",
+      "impact": "Reproducible six-package validation and Marble real-QEMU."
+    },
+    {
+      "id": "upstream:spdx-license-list",
+      "git": "https://github.com/spdx/license-list-data.git",
+      "acceptedCommit": "c4a7237ec8f4654e867546f9f409749300f1bf4c",
+      "acceptedArchiveSha256": "5749785c8bdefafcb5d798270ed0a967036fe2ca63dcedade1627565dfef81d2",
+      "impact": "Focused license-provenance review and reproducible package validation."
+    },
+    {
+      "id": "aur-upstream:plymouth-theme-archlinux",
+      "git": "https://github.com/onurbbr/plymouth-theme-archlinux.git",
+      "acceptedCommit": "616a662c7c4440661b222609f547ce96ca280ec3",
+      "impact": "Focused source/package review and the relevant Stock/Marble scenario."
+    },
+    {
+      "id": "aur-upstream:blur-my-shell",
+      "git": "https://github.com/aunetx/blur-my-shell.git",
+      "acceptedCommit": "444df605b34529dfab7be77d0f434bf54a6dd4cc",
+      "impact": "Focused source/package review and the relevant Stock/Marble scenario."
+    },
+    {
+      "id": "aur-upstream:just-perfection",
+      "git": "https://gitlab.gnome.org/jrahmatzadeh/just-perfection.git",
+      "acceptedCommit": "818aa98baa1d6dbec7b44b70d9074d95d516a499",
+      "impact": "Focused source/package review and the relevant Stock/Marble scenario."
+    },
+    {
+      "id": "aur-upstream:paru",
+      "git": "https://github.com/morganamilo/paru.git",
+      "acceptedCommit": "9ac3578807a87858651e81a02586ceb947686e7c",
+      "impact": "Focused source/package review and the relevant Stock/Marble scenario."
+    },
+    {
+      "id": "upstream:gnome-shell-50.4",
+      "git": "https://github.com/GNOME/gnome-shell.git",
+      "acceptedTag": "50.4",
+      "acceptedCommit": "dcda6594b153aa179d92cc62e2414d84a43ab82c",
+      "acceptedArchiveSha256": "6bdb992cf20b35e37c5d803197124dd7ba6acd69ffa99decd126ade79adfff20",
+      "impact": "Stock + Marble real-QEMU before accepting an update."
+    }
+  ],
+  "packageSources": [
+    {
+      "package": "arch-linux-colloid-gtk3",
+      "source": "arch-linux-colloid-gtk3-6c2dc65865628bda9fdc8157a30cd5eda6fd41f9.tar.gz::https://github.com/vinceliuice/Colloid-gtk-theme/archive/6c2dc65865628bda9fdc8157a30cd5eda6fd41f9.tar.gz",
+      "sha256": "bab6d8903f1eec46e48c7cf10f262e39ea19ce3d731f1d6204e330ec928a0a29"
+    },
+    {
+      "package": "arch-linux-colloid-icons",
+      "source": "arch-linux-colloid-icons-fa07485895a2443f7cfbceefe9dcdde798a05215.tar.gz::https://github.com/vinceliuice/Colloid-icon-theme/archive/fa07485895a2443f7cfbceefe9dcdde798a05215.tar.gz",
+      "sha256": "27be4c8bf046bdfcac592b691b42abd38fda3dccb2659a46b77ecb7c7dc5eee7"
+    },
+    {
+      "package": "arch-linux-marble-gdm",
+      "source": "Marble-shell-filled-50.zip::https://api.github.com/repos/imarkoff/Marble-shell-theme/releases/assets/490305209",
+      "sha256": "2b5c99f676b93ad6288921c108459b3679360e33935a4f98b8c283f82eecec11"
+    },
+    {
+      "package": "arch-linux-marble-gdm",
+      "source": "Marble-source-df788bc3d9d2147bcdeaedb907b90ced64f0ad48.tar.gz::https://github.com/imarkoff/Marble-shell-theme/archive/df788bc3d9d2147bcdeaedb907b90ced64f0ad48.tar.gz",
+      "sha256": "e84b682ff3164d2c5ae5097001c0baed9323aba12c334ece3d77f7fefe4aa656"
+    },
+    {
+      "package": "arch-linux-marble-gdm",
+      "source": "gnome-shell-1_50.4-1-x86_64.pkg.tar.zst::https://archive.archlinux.org/packages/g/gnome-shell/gnome-shell-1:50.4-1-x86_64.pkg.tar.zst",
+      "sha256": "c0dddf681d3d9c4799e92f816a4c56152a5be85fdb7604a7dd491e6e77a3b9e3"
+    },
+    {
+      "package": "arch-linux-marble-gdm",
+      "source": "GNOME-Shell-source-dcda6594b153aa179d92cc62e2414d84a43ab82c.tar.gz::https://github.com/GNOME/gnome-shell/archive/dcda6594b153aa179d92cc62e2414d84a43ab82c.tar.gz",
+      "sha256": "6bdb992cf20b35e37c5d803197124dd7ba6acd69ffa99decd126ade79adfff20"
+    },
+    {
+      "package": "arch-linux-marble-gdm",
+      "source": "SPDX-LGPL-2.1-only-c4a7237ec8f4654e867546f9f409749300f1bf4c.txt::https://raw.githubusercontent.com/spdx/license-list-data/c4a7237ec8f4654e867546f9f409749300f1bf4c/text/LGPL-2.1-only.txt",
+      "sha256": "5749785c8bdefafcb5d798270ed0a967036fe2ca63dcedade1627565dfef81d2"
+    },
+    {
+      "package": "arch-linux-marble-shell",
+      "source": "Marble-shell-filled-50.zip::https://api.github.com/repos/imarkoff/Marble-shell-theme/releases/assets/490305209",
+      "sha256": "2b5c99f676b93ad6288921c108459b3679360e33935a4f98b8c283f82eecec11"
+    },
+    {
+      "package": "arch-linux-marble-shell",
+      "source": "Marble-LICENSE-df788bc3d9d2147bcdeaedb907b90ced64f0ad48::https://raw.githubusercontent.com/imarkoff/Marble-shell-theme/df788bc3d9d2147bcdeaedb907b90ced64f0ad48/LICENSE",
+      "sha256": "5d6075b58a5531bd9bd172cb7d0ba2055480f105af2abd79cc4d6b5be03d701e"
+    }
+  ]
+}

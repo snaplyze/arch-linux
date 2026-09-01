@@ -1,0 +1,47 @@
+Third-party notices for arch-linux-marble-gdm
+
+This package distributes one composed theme payload. Its package metadata records the complete
+license expression:
+
+    GPL-3.0-only AND GPL-2.0-or-later AND LGPL-2.1-only
+
+Marble Shell theme
+------------------
+
+The reviewed Marble-blue-dark CSS and SVG payload comes from GitHub release asset object
+490305209 (Marble-shell-filled-50.zip) of imarkoff/Marble-shell-theme. The matching audited source
+baseline is commit df788bc3d9d2147bcdeaedb907b90ced64f0ad48. Marble's repository-level license
+is GNU GPL version 3; because the theme assets carry no later-version grant, this package records
+that part as GPL-3.0-only. The exact upstream text is installed as LICENSE-Marble.
+
+Marble's upstream README attributes its design baseline to:
+
+    https://www.pling.com/p/1939902/
+
+GNOME Shell and GNOME Shell Sass
+--------------------------------
+
+The Stock CSS prepended to the Marble CSS is extracted from Arch Linux package gnome-shell
+1:50.4-1. That package corresponds to GNOME Shell tag 50.4 and exact commit
+dcda6594b153aa179d92cc62e2414d84a43ab82c. GNOME Shell and GNOME Shell Sass are distributed
+under GNU GPL version 2 or later. Their exact license texts from that commit are installed as
+COPYING-GNOME-Shell and COPYING-GNOME-Shell-Sass.
+
+The dark entrypoint at that commit imports an exact 38-file Sass/widget closure. The complete
+closure has no other file-level license declaration; its remaining files therefore use the GNOME
+Shell Sass project-level GPL-2.0-or-later terms recorded in its README and COPYING.
+
+The generated Stock CSS retains the notice from
+data/theme/gnome-shell-sass/_common.scss: Copyright 2009, 2015 Red Hat, Inc.; portions adapted
+from Mx data/style/default.css, Copyright 2009 Intel Corporation. That file grants GNU LGPL
+version 2.1 without a later-version option, so the exact upstream source notice is installed as
+NOTICE-GNOME-Shell-common.scss and the full license as LICENSE-LGPL-2.1-only.
+
+Marble's workspace-placeholder.svg is an exact color-substitution derivative of GNOME Shell's
+data/theme/workspace-placeholder.svg at the same GNOME commit. Marble's three calendar-event SVGs
+preserve the 32 by 32 canvas and circle geometry (cx 16, cy 28, radius 2) of GNOME Shell's
+data/theme/calendar-today.svg, with Marble-specific styling and colors. The PKGBUILD downloads and
+checksums those exact GNOME source assets, and its provenance check proves these relationships.
+
+Project-owned packaging helpers and policy files are distributed under GNU GPL version 3 only;
+their exact text is installed as LICENSE-project.

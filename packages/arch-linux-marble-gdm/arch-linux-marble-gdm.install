@@ -1,0 +1,27 @@
+# shellcheck shell=bash
+
+run_marble_gdm_helper() {
+    if ! /usr/lib/arch-linux-marble-gdm/update-compatibility "$@"; then
+        printf 'Marble GDM compatibility update failed; the package transaction will continue.\n' >&2
+    fi
+    return 0
+}
+
+reload_marble_gdm_user_managers() {
+    if ! /usr/share/libalpm/scripts/systemd-hook daemon-reload-user; then
+        printf 'Marble GDM could not reload user-manager configuration; reboot before relying on the new state.\n' >&2
+    fi
+    return 0
+}
+
+# Final activation belongs exclusively to the late-sorting PostTransaction hook, after Arch has
+# rebuilt dconf and the GSettings schema cache. Package scriptlets retain only pre-mutation safety.
+pre_upgrade() {
+    run_marble_gdm_helper --prepare
+    reload_marble_gdm_user_managers
+}
+
+pre_remove() {
+    run_marble_gdm_helper --remove
+    reload_marble_gdm_user_managers
+}

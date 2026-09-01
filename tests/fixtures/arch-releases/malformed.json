@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "latest_version": "2026.09.01",
+  "releases": [
+    {
+      "release_date": "2026-09-01",
+      "version": "2026.09.01",
+      "available": true,
+      "iso_url": "/iso/2026.09.01/archlinux-2026.09.01-x86_64.iso",
+      "sha256_sum": "not-a-sha256"
+    }
+  ]
+}

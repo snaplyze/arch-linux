@@ -1,0 +1,8 @@
+* @snaplyze
+
+/arch-linux-installer.sh @snaplyze
+/packages/ @snaplyze
+/repository/ @snaplyze
+/tests/ @snaplyze
+/.github/workflows/ @snaplyze
+/SECURITY.md @snaplyze

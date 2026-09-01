@@ -1,0 +1,23 @@
+pkgbase = arch-linux-keyring
+	pkgdesc = Public certificate refresh path for the signed arch-linux repository
+	pkgver = 1.0.0
+	pkgrel = 1
+	url = https://github.com/snaplyze/arch-linux
+	install = arch-linux-keyring.install
+	arch = any
+	license = GPL-3.0-only
+	depends = pacman
+	options = !strip
+	options = !debug
+	source = arch-linux.gpg
+	source = primary-fingerprint
+	source = signing-subkey-fingerprint
+	source = arch-linux-keyring.install
+	source = LICENSE-project
+	sha256sums = 2d80a88fb033a6c138399b391cd4347f4461b60d1294d22af166f589b12c7c67
+	sha256sums = 6d980a847d1bb7599c9dbdcc4be8c87cf3289d321a328f14247baf3f27ed3d1c
+	sha256sums = 9cafadd2dc1d143c4f24eab121cccf5fd74f8139e9d2ce7af55646a75988beb1
+	sha256sums = 95552a4bda2ac67bd5b957fadaa318bd14237a303b577cd097b69933d5a15e87
+	sha256sums = 3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986
+
+pkgname = arch-linux-keyring

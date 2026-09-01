@@ -1,0 +1,13 @@
+# shellcheck shell=bash
+
+post_install() {
+    /usr/lib/arch-linux-marble-profile/update-compatibility
+}
+
+post_upgrade() {
+    post_install
+}
+
+pre_remove() {
+    /usr/lib/arch-linux-marble-profile/update-compatibility --remove
+}

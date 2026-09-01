@@ -1,0 +1,33 @@
+pkgbase = arch-linux-marble-profile
+	pkgdesc = Editable Stock-fallback defaults for the arch-linux Marble GNOME profile
+	pkgver = 1.0.0
+	pkgrel = 1
+	url = https://github.com/snaplyze/arch-linux
+	install = arch-linux-marble-profile.install
+	arch = any
+	license = GPL-3.0-only
+	depends = arch-linux-keyring>=1.0.0
+	depends = arch-linux-marble-shell>=50.0.0
+	depends = arch-linux-colloid-gtk3>=20260808
+	depends = arch-linux-colloid-icons>=20260817
+	depends = bash
+	depends = coreutils
+	depends = dconf
+	depends = gnome-shell
+	depends = gnome-shell-extensions
+	depends = grep
+	depends = pacman
+	options = !strip
+	options = !debug
+	source = arch-linux-marble-profile.install
+	source = update-compatibility
+	source = supported-gnome-majors
+	source = 90-arch-linux-marble-profile.hook
+	source = LICENSE-project
+	sha256sums = 49a819ccd35f5b5617acda6ea3a648ce08c30088f362c6348f70d732765e178a
+	sha256sums = c1533253c024c6e50e065971ea5d131503139fcb37ca522ec7d74c17646b70e2
+	sha256sums = 7ea9844ae84eccbf55e8330640865e36c43521e45a1baec24233327aab7e6595
+	sha256sums = f83314b2fa6c3de7510d87b7024cefb1893060c64bc235f76799f1a7491f7091
+	sha256sums = 3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986
+
+pkgname = arch-linux-marble-profile

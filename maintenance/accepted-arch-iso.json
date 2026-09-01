@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "source": "https://archlinux.org/api/v1/releng/releases/",
+  "version": "2026.08.01",
+  "releaseDate": "2026-08-01",
+  "isoName": "archlinux-2026.08.01-x86_64.iso",
+  "isoUrl": "https://geo.mirror.pkgbuild.com/iso/2026.08.01/archlinux-2026.08.01-x86_64.iso",
+  "sha256": "4e82dced1c4fd3e498b22a853f8db2a4d262d32b97e7e07d97390d9e425ffe5e"
+}

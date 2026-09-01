@@ -1,0 +1,3 @@
+user-db:user
+file-db:/usr/share/arch-linux-marble-gdm/50.0.0/dconf/colloid-gdm-defaults
+file-db:/usr/share/gdm/greeter-dconf-defaults

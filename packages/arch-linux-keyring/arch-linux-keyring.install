@@ -1,0 +1,27 @@
+# shellcheck shell=sh
+
+refresh_arch_linux_keyring() {
+    # The installer has already verified and locally signed this exact primary fingerprint.
+    # --populate merges newly primary-certified signing subkeys without granting trust to a new
+    # primary. No *-trusted file is shipped by this package.
+    if ! /usr/bin/pacman-key --list-keys >/dev/null 2>&1; then
+        printf '%s\n' 'arch-linux-keyring: pacman keyring is unavailable; refusing to skip certificate refresh' >&2
+        return 1
+    fi
+    if ! /usr/bin/pacman-key --populate arch-linux; then
+        printf '%s\n' 'arch-linux-keyring: failed to import the refreshed repository certificate' >&2
+        return 1
+    fi
+    if ! /usr/bin/pacman-key --updatedb; then
+        printf '%s\n' 'arch-linux-keyring: failed to update the pacman trust database' >&2
+        return 1
+    fi
+}
+
+post_install() {
+    refresh_arch_linux_keyring
+}
+
+post_upgrade() {
+    refresh_arch_linux_keyring
+}

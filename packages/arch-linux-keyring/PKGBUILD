@@ -1,0 +1,44 @@
+# shellcheck shell=bash disable=SC2034,SC2100,SC2154
+# Maintainer: snaplyze <snaplyze@users.noreply.github.com>
+
+pkgname=arch-linux-keyring
+pkgver=1.0.0
+pkgrel=1
+pkgdesc='Public certificate refresh path for the signed arch-linux repository'
+arch=('any')
+url='https://github.com/snaplyze/arch-linux'
+license=('GPL-3.0-only')
+depends=('pacman')
+install='arch-linux-keyring.install'
+options=('!strip' '!debug')
+
+# makepkg resolves the public trust sources from SRCDEST. repository/build-packages.sh stages the
+# three canonical files from repository/trust, keeping the keyring package bound to the installer
+# bootstrap certificate and the reviewed literal SHA-256 values below.
+source=(
+    'arch-linux.gpg'
+    'primary-fingerprint'
+    'signing-subkey-fingerprint'
+    'arch-linux-keyring.install'
+    'LICENSE-project'
+)
+# BEGIN INITIAL TRUST V1 CHECKSUMS
+sha256sums=(
+    '2d80a88fb033a6c138399b391cd4347f4461b60d1294d22af166f589b12c7c67'
+    '6d980a847d1bb7599c9dbdcc4be8c87cf3289d321a328f14247baf3f27ed3d1c'
+    '9cafadd2dc1d143c4f24eab121cccf5fd74f8139e9d2ce7af55646a75988beb1'
+    '95552a4bda2ac67bd5b957fadaa318bd14237a303b577cd097b69933d5a15e87'
+    '3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986'
+)
+# END INITIAL TRUST V1 CHECKSUMS
+
+package() {
+    install -Dm0644 "${srcdir}/arch-linux.gpg" \
+        "${pkgdir}/usr/share/pacman/keyrings/arch-linux.gpg"
+    install -Dm0644 "${srcdir}/primary-fingerprint" \
+        "${pkgdir}/usr/share/arch-linux-keyring/primary-fingerprint"
+    install -Dm0644 "${srcdir}/signing-subkey-fingerprint" \
+        "${pkgdir}/usr/share/arch-linux-keyring/signing-subkey-fingerprint"
+    install -Dm0644 "${srcdir}/LICENSE-project" \
+        "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE-project"
+}

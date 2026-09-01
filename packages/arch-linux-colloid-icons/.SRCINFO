@@ -1,0 +1,15 @@
+pkgbase = arch-linux-colloid-icons
+	pkgdesc = Reviewed Colloid blue icon themes for the arch-linux Marble profile
+	pkgver = 20260817
+	pkgrel = 1
+	url = https://github.com/vinceliuice/Colloid-icon-theme
+	arch = any
+	license = GPL-3.0-only
+	depends = hicolor-icon-theme
+	depends = gtk-update-icon-cache
+	options = !strip
+	options = !debug
+	source = arch-linux-colloid-icons-fa07485895a2443f7cfbceefe9dcdde798a05215.tar.gz::https://github.com/vinceliuice/Colloid-icon-theme/archive/fa07485895a2443f7cfbceefe9dcdde798a05215.tar.gz
+	sha256sums = 27be4c8bf046bdfcac592b691b42abd38fda3dccb2659a46b77ecb7c7dc5eee7
+
+pkgname = arch-linux-colloid-icons

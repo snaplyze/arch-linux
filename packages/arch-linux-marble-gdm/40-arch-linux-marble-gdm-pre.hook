@@ -1,0 +1,24 @@
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Operation = Remove
+Type = Package
+Target = gnome-shell
+Target = gdm
+Target = dconf
+Target = glib2
+Target = gjs
+Target = gsettings-desktop-schemas
+Target = systemd
+Target = arch-linux-colloid-icons
+Target = arch-linux-marble-shell
+Target = arch-linux-marble-profile
+Target = arch-linux-marble-gdm
+
+[Action]
+Description = Disable the experimental Marble GDM override before related package changes...
+When = PreTransaction
+Depends = bash
+Depends = systemd
+Exec = /usr/lib/arch-linux-marble-gdm/update-compatibility --prepare
+AbortOnFail

@@ -1,0 +1,9 @@
+* text=auto eol=lf
+*.sh text eol=lf
+*.toml text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+.SRCINFO text eol=lf
+packages/arch-linux-marble-gdm/NOTICE-GNOME-Shell-common.scss text eol=lf whitespace=-blank-at-eof
+*.png binary
+repository/trust/arch-linux.gpg binary

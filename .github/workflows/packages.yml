@@ -1,0 +1,148 @@
+name: Canonical unsigned packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_commit:
+        description: Exact frozen 40-character source commit
+        required: true
+        type: string
+      source_tree:
+        description: Exact frozen 40-character source tree
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: One clean Arch build
+    outputs:
+      artifact_name: ${{ steps.provenance.outputs.artifact_name }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+      build_metadata_sha256: ${{ steps.provenance.outputs.build_metadata_sha256 }}
+      unsigned_manifest_sha256: ${{ steps.provenance.outputs.unsigned_manifest_sha256 }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    container:
+      image: archlinux:base-devel@sha256:714acd1eef9ae997d95691b1c5220ada0076185b77857c1813f02de0fa83cf7b
+    steps:
+      - name: Install build dependencies
+        run: |
+          set -euo pipefail
+          pacman -Syu --noconfirm --needed \
+            bash coreutils curl dconf git glib2 glib2-devel gnupg jq libarchive \
+            python sassc shellcheck unzip zstd
+
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.source_commit }}
+
+      - name: Require exact frozen source
+        env:
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          SOURCE_TREE: ${{ inputs.source_tree }}
+        run: |
+          set -euo pipefail
+          [[ "${SOURCE_COMMIT}" =~ ^[a-f0-9]{40}$ ]]
+          [[ "${SOURCE_TREE}" =~ ^[a-f0-9]{40}$ ]]
+          test "$(git rev-parse --verify 'HEAD^{commit}')" = "${SOURCE_COMMIT}"
+          test "$(git rev-parse --verify 'HEAD^{tree}')" = "${SOURCE_TREE}"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+
+      - name: Validate source before package execution
+        run: |
+          set -euo pipefail
+          bash tests/source-tests.sh
+
+      - name: Build as a temporary unprivileged user
+        run: |
+          set -euo pipefail
+          useradd --create-home --shell /bin/bash package-builder
+          chmod -R a+rX -- "${GITHUB_WORKSPACE}"
+          install -d -m0755 -o package-builder -g package-builder /tmp/arch-linux-build
+          runuser -u package-builder -- env \
+            RUNNER_TEMP=/tmp/arch-linux-build \
+            bash "${GITHUB_WORKSPACE}/repository/build-packages.sh" \
+            /tmp/arch-linux-build/canonical-unsigned
+          PACKAGE_ARTIFACT_DIR=/tmp/arch-linux-build/canonical-unsigned \
+            bash tests/package-checks.sh
+
+      - name: Record canonical provenance
+        id: provenance
+        env:
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+        run: |
+          set -euo pipefail
+          build_metadata_sha256="$(sha256sum --binary -- \
+            /tmp/arch-linux-build/canonical-unsigned/BUILD-METADATA.json)"
+          unsigned_manifest_sha256="$(sha256sum --binary -- \
+            /tmp/arch-linux-build/canonical-unsigned/UNSIGNED-SHA256SUMS)"
+          artifact_name="arch-linux-canonical-unsigned-${SOURCE_COMMIT}"
+          {
+            printf 'artifact_name=%s\n' "${artifact_name}"
+            printf 'build_metadata_sha256=%s\n' "${build_metadata_sha256%% *}"
+            printf 'unsigned_manifest_sha256=%s\n' "${unsigned_manifest_sha256%% *}"
+          } >>"${GITHUB_OUTPUT}"
+          # shellcheck disable=SC2016
+          printf 'Canonical artifact: `%s`\n\nBUILD-METADATA SHA-256: `%s`\n\nUNSIGNED manifest SHA-256: `%s`\n' \
+            "${artifact_name}" "${build_metadata_sha256%% *}" "${unsigned_manifest_sha256%% *}" \
+            >>"${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload canonical unsigned artifact
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4.6.2
+        with:
+          name: ${{ steps.provenance.outputs.artifact_name }}
+          path: /tmp/arch-linux-build/canonical-unsigned
+          if-no-files-found: error
+          retention-days: 14
+
+  readback:
+    name: Read back canonical artifact
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    container:
+      image: archlinux:base-devel@sha256:714acd1eef9ae997d95691b1c5220ada0076185b77857c1813f02de0fa83cf7b
+    steps:
+      - name: Install verifier dependencies
+        run: |
+          set -euo pipefail
+          pacman -Syu --noconfirm --needed bash coreutils git gnupg libarchive python
+
+      - name: Check out exact verifier source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.source_commit }}
+
+      - name: Download run-scoped artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v5.0.0
+        with:
+          name: ${{ needs.build.outputs.artifact_name }}
+          path: ${{ runner.temp }}/canonical-readback
+
+      - name: Verify readback identity and bytes
+        env:
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          SOURCE_TREE: ${{ inputs.source_tree }}
+          BUILD_METADATA_SHA256: ${{ needs.build.outputs.build_metadata_sha256 }}
+          UNSIGNED_MANIFEST_SHA256: ${{ needs.build.outputs.unsigned_manifest_sha256 }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse --verify 'HEAD^{commit}')" = "${SOURCE_COMMIT}"
+          test "$(git rev-parse --verify 'HEAD^{tree}')" = "${SOURCE_TREE}"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          printf '%s *%s\n' "${BUILD_METADATA_SHA256}" \
+            "${RUNNER_TEMP}/canonical-readback/BUILD-METADATA.json" | sha256sum --check --strict
+          printf '%s *%s\n' "${UNSIGNED_MANIFEST_SHA256}" \
+            "${RUNNER_TEMP}/canonical-readback/UNSIGNED-SHA256SUMS" | sha256sum --check --strict
+          PACKAGE_ARTIFACT_DIR="${RUNNER_TEMP}/canonical-readback" bash tests/package-checks.sh

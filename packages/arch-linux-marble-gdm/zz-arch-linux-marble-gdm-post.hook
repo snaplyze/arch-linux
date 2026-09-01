@@ -1,0 +1,23 @@
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Operation = Remove
+Type = Package
+Target = gnome-shell
+Target = gdm
+Target = dconf
+Target = glib2
+Target = gjs
+Target = gsettings-desktop-schemas
+Target = systemd
+Target = arch-linux-colloid-icons
+Target = arch-linux-marble-shell
+Target = arch-linux-marble-profile
+Target = arch-linux-marble-gdm
+
+[Action]
+Description = Revalidate the experimental Marble GDM override after related package changes...
+When = PostTransaction
+Depends = bash
+Depends = systemd
+Exec = /usr/bin/bash -c 'reconcile_status=0; reload_status=0; if [ -x /usr/lib/arch-linux-marble-gdm/update-compatibility ]; then /usr/lib/arch-linux-marble-gdm/update-compatibility || reconcile_status=1; fi; /usr/share/libalpm/scripts/systemd-hook daemon-reload-user || reload_status=1; if [ "${reconcile_status}" -ne 0 ]; then printf "Marble GDM reconciliation failed; inspect the project status and local filesystem before relying on the new state.\n" >&2; fi; if [ "${reload_status}" -ne 0 ]; then printf "Marble GDM user-manager reload failed; reboot before relying on the new state.\n" >&2; fi; exit 0'

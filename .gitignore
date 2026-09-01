@@ -1,0 +1,36 @@
+# Installer runtime state
+/installer.conf
+/installer.conf.old
+/installer.log
+/installer.log.old
+/.tmp.*
+
+# Local build and verification outputs
+/*.pkg.tar.*
+/*.tar.gz
+/build/
+/dist/
+**/__pycache__/
+*.py[cod]
+
+# Private signing and recovery material
+/.arch-linux-signing-private/
+/offline-signing/
+/*.key
+/*.rev
+
+# Editor and operating-system state
+/.idea/
+/.vscode/
+*.swp
+*~
+
+# VM, ISO and acceptance evidence
+/*.iso
+/*.qcow2
+/*.img
+/*.vdi
+/*.vmdk
+/OVMF_VARS*
+/artifacts/
+/evidence/

@@ -1,0 +1,51 @@
+# shellcheck shell=bash disable=SC2034,SC2100,SC2154
+# Maintainer: snaplyze <snaplyze@users.noreply.github.com>
+
+pkgname=arch-linux-marble-profile
+pkgver=1.0.0
+pkgrel=1
+pkgdesc='Editable Stock-fallback defaults for the arch-linux Marble GNOME profile'
+arch=('any')
+url='https://github.com/snaplyze/arch-linux'
+license=('GPL-3.0-only')
+depends=(
+    'arch-linux-keyring>=1.0.0'
+    'arch-linux-marble-shell>=50.0.0'
+    'arch-linux-colloid-gtk3>=20260808'
+    'arch-linux-colloid-icons>=20260817'
+    'bash'
+    'coreutils'
+    'dconf'
+    'gnome-shell'
+    'gnome-shell-extensions'
+    'grep'
+    'pacman'
+)
+install='arch-linux-marble-profile.install'
+options=('!strip' '!debug')
+
+source=(
+    'arch-linux-marble-profile.install'
+    'update-compatibility'
+    'supported-gnome-majors'
+    '90-arch-linux-marble-profile.hook'
+    'LICENSE-project'
+)
+sha256sums=(
+    '49a819ccd35f5b5617acda6ea3a648ce08c30088f362c6348f70d732765e178a'
+    'c1533253c024c6e50e065971ea5d131503139fcb37ca522ec7d74c17646b70e2'
+    '7ea9844ae84eccbf55e8330640865e36c43521e45a1baec24233327aab7e6595'
+    'f83314b2fa6c3de7510d87b7024cefb1893060c64bc235f76799f1a7491f7091'
+    '3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986'
+)
+
+package() {
+    install -Dm0755 "${srcdir}/update-compatibility" \
+        "${pkgdir}/usr/lib/arch-linux-marble-profile/update-compatibility"
+    install -Dm0644 "${srcdir}/supported-gnome-majors" \
+        "${pkgdir}/usr/share/arch-linux-marble/supported-gnome-majors"
+    install -Dm0644 "${srcdir}/90-arch-linux-marble-profile.hook" \
+        "${pkgdir}/usr/share/libalpm/hooks/90-arch-linux-marble-profile.hook"
+    install -Dm0644 "${srcdir}/LICENSE-project" \
+        "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE-project"
+}

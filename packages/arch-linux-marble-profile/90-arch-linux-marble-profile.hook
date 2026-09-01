@@ -1,0 +1,14 @@
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Package
+Target = gnome-shell
+Target = arch-linux-marble-shell
+Target = arch-linux-colloid-gtk3
+Target = arch-linux-colloid-icons
+
+[Action]
+Description = Revalidate the Marble profile for the installed GNOME major...
+When = PostTransaction
+Depends = dconf
+Exec = /usr/lib/arch-linux-marble-profile/update-compatibility

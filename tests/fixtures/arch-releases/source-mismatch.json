@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "latest_version": "2026.08.01",
+  "releases": [
+    {
+      "release_date": "2026-08-01",
+      "version": "2026.08.01",
+      "available": true,
+      "iso_url": "/iso/2026.08.01/archlinux-2026.08.01-x86_64.iso",
+      "sha256_sum": "4e82dced1c4fd3e498b22a853f8db2a4d262d32b97e7e07d97390d9e425ffe5e"
+    }
+  ]
+}

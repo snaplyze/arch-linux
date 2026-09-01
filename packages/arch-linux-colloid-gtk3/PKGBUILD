@@ -1,0 +1,49 @@
+# shellcheck shell=bash disable=SC2034,SC2100,SC2154
+# Maintainer: snaplyze <snaplyze@users.noreply.github.com>
+
+pkgname=arch-linux-colloid-gtk3
+pkgver=20260808
+pkgrel=1
+pkgdesc='Reviewed Colloid blue dark GTK 3 theme for the arch-linux Marble profile'
+arch=('any')
+url='https://github.com/vinceliuice/Colloid-gtk-theme'
+license=('GPL-3.0-only')
+depends=('gtk3')
+makedepends=('sassc')
+options=('!strip' '!debug')
+
+_upstream_commit='6c2dc65865628bda9fdc8157a30cd5eda6fd41f9'
+_gtk_css_sha256='4a13cedd0b7ada1903ce517f9d7c7998d5d683cb0d644a3862efe9a9ea86f128'
+source=("${pkgname}-${_upstream_commit}.tar.gz::https://github.com/vinceliuice/Colloid-gtk-theme/archive/${_upstream_commit}.tar.gz")
+sha256sums=('bab6d8903f1eec46e48c7cf10f262e39ea19ce3d731f1d6204e330ec928a0a29')
+
+build() {
+    local upstream="${srcdir}/Colloid-gtk-theme-${_upstream_commit}"
+    local stage="${srcdir}/gtk-stage"
+    rm -rf -- "${stage}"
+    mkdir -p "${stage}"
+
+    # makepkg runs this as the unprivileged build user. Explicit --dest prevents writes to HOME;
+    # deliberately omit upstream --libadwaita, which would overwrite ~/.config/gtk-4.0.
+    bash "${upstream}/install.sh" --dest "${stage}" --theme default --color dark
+}
+
+check() {
+    local theme="${srcdir}/gtk-stage/Colloid-Dark"
+    test -f "${theme}/index.theme"
+    test -f "${theme}/gtk-3.0/gtk.css"
+    test -f "${theme}/gtk-3.0/gtk-dark.css"
+    echo "${_gtk_css_sha256}  ${theme}/gtk-3.0/gtk.css" | sha256sum --check --status
+    echo "${_gtk_css_sha256}  ${theme}/gtk-3.0/gtk-dark.css" | sha256sum --check --status
+}
+
+package() {
+    local upstream="${srcdir}/Colloid-gtk-theme-${_upstream_commit}"
+    local source_theme="${srcdir}/gtk-stage/Colloid-Dark"
+    local target_theme="${pkgdir}/usr/share/themes/Colloid-Dark"
+
+    install -d "${target_theme}"
+    install -m0644 "${source_theme}/index.theme" "${target_theme}/index.theme"
+    cp -a -- "${source_theme}/gtk-3.0" "${target_theme}/gtk-3.0"
+    install -Dm0644 "${upstream}/LICENSE" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+}

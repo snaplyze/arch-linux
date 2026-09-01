@@ -1,0 +1,39 @@
+# shellcheck shell=bash disable=SC2034,SC2100,SC2154
+# Maintainer: snaplyze <snaplyze@users.noreply.github.com>
+
+pkgname=arch-linux-marble-shell
+pkgver=50.0.0
+pkgrel=1
+pkgdesc='Reviewed Marble blue filled dark GNOME Shell theme for the arch-linux profile'
+arch=('any')
+url='https://github.com/imarkoff/Marble-shell-theme'
+license=('GPL-3.0-only')
+makedepends=('unzip')
+options=('!strip' '!debug')
+
+_upstream_commit='df788bc3d9d2147bcdeaedb907b90ced64f0ad48'
+_theme='Marble-blue-dark'
+_theme_css_sha256='eba48c15d2f9bd578f691df052fa543f4f2d9801b73dd4af37c005282712a67c'
+
+source=(
+    'Marble-shell-filled-50.zip::https://api.github.com/repos/imarkoff/Marble-shell-theme/releases/assets/490305209'
+    "Marble-LICENSE-${_upstream_commit}::https://raw.githubusercontent.com/imarkoff/Marble-shell-theme/${_upstream_commit}/LICENSE"
+)
+sha256sums=(
+    '2b5c99f676b93ad6288921c108459b3679360e33935a4f98b8c283f82eecec11'
+    '5d6075b58a5531bd9bd172cb7d0ba2055480f105af2abd79cc4d6b5be03d701e'
+)
+
+check() {
+    test -f "${srcdir}/${_theme}/gnome-shell/gnome-shell.css"
+    echo "${_theme_css_sha256}  ${srcdir}/${_theme}/gnome-shell/gnome-shell.css" | sha256sum --check --status
+    test "$(find "${srcdir}/${_theme}" -type f | wc -l)" -eq 5
+}
+
+package() {
+    local payload="${pkgdir}/usr/share/arch-linux-marble/shell/${pkgver}"
+    install -d "${payload}"
+    cp -a -- "${srcdir}/${_theme}" "${payload}/${_theme}"
+    install -Dm0644 "${srcdir}/Marble-LICENSE-${_upstream_commit}" \
+        "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+}

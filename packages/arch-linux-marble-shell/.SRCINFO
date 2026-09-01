@@ -1,0 +1,16 @@
+pkgbase = arch-linux-marble-shell
+	pkgdesc = Reviewed Marble blue filled dark GNOME Shell theme for the arch-linux profile
+	pkgver = 50.0.0
+	pkgrel = 1
+	url = https://github.com/imarkoff/Marble-shell-theme
+	arch = any
+	license = GPL-3.0-only
+	makedepends = unzip
+	options = !strip
+	options = !debug
+	source = Marble-shell-filled-50.zip::https://api.github.com/repos/imarkoff/Marble-shell-theme/releases/assets/490305209
+	source = Marble-LICENSE-df788bc3d9d2147bcdeaedb907b90ced64f0ad48::https://raw.githubusercontent.com/imarkoff/Marble-shell-theme/df788bc3d9d2147bcdeaedb907b90ced64f0ad48/LICENSE
+	sha256sums = 2b5c99f676b93ad6288921c108459b3679360e33935a4f98b8c283f82eecec11
+	sha256sums = 5d6075b58a5531bd9bd172cb7d0ba2055480f105af2abd79cc4d6b5be03d701e
+
+pkgname = arch-linux-marble-shell

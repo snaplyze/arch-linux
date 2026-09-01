@@ -1,0 +1,494 @@
+#!/usr/bin/env bash
+
+set -e
+set -u
+set -o pipefail
+
+readonly test_root="${ARCH_LINUX_MARBLE_GDM_TEST_ROOT:-}"
+if [ -n "${test_root}" ] && { [ "${test_root#/}" = "${test_root}" ] || [ "${test_root}" = '/' ]; }; then
+    printf 'ARCH_LINUX_MARBLE_GDM_TEST_ROOT must be an absolute path other than /.\n' >&2
+    exit 2
+fi
+
+readonly root_prefix="${test_root%/}"
+if [ -n "${root_prefix}" ]; then
+    trusted_directory_uid="$(/usr/bin/id -u)"
+else
+    trusted_directory_uid='0'
+fi
+readonly trusted_directory_uid
+readonly package_root="${root_prefix}/usr/share/arch-linux-marble-gdm"
+readonly version_root="${package_root}/50.0.0"
+readonly reviewed_root="${version_root}/reviewed"
+readonly theme_root="${version_root}/theme"
+readonly dconf_root="${version_root}/dconf"
+readonly dconf_source_root="${dconf_root}/source"
+readonly systemd_payload_root="${package_root}/systemd"
+readonly assets_manifest="${package_root}/assets.sha256"
+readonly platform_manifest="${package_root}/known-gnome-50.sha256"
+readonly icon_manifest="${package_root}/known-colloid-icons.sha256"
+readonly dropin_payload="${systemd_payload_root}/50-arch-linux-marble-gdm.conf"
+readonly desktop_css="${root_prefix}/usr/share/arch-linux-marble/shell/50.0.0/Marble-blue-dark/gnome-shell/gnome-shell.css"
+readonly icon_root="${root_prefix}/usr/share/icons/Colloid-Dark"
+readonly administrator_gdm_profile="${root_prefix}/etc/dconf/profile/gdm"
+readonly stock_resource="${root_prefix}/usr/share/gnome-shell/gnome-shell-theme.gresource"
+readonly override_dir="${root_prefix}/etc/systemd/user/org.gnome.Shell@gdm.service.d"
+readonly active_override="${override_dir}/50-arch-linux-marble-gdm.conf"
+readonly reviewed_css_sha256='eba48c15d2f9bd578f691df052fa543f4f2d9801b73dd4af37c005282712a67c'
+readonly combined_css_sha256='8086687542b02f7d6c7d36890339dab2f23aad985264ccb2624d9457287a29c2'
+readonly assets_manifest_sha256='971a495d64b206d4aeda00b7e00c16338f349316f47f375a3db97a6fdf7ed489'
+readonly platform_manifest_sha256='54ab62de22ae8ccbe4af174446987d1695253d40eb9b2bebefcedb6e1ad62247'
+readonly icon_manifest_sha256='475e63c2475257271c1e8aa2ccf7b72c269af6ee33f8a652a55d8ca05e7732e7'
+
+validation_error='an input is unsupported or invalid'
+
+gnome_major_from_pkgver() {
+    local pkgver="${1#*:}"
+    local major="${pkgver%%.*}"
+    [[ "${major}" =~ ^[0-9]+$ ]] || return 1
+    printf '%s\n' "${major}"
+}
+
+installed_gnome_major() {
+    local query pkgver
+
+    if [ -n "${root_prefix}" ]; then
+        [ -n "${ARCH_LINUX_MARBLE_GDM_TEST_GNOME_PKGVER:-}" ] || return 1
+        gnome_major_from_pkgver "${ARCH_LINUX_MARBLE_GDM_TEST_GNOME_PKGVER}"
+        return
+    fi
+
+    query="$(/usr/bin/pacman -Q -- gnome-shell 2>/dev/null)" || return 1
+    pkgver="${query#* }"
+    gnome_major_from_pkgver "${pkgver}"
+}
+
+is_regular_file() {
+    [ -f "$1" ] && [ ! -L "$1" ]
+}
+
+is_real_directory() {
+    [ -d "$1" ] && [ ! -L "$1" ]
+}
+
+directory_metadata_is_safe() {
+    local owner="$1"
+    local mode="$2"
+
+    [[ "${owner}" =~ ^[0-9]+$ ]] || return 1
+    [[ "${mode}" =~ ^[0-7]{3,4}$ ]] || return 1
+    [ "${owner}" = "${trusted_directory_uid}" ] || return 1
+    (( (8#${mode} & 8#022) == 0 )) || return 1
+    (( (8#${mode} & 8#005) == 8#005 ))
+}
+
+file_metadata_is_safe() {
+    local owner="$1"
+    local mode="$2"
+
+    [[ "${owner}" =~ ^[0-9]+$ ]] || return 1
+    [[ "${mode}" =~ ^[0-7]{3,4}$ ]] || return 1
+    [ "${owner}" = "${trusted_directory_uid}" ] || return 1
+    (( (8#${mode} & 8#022) == 0 )) || return 1
+    (( (8#${mode} & 8#004) == 8#004 ))
+}
+
+is_trusted_world_readable_directory() {
+    local metadata owner mode
+
+    is_real_directory "$1" || return 1
+    metadata="$(/usr/bin/stat -c '%u %a' -- "$1")" || return 1
+    read -r owner mode <<<"${metadata}"
+    directory_metadata_is_safe "${owner}" "${mode}"
+}
+
+is_trusted_world_readable_regular_file() {
+    local metadata owner mode
+
+    is_regular_file "$1" || return 1
+    metadata="$(/usr/bin/stat -c '%u %a' -- "$1")" || return 1
+    read -r owner mode <<<"${metadata}"
+    file_metadata_is_safe "${owner}" "${mode}"
+}
+
+validate_relative_parent_directories() {
+    local base="$1"
+    local relative="$2"
+    local current component index
+    local -a components=()
+
+    is_trusted_world_readable_directory "${base}" || return 1
+    IFS='/' read -r -a components <<<"${relative}"
+    [ "${#components[@]}" -ge 1 ] || return 1
+    current="${base}"
+    for ((index = 0; index < ${#components[@]} - 1; index++)); do
+        component="${components[index]}"
+        [ -n "${component}" ] && [ "${component}" != '.' ] && [ "${component}" != '..' ] || return 1
+        current="${current}/${component}"
+        is_trusted_world_readable_directory "${current}" || return 1
+    done
+}
+
+validate_usr_file_parent_directories() {
+    local absolute_path="$1"
+
+    case "${absolute_path}" in
+        /usr/*) validate_relative_parent_directories "${root_prefix}/usr" "${absolute_path#/usr/}" ;;
+        *) return 1 ;;
+    esac
+}
+
+file_has_sha256() {
+    local expected="$1"
+    local file="$2"
+    local actual
+
+    actual="$(/usr/bin/sha256sum -- "${file}")" || return 1
+    actual="${actual%% *}"
+    [ "${actual}" = "${expected}" ]
+}
+
+validate_package_directories() {
+    local directory
+    for directory in \
+        "${root_prefix}/usr" \
+        "${root_prefix}/usr/share" \
+        "${package_root}" \
+        "${version_root}" \
+        "${reviewed_root}" \
+        "${theme_root}" \
+        "${dconf_root}" \
+        "${dconf_source_root}" \
+        "${dconf_source_root}/locks" \
+        "${systemd_payload_root}"; do
+        is_trusted_world_readable_directory "${directory}" || return 1
+    done
+}
+
+validate_assets() {
+    local expected relative extra full count=0
+
+    is_trusted_world_readable_regular_file "${assets_manifest}" || return 1
+    file_has_sha256 "${assets_manifest_sha256}" "${assets_manifest}" || return 1
+    while read -r expected relative extra; do
+        [ -n "${expected}" ] && [ -n "${relative}" ] && [ -z "${extra:-}" ] || return 1
+        [[ "${expected}" =~ ^[0-9a-f]{64}$ ]] || return 1
+        case "${relative}" in
+            /*|*'..'*) return 1 ;;
+        esac
+        full="${package_root}/${relative}"
+        is_trusted_world_readable_regular_file "${full}" || return 1
+        file_has_sha256 "${expected}" "${full}" || return 1
+        count=$((count + 1))
+    done <"${assets_manifest}"
+    [ "${count}" -eq 13 ]
+}
+
+validate_platform() {
+    local expected absolute_path extra full count=0
+
+    is_trusted_world_readable_regular_file "${platform_manifest}" || return 1
+    file_has_sha256 "${platform_manifest_sha256}" "${platform_manifest}" || return 1
+    while read -r expected absolute_path extra; do
+        [ -n "${expected}" ] && [ -n "${absolute_path}" ] && [ -z "${extra:-}" ] || return 1
+        [[ "${expected}" =~ ^[0-9a-f]{64}$ ]] || return 1
+        case "${absolute_path}" in
+            /*) ;;
+            *) return 1 ;;
+        esac
+        full="${root_prefix}${absolute_path}"
+        validate_usr_file_parent_directories "${absolute_path}" || return 1
+        is_trusted_world_readable_regular_file "${full}" || return 1
+        file_has_sha256 "${expected}" "${full}" || return 1
+        count=$((count + 1))
+    done <"${platform_manifest}"
+    [ "${count}" -eq 5 ]
+}
+
+validate_colloid_icons() {
+    local expected relative extra full resolved count=0
+
+    is_trusted_world_readable_regular_file "${icon_manifest}" || return 1
+    file_has_sha256 "${icon_manifest_sha256}" "${icon_manifest}" || return 1
+    validate_relative_parent_directories "${root_prefix}/usr" \
+        'share/icons/Colloid-Dark/index.theme' || return 1
+    while read -r expected relative extra; do
+        [ -n "${expected}" ] && [ -n "${relative}" ] && [ -z "${extra:-}" ] || return 1
+        [[ "${expected}" =~ ^[0-9a-f]{64}$ ]] || return 1
+        case "${relative}" in
+            /*|*'..'*) return 1 ;;
+        esac
+        full="${icon_root}/${relative}"
+        validate_relative_parent_directories "${icon_root}" "${relative}" || return 1
+        [ -e "${full}" ] || return 1
+        resolved="$(/usr/bin/realpath -e -- "${full}")" || return 1
+        case "${resolved}" in
+            "${icon_root}"/*)
+                validate_relative_parent_directories \
+                    "${icon_root}" "${resolved#"${icon_root}/"}" || return 1
+                ;;
+            *) return 1 ;;
+        esac
+        is_trusted_world_readable_regular_file "${resolved}" || return 1
+        file_has_sha256 "${expected}" "${full}" || return 1
+        count=$((count + 1))
+    done <"${icon_manifest}"
+    [ "${count}" -eq 13 ]
+}
+
+validate_dconf_stack() {
+    local profile="${dconf_root}/profile"
+    local icon_theme writable vendor_fallback
+
+    if [ -n "${root_prefix}" ]; then
+        profile="${ARCH_LINUX_MARBLE_GDM_TEST_DCONF_PROFILE:-}"
+        [ -n "${profile}" ] || return 1
+    fi
+    is_trusted_world_readable_regular_file "${profile}" || return 1
+    icon_theme="$(DCONF_PROFILE="${profile}" XDG_CONFIG_HOME=/dev/null \
+        /usr/bin/gsettings get org.gnome.desktop.interface icon-theme 2>/dev/null)" || return 1
+    writable="$(DCONF_PROFILE="${profile}" XDG_CONFIG_HOME=/dev/null \
+        /usr/bin/gsettings writable org.gnome.desktop.interface icon-theme 2>/dev/null)" || return 1
+    vendor_fallback="$(DCONF_PROFILE="${profile}" XDG_CONFIG_HOME=/dev/null \
+        /usr/bin/gsettings get org.gnome.desktop.lockdown disable-command-line 2>/dev/null)" || return 1
+    [ "${icon_theme}" = "'Colloid-Dark'" ] && \
+        [ "${writable}" = 'false' ] && \
+        [ "${vendor_fallback}" = 'true' ]
+}
+
+validate_resource_overlay() {
+    local actual
+
+    actual="$(G_RESOURCE_OVERLAYS="/org/gnome/shell/theme=${theme_root}" \
+        /usr/bin/gjs -c '
+            const {Gio, GLib} = imports.gi;
+            const resource = Gio.Resource.load(ARGV[0]);
+            Gio.resources_register(resource);
+            const bytes = Gio.resources_lookup_data(
+                "/org/gnome/shell/theme/gnome-shell-dark.css",
+                Gio.ResourceLookupFlags.NONE
+            );
+            print(GLib.compute_checksum_for_bytes(GLib.ChecksumType.SHA256, bytes));
+        ' "${stock_resource}" 2>/dev/null)" || return 1
+    [ "${actual}" = "${combined_css_sha256}" ]
+}
+
+validate_desktop_css() {
+    local reviewed_css="${reviewed_root}/gnome-shell.css"
+
+    validate_usr_file_parent_directories \
+        '/usr/share/arch-linux-marble/shell/50.0.0/Marble-blue-dark/gnome-shell/gnome-shell.css' || return 1
+    is_trusted_world_readable_regular_file "${desktop_css}" || return 1
+    file_has_sha256 "${reviewed_css_sha256}" "${desktop_css}" || return 1
+    /usr/bin/cmp --silent -- "${reviewed_css}" "${desktop_css}"
+}
+
+validate_compatibility() {
+    local gnome_major
+
+    if ! gnome_major="$(installed_gnome_major)" || [ "${gnome_major}" != '50' ]; then
+        validation_error='installed GNOME major is unsupported or unknown'
+        return 1
+    fi
+    if ! validate_package_directories || ! validate_assets; then
+        validation_error='a package-owned Marble GDM input is missing, linked, or has the wrong hash'
+        return 1
+    fi
+    if [ -e "${administrator_gdm_profile}" ] || [ -L "${administrator_gdm_profile}" ]; then
+        validation_error='an administrator GDM dconf profile is present and must not be bypassed'
+        return 1
+    fi
+    if ! validate_desktop_css; then
+        validation_error='the reviewed desktop Marble CSS is missing, linked, changed, or unequal'
+        return 1
+    fi
+    if ! validate_platform; then
+        validation_error='the installed GNOME Shell/GDM platform is not the reviewed Arch build'
+        return 1
+    fi
+    if ! validate_colloid_icons; then
+        validation_error='the reviewed Colloid-Dark GDM icon inputs are missing, linked outside the theme, or changed'
+        return 1
+    fi
+    if ! validate_dconf_stack; then
+        validation_error='the process-scoped dconf stack does not preserve the locked icon theme and vendor fallback'
+        return 1
+    fi
+    if ! validate_resource_overlay; then
+        validation_error='GLib did not resolve the reviewed Marble CSS through the process-scoped resource overlay'
+        return 1
+    fi
+}
+
+override_tree_is_safe() {
+    local directory
+    for directory in \
+        "${root_prefix}/etc" \
+        "${root_prefix}/etc/systemd" \
+        "${root_prefix}/etc/systemd/user" \
+        "${override_dir}"; do
+        if [ -L "${directory}" ] || { [ -e "${directory}" ] && [ ! -d "${directory}" ]; }; then
+            return 1
+        fi
+        if [ -e "${directory}" ] && ! is_trusted_world_readable_directory "${directory}"; then
+            return 1
+        fi
+    done
+}
+
+override_tree_is_readable_if_present() {
+    local directory
+    for directory in \
+        "${root_prefix}/etc" \
+        "${root_prefix}/etc/systemd" \
+        "${root_prefix}/etc/systemd/user" \
+        "${override_dir}"; do
+        if [ -L "${directory}" ] || { [ -e "${directory}" ] && [ ! -d "${directory}" ]; }; then
+            return 1
+        fi
+        if [ -e "${directory}" ] && ! is_trusted_world_readable_directory "${directory}"; then
+            return 1
+        fi
+    done
+}
+
+ensure_override_tree() {
+    local directory
+    for directory in \
+        "${root_prefix}/etc" \
+        "${root_prefix}/etc/systemd" \
+        "${root_prefix}/etc/systemd/user" \
+        "${override_dir}"; do
+        if [ ! -e "${directory}" ] && [ ! -L "${directory}" ]; then
+            /usr/bin/mkdir -m 0755 -- "${directory}" || return 1
+        fi
+        is_trusted_world_readable_directory "${directory}" || return 1
+    done
+}
+
+disable_managed_override() {
+    local current_target
+
+    if ! override_tree_is_safe; then
+        printf 'Marble GDM cannot prove the managed override is absent through an unsafe unit-directory tree: %s\n' "${override_dir}" >&2
+        return 1
+    fi
+    if [ -L "${active_override}" ]; then
+        current_target="$(/usr/bin/readlink -- "${active_override}")" || return 1
+        if [ "${current_target}" = "${dropin_payload}" ]; then
+            /usr/bin/rm -f -- "${active_override}" || return 1
+            if [ -e "${active_override}" ] || [ -L "${active_override}" ]; then
+                printf 'Marble GDM could not prove that its managed override was removed: %s\n' "${active_override}" >&2
+                return 1
+            fi
+        else
+            printf 'Marble GDM left a foreign override symlink untouched: %s\n' "${active_override}" >&2
+        fi
+    elif [ -e "${active_override}" ]; then
+        printf 'Marble GDM left a foreign override file untouched: %s\n' "${active_override}" >&2
+    fi
+}
+
+reload_user_managers_before_transaction() {
+    if [ -n "${root_prefix}" ]; then
+        return 0
+    fi
+    if ! /usr/share/libalpm/scripts/systemd-hook daemon-reload-user; then
+        printf 'Marble GDM proved its persistent activation state but could not reload user-manager configuration; the package transaction must not continue.\n' >&2
+        return 1
+    fi
+}
+
+disable_and_reload_managed_override() {
+    disable_managed_override
+    reload_user_managers_before_transaction
+}
+
+enable_managed_override() {
+    local current_target
+
+    if ! ensure_override_tree; then
+        printf 'Marble GDM could not use the override directory safely: %s\n' "${override_dir}" >&2
+        return 1
+    fi
+    if [ -L "${active_override}" ]; then
+        current_target="$(/usr/bin/readlink -- "${active_override}")" || return 1
+        if [ "${current_target}" = "${dropin_payload}" ]; then
+            return 0
+        fi
+        printf 'Marble GDM left a foreign override symlink untouched: %s\n' "${active_override}" >&2
+        return 0
+    fi
+    if [ -e "${active_override}" ]; then
+        printf 'Marble GDM left a foreign override file untouched: %s\n' "${active_override}" >&2
+        return 0
+    fi
+
+    /usr/bin/ln -s -- "${dropin_payload}" "${active_override}"
+}
+
+status_override() {
+    local current_target
+
+    if ! override_tree_is_readable_if_present; then
+        printf 'Marble GDM status is unsafe: a unit-directory component is foreign or unreadable.\n' >&2
+        return 1
+    fi
+    if [ -L "${active_override}" ]; then
+        current_target="$(/usr/bin/readlink -- "${active_override}")" || {
+            printf 'Marble GDM status failed: the override symlink could not be read.\n' >&2
+            return 1
+        }
+        if [ "${current_target}" = "${dropin_payload}" ]; then
+            printf 'active\n'
+            return 0
+        fi
+        printf 'Marble GDM status is foreign: the override symlink has another target.\n' >&2
+        return 1
+    fi
+    if [ -e "${active_override}" ]; then
+        printf 'Marble GDM status is foreign: the override path is not the project symlink.\n' >&2
+        return 1
+    fi
+
+    printf 'stock\n'
+}
+
+reconcile() {
+    if validate_compatibility; then
+        enable_managed_override
+        return
+    fi
+
+    if disable_managed_override; then
+        printf 'Marble GDM project activation is disabled or absent; compatibility validation failed: %s.\n' "${validation_error}" >&2
+        return 0
+    fi
+    printf 'Marble GDM compatibility validation failed and project activation state could not be proven safe: %s.\n' "${validation_error}" >&2
+    return 1
+}
+
+main() {
+    case "${1:-}" in
+        '')
+            [ "$#" -eq 0 ] || return 2
+            reconcile
+            ;;
+        --prepare|--remove)
+            [ "$#" -eq 1 ] || return 2
+            disable_and_reload_managed_override
+            ;;
+        --status)
+            [ "$#" -eq 1 ] || return 2
+            status_override
+            ;;
+        *)
+            printf 'Usage: %s [--prepare|--remove|--status]\n' "$0" >&2
+            return 2
+            ;;
+    esac
+}
+
+if [[ "${BASH_SOURCE[0]}" = "$0" ]]; then
+    main "$@"
+fi

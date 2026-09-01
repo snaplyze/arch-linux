@@ -1,0 +1,48 @@
+name: Feature request
+description: Propose a change within the supported product boundary.
+title: 'feat: '
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user problem should the project solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the smallest compatible public contract.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Minimal TTY
+        - Stock GNOME
+        - Marble
+        - Configuration
+        - Disk or boot safety
+        - Packages and repository
+        - Documentation and CI
+    validations:
+      required: true
+  - type: textarea
+    id: safety
+    attributes:
+      label: Safety and fallback
+      description: Explain disk, upgrade, Stock fallback, ownership and signature effects.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance evidence
+      description: List source, clean-builder and QEMU checks needed to prove the change.
+    validations:
+      required: true

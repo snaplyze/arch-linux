@@ -1,0 +1,167 @@
+#!/usr/bin/env bash
+
+set -e
+set -u
+set -o pipefail
+
+readonly test_root="${ARCH_LINUX_MARBLE_TEST_ROOT:-}"
+if [ -n "${test_root}" ] && { [ "${test_root#/}" = "${test_root}" ] || [ "${test_root}" = '/' ]; }; then
+    printf 'ARCH_LINUX_MARBLE_TEST_ROOT must be an absolute path other than /.\n' >&2
+    exit 2
+fi
+
+readonly root_prefix="${test_root%/}"
+readonly profile_root="${root_prefix}/usr/share/arch-linux-marble"
+readonly shell_payload="${profile_root}/shell/50.0.0/Marble-blue-dark"
+readonly shell_alias="${root_prefix}/usr/share/themes/ArchLinux-Marble-Blue-Filled-Dark"
+readonly shell_css_sha256='eba48c15d2f9bd578f691df052fa543f4f2d9801b73dd4af37c005282712a67c'
+readonly gtk_css="${root_prefix}/usr/share/themes/Colloid-Dark/gtk-3.0/gtk.css"
+readonly gtk_css_sha256='4a13cedd0b7ada1903ce517f9d7c7998d5d683cb0d644a3862efe9a9ea86f128'
+readonly icon_index="${root_prefix}/usr/share/icons/Colloid-Dark/index.theme"
+readonly icon_index_sha256='ac13f2559b25ff50af1bbcad7cc75a2bbffca7a24de0dfde790abe488dfbfc76'
+readonly supported_majors="${profile_root}/supported-gnome-majors"
+readonly dconf_db="${root_prefix}/etc/dconf/db/local"
+readonly dconf_defaults="${dconf_db}.d/05-arch-linux-marble-profile"
+
+gnome_major_from_pkgver() {
+    local pkgver="${1#*:}"
+    local major="${pkgver%%.*}"
+    [[ "${major}" =~ ^[0-9]+$ ]] || return 1
+    printf '%s\n' "${major}"
+}
+
+installed_gnome_major() {
+    local query pkgver
+
+    if [ -n "${root_prefix}" ]; then
+        [ -n "${ARCH_LINUX_MARBLE_TEST_GNOME_PKGVER:-}" ] || return 1
+        gnome_major_from_pkgver "${ARCH_LINUX_MARBLE_TEST_GNOME_PKGVER}"
+        return
+    fi
+
+    query="$(/usr/bin/pacman -Q -- gnome-shell 2>/dev/null)" || return 1
+    pkgver="${query#* }"
+    gnome_major_from_pkgver "${pkgver}"
+}
+
+remove_owned_alias() {
+    if [ -L "${shell_alias}" ]; then
+        local current_target
+        current_target="$(/usr/bin/readlink -- "${shell_alias}")"
+        case "${current_target}" in
+            "${profile_root}"/shell/*/Marble-blue-dark) ;;
+            *)
+                printf 'Refusing to remove foreign Marble alias target: %s\n' "${current_target}" >&2
+                return 1
+                ;;
+        esac
+        /usr/bin/rm -f -- "${shell_alias}"
+    elif [ -e "${shell_alias}" ]; then
+        printf 'Refusing to overwrite non-symlink path: %s\n' "${shell_alias}" >&2
+        return 1
+    fi
+}
+
+compile_defaults() {
+    if [ -n "${root_prefix}" ]; then
+        /usr/bin/mkdir -p -- "${dconf_db}.d"
+        /usr/bin/dconf compile "${dconf_db}" "${dconf_db}.d"
+    else
+        /usr/bin/dconf update
+    fi
+}
+
+deactivate_profile() {
+    local status=0
+    remove_owned_alias || status=1
+    /usr/bin/rm -f -- "${dconf_defaults}"
+    compile_defaults
+    return "${status}"
+}
+
+validate_assets() {
+    [ -f "${shell_payload}/gnome-shell/gnome-shell.css" ] || return 1
+    [ -f "${gtk_css}" ] || return 1
+    [ -f "${icon_index}" ] || return 1
+    echo "${shell_css_sha256}  ${shell_payload}/gnome-shell/gnome-shell.css" | \
+        /usr/bin/sha256sum --check --status
+    echo "${gtk_css_sha256}  ${gtk_css}" | /usr/bin/sha256sum --check --status
+    echo "${icon_index_sha256}  ${icon_index}" | /usr/bin/sha256sum --check --status
+}
+
+activate_profile() {
+    local alias_tmp defaults_tmp validate_parent validate_dir validate_db
+    /usr/bin/mkdir -p -- "$(/usr/bin/dirname -- "${shell_alias}")" \
+        "$(/usr/bin/dirname -- "${dconf_defaults}")"
+
+    if ! remove_owned_alias; then
+        /usr/bin/rm -f -- "${dconf_defaults}"
+        compile_defaults
+        return 1
+    fi
+    alias_tmp="${shell_alias}.new.$$"
+    /usr/bin/rm -f -- "${alias_tmp}"
+    /usr/bin/ln -s -- "${shell_payload}" "${alias_tmp}"
+    /usr/bin/mv -Tf -- "${alias_tmp}" "${shell_alias}"
+
+    defaults_tmp="$(/usr/bin/mktemp "${dconf_defaults}.XXXXXX")"
+    cat >"${defaults_tmp}" <<'EOF'
+[org/gnome/desktop/interface]
+color-scheme='prefer-dark'
+gtk-theme='Colloid-Dark'
+icon-theme='Colloid-Dark'
+
+[org/gnome/shell]
+enabled-extensions=['dash-to-dock@micxgx.gmail.com','blur-my-shell@aunetx','just-perfection-desktop@just-perfection','appindicatorsupport@rgcjonas.gmail.com','clipboard-indicator@tudmotu.com','caffeine@patapon.info','no-screenshot-box@screenshot','user-theme@gnome-shell-extensions.gcampax.github.com']
+
+[org/gnome/shell/extensions/user-theme]
+name='ArchLinux-Marble-Blue-Filled-Dark'
+EOF
+
+    # Compile the new keyfile in isolation before exposing it to dconf update.
+    validate_parent="$(/usr/bin/mktemp -d)"
+    validate_dir="${validate_parent}/local.d"
+    validate_db="${validate_parent}/local"
+    /usr/bin/mkdir -p -- "${validate_dir}"
+    /usr/bin/cp -- "${defaults_tmp}" "${validate_dir}/00-profile"
+    if ! /usr/bin/dconf compile "${validate_db}" "${validate_dir}"; then
+        /usr/bin/rm -rf -- "${validate_parent}" "${defaults_tmp}"
+        deactivate_profile
+        return 1
+    fi
+    /usr/bin/rm -rf -- "${validate_parent}"
+    /usr/bin/chmod 0644 "${defaults_tmp}"
+    /usr/bin/mv -f -- "${defaults_tmp}" "${dconf_defaults}"
+    compile_defaults
+}
+
+main() {
+    if [ "${1:-}" = '--remove' ]; then
+        deactivate_profile
+        return 0
+    fi
+    if [ "$#" -ne 0 ]; then
+        printf 'Usage: %s [--remove]\n' "$0" >&2
+        return 2
+    fi
+
+    local gnome_major
+    if ! gnome_major="$(installed_gnome_major)" || [ ! -f "${supported_majors}" ] || \
+        ! /usr/bin/grep -Fxq -- "${gnome_major}" "${supported_majors}"; then
+        printf 'Marble profile disabled: installed GNOME major is unsupported or unknown.\n' >&2
+        deactivate_profile
+        return 0
+    fi
+
+    if ! validate_assets; then
+        printf 'Marble profile disabled: a reviewed asset is missing or has the wrong hash.\n' >&2
+        deactivate_profile
+        return 1
+    fi
+
+    activate_profile
+}
+
+if [[ "${BASH_SOURCE[0]}" = "$0" ]]; then
+    main "$@"
+fi
