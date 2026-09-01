@@ -121,7 +121,7 @@ main() {
     assets="$stage/assets"
     archive_stage="$work/archive"
     accepted_unsigned="$work/accepted-unsigned"
-    cp -a -- "$unsigned" "$accepted_unsigned"
+    cp -a --no-preserve=ownership -- "$unsigned" "$accepted_unsigned"
     "${script_dir}/verify-unsigned-build.sh" "$accepted_unsigned"
     [ "$(repository_sha256 "$accepted_unsigned/BUILD-METADATA.json")" = "$expected_build_metadata_hash" ] &&
         [ "$(repository_sha256 "$accepted_unsigned/UNSIGNED-SHA256SUMS")" = "$expected_unsigned_manifest_hash" ] ||

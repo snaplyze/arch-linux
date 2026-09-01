@@ -175,6 +175,15 @@ for literal in '/usr/bin/env -i' '.arch-linux-disposable-signing-home' \
 done
 ! grep -Eq -- 'export-secret|cp[^\n]*GNUPGHOME' "$repo_root/repository/run-offline-signing.sh" ||
     fail 'offline signing wrapper copies or exports private key material'
+offline_signer="$repo_root/repository/offline-sign-release.sh"
+# shellcheck disable=SC2016
+safe_private_copy='    cp -a --no-preserve=ownership -- "$unsigned" "$accepted_unsigned"'
+# shellcheck disable=SC2016
+unsafe_private_copy='    cp -a -- "$unsigned" "$accepted_unsigned"'
+if [ "$(grep -Fxc -- "$safe_private_copy" "$offline_signer")" -ne 1 ] ||
+    grep -Fqx -- "$unsafe_private_copy" "$offline_signer"; then
+    fail 'offline signing private copy must not preserve its unmapped host owner'
+fi
 
 python3 - "$repo_root" <<'CLEANUP_PY'
 from pathlib import Path
