@@ -507,6 +507,11 @@ expect_release_rejected() {
 refresh_release_manifest "$assets"
 verify_release "$assets" >/dev/null
 
+negative="$work/release-installer-checksum-private-mode"
+cp -a -- "$assets" "$negative"
+chmod 0600 -- "$negative/arch-linux-installer.sh.sha256"
+expect_release_rejected 'installer checksum private mode' "$negative"
+
 negative="$work/release-missing-bootstrap"
 cp -a -- "$assets" "$negative"
 rm -- "$negative/install.sh"
