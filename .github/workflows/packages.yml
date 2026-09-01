@@ -53,9 +53,9 @@ jobs:
           set -euo pipefail
           [[ "${SOURCE_COMMIT}" =~ ^[a-f0-9]{40}$ ]]
           [[ "${SOURCE_TREE}" =~ ^[a-f0-9]{40}$ ]]
-          test "$(git rev-parse --verify 'HEAD^{commit}')" = "${SOURCE_COMMIT}"
-          test "$(git rev-parse --verify 'HEAD^{tree}')" = "${SOURCE_TREE}"
-          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          test "$(git -c safe.directory="${GITHUB_WORKSPACE}" -C "${GITHUB_WORKSPACE}" rev-parse --verify 'HEAD^{commit}')" = "${SOURCE_COMMIT}"
+          test "$(git -c safe.directory="${GITHUB_WORKSPACE}" -C "${GITHUB_WORKSPACE}" rev-parse --verify 'HEAD^{tree}')" = "${SOURCE_TREE}"
+          test -z "$(git -c safe.directory="${GITHUB_WORKSPACE}" -C "${GITHUB_WORKSPACE}" status --porcelain=v1 --untracked-files=all)"
 
       - name: Validate source before package execution
         run: |
@@ -138,9 +138,9 @@ jobs:
           UNSIGNED_MANIFEST_SHA256: ${{ needs.build.outputs.unsigned_manifest_sha256 }}
         run: |
           set -euo pipefail
-          test "$(git rev-parse --verify 'HEAD^{commit}')" = "${SOURCE_COMMIT}"
-          test "$(git rev-parse --verify 'HEAD^{tree}')" = "${SOURCE_TREE}"
-          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          test "$(git -c safe.directory="${GITHUB_WORKSPACE}" -C "${GITHUB_WORKSPACE}" rev-parse --verify 'HEAD^{commit}')" = "${SOURCE_COMMIT}"
+          test "$(git -c safe.directory="${GITHUB_WORKSPACE}" -C "${GITHUB_WORKSPACE}" rev-parse --verify 'HEAD^{tree}')" = "${SOURCE_TREE}"
+          test -z "$(git -c safe.directory="${GITHUB_WORKSPACE}" -C "${GITHUB_WORKSPACE}" status --porcelain=v1 --untracked-files=all)"
           printf '%s *%s\n' "${BUILD_METADATA_SHA256}" \
             "${RUNNER_TEMP}/canonical-readback/BUILD-METADATA.json" | sha256sum --check --strict
           printf '%s *%s\n' "${UNSIGNED_MANIFEST_SHA256}" \
