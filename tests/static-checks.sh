@@ -49,7 +49,79 @@ for path in sorted(root.glob('*.yml')):
 WORKFLOW_PY
 
 packages_workflow="$repo_root/.github/workflows/packages.yml"
+maintenance_workflow="$repo_root/.github/workflows/maintenance.yml"
 pages_workflow="$repo_root/.github/workflows/pages.yml"
+
+python3 - "$packages_workflow" "$maintenance_workflow" <<'BUILD_DEPS_PY'
+from pathlib import Path
+import sys
+
+expected = {
+    "packages.yml": (
+        "bash", "coreutils", "curl", "dconf", "git", "glib2", "glib2-devel", "gnupg",
+        "gsettings-desktop-schemas", "jq", "libarchive", "python", "sassc", "shellcheck",
+        "unzip", "zstd",
+    ),
+    "maintenance.yml": (
+        "bash", "coreutils", "curl", "dconf", "git", "glib2", "glib2-devel", "gnupg",
+        "gsettings-desktop-schemas", "jq", "libarchive", "python", "sassc", "unzip", "zstd",
+    ),
+}
+step_marker = "      - name: Install build dependencies"
+command = "          pacman -Syu --noconfirm --needed \\"
+
+for raw_path in sys.argv[1:]:
+    path = Path(raw_path)
+    lines = path.read_text(encoding="utf-8").splitlines()
+    step_indexes = [index for index, line in enumerate(lines) if line == step_marker]
+    if len(step_indexes) != 1:
+        raise SystemExit(
+            f"static check failed: expected one build-dependency step in {path.name}"
+        )
+    step_start = step_indexes[0]
+    step_end = next(
+        (
+            index
+            for index in range(step_start + 1, len(lines))
+            if lines[index].startswith("      - name: ")
+        ),
+        len(lines),
+    )
+    command_indexes = [
+        index for index in range(step_start, step_end) if lines[index] == command
+    ]
+    if len(command_indexes) != 1:
+        raise SystemExit(
+            f"static check failed: expected one direct pacman dependency command in {path.name}"
+        )
+
+    packages = []
+    index = command_indexes[0] + 1
+    terminated = False
+    while index < step_end:
+        value = lines[index].strip()
+        if not value:
+            break
+        continued = value.endswith("\\")
+        if continued:
+            value = value[:-1].rstrip()
+        packages.extend(value.split())
+        index += 1
+        if not continued:
+            terminated = True
+            break
+    if not terminated:
+        raise SystemExit(f"static check failed: unterminated dependency list in {path.name}")
+
+    actual = tuple(packages)
+    if len(actual) != len(set(actual)):
+        raise SystemExit(f"static check failed: duplicate direct build dependency in {path.name}")
+    if actual != expected[path.name]:
+        raise SystemExit(
+            f"static check failed: direct build dependency closure differs in {path.name}"
+        )
+BUILD_DEPS_PY
+
 for literal in source_commit source_tree 'Read back canonical artifact' \
     'actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c' \
     'BUILD_METADATA_SHA256' 'UNSIGNED_MANIFEST_SHA256'; do
