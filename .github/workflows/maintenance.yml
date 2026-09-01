@@ -62,7 +62,7 @@ jobs:
         run: |
           set -euo pipefail
           pacman -Syu --noconfirm --needed \
-            bash coreutils curl dconf git glib2 glib2-devel gnupg jq libarchive \
+            bash coreutils curl dconf git glib2 glib2-devel gnupg gsettings-desktop-schemas jq libarchive \
             python sassc unzip zstd
 
       - name: Check out source
