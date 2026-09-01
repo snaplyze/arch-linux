@@ -189,6 +189,18 @@ python3 - "$repo_root" <<'CLEANUP_PY'
 from pathlib import Path
 import sys
 root=Path(sys.argv[1])
+offline_lines=(root/'repository/offline-sign-release.sh').read_text(encoding='utf-8').splitlines()
+checksum_mode_sequence=[
+    "    printf '%s *arch-linux-installer.sh\\n' \\",
+    '        "$(repository_sha256 "$assets/arch-linux-installer.sh")" >"$assets/arch-linux-installer.sh.sha256"',
+    '    chmod 0644 -- "$assets/arch-linux-installer.sh.sha256"',
+]
+matches=sum(
+    offline_lines[index:index + len(checksum_mode_sequence)] == checksum_mode_sequence
+    for index in range(len(offline_lines) - len(checksum_mode_sequence) + 1)
+)
+if matches != 1:
+    raise SystemExit('static check failed: installer checksum must receive mode 0644 immediately after production creation')
 paths=[
     'repository/build-packages.sh',
     'repository/offline-sign-release.sh',

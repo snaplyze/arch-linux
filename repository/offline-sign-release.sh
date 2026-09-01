@@ -190,6 +190,7 @@ main() {
     sign_file "$signing" "$assets/arch-linux-installer.sh" "$assets/arch-linux-installer.sh.sig"
     printf '%s *arch-linux-installer.sh\n' \
         "$(repository_sha256 "$assets/arch-linux-installer.sh")" >"$assets/arch-linux-installer.sh.sha256"
+    chmod 0644 -- "$assets/arch-linux-installer.sh.sha256"
     install -m0644 -- "$repo_root/install.sh" "$assets/install.sh"
     for file in arch-linux.gpg primary-fingerprint signing-subkey-fingerprint; do
         install -m0644 -- "${script_dir}/trust/$file" "$assets/$file"
