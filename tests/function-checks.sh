@@ -1015,10 +1015,13 @@ repository_public_key_matches "$repository_key_fixture" "$repository_key_check_h
 command rm -rf -- "$repository_key_check_home"
 
 # The downloaded certificate is exact, but GnuPG imports merge packets into an existing keyblock.
-# Lock the post-import predicate independently so an additional primary-certified signing subkey
-# can never inherit pacman's local trust.
+# Lock the post-import predicate independently so only one UID and one primary-certified signing
+# subkey can inherit pacman's local trust.
 repository_key_metadata_good=$'pub:u:255:22:B7D2C17447B90CB2:1700000000:0:::::cSC:\nfpr:::::::::8C78098D1EAC609CBC73536FB7D2C17447B90CB2:\nuid:u::::1700000000::fixture::Arch Linux repository <fixture@example.invalid>::::::::::0:\nsub:u:255:22:28D56A84F558F7C:1700000000:1800000000:::::s:\nfpr:::::::::0AA6F2237FB9674623B6E824428D56A84F558F7C:'
-repository_key_metadata_matches "$repository_key_metadata_good" trusted 1750000000
+if ! repository_key_metadata_matches "$repository_key_metadata_good" trusted 1750000000; then
+    echo 'function check failed: exact one-UID trusted keyblock was rejected' >&2
+    exit 1
+fi
 
 # A QEMU milestone certificate is held to the same exact one-primary/one-signing-subkey predicate;
 # only its expected fingerprints differ from the immutable production certificate.
@@ -1041,7 +1044,13 @@ if repository_key_metadata_matches "$repository_key_metadata_untrusted" trusted 
 fi
 
 repository_key_extra_subkey=$'sub:u:255:22:1111111111111111:1700000000:1800000000:::::s:\nfpr:::::::::1111111111111111111111111111111111111111:'
+repository_key_extra_uid='uid:u::::1700000001::fixture2::Second repository identity <second@example.invalid>::::::::::0:'
+repository_key_extra_uat='uat:u::::1700000001::fixture-photo:::::::::0:'
+repository_key_metadata_missing_uid="$(awk -F: '$1 != "uid"' <<<"$repository_key_metadata_good")"
 for repository_key_metadata_bad in \
+    "${repository_key_metadata_good}"$'\n'"${repository_key_extra_uid}" \
+    "${repository_key_metadata_good}"$'\n'"${repository_key_extra_uat}" \
+    "${repository_key_metadata_missing_uid}" \
     "${repository_key_metadata_good}"$'\n'"${repository_key_extra_subkey}" \
     "${repository_key_metadata_good/sub:u:255:22:28D56A84F558F7C:/${repository_key_extra_subkey}"$'\n'"sub:u:255:22:28D56A84F558F7C:}" \
     "${repository_key_metadata_good/pub:u:255:22:/pub:u:255:1:}" \
@@ -1054,6 +1063,7 @@ for repository_key_metadata_bad in \
     "${repository_key_metadata_good/:1800000000:::::s:/:0:::::s:}" \
     "${repository_key_metadata_good/:1700000000:0:::::cSC:/:1700000000:1800000000:::::cSC:}" \
     "${repository_key_metadata_good/pub:u:/pub:r:}" \
+    "${repository_key_metadata_good/uid:u:/uid:r:}" \
     "${repository_key_metadata_good/sub:u:/sub:e:}" \
     "${repository_key_metadata_good/sub:u:/sub:m:}" \
     "${repository_key_metadata_good/sub:u:/sub:q:}" \

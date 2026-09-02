@@ -31,12 +31,217 @@ for command_name in cc file git gpg gpgconf python3 readelf sha256sum tar unshar
     }
 done
 
-if bash "$repo_root/repository/run-offline-signing.sh" snapshot >/dev/null 2>&1 ||
-    bash -p "$repo_root/repository/offline-sign-release.sh" >/dev/null 2>&1 ||
-    bash -p "$repo_root/repository/offline-finalize-release.sh" >/dev/null 2>&1; then
-    printf 'repository check failed: direct offline signing entry was accepted\n' >&2
-    exit 1
-fi
+entry_guard_root="$work/entry-guard-probes"
+mkdir -m0700 -- "$entry_guard_root"
+PYTHONDONTWRITEBYTECODE=1 python3 -I -B - "$repo_root" "$entry_guard_root" <<'PY'
+import fcntl
+import os
+from pathlib import Path
+import shlex
+import subprocess
+import sys
+
+source_root = Path(sys.argv[1])
+probe_root = Path(sys.argv[2])
+inputs = probe_root / "inputs"
+inputs.mkdir(mode=0o700)
+for name in ("unsigned", "phase-a", "minimal", "stock", "marble"):
+    (inputs / name).mkdir(mode=0o700)
+
+
+def probe(source_name: str, output_name: str, anchor: str, marker_name: str) -> tuple[Path, Path]:
+    source = source_root / source_name
+    output = probe_root / output_name
+    marker = probe_root / marker_name
+    raw = source.read_text(encoding="utf-8")
+    if raw.count(anchor) != 1:
+        raise SystemExit(f"entry-guard probe anchor differs: {source_name}")
+    reached = (
+        f"/usr/bin/printf '%s\\n' reached >{shlex.quote(str(marker))}\n"
+        "exit 0\n"
+    )
+    output.write_text(raw.replace(anchor, reached + anchor), encoding="utf-8")
+    output.chmod(0o700)
+    return output, marker
+
+
+def expect_rejected(
+    label: str,
+    command: list[str],
+    environment: dict[str, str],
+    descriptors: tuple[int, ...],
+    marker: Path,
+    diagnostic: bytes,
+) -> None:
+    completed = subprocess.run(
+        command,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=environment,
+        pass_fds=descriptors,
+        check=False,
+    )
+    if (
+        completed.returncode != 1
+        or completed.stdout
+        or completed.stderr != diagnostic
+        or marker.exists()
+    ):
+        raise SystemExit(f"entry-guard negative did not fail at its isolated boundary: {label}")
+
+
+run_probe, run_marker = probe(
+    "repository/run-offline-signing.sh",
+    "run-offline-signing.sh",
+    "authenticate_launcher_parent_liveness() {\n",
+    "run-offline-signing.reached",
+)
+snapshot_shell_probe, snapshot_shell_marker = probe(
+    "repository/offline-sign-release.sh",
+    "offline-sign-release-shell.sh",
+    "exec 6<&- 9<&-\n",
+    "offline-sign-release-shell.reached",
+)
+snapshot_namespace_probe, snapshot_namespace_marker = probe(
+    "repository/offline-sign-release.sh",
+    "offline-sign-release-namespace.sh",
+    "exec 6<&- 9<&-\n",
+    "offline-sign-release-namespace.reached",
+)
+final_shell_probe, final_shell_marker = probe(
+    "repository/offline-finalize-release.sh",
+    "offline-finalize-release-shell.sh",
+    "exec 6<&- 9<&-\n",
+    "offline-finalize-release-shell.reached",
+)
+final_namespace_probe, final_namespace_marker = probe(
+    "repository/offline-finalize-release.sh",
+    "offline-finalize-release-namespace.sh",
+    "exec 6<&- 9<&-\n",
+    "offline-finalize-release-namespace.reached",
+)
+
+digest = "0" * 64
+snapshot_arguments = [
+    "--unsigned", str(inputs / "unsigned"),
+    "--installer", str(source_root / "arch-linux-installer.sh"),
+    "--output", str(inputs / "snapshot-output"),
+    "--release-version", "1.0.0",
+    "--build-metadata-sha256", digest,
+    "--unsigned-manifest-sha256", digest,
+]
+final_arguments = [
+    "--phase-a", str(inputs / "phase-a"),
+    "--output", str(inputs / "final-output"),
+    "--release-version", "1.0.0",
+    "--build-metadata-sha256", digest,
+    "--unsigned-manifest-sha256", digest,
+    "--snapshot-sha256", digest,
+    "--minimal-run", str(inputs / "minimal"),
+    "--stock-run", str(inputs / "stock"),
+    "--marble-run", str(inputs / "marble"),
+]
+
+sealed_input_fd = os.memfd_create("arch-linux-entry-guard-passphrase", os.MFD_ALLOW_SEALING)
+os.fchmod(sealed_input_fd, 0o600)
+os.write(sealed_input_fd, b"fixture-passphrase\n")
+seals = fcntl.F_SEAL_WRITE | fcntl.F_SEAL_GROW | fcntl.F_SEAL_SHRINK | fcntl.F_SEAL_SEAL
+fcntl.fcntl(sealed_input_fd, fcntl.F_ADD_SEALS, seals)
+if sealed_input_fd != 7:
+    os.dup2(sealed_input_fd, 7, inheritable=True)
+    os.close(sealed_input_fd)
+sealed_input_fd = 7
+passphrase_metadata = os.fstat(sealed_input_fd)
+
+broker_read, broker_write = os.pipe()
+os.write(broker_write, b"arch-linux-offline-inspection-v1\narch-linux-offline-broker-v1\n")
+os.close(broker_write)
+if broker_read != 8:
+    os.dup2(broker_read, 8, inheritable=True)
+    os.close(broker_read)
+broker_read = 8
+
+base_environment = {
+    "HOME": "/nonexistent",
+    "LANG": "C",
+    "LC_ALL": "C",
+    "PATH": "/usr/bin:/bin",
+    "TMPDIR": "/tmp",
+}
+parent_fields = Path("/proc/self/stat").read_text(encoding="ascii").rsplit(")", 1)[1].split()
+run_environment = base_environment | {
+    "ARCH_LINUX_OFFLINE_BROKER_PARENT": str(os.getpid()),
+    "ARCH_LINUX_OFFLINE_BROKER_PARENT_START": parent_fields[19],
+    "ARCH_LINUX_OFFLINE_ACCEPTED_COMMIT": "0" * 40,
+    "ARCH_LINUX_OFFLINE_ACCEPTED_TREE": "1" * 40,
+    "ARCH_LINUX_OFFLINE_ACCEPTED_TREE_SHA256": digest,
+    "ARCH_LINUX_OFFLINE_CODE_ROOT": str(probe_root),
+    "ARCH_LINUX_OFFLINE_CODE_ROOT_IDENTITY": "1:1",
+    "ARCH_LINUX_OFFLINE_LAUNCHER": str(probe_root / "offline-signing-launcher"),
+    "ARCH_LINUX_OFFLINE_LAUNCHER_IDENTITY": "1:1:1:1:500:1:1",
+    "ARCH_LINUX_SIGNING_HOME_IDENTITY": "1:1",
+    "ARCH_LINUX_SIGNING_HOST_UID": str(os.getuid()),
+    "ARCH_LINUX_SIGNING_HOST_GID": str(os.getgid()),
+    "ARCH_LINUX_PASSPHRASE_IDENTITY": (
+        f"{passphrase_metadata.st_dev}:{passphrase_metadata.st_ino}:{passphrase_metadata.st_size}"
+    ),
+}
+expect_rejected(
+    "run-offline-signing privileged-shell entry",
+    ["/usr/bin/bash", str(run_probe), "--sealed-broker", "snapshot", *snapshot_arguments],
+    run_environment,
+    (sealed_input_fd, broker_read),
+    run_marker,
+    b"ERROR: offline signing requires the sealed compiled launcher\n",
+)
+
+namespace_environment = base_environment | {
+    "ARCH_LINUX_OFFLINE_NAMESPACE_RECEIPT": "sealed-root-v1",
+    "GNUPGHOME": "/run/user/0/arch-linux-offline/gnupg",
+    "OFFLINE_SIGN_PASSPHRASE_FILE": "/proc/self/fd/7",
+    "ARCH_LINUX_PASSPHRASE_IDENTITY": run_environment["ARCH_LINUX_PASSPHRASE_IDENTITY"],
+}
+expect_rejected(
+    "snapshot inner privileged-shell entry",
+    ["/usr/bin/bash", str(snapshot_shell_probe), *snapshot_arguments],
+    namespace_environment,
+    (sealed_input_fd,),
+    snapshot_shell_marker,
+    b"ERROR: snapshot signing requires the sealed compiled launcher\n",
+)
+expect_rejected(
+    "finalize inner privileged-shell entry",
+    ["/usr/bin/bash", str(final_shell_probe), *final_arguments],
+    namespace_environment,
+    (sealed_input_fd,),
+    final_shell_marker,
+    b"ERROR: release finalization requires the sealed compiled launcher\n",
+)
+
+invalid_namespace_environment = namespace_environment | {
+    "ARCH_LINUX_OFFLINE_NAMESPACE_RECEIPT": "invalid",
+}
+expect_rejected(
+    "snapshot inner namespace entry",
+    ["/usr/bin/bash", "-p", str(snapshot_namespace_probe), *snapshot_arguments],
+    invalid_namespace_environment,
+    (sealed_input_fd,),
+    snapshot_namespace_marker,
+    b"ERROR: snapshot signing requires the sealed namespace boundary\n",
+)
+expect_rejected(
+    "finalize inner namespace entry",
+    ["/usr/bin/bash", "-p", str(final_namespace_probe), *final_arguments],
+    invalid_namespace_environment,
+    (sealed_input_fd,),
+    final_namespace_marker,
+    b"ERROR: release finalization requires the sealed namespace boundary\n",
+)
+
+os.close(broker_read)
+os.close(sealed_input_fd)
+PY
 if python3 -I "$repo_root/repository/offline-signing-fd-guard.py" unknown >/dev/null 2>&1; then
     printf 'repository check failed: unknown descriptor-guard mode was accepted\n' >&2
     exit 1
@@ -411,6 +616,31 @@ repository_assert_public_certificate \
     "$fixture_project/repository/trust/arch-linux.gpg" \
     "$fixture_project/repository/trust/primary-fingerprint" \
     "$fixture_project/repository/trust/signing-subkey-fingerprint"
+base_certificate_metadata="$(GNUPGHOME="$key_home" gpg --batch --no-options --with-colons \
+    --with-subkey-fingerprint --list-keys -- "$primary" 2>/dev/null)"
+assert_synthetic_certificate_metadata_rejected() (
+    local certificate_metadata="$1" label="$2"
+    gpg() {
+        case " $* " in
+            *' --show-keys '*) printf '%s\n' "$certificate_metadata" ;;
+            *' --list-packets '*) printf '%s\n' ':public key packet:' ;;
+            *) return 97 ;;
+        esac
+    }
+    if repository_assert_public_certificate \
+        "$fixture_project/repository/trust/arch-linux.gpg" \
+        "$fixture_project/repository/trust/primary-fingerprint" \
+        "$fixture_project/repository/trust/signing-subkey-fingerprint" >/dev/null 2>&1; then
+        printf 'repository check failed: malformed certificate metadata accepted: %s\n' "$label" >&2
+        exit 1
+    fi
+)
+certificate_with_uat="${base_certificate_metadata}"$'\n''uat:-::::fixture-photo:::::::::0:'
+certificate_with_revoked_uid="$(awk -F: 'BEGIN{OFS=":"} \
+    $1=="uid" && !changed {$2="r"; changed=1} {print} END {if(changed!=1) exit 1}' \
+    <<<"$base_certificate_metadata")"
+assert_synthetic_certificate_metadata_rejected "$certificate_with_uat" 'additional UAT'
+assert_synthetic_certificate_metadata_rejected "$certificate_with_revoked_uid" 'revoked UID'
 secret_certificate="$work/secret-certificate.gpg"
 GNUPGHOME="$key_home" gpg --batch --no-options --pinentry-mode loopback --passphrase '' \
     --export-secret-keys "$primary" >"$secret_certificate"
@@ -1188,16 +1418,83 @@ fi
 
 negative="$work/final-release-linked-evidence-member"
 cp -a -- "$final_assets" "$negative"
+complete_evidence_tar="$work/complete-final-evidence.tar"
 unsafe_evidence_tar="$work/unsafe-final-evidence.tar"
-python3 - "$unsafe_evidence_tar" "$source_epoch" <<'PY'
-import pathlib,sys,tarfile
-output=pathlib.Path(sys.argv[1]); epoch=int(sys.argv[2])
-with tarfile.open(output,'w',format=tarfile.USTAR_FORMAT) as archive:
-    root=tarfile.TarInfo('evidence'); root.type=tarfile.DIRTYPE; root.mode=0o755
-    root.uid=root.gid=0; root.uname=root.gname=''; root.mtime=epoch; archive.addfile(root)
-    link=tarfile.TarInfo('evidence/unsafe-link'); link.type=tarfile.SYMTYPE; link.mode=0o777
-    link.uid=link.gid=0; link.uname=link.gname=''; link.mtime=epoch; link.linkname='../../outside'
-    archive.addfile(link)
+zstd --decompress --quiet --stdout -- "$final_assets/$evidence_name" >"$complete_evidence_tar"
+python3 - "$complete_evidence_tar" "$unsafe_evidence_tar" <<'PY'
+import copy
+import hashlib
+import pathlib
+import sys
+import tarfile
+
+source_path=pathlib.Path(sys.argv[1])
+output_path=pathlib.Path(sys.argv[2])
+link_name='evidence/minimal-ext4-systemdboot/evidence/preseal-harness-check.txt'
+target_name='evidence/marble-gnome-btrfs-luks2-plymouth-systemdboot/evidence/preseal-harness-check.txt'
+
+with tarfile.open(source_path,'r:') as source:
+    members=source.getmembers()
+    by_name={member.name:member for member in members}
+    if len(by_name) != len(members) or link_name not in by_name or target_name not in by_name:
+        raise SystemExit('complete evidence archive fixture closure differs')
+    link_source=by_name[link_name]
+    link_target=by_name[target_name]
+    if not link_source.isreg() or not link_target.isreg():
+        raise SystemExit('hardlink mutation inputs are not regular files')
+    source_payload=source.extractfile(link_source)
+    target_payload=source.extractfile(link_target)
+    if source_payload is None or target_payload is None or source_payload.read() != target_payload.read():
+        raise SystemExit('hardlink mutation target is not byte-identical')
+    with tarfile.open(output_path,'w',format=tarfile.USTAR_FORMAT) as output:
+        changed=0
+        for member in members:
+            if member.name == link_name:
+                replacement=copy.copy(member)
+                replacement.type=tarfile.LNKTYPE
+                replacement.linkname=target_name
+                replacement.size=0
+                replacement.pax_headers={}
+                output.addfile(replacement)
+                changed+=1
+            elif member.isreg():
+                payload=source.extractfile(member)
+                if payload is None:
+                    raise SystemExit('complete evidence archive member cannot be read')
+                output.addfile(member,payload)
+            else:
+                output.addfile(member)
+        if changed != 1:
+            raise SystemExit('hardlink mutation count differs')
+
+def records(path):
+    result=[]
+    with tarfile.open(path,'r:') as archive:
+        for member in archive.getmembers():
+            digest=None
+            if member.isreg():
+                payload=archive.extractfile(member)
+                if payload is None:
+                    raise SystemExit('evidence archive verification member cannot be read')
+                digest=hashlib.sha256(payload.read()).hexdigest()
+            result.append((member.name,member.type,member.mode,member.uid,member.gid,member.mtime,
+                           member.size,member.uname,member.gname,member.linkname,digest))
+    return result
+
+before=records(source_path)
+after=records(output_path)
+if len(before) != len(after) or [item[0] for item in before] != [item[0] for item in after]:
+    raise SystemExit('hardlink mutation changed the evidence member closure')
+differences=[]
+for old,new in zip(before,after,strict=True):
+    if old != new:
+        differences.append((old,new))
+if len(differences) != 1 or differences[0][0][0] != link_name:
+    raise SystemExit('hardlink mutation changed more than one evidence member')
+old,new=differences[0]
+if (old[1] != tarfile.REGTYPE or new[1] != tarfile.LNKTYPE or new[9] != target_name or
+        old[2:6] != new[2:6] or new[6] != 0 or old[7:9] != new[7:9]):
+    raise SystemExit('hardlink mutation metadata differs')
 PY
 zstd --compress --quiet --threads=1 -19 --stdout -- "$unsafe_evidence_tar" >"$negative/$evidence_name"
 chmod 0644 -- "$negative/$evidence_name"
@@ -1211,10 +1508,20 @@ PY
 rm -- "$negative/$evidence_name.sig" "$negative/$acceptance_name.sig"
 sign_file "$key_home" "$signing" "$negative/$evidence_name" "$negative/$evidence_name.sig"
 sign_file "$key_home" "$signing" "$negative/$acceptance_name" "$negative/$acceptance_name.sig"
-if verify_release "$negative" --finalized >/dev/null 2>&1; then
+linked_evidence_error="$work/final-release-linked-evidence-member.stderr"
+set +e
+verify_release "$negative" --finalized > /dev/null 2>"$linked_evidence_error"
+linked_evidence_status=$?
+set -e
+[ "$linked_evidence_status" -eq 1 ] || {
     printf 'repository check failed: finalized linked evidence archive member accepted\n' >&2
     exit 1
-fi
+}
+expected_linked_evidence_error='ERROR: release acceptance manifest failed: acceptance archive contains a link, sparse member, or special object'
+[ "$(cat -- "$linked_evidence_error")" = "$expected_linked_evidence_error" ] || {
+    printf 'repository check failed: linked evidence rejection was not isolated to the special-member guard\n' >&2
+    exit 1
+}
 
 negative="$work/release-wrong-archive-signature"
 cp -a -- "$assets" "$negative"

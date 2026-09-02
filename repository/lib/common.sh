@@ -124,9 +124,9 @@ repository_read_fingerprint() {
 
 repository_assert_public_certificate() {
     local certificate="$1" primary_file="$2" signing_file="$3" minimum_remaining="${4:-0}"
-    local primary signing metadata packets home pub_count sub_count uid_count fpr_count
+    local primary signing metadata packets home pub_count sub_count uid_count uat_count fpr_count
     local actual_primary actual_signing primary_algorithm signing_algorithm
-    local primary_validity signing_validity primary_capabilities signing_capabilities
+    local primary_validity signing_validity uid_validity primary_capabilities signing_capabilities
     local signing_expires now
     local command_name
     for command_name in awk date gpg grep mktemp tr; do
@@ -161,10 +161,11 @@ repository_assert_public_certificate() {
     pub_count="$(awk -F: '$1=="pub"{n++} END{print n+0}' <<<"$metadata")"
     sub_count="$(awk -F: '$1=="sub"{n++} END{print n+0}' <<<"$metadata")"
     uid_count="$(awk -F: '$1=="uid"{n++} END{print n+0}' <<<"$metadata")"
+    uat_count="$(awk -F: '$1=="uat"{n++} END{print n+0}' <<<"$metadata")"
     fpr_count="$(awk -F: '$1=="fpr"{n++} END{print n+0}' <<<"$metadata")"
     [ "$pub_count" -eq 1 ] && [ "$sub_count" -eq 1 ] && [ "$uid_count" -eq 1 ] && \
-        [ "$fpr_count" -eq 2 ] ||
-        repository_die 'certificate must contain one primary, one UID and one subkey only' || return
+        [ "$uat_count" -eq 0 ] && [ "$fpr_count" -eq 2 ] ||
+        repository_die 'certificate must contain one primary, one valid text UID, no UAT and one subkey only' || return
 
     actual_primary="$(awk -F: '$1=="fpr"{print toupper($10); exit}' <<<"$metadata")"
     actual_signing="$(awk -F: '$1=="sub"{want=1; next} want && $1=="fpr"{print toupper($10); exit}' \
@@ -186,8 +187,9 @@ repository_assert_public_certificate() {
 
     primary_validity="$(awk -F: '$1=="pub"{print $2; exit}' <<<"$metadata")"
     signing_validity="$(awk -F: '$1=="sub"{print $2; exit}' <<<"$metadata")"
-    case "$primary_validity$signing_validity" in
-        *r*|*e*|*d*|*i*) repository_die 'certificate contains a revoked, expired, disabled or invalid key'; return ;;
+    uid_validity="$(awk -F: '$1=="uid"{print $2; exit}' <<<"$metadata")"
+    case "$primary_validity$signing_validity$uid_validity" in
+        *r*|*e*|*d*|*i*|*n*) repository_die 'certificate contains a revoked, expired, disabled or invalid key or UID'; return ;;
     esac
 
     signing_expires="$(awk -F: '$1=="sub"{print $7; exit}' <<<"$metadata")"

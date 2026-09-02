@@ -75,14 +75,14 @@ From a clean verifier that has only source public trust:
 
 ```bash
 repository/verify-signed-repository.sh \
-  "$ARTIFACT_DIR/snapshot/repository" \
+  "$SNAPSHOT_OUTPUT/repository" \
   --release-version "$VERSION" \
   --source-commit "$SOURCE_COMMIT" \
   --source-tree "$SOURCE_TREE" \
   --build-metadata-sha256 "$BUILD_METADATA_SHA256" \
   --unsigned-manifest-sha256 "$UNSIGNED_MANIFEST_SHA256"
 repository/verify-release-assets.sh \
-  "$ARTIFACT_DIR/snapshot/assets" --phase-a \
+  "$SNAPSHOT_OUTPUT/assets" --phase-a \
   --release-version "$VERSION" \
   --source-commit "$SOURCE_COMMIT" \
   --source-tree "$SOURCE_TREE" \

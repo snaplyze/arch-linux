@@ -44,15 +44,18 @@ Production signing is local and explicitly authorized. Use the root hash-pinned 
 static launcher described in [repository tooling](../repository/README.md). The private home and
 mode-`0600` passphrase pathname are supplied only as two FIFO lines; the launcher retains FD 6,
 sealed memfd 7, capability FD 8 and lock FD 9. The independently accepted canonical build hashes are
-mandatory inputs:
+mandatory inputs. Before invoking the launcher, stage the verified unsigned closure as the separate
+root-owned, single-link `$ACCEPTED_UNSIGNED` copy described by the repository tooling. Prepare
+`$SNAPSHOT_OUTPUT` as a missing name below a separate signing-account-owned mode-`0700` parent.
+Neither variable may point at the native build directory or share a parent with private state:
 
 ```bash
 set +x
 printf '%s\n%s\n' "$PRIVATE_HOME" "$PASSPHRASE_FILE" | \
   /usr/bin/env -i "$SEALED_ROOT/repository/offline-signing-launcher" snapshot \
-  --unsigned "$ARTIFACT_DIR/unsigned" \
+  --unsigned "$ACCEPTED_UNSIGNED" \
   --installer "$SEALED_ROOT/arch-linux-installer.sh" \
-  --output "$ARTIFACT_DIR/snapshot" \
+  --output "$SNAPSHOT_OUTPUT" \
   --release-version 1.0.0 \
   --build-metadata-sha256 "$BUILD_METADATA_SHA256" \
   --unsigned-manifest-sha256 "$UNSIGNED_MANIFEST_SHA256"
@@ -70,12 +73,12 @@ canonical manifest, installer assets and a deterministic Pages snapshot.
 ## Verification
 
 ```bash
-repository/verify-signed-repository.sh "$ARTIFACT_DIR/snapshot/repository" \
+repository/verify-signed-repository.sh "$SNAPSHOT_OUTPUT/repository" \
   --release-version 1.0.0 \
   --source-commit "$SOURCE_COMMIT" --source-tree "$SOURCE_TREE" \
   --build-metadata-sha256 "$BUILD_METADATA_SHA256" \
   --unsigned-manifest-sha256 "$UNSIGNED_MANIFEST_SHA256"
-repository/verify-release-assets.sh "$ARTIFACT_DIR/snapshot/assets" --phase-a \
+repository/verify-release-assets.sh "$SNAPSHOT_OUTPUT/assets" --phase-a \
   --release-version 1.0.0 \
   --source-commit "$SOURCE_COMMIT" --source-tree "$SOURCE_TREE" \
   --build-metadata-sha256 "$BUILD_METADATA_SHA256" \

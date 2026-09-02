@@ -185,6 +185,7 @@ case "$work" in /var/lib/arch-linux-publication-check.*) ;; *) fail 'unsafe fixt
 supervisor_pid=''
 supervisor_start=''
 watcher_pid=''
+watcher_start=''
 generation_home=''
 signing_home=''
 passphrase_file=''
@@ -197,37 +198,62 @@ process_identity_is_live() {
     [ "$actual" = "$start" ]
 }
 
+signing_command() {
+    /usr/bin/setpriv --reuid="$signing_uid" --regid="$signing_gid" --clear-groups -- "$@"
+}
+
+stop_home_agent() {
+    local home="$1"
+    [ -n "$home" ] && [ -d "$home" ] || return 0
+    signing_command /usr/bin/env -i HOME=/nonexistent LANG=C LC_ALL=C PATH=/usr/bin:/bin \
+        /usr/bin/gpgconf --homedir "$home" --kill all >/dev/null 2>&1 || true
+}
+
 kill_fixture_processes() {
-    local pid
-    if process_identity_is_live "${supervisor_pid:-}" "${supervisor_start:-}"; then
-        /usr/bin/kill -KILL -- "$supervisor_pid" 2>/dev/null || true
+    local attempt unexpected
+    if [[ "${supervisor_pid:-}" =~ ^[1-9][0-9]*$ ]] &&
+        [[ "${supervisor_start:-}" =~ ^[1-9][0-9]*$ ]]; then
+        if process_identity_is_live "$supervisor_pid" "$supervisor_start"; then
+            /usr/bin/kill -KILL -- "$supervisor_pid" 2>/dev/null || true
+        fi
         wait "$supervisor_pid" 2>/dev/null || true
     fi
-    if [[ "${watcher_pid:-}" =~ ^[1-9][0-9]*$ ]] && /usr/bin/kill -0 "$watcher_pid" 2>/dev/null; then
-        /usr/bin/kill -TERM -- "$watcher_pid" 2>/dev/null || true
+    supervisor_pid=''
+    supervisor_start=''
+    if [[ "${watcher_pid:-}" =~ ^[1-9][0-9]*$ ]] &&
+        [[ "${watcher_start:-}" =~ ^[1-9][0-9]*$ ]]; then
+        if process_identity_is_live "$watcher_pid" "$watcher_start"; then
+            /usr/bin/kill -TERM -- "$watcher_pid" 2>/dev/null || true
+        fi
         wait "$watcher_pid" 2>/dev/null || true
     fi
-    while IFS= read -r pid; do
-        [[ "$pid" =~ ^[1-9][0-9]*$ ]] || continue
-        /usr/bin/kill -TERM -- "$pid" 2>/dev/null || true
-    done < <(uid_processes "$signing_uid")
-    /usr/bin/sleep 0.1
-    while IFS= read -r pid; do
-        [[ "$pid" =~ ^[1-9][0-9]*$ ]] || continue
-        /usr/bin/kill -KILL -- "$pid" 2>/dev/null || true
-    done < <(uid_processes "$signing_uid")
+    watcher_pid=''
+    watcher_start=''
+    stop_home_agent "${generation_home:-}"
+    stop_home_agent "${signing_home:-}"
+    for attempt in {1..100}; do
+        unexpected="$(uid_processes "$signing_uid")"
+        [ -z "$unexpected" ] && return 0
+        /usr/bin/sleep 0.05
+    done
+    printf 'publication root check cleanup failed: unexpected signing-account process remains:\n%s\n' \
+        "$unexpected" >&2
+    return 1
 }
 
 cleanup() {
-    local status=$?
+    local status=$? cleanup_status=0
     trap - EXIT HUP INT TERM
     set +e
-    kill_fixture_processes
+    kill_fixture_processes || cleanup_status=$?
     unset fixture_passphrase
     if [ -d "$work" ] && [ ! -L "$work" ] &&
         [ "$(/usr/bin/stat -c '%u:%g' -- "$work" 2>/dev/null)" = 0:0 ]; then
         /usr/bin/find "$work" -xdev -type d -exec /usr/bin/chmod u+rwx -- {} + 2>/dev/null
         /usr/bin/find "$work" -xdev -depth -delete 2>/dev/null
+    fi
+    if [ "$status" -eq 0 ] && [ "$cleanup_status" -ne 0 ]; then
+        status="$cleanup_status"
     fi
     exit "$status"
 }
@@ -241,22 +267,11 @@ account_unchanged() {
         [ ! -e /nonexistent ] && [ ! -L /nonexistent ]
 }
 
-signing_command() {
-    /usr/bin/setpriv --reuid="$signing_uid" --regid="$signing_gid" --clear-groups -- "$@"
-}
-
 signing_gpg() {
     local home="$1"
     shift
     signing_command /usr/bin/env -i HOME=/nonexistent LANG=C LC_ALL=C PATH=/usr/bin:/bin \
         GNUPGHOME="$home" /usr/bin/gpg "$@"
-}
-
-stop_home_agent() {
-    local home="$1"
-    [ -n "$home" ] && [ -d "$home" ] || return 0
-    signing_command /usr/bin/env -i HOME=/nonexistent LANG=C LC_ALL=C PATH=/usr/bin:/bin \
-        /usr/bin/gpgconf --homedir "$home" --kill all >/dev/null 2>&1 || true
 }
 
 bootstrap="$work/bootstrap"
@@ -309,16 +324,8 @@ printf '%s\n' /nonexistent /nonexistent |
 negative_status=$?
 set -e
 assert_real_failure "$negative_status" 'sealed launcher invalid private request'
-set +e
-printf '%s\n' /nonexistent /nonexistent |
-    signing_command /usr/bin/env -i "$accepted_sealed/repository/offline-signing-launcher" snapshot \
-        >/dev/null 2>&1
-negative_status=$?
-set -e
-assert_real_failure "$negative_status" 'sealed launcher nonroot entry'
 
 tampered_shadow="$work/tampered-shadow"
-account_mutation_marker="$work/account-mutation-mounted"
 /usr/bin/python3 -I -B - /etc/shadow "$tampered_shadow" <<'PY'
 from pathlib import Path
 import sys
@@ -337,20 +344,6 @@ Path(sys.argv[2]).write_text("\n".join(source) + "\n", encoding="utf-8")
 PY
 /usr/bin/chown 0:0 -- "$tampered_shadow"
 /usr/bin/chmod 0600 -- "$tampered_shadow"
-set +e
-/usr/bin/unshare --mount --propagation private --fork /usr/bin/bash -c '
-    set -euo pipefail
-    /usr/bin/mount --bind "$1" /etc/shadow
-    printf "%s\n" mounted >"$3"
-    printf "%s\n" /nonexistent /nonexistent |
-        /usr/bin/env -i "$2" snapshot >/dev/null 2>&1
-' bash "$tampered_shadow" "$accepted_sealed/repository/offline-signing-launcher" \
-    "$account_mutation_marker"
-negative_status=$?
-set -e
-[ -f "$account_mutation_marker" ] && [ "$(<"$account_mutation_marker")" = mounted ] ||
-    fail 'sealed launcher account-mutation fixture did not reach the subject'
-assert_real_failure "$negative_status" 'sealed launcher unlocked account mutation'
 
 tampered_passwd_alias="$work/tampered-passwd-alias"
 tampered_passwd_field="$work/tampered-passwd-field"
@@ -379,47 +372,6 @@ Path(sys.argv[3]).write_text("\n".join(changed) + "\n", encoding="utf-8")
 PY
 /usr/bin/chown 0:0 -- "$tampered_passwd_alias" "$tampered_passwd_field"
 /usr/bin/chmod 0644 -- "$tampered_passwd_alias" "$tampered_passwd_field"
-
-account_alias_mount_marker="$work/account-alias-mounted"
-account_alias_sealer_marker="$work/account-alias-sealer-rejected"
-set +e
-/usr/bin/unshare --mount --propagation private --fork /usr/bin/bash -c '
-    set -euo pipefail
-    /usr/bin/mount --bind "$1" /etc/passwd
-    printf "%s\n" mounted >"$3"
-    if /usr/bin/env -i HOME=/root LANG=C LC_ALL=C PATH=/usr/bin:/usr/sbin \
-        /usr/bin/python3 -I "$4" "$5" "$6" "$7" "$8" "$9" \
-        </dev/null >/dev/null 2>&1; then
-        exit 90
-    fi
-    printf "%s\n" rejected >"${10}"
-    printf "%s\n" /nonexistent /nonexistent |
-        /usr/bin/env -i "$2" snapshot >/dev/null 2>&1
-' bash "$tampered_passwd_alias" "$accepted_sealed/repository/offline-signing-launcher" \
-    "$account_alias_mount_marker" "$bootstrap/sealer" "$repo_root" "$commit" "$tree" \
-    "$source_tree_sha256" "$work/rejected-alias-seal" "$account_alias_sealer_marker"
-negative_status=$?
-set -e
-[ -f "$account_alias_mount_marker" ] && [ "$(<"$account_alias_mount_marker")" = mounted ] &&
-    [ -f "$account_alias_sealer_marker" ] && [ "$(<"$account_alias_sealer_marker")" = rejected ] ||
-    fail 'duplicate-UID account fixture did not reach both sealed subjects'
-assert_real_failure "$negative_status" 'sealed launcher duplicate passwd UID mutation'
-
-account_password_marker="$work/account-password-field-mounted"
-set +e
-/usr/bin/unshare --mount --propagation private --fork /usr/bin/bash -c '
-    set -euo pipefail
-    /usr/bin/mount --bind "$1" /etc/passwd
-    printf "%s\n" mounted >"$3"
-    printf "%s\n" /nonexistent /nonexistent |
-        /usr/bin/env -i "$2" snapshot >/dev/null 2>&1
-' bash "$tampered_passwd_field" "$accepted_sealed/repository/offline-signing-launcher" \
-    "$account_password_marker"
-negative_status=$?
-set -e
-[ -f "$account_password_marker" ] && [ "$(<"$account_password_marker")" = mounted ] ||
-    fail 'passwd-password account fixture did not reach the sealed launcher'
-assert_real_failure "$negative_status" 'sealed launcher passwd password-field mutation'
 
 private_parent="$work/private"
 /usr/bin/install -d -m0711 -o 0 -g 0 -- "$private_parent"
@@ -673,6 +625,95 @@ invoke_launcher() {
     printf '%s' "$output"
 }
 
+assert_isolated_launcher_rejection() {
+    local label="$1" status="$2" marker="$3" stdout="$4" stderr="$5" output="$6"
+    assert_real_failure "$status" "$label"
+    [ "$status" -eq 1 ] || fail "account-policy rejection status differs: ${label} (status ${status})"
+    [ -f "$marker" ] && [ ! -L "$marker" ] &&
+        [ "$(<"$marker")" = account-policy-mounted-and-verified ] ||
+        fail "account-policy fixture did not verify its mounted mutation: ${label}"
+    [ -f "$stdout" ] && [ ! -s "$stdout" ] ||
+        fail "account-policy rejection wrote unexpected stdout: ${label}"
+    [ -f "$stderr" ] && [ ! -L "$stderr" ] &&
+        [ "$(<"$stderr")" = 'ERROR: sealed offline signing launcher failed' ] ||
+        fail "account-policy rejection diagnostic differs: ${label}"
+    [ ! -e "$output" ] && [ ! -L "$output" ] ||
+        fail "account-policy rejection created its otherwise-valid output: ${label}"
+    [ -z "$(uid_processes "$signing_uid")" ] ||
+        fail "account-policy rejection left a signing-account process: ${label}"
+    account_unchanged || fail "account-policy fixture changed the host account: ${label}"
+}
+
+run_account_policy_negative() {
+    local slug="$1" label="$2" policy_source="$3" policy_target="$4" mutation="$5"
+    local output="$signer_outputs/account-negative-${slug}"
+    local marker="$work/account-negative-${slug}.mounted"
+    local stdout="$work/account-negative-${slug}.stdout"
+    local stderr="$work/account-negative-${slug}.stderr"
+    local probe_stdout="$work/account-negative-${slug}.probe.stdout"
+    local probe_stderr="$work/account-negative-${slug}.probe.stderr"
+    local status
+    [ ! -e "$output" ] && [ ! -L "$output" ] ||
+        fail "account-policy negative output already exists: ${label}"
+    [ ! -e "$account_probe_marker" ] && [ ! -L "$account_probe_marker" ] ||
+        fail "account-policy probe marker already exists: ${label}"
+    set +e
+    /usr/bin/unshare --mount --propagation private --fork /usr/bin/bash -c '
+        set -euo pipefail
+        /usr/bin/mount --bind "$1" "$2"
+        [ "$(/usr/bin/stat -Lc "%d:%i" -- "$1")" = \
+            "$(/usr/bin/stat -Lc "%d:%i" -- "$2")" ]
+        case "$4" in
+            unlocked-shadow)
+                /usr/bin/awk -F: "
+                    \$1==\"arch-linux-signing\" {count++; valid=(\$2==\"unlocked-fixture\")}
+                    END {exit !(count==1 && valid)}
+                " "$2"
+                ;;
+            duplicate-uid)
+                /usr/bin/awk -F: -v uid="$5" "
+                    \$3==uid {same_uid++}
+                    \$1==\"arch-linux-signing\" && \$3==uid {canonical++}
+                    \$1==\"arch-linux-signing-alias\" && \$3==uid {alias++}
+                    END {exit !(same_uid==2 && canonical==1 && alias==1)}
+                " "$2"
+                ;;
+            empty-passwd-password)
+                /usr/bin/awk -F: "
+                    \$1==\"arch-linux-signing\" {count++; valid=(\$2==\"\")}
+                    END {exit !(count==1 && valid)}
+                " "$2"
+                ;;
+            *) exit 92 ;;
+        esac
+        printf "%s\n" account-policy-mounted-and-verified >"$3"
+        set +e
+        /usr/bin/env -i "${16}" snapshot \
+            --unsigned "$9" --installer "${10}" --output "${11}" \
+            --release-version 1.0.0 --build-metadata-sha256 "${12}" \
+            --unsigned-manifest-sha256 "${13}" \
+            < <(printf "%s\n%s\n" "$6" "$7") >"${18}" 2>"${19}"
+        probe_status=$?
+        set -e
+        [ "$probe_status" -eq 1 ] && [ -f "${18}" ] && [ ! -s "${18}" ] &&
+            [ -f "${19}" ] &&
+            [ "$(<"${19}")" = "ERROR: sealed offline signing launcher failed" ] &&
+            [ ! -e "${17}" ] && [ ! -L "${17}" ]
+        /usr/bin/env -i "$8" snapshot \
+            --unsigned "$9" --installer "${10}" --output "${11}" \
+            --release-version 1.0.0 --build-metadata-sha256 "${12}" \
+            --unsigned-manifest-sha256 "${13}" \
+            < <(printf "%s\n%s\n" "$6" "$7") >"${14}" 2>"${15}"
+    ' bash "$policy_source" "$policy_target" "$marker" "$mutation" "$signing_uid" \
+        "$signing_home" "$passphrase_file" "$fixture_launcher" "$unsigned" \
+        "$fixture_sealed/arch-linux-installer.sh" "$output" "$build_hash" "$unsigned_hash" \
+        "$stdout" "$stderr" "$account_probe" "$account_probe_marker" "$probe_stdout" \
+        "$probe_stderr"
+    status=$?
+    set -e
+    assert_isolated_launcher_rejection "$label" "$status" "$marker" "$stdout" "$stderr" "$output"
+}
+
 snapshot_output="$signer_outputs/snapshot"
 snapshot_log="$work/snapshot.stderr"
 snapshot_readback="$(invoke_launcher "$snapshot_output" "$snapshot_log" snapshot \
@@ -692,6 +733,160 @@ fi
 /usr/bin/bash "$fixture_source/repository/verify-release-assets.sh" "$phase_a" --phase-a \
     --release-version 1.0.0 --source-commit "$fixture_commit" --source-tree "$fixture_tree" \
     --build-metadata-sha256 "$build_hash" --unsigned-manifest-sha256 "$unsigned_hash" >/dev/null
+
+# The normal snapshot above is the positive control for every account-policy negative below. Each
+# negative uses the same valid private inputs and signer argv with only a fresh output name. Keep the
+# account check ahead of all public/private request processing so no later pathname or usage failure
+# can make a removed account rule look rejected.
+/usr/bin/python3 -I -B - "$fixture_source/repository/offline-signing-launcher.c" <<'PY'
+from pathlib import Path
+import sys
+
+source = Path(sys.argv[1]).read_text(encoding="utf-8")
+main = source.split("int main(int argc, char **argv) {", 1)[1]
+markers = (
+    "!validate_account_and_drop_privileges()",
+    "!derive_paths(root, sizeof(root)",
+    "!parse_invocation(argc, argv, root, &public_paths)",
+    "!read_request(request, sizeof(request), &gnupg_home, &passphrase_file)",
+)
+if any(source.count(marker) != 1 for marker in markers):
+    raise SystemExit("launcher account-policy isolation marker differs")
+positions = [main.index(marker) for marker in markers]
+if positions != sorted(positions) or len(set(positions)) != len(positions):
+    raise SystemExit("launcher account policy is not before request validation")
+for marker in (
+    "passwd_policy_is_exact(passwd_data)",
+    "group_policy_is_exact(group_data)",
+    "shadow_policy_is_exact(shadow_data)",
+):
+    if source.count(marker) != 1:
+        raise SystemExit(f"launcher account-policy predicate differs: {marker}")
+PY
+
+account_probe_source="$work/account-policy-launcher-probe.c"
+account_probe="$work/account-policy-launcher-probe"
+account_probe_marker="$signer_outputs/account-policy-probe-reached"
+/usr/bin/python3 -I -B - "$fixture_source/repository/offline-signing-launcher.c" \
+    "$account_probe_source" "$account_probe_marker" <<'PY'
+from pathlib import Path
+import json
+import sys
+
+source = Path(sys.argv[1]).read_text(encoding="utf-8")
+destination = Path(sys.argv[2])
+marker = json.dumps(sys.argv[3])
+anchor = """        !dedicated_account_is_quiescent()) {
+        return fail();
+    }
+"""
+if source.count(anchor) != 1:
+    raise SystemExit("launcher account-policy probe anchor differs")
+probe = f'''    static const char account_probe_payload[] = "account-policy-reached\\n";
+    int account_probe_descriptor = open(
+        {marker}, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600U);
+    if (account_probe_descriptor < 0 ||
+        !write_all(account_probe_descriptor, account_probe_payload,
+                   sizeof(account_probe_payload) - 1U) ||
+        close(account_probe_descriptor) != 0) {{
+        return fail();
+    }}
+    return 0;
+
+'''
+destination.write_text(source.replace(anchor, anchor + probe), encoding="utf-8")
+PY
+/usr/bin/cc -std=c17 -O2 -static-pie -fstack-protector-strong -D_FORTIFY_SOURCE=3 \
+    -Wall -Wextra -Werror \
+    "-DALI_ACCEPTED_COMMIT_SHA=\"$fixture_commit\"" \
+    "-DALI_ACCEPTED_TREE_SHA=\"$fixture_tree\"" \
+    "-DALI_ACCEPTED_TREE_SHA256=\"$fixture_tree_sha256\"" \
+    "-DALI_SIGNING_UID=$signing_uid" "-DALI_SIGNING_GID=$signing_gid" \
+    -o "$account_probe" "$account_probe_source"
+[ ! -e "$account_probe_marker" ] && [ ! -L "$account_probe_marker" ] ||
+    fail 'launcher account-policy probe marker unexpectedly exists'
+account_probe_stdout="$work/account-policy-probe-positive.stdout"
+account_probe_stderr="$work/account-policy-probe-positive.stderr"
+set +e
+/usr/bin/env -i "$account_probe" snapshot \
+    --unsigned "$unsigned" --installer "$fixture_sealed/arch-linux-installer.sh" \
+    --output "$signer_outputs/account-policy-probe-unused-output" --release-version 1.0.0 \
+    --build-metadata-sha256 "$build_hash" --unsigned-manifest-sha256 "$unsigned_hash" \
+    < <(printf '%s\n%s\n' "$signing_home" "$passphrase_file") \
+    >"$account_probe_stdout" 2>"$account_probe_stderr"
+account_probe_status=$?
+set -e
+[ "$account_probe_status" -eq 0 ] && [ -f "$account_probe_stdout" ] &&
+    [ ! -s "$account_probe_stdout" ] && [ -f "$account_probe_stderr" ] &&
+    [ ! -s "$account_probe_stderr" ] &&
+    [ "$(/usr/bin/stat -Lc '%u:%g:%a:%h:%F' -- "$account_probe_marker")" = \
+        "$signing_uid:$signing_gid:600:1:regular file" ] &&
+    [ "$(<"$account_probe_marker")" = account-policy-reached ] ||
+    fail 'launcher account-policy positive probe did not reach the isolated boundary'
+/usr/bin/unlink -- "$account_probe_marker"
+
+nonroot_output="$signer_outputs/account-negative-nonroot"
+nonroot_stdout="$work/account-negative-nonroot.stdout"
+nonroot_stderr="$work/account-negative-nonroot.stderr"
+[ ! -e "$nonroot_output" ] && [ ! -L "$nonroot_output" ] ||
+    fail 'nonroot account-policy output already exists'
+set +e
+signing_command /usr/bin/env -i "$fixture_launcher" snapshot \
+    --unsigned "$unsigned" --installer "$fixture_sealed/arch-linux-installer.sh" \
+    --output "$nonroot_output" --release-version 1.0.0 \
+    --build-metadata-sha256 "$build_hash" --unsigned-manifest-sha256 "$unsigned_hash" \
+    < <(printf '%s\n%s\n' "$signing_home" "$passphrase_file") \
+    >"$nonroot_stdout" 2>"$nonroot_stderr"
+negative_status=$?
+set -e
+assert_real_failure "$negative_status" 'sealed launcher nonroot entry with valid request'
+[ "$negative_status" -eq 1 ] && [ -f "$nonroot_stdout" ] && [ ! -s "$nonroot_stdout" ] &&
+    [ "$(<"$nonroot_stderr")" = 'ERROR: sealed offline signing launcher failed' ] &&
+    [ ! -e "$nonroot_output" ] && [ ! -L "$nonroot_output" ] ||
+    fail 'sealed launcher nonroot rejection was not isolated from its valid request'
+[ -z "$(uid_processes "$signing_uid")" ] ||
+    fail 'sealed launcher nonroot rejection left a signing-account process'
+
+run_account_policy_negative unlocked-shadow 'sealed launcher unlocked account mutation' \
+    "$tampered_shadow" /etc/shadow unlocked-shadow
+run_account_policy_negative duplicate-uid 'sealed launcher duplicate passwd UID mutation' \
+    "$tampered_passwd_alias" /etc/passwd duplicate-uid
+run_account_policy_negative empty-password 'sealed launcher passwd password-field mutation' \
+    "$tampered_passwd_field" /etc/passwd empty-passwd-password
+
+account_alias_sealer_output="$work/account-negative-alias-seal"
+account_alias_sealer_marker="$work/account-negative-alias-sealer.mounted"
+account_alias_sealer_stdout="$work/account-negative-alias-sealer.stdout"
+account_alias_sealer_stderr="$work/account-negative-alias-sealer.stderr"
+set +e
+/usr/bin/unshare --mount --propagation private --fork /usr/bin/bash -c '
+    set -euo pipefail
+    /usr/bin/mount --bind "$1" /etc/passwd
+    [ "$(/usr/bin/stat -Lc "%d:%i" -- "$1")" = \
+        "$(/usr/bin/stat -Lc "%d:%i" -- /etc/passwd)" ]
+    /usr/bin/awk -F: -v uid="$2" "
+        \$3==uid {same_uid++}
+        \$1==\"arch-linux-signing\" && \$3==uid {canonical++}
+        \$1==\"arch-linux-signing-alias\" && \$3==uid {alias++}
+        END {exit !(same_uid==2 && canonical==1 && alias==1)}
+    " /etc/passwd
+    printf "%s\n" account-policy-mounted-and-verified >"$3"
+    /usr/bin/env -i HOME=/root LANG=C LC_ALL=C PATH=/usr/bin:/usr/sbin \
+        /usr/bin/python3 -I "$4" "$5" "$6" "$7" "$8" "$9" \
+        </dev/null >"${10}" 2>"${11}"
+' bash "$tampered_passwd_alias" "$signing_uid" "$account_alias_sealer_marker" \
+    "$bootstrap/sealer" "$fixture_source" "$fixture_commit" "$fixture_tree" \
+    "$fixture_tree_sha256" "$account_alias_sealer_output" "$account_alias_sealer_stdout" \
+    "$account_alias_sealer_stderr"
+negative_status=$?
+set -e
+[ "$negative_status" -eq 1 ] &&
+    [ "$(<"$account_alias_sealer_marker")" = account-policy-mounted-and-verified ] &&
+    [ -f "$account_alias_sealer_stdout" ] && [ ! -s "$account_alias_sealer_stdout" ] &&
+    [ "$(<"$account_alias_sealer_stderr")" = 'ERROR: offline code sealing failed' ] &&
+    [ ! -e "$account_alias_sealer_output" ] && [ ! -L "$account_alias_sealer_output" ] ||
+    fail 'duplicate-UID sealer rejection was not isolated from its valid request'
+account_unchanged || fail 'account-policy negatives changed the dedicated account'
 
 archive="$phase_a/arch-linux-repository-1.0.0.tar.zst"
 snapshot_hash="$(/usr/bin/sha256sum --binary -- "$archive" | /usr/bin/awk '{print $1}')"
@@ -1196,6 +1391,11 @@ watch_result="$work/supervisor-death.agent"
     10<"$ambient" <"$death_fifo" >"$death_stdout" 2>"$death_stderr" &
 supervisor_pid=$!
 supervisor_start="$(/usr/bin/awk '{print $22; exit}' "/proc/${supervisor_pid}/stat")"
+if ! [[ "$supervisor_pid" =~ ^[1-9][0-9]*$ ]] ||
+    ! [[ "$supervisor_start" =~ ^[1-9][0-9]*$ ]] ||
+    ! process_identity_is_live "$supervisor_pid" "$supervisor_start"; then
+    fail 'signer supervisor identity could not be captured'
+fi
 (
     for attempt in {1..2000}; do
         process_identity_is_live "$supervisor_pid" "$supervisor_start" || exit 1
@@ -1210,6 +1410,7 @@ supervisor_start="$(/usr/bin/awk '{print $22; exit}' "/proc/${supervisor_pid}/st
             agent_pid="${process_dir##*/}"
             agent_start="$(/usr/bin/awk '{print $22; exit}' "$process_dir/stat")"
             printf '%s %s\n' "$agent_pid" "$agent_start"
+            process_identity_is_live "$supervisor_pid" "$supervisor_start" || exit 1
             /usr/bin/kill -KILL -- "$supervisor_pid"
             exit 0
         done
@@ -1218,17 +1419,26 @@ supervisor_start="$(/usr/bin/awk '{print $22; exit}' "/proc/${supervisor_pid}/st
     exit 1
 ) >"$watch_result" &
 watcher_pid=$!
+watcher_start="$(/usr/bin/awk '{print $22; exit}' "/proc/${watcher_pid}/stat")"
+if ! [[ "$watcher_pid" =~ ^[1-9][0-9]*$ ]] ||
+    ! [[ "$watcher_start" =~ ^[1-9][0-9]*$ ]] ||
+    ! process_identity_is_live "$watcher_pid" "$watcher_start"; then
+    fail 'signer watcher identity could not be captured'
+fi
 printf '%s\n%s\n' "$signing_home" "$passphrase_file" >"$death_fifo"
 set +e
 wait "$supervisor_pid"
 death_status=$?
 set -e
 supervisor_pid=''
+supervisor_start=''
 if ! wait "$watcher_pid"; then
     watcher_pid=''
+    watcher_start=''
     fail 'could not observe the namespace-local agent before supervisor completion'
 fi
 watcher_pid=''
+watcher_start=''
 assert_real_failure "$death_status" 'intentional signer supervisor death'
 read -r killed_agent_pid killed_agent_start <"$watch_result"
 [[ "$killed_agent_pid" =~ ^[1-9][0-9]*$ ]] && [[ "$killed_agent_start" =~ ^[1-9][0-9]*$ ]] ||

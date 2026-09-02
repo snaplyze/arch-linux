@@ -1157,21 +1157,53 @@ mock_log="${test_root}/mock-pacman-key.log"
 sed "s#/usr/bin/pacman-key#/bin/sh ${mock_pacman_key}#g" \
     "${repo_root}/packages/arch-linux-keyring/arch-linux-keyring.install" \
     >"${mock_install}"
-for failure_stage in list populate updatedb; do
-    : >"${mock_log}"
-    set +e
+invoke_mock_scriptlet() {
+    local entrypoint="$1" failure_stage="$2"
     env ARCH_LINUX_KEYRING_FAIL_STAGE="${failure_stage}" \
         ARCH_LINUX_KEYRING_MOCK_LOG="${mock_log}" \
-        sh -c '. "$1"; command -v refresh_arch_linux_keyring >/dev/null || exit 127; refresh_arch_linux_keyring' sh "${mock_install}" >/dev/null 2>&1
-    rejection_status=$?
-    set -e
-    assert_real_rejection_status "$rejection_status" \
-        "keyring scriptlet ${failure_stage} failure"
+        sh -c '
+            . "$1"
+            command -v post_install >/dev/null || exit 127
+            command -v post_upgrade >/dev/null || exit 127
+            case "$2" in
+                post_install) post_install 1.0.0 ;;
+                post_upgrade) post_upgrade 1.0.1 1.0.0 ;;
+                *) exit 125 ;;
+            esac
+        ' sh "${mock_install}" "${entrypoint}"
+}
+
+assert_mock_sequence() {
+    local expected="$1" description="$2" actual
+    actual="$(cat -- "${mock_log}")"
+    [ "$actual" = "$expected" ] ||
+        fail "${description} command sequence differs (expected '${expected//$'\n'/ }', got '${actual//$'\n'/ }')"
+}
+
+for scriptlet_entrypoint in post_install post_upgrade; do
+    for failure_stage in list populate updatedb; do
+        case "$failure_stage" in
+            list) expected_mock_sequence='list' ;;
+            populate) expected_mock_sequence=$'list\npopulate' ;;
+            updatedb) expected_mock_sequence=$'list\npopulate\nupdatedb' ;;
+        esac
+        : >"${mock_log}"
+        set +e
+        invoke_mock_scriptlet "$scriptlet_entrypoint" "$failure_stage" >/dev/null 2>&1
+        rejection_status=$?
+        set -e
+        assert_real_rejection_status "$rejection_status" \
+            "keyring ${scriptlet_entrypoint} ${failure_stage} failure"
+        assert_mock_sequence "$expected_mock_sequence" \
+            "keyring ${scriptlet_entrypoint} ${failure_stage} failure"
+    done
+
+    : >"${mock_log}"
+    invoke_mock_scriptlet "$scriptlet_entrypoint" none >/dev/null 2>&1 ||
+        fail "keyring ${scriptlet_entrypoint} rejected a successful certificate refresh"
+    assert_mock_sequence $'list\npopulate\nupdatedb' \
+        "keyring ${scriptlet_entrypoint} successful refresh"
 done
-: >"${mock_log}"
-env ARCH_LINUX_KEYRING_FAIL_STAGE=none ARCH_LINUX_KEYRING_MOCK_LOG="${mock_log}" \
-    sh -c '. "$1"; command -v refresh_arch_linux_keyring >/dev/null || exit 127; refresh_arch_linux_keyring' sh "${mock_install}" >/dev/null 2>&1 ||
-    fail 'keyring scriptlet rejected a successful certificate refresh'
 
 gpg --batch --no-options --homedir "${signing_home}" --pinentry-mode loopback --passphrase '' \
     --quick-generate-key 'arch-linux pacman-key rotation fixture' ed25519 cert 0 >/dev/null 2>&1
@@ -1179,11 +1211,15 @@ primary_fingerprint="$(gpg --batch --no-options --homedir "${signing_home}" --wi
     --fingerprint 2>/dev/null | awk -F: '$1 == "fpr" { print toupper($10); exit }')"
 [[ "${primary_fingerprint}" =~ ^[A-F0-9]{40}$ ]] || fail 'cannot generate fixture primary'
 gpg --batch --no-options --homedir "${signing_home}" --pinentry-mode loopback --passphrase '' \
-    --quick-add-key "${primary_fingerprint}" ed25519 sign 1d >/dev/null 2>&1
-current_subkey="$(gpg --batch --no-options --homedir "${signing_home}" --with-colons \
-    --with-subkey-fingerprint --list-secret-keys -- "${primary_fingerprint}" 2>/dev/null |
-    awk -F: '$1 == "ssb" { want=1; next } want && $1 == "fpr" { print toupper($10); exit }')"
+    --quick-add-key "${primary_fingerprint}" ed25519 sign 400d >/dev/null 2>&1
+initial_secret_metadata="$(gpg --batch --no-options --homedir "${signing_home}" --with-colons \
+    --with-subkey-fingerprint --list-secret-keys -- "${primary_fingerprint}" 2>/dev/null)"
+current_subkey="$(awk -F: \
+    '$1 == "ssb" { want=1; next } want && $1 == "fpr" { print toupper($10); exit }' \
+    <<<"${initial_secret_metadata}")"
+initial_subkey_expiry="$(awk -F: '$1 == "ssb" { print $7; exit }' <<<"${initial_secret_metadata}")"
 [[ "${current_subkey}" =~ ^[A-F0-9]{40}$ ]] || fail 'cannot select current signing subkey'
+[[ "${initial_subkey_expiry}" =~ ^[0-9]+$ ]] || fail 'cannot capture initial signing-subkey expiry'
 gpg --batch --no-options --homedir "${signing_home}" --export -- "${primary_fingerprint}" \
     >"${test_root}/current-certificate.gpg" 2>/dev/null
 
@@ -1220,29 +1256,123 @@ set -e
 assert_real_rejection_status "$rejection_status" \
     'public pacman keyring fixture secret material'
 
+# Renew the already trusted signing subkey without changing its fingerprint. This is the
+# production-admissible certificate shape: one certification primary, one UID and one signing
+# subkey with more than 180 days remaining. Drive the import through the real package post_upgrade
+# entrypoint; the wrapper changes only pacman-key's test gpgdir and keyring source directory.
 gpg --batch --no-options --homedir "${signing_home}" --pinentry-mode loopback --passphrase '' \
-    --quick-add-key "${primary_fingerprint}" ed25519 sign 1d >/dev/null 2>&1
+    --quick-set-expire "${primary_fingerprint}" 800d "${current_subkey}" >/dev/null 2>&1
+renewed_secret_metadata="$(gpg --batch --no-options --homedir "${signing_home}" --with-colons \
+    --with-subkey-fingerprint --list-secret-keys -- "${primary_fingerprint}" 2>/dev/null)"
+renewed_subkey="$(awk -F: \
+    '$1 == "ssb" { want=1; next } want && $1 == "fpr" { print toupper($10); exit }' \
+    <<<"${renewed_secret_metadata}")"
+renewed_subkey_expiry="$(awk -F: '$1 == "ssb" { print $7; exit }' <<<"${renewed_secret_metadata}")"
+[ "${renewed_subkey}" = "${current_subkey}" ] || fail 'same-subkey renewal changed the fingerprint'
+[[ "${renewed_subkey_expiry}" =~ ^[0-9]+$ ]] &&
+    [ "${renewed_subkey_expiry}" -gt "${initial_subkey_expiry}" ] ||
+    fail 'same-subkey renewal did not extend the expiration time'
+
+renewed_certificate="${import_dir}/arch-linux.gpg"
+renewed_primary_file="${test_root}/renewed-primary-fingerprint"
+renewed_subkey_file="${test_root}/renewed-signing-subkey-fingerprint"
+gpg --batch --no-options --homedir "${signing_home}" --export -- "${primary_fingerprint}" \
+    >"${renewed_certificate}" 2>/dev/null
+printf '%s\n' "${primary_fingerprint}" >"${renewed_primary_file}"
+printf '%s\n' "${current_subkey}" >"${renewed_subkey_file}"
+repository_assert_public_certificate \
+    "${renewed_certificate}" "${renewed_primary_file}" "${renewed_subkey_file}" 15552000
+[ ! -e "${import_dir}/arch-linux-trusted" ] || fail 'renewal fixture must not grant ownertrust'
+
+real_pacman_key="${test_root}/real-pacman-key"
+real_install="${test_root}/real-arch-linux-keyring.install"
+{
+    printf '%s\n' 'set -eu'
+    printf '%s\n' '[ -d "${ARCH_LINUX_KEYRING_CLIENT_HOME}" ]'
+    printf '%s\n' '[ -d "${ARCH_LINUX_KEYRING_IMPORT_DIR}" ]'
+    printf '%s\n' 'case "${1:-}" in'
+    printf '%s\n' '    --list-keys)'
+    printf '%s\n' '        [ "$#" -eq 1 ] || exit 2'
+    printf '%s\n' '        exec /usr/bin/pacman-key --gpgdir "${ARCH_LINUX_KEYRING_CLIENT_HOME}" --list-keys'
+    printf '%s\n' '        ;;'
+    printf '%s\n' '    --populate)'
+    printf '%s\n' '        [ "$#" -eq 2 ] && [ "$2" = arch-linux ] || exit 2'
+    printf '%s\n' '        set -- --gpgdir "${ARCH_LINUX_KEYRING_CLIENT_HOME}" --populate-from "${ARCH_LINUX_KEYRING_IMPORT_DIR}" --populate arch-linux'
+    printf '%s\n' '        exec /usr/bin/pacman-key "$@"'
+    printf '%s\n' '        ;;'
+    printf '%s\n' '    --updatedb)'
+    printf '%s\n' '        [ "$#" -eq 1 ] || exit 2'
+    printf '%s\n' '        exec /usr/bin/pacman-key --gpgdir "${ARCH_LINUX_KEYRING_CLIENT_HOME}" --updatedb'
+    printf '%s\n' '        ;;'
+    printf '%s\n' '    *) exit 2 ;;'
+    printf '%s\n' 'esac'
+} >"${real_pacman_key}"
+sed "s#/usr/bin/pacman-key#/bin/sh ${real_pacman_key}#g" \
+    "${repo_root}/packages/arch-linux-keyring/arch-linux-keyring.install" \
+    >"${real_install}"
+invoke_real_keyring_upgrade() {
+    env ARCH_LINUX_KEYRING_CLIENT_HOME="${client_home}" \
+        ARCH_LINUX_KEYRING_IMPORT_DIR="${import_dir}" \
+        sh -c '
+            . "$1"
+            command -v post_upgrade >/dev/null || exit 127
+            post_upgrade 1.0.1 1.0.0
+        ' sh "${real_install}"
+}
+invoke_real_keyring_upgrade >/dev/null 2>&1 ||
+    fail 'real keyring post_upgrade rejected the same-subkey certificate renewal'
+
+renewed_client_metadata="$(gpg --batch --no-options --homedir "${client_home}" --with-colons \
+    --with-subkey-fingerprint --list-keys -- "${primary_fingerprint}!" 2>/dev/null)"
+renewed_client_primary="$(awk -F: '$1 == "fpr" { print toupper($10); exit }' \
+    <<<"${renewed_client_metadata}")"
+renewed_client_subkey="$(awk -F: \
+    '$1 == "sub" { want=1; next } want && $1 == "fpr" { print toupper($10); exit }' \
+    <<<"${renewed_client_metadata}")"
+renewed_client_expiry="$(awk -F: '$1 == "sub" { print $7; exit }' <<<"${renewed_client_metadata}")"
+[ "${renewed_client_primary}" = "${primary_fingerprint}" ] &&
+    [ "${renewed_client_subkey}" = "${current_subkey}" ] ||
+    fail 'same-subkey renewal changed the trusted key fingerprints'
+[ "${renewed_client_expiry}" = "${renewed_subkey_expiry}" ] &&
+    [ "${renewed_client_expiry}" -gt "${initial_subkey_expiry}" ] ||
+    fail 'same-subkey renewal expiration was not imported exactly'
+repository_key_metadata_matches "${renewed_client_metadata}" trusted "$(date +%s)" ||
+    fail 'installer predicate rejected the renewed exact trusted keyblock'
+
+printf 'same signing-subkey renewal payload\n' >"${test_root}/renewed-payload"
+gpg --batch --no-options --homedir "${signing_home}" --pinentry-mode loopback --passphrase '' \
+    --local-user "${current_subkey}!" --detach-sign --output "${test_root}/renewed-payload.sig" \
+    -- "${test_root}/renewed-payload" >/dev/null 2>&1
+pacman-key --gpgdir "${client_home}" --verify \
+    "${test_root}/renewed-payload.sig" "${test_root}/renewed-payload" >/dev/null 2>&1 ||
+    fail 'pacman-key rejected a signature from the renewed exact signing subkey'
+
+# Keep the distinct merge threat as a negative: an over-broad certificate containing a second
+# primary-certified signing subkey causes pacman to accept that signer, but the installer exact
+# keyblock predicate must reject the merged state.
+gpg --batch --no-options --homedir "${signing_home}" --pinentry-mode loopback --passphrase '' \
+    --quick-add-key "${primary_fingerprint}" ed25519 sign 400d >/dev/null 2>&1
 mapfile -t signing_subkeys < <(
     gpg --batch --no-options --homedir "${signing_home}" --with-colons \
         --with-subkey-fingerprint --list-secret-keys -- "${primary_fingerprint}" 2>/dev/null |
         awk -F: '$1 == "ssb" { want=1; next } want && $1 == "fpr" { print toupper($10); want=0 }'
 )
 [ "${#signing_subkeys[@]}" -eq 2 ] || fail 'fixture does not contain two signing subkeys'
-replacement_subkey="${signing_subkeys[1]}"
+additional_subkey="$(printf '%s\n' "${signing_subkeys[@]}" |
+    awk -v current="${current_subkey}" '$0 != current { print; exit }')"
+[[ "${additional_subkey}" =~ ^[A-F0-9]{40}$ ]] || fail 'cannot select additional signing subkey'
 set +e
-gpg --batch --no-options --homedir "${client_home}" --list-keys -- "${replacement_subkey}!" \
+gpg --batch --no-options --homedir "${client_home}" --list-keys -- "${additional_subkey}!" \
     >/dev/null 2>&1
 rejection_status=$?
 set -e
 assert_real_rejection_status "$rejection_status" \
-    'client replacement signing subkey before certificate refresh'
+    'client additional signing subkey before over-broad certificate import'
 
 gpg --batch --no-options --homedir "${signing_home}" --export -- "${primary_fingerprint}" \
     >"${import_dir}/arch-linux.gpg" 2>/dev/null
-[ ! -e "${import_dir}/arch-linux-trusted" ] || fail 'fixture must not grant ownertrust'
-pacman-key --gpgdir "${client_home}" --populate-from "${import_dir}" \
-    --populate arch-linux >/dev/null 2>&1
-pacman-key --gpgdir "${client_home}" --updatedb >/dev/null 2>&1
+invoke_real_keyring_upgrade >/dev/null 2>&1 ||
+    fail 'real keyring post_upgrade rejected the over-broad merge fixture diagnostically'
 
 refreshed_validity="$(gpg --batch --no-options --homedir "${client_home}" --with-colons \
     --list-keys -- "${primary_fingerprint}" 2>/dev/null | awk -F: '$1 == "pub" { print $2; exit }')"
@@ -1250,16 +1380,16 @@ case "${refreshed_validity}" in
     f|u) ;;
     *) fail 'certificate refresh lost the installer-created local trust' ;;
 esac
-gpg --batch --no-options --homedir "${client_home}" --list-keys -- "${replacement_subkey}!" \
-    >/dev/null 2>&1 || fail 'real pacman-key populate did not import the replacement signing subkey'
+gpg --batch --no-options --homedir "${client_home}" --list-keys -- "${additional_subkey}!" \
+    >/dev/null 2>&1 || fail 'real pacman-key populate did not import the additional signing subkey'
 
-printf 'replacement signing-subkey payload\n' >"${test_root}/payload"
+printf 'additional signing-subkey payload\n' >"${test_root}/payload"
 gpg --batch --no-options --homedir "${signing_home}" --pinentry-mode loopback --passphrase '' \
-    --local-user "${replacement_subkey}!" --detach-sign --output "${test_root}/payload.sig" \
+    --local-user "${additional_subkey}!" --detach-sign --output "${test_root}/payload.sig" \
     -- "${test_root}/payload" >/dev/null 2>&1
 pacman-key --gpgdir "${client_home}" --verify \
     "${test_root}/payload.sig" "${test_root}/payload" >/dev/null 2>&1 ||
-    fail 'pacman-key rejected a signature from the authenticated replacement subkey'
+    fail 'pacman-key rejected a signature from the additional merged signing subkey'
 
 # Reproduce the installer-specific merge threat with the real pacman keyring. The former
 # first-fingerprint/first-subkey predicate would still accept this locally trusted keyblock even
