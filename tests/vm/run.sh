@@ -1936,7 +1936,7 @@ main() {
     [ "$(sha256sum --binary -- "${iso_path}" | awk '{ print $1 }')" = "${iso_sha256}" ] ||
         die 'accepted ISO digest differs'
     [ "$(git -C "${repository_root}" status --porcelain=v1 --untracked-files=all)" = '' ] ||
-        die 'run must start from a completely clean exact committed worktree'
+        die 'run must start from a completely clean exact committed canonical checkout'
     for member in arch-linux-installer.sh "${harness_files[@]}"; do
         git -C "${repository_root}" ls-files --error-unmatch -- "${member}" >/dev/null ||
             die "runtime source is not tracked: ${member}"

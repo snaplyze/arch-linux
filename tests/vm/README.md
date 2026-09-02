@@ -171,7 +171,8 @@ trap - EXIT
 [ "$(stat -Lc '%u:%a:%h' -- "$receipt")" = "$(id -u):600:1" ]
 ```
 
-Finalize from the same clean frozen source checkout with the exact run path:
+Finalize from the same clean frozen canonical checkout, not a copied or per-cycle source checkout,
+with the exact run path:
 
 ```bash
 python3 -I tests/vm/frame-evidence.py finalize-review \

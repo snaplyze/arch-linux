@@ -6,8 +6,13 @@ import re
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 agents = (ROOT / 'AGENTS.md').read_text(encoding='utf-8')
 claude = (ROOT / 'CLAUDE.md').read_text(encoding='utf-8')
+release_process = (ROOT / 'docs/release-process.md').read_text(encoding='utf-8')
+vm_readme = (ROOT / 'tests/vm/README.md').read_text(encoding='utf-8')
+vm_runner = (ROOT / 'tests/vm/run.sh').read_text(encoding='utf-8')
+agents_flat = ' '.join(agents.split())
 required = [
-    'Project structure', 'Allowed commands', 'Repository root', 'Installer invariants',
+    'Project structure', 'Allowed commands', 'Repository root', 'Canonical checkout workflow',
+    'Installer invariants',
     'Disk and destructive invariants', 'Package and signing boundaries',
     'Marble and GDM boundaries', 'Required source tests', 'Evidence separation', 'Secrets',
     'Tree-bound results', 'Bounded remediation', 'Product failure', 'Infrastructure retry',
@@ -28,6 +33,42 @@ expected = {
 if not expected <= commands:
     missing = sorted(expected - commands)
     raise SystemExit(f'agent contract check failed: allowed command list differs: {missing}')
+
+canonical_checkout_markers = (
+    'sole persistent local development checkout',
+    'additional local Git worktrees',
+    'sibling clones',
+    'per-cycle source directories',
+    'copied or replacement source repositories',
+    'switch feature or pull-request branches in place',
+    'return this same checkout to `main`',
+    'Mandatory ephemeral security boundaries remain permitted',
+    'protected GitHub Actions canonical and validation clones',
+    'one-use signing input copies',
+    'qcow2 disks, OVMF variable stores',
+    'They are not development source, must not be edited or committed',
+    'must be removed when their bounded stage ends',
+)
+for marker in canonical_checkout_markers:
+    if marker not in agents_flat:
+        raise SystemExit(f'agent contract check failed: canonical checkout rule differs: {marker!r}')
+
+for document, markers, label in (
+    (release_process, (
+        'same canonical checkout',
+        'local per-cycle worktrees, sibling clones or copied source repositories',
+        'Ephemeral CI, package-build, signing, test and VM isolation remains mandatory',
+    ), 'release process'),
+    (vm_readme, (
+        'same clean frozen canonical checkout',
+        'not a copied or per-cycle source checkout',
+    ), 'VM documentation'),
+    (vm_runner, ('completely clean exact committed canonical checkout',), 'VM runner'),
+):
+    document_flat = ' '.join(document.split())
+    for marker in markers:
+        if marker not in document_flat:
+            raise SystemExit(f'agent contract check failed: {label} differs: {marker!r}')
 
 UBUNTU_CONTAINER = (
     'container:\n'

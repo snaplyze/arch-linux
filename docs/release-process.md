@@ -5,6 +5,12 @@ authorization.
 
 ## 1. Source candidate
 
+Perform local review, source changes, tests, commits and release-host acceptance from the same
+canonical checkout. Switch pull-request branches in place; do not create local per-cycle worktrees,
+sibling clones or copied source repositories. Generated build, signing, VM and evidence data remains
+outside the source tree. Ephemeral CI, package-build, signing, test and VM isolation remains
+mandatory and does not become development source.
+
 Freeze one exact tree and run:
 
 ```bash

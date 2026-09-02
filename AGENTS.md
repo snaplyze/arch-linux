@@ -66,6 +66,22 @@ They must not depend on the caller's current directory or a named workstation. U
 paths under `/usr`, `/etc`, `/var`, `/mnt` and `/tmp` are allowed when they are part of the product
 contract rather than a developer-machine binding.
 
+## Canonical checkout workflow
+
+Use the checkout containing this file as the sole persistent local development checkout. Perform
+local review, source changes, tests, commits, branch work and release-host acceptance there, and
+switch feature or pull-request branches in place. Do not create additional local Git worktrees,
+sibling clones, per-cycle source directories, copied or replacement source repositories, or a
+whole-directory cutover for development. After a pull request is merged, return this same checkout
+to `main` and update it by fast-forward only.
+
+Mandatory ephemeral security boundaries remain permitted: protected GitHub Actions canonical and
+validation clones, disposable package build directories and users, root-owned gate inputs, sealed
+signing bootstrap and one-use signing input copies, test fixtures, qcow2 disks, OVMF variable stores
+and VM payloads or read-only shares. They are not development source, must not be edited or committed,
+and must be removed when their bounded stage ends, except for explicitly retained compact evidence
+and pinned external inputs governed by the evidence policy.
+
 ## Installer invariants
 
 Preserve Minimal TTY, Stock GNOME, Marble, separate Marble GDM opt-in, ext4, Btrfs, GRUB,
