@@ -87,6 +87,25 @@ one exact independently verified `arch-linux-repository-${VERSION}.tar.zst` for 
 Each scenario must exercise the real ISO, installer and produced repository. Product failure is not
 retried. One infrastructure retry is allowed only with a recorded concrete cause.
 
+For every installed `firstboot` and `postreboot`, launch QEMU paused with `-S`, bind the direct
+framebuffer recorder to the exact QEMU PID/start identity and QMP peer, require its `READY` ledger
+record with QMP `prelaunch`/not-running before `cont`, and record the bounded boot section through
+the verified visual state. Start a distinct shutdown section immediately before each transition;
+require `READY` and `shutdown-armed` before scheduling it, then record until that exact PID exits. Minimal
+must complete phase-specific `qga_verify` and framebuffer prerequisites before its allowlisted
+non-secret no-Enter challenge. Ctrl+Alt+F1 is prohibited. The ledger must prove strict
+pre-challenge/challenge/post-challenge chronology and a non-zero framebuffer delta in both phases.
+
+Treat the automated scenario result as provisional. An independent reviewer must inspect the
+ordered contact sheets and full-resolution frames (reconstructing uncertain manifest-bound raw
+frames into a separate private directory before finalization) and issue a receipt bound to the exact
+source commit/tree, run ID and frame-evidence manifest. The manifest binds every ledger,
+contact sheet, temporary raw object and selected frame by hash, plus the fixed sheet geometry; it
+does not contain per-cell records. OCR and screenshot count are not proof. Remove
+unselected raw frames only after review; retain the receipt, compact manifest/ledgers/contact sheets
+and two to four selected frames, and keep cumulative evidence at or below 500 MiB. No staged or
+public QEMU PASS exists from the automated result alone.
+
 ## 6. GitHub Release and Pages
 
 After all three staged QEMU scenarios pass, create annotated tag `$VERSION` on the frozen commit and

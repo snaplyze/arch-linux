@@ -74,6 +74,26 @@ switch bindings plus both Alt+Shift directions, and all twelve Ptyxis Latin/Cyri
 Every staged run retains the signed repository manifest/signature and exact package/database hashes;
 every PASS or FAIL retains a structured verdict.
 
+Every installed `firstboot` and `postreboot` QEMU process starts with `-S`; its exact-identity
+direct-framebuffer recorder, bound through its exact QMP peer, must report a strict P6 frame and
+`READY` while QMP is `prelaunch`/not-running before `cont`. That bounded boot section runs through
+the verified visual state. A separate section starts immediately before reboot/poweroff, records
+`shutdown-armed` before the transition request and continues until that exact PID exits. Minimal runs
+phase-specific `qga_verify` and framebuffer prerequisites before
+an allowlisted non-secret no-Enter challenge. Ctrl+Alt+F1 is forbidden because a forced VT switch
+would manufacture the state under test. The frame ledger must prove strict pre/challenge/post
+chronology and a non-zero framebuffer delta for both installed phases.
+
+No scenario becomes QEMU PASS from assertion count, screenshot count, automated `result.json`, QGA,
+delta detection or OCR alone. An independent reviewer must bind a manual receipt to the exact
+source commit/tree, run ID and frame-evidence manifest after reviewing the ordered contact sheets and
+full-resolution frames; uncertain manifest-bound raw frames are reconstructed losslessly into a
+separate private directory before finalization. The manifest binds the fixed sheet geometry and the
+hashes of every ledger, contact sheet, temporary raw object and selected frame through one
+`fileHashes` map, not per-cell records. Only then are unselected raw frames removed; the receipt, compact
+manifest/ledgers/contact sheets and two to four selected frames remain within the cumulative 500 MiB
+budget.
+
 ## Release/public acceptance
 
 Production offline signing, immutable Release creation, verified Pages deployment and the final
