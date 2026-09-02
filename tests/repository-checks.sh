@@ -2,6 +2,13 @@
 set -euo pipefail
 umask 077
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
+require_full_namespace=false
+case "$#:${1:-}" in
+    0:) ;;
+    1:--require-full-namespace) require_full_namespace=true ;;
+    *) printf 'Usage: %s [--require-full-namespace]\n' "$0" >&2; exit 2 ;;
+esac
+[ "$EUID" -ne 0 ] || { printf 'repository check failed: run as an unprivileged user\n' >&2; exit 1; }
 work="$(mktemp -d "${RUNNER_TEMP:-/tmp}/arch-linux-repository-tests.XXXXXXXX")"
 key_home=''
 wrong_home=''
@@ -17,43 +24,158 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
-for command_name in git gpg gpg-connect-agent gpgconf python3 sha256sum tar zstd; do
+for command_name in cc file git gpg gpgconf python3 readelf sha256sum tar unshare zstd; do
     command -v -- "$command_name" >/dev/null 2>&1 || {
         printf 'repository check failed: required command absent: %s\n' "$command_name" >&2
         exit 1
     }
 done
 
-signing_hash='0000000000000000000000000000000000000000000000000000000000000000'
-unmarked_home="$(mktemp -d /tmp/arch-linux-signing-home.XXXXXXXX)"
-chmod 0700 -- "$unmarked_home"
-if GNUPGHOME="$unmarked_home" bash "$repo_root/repository/run-offline-signing.sh" \
-    --build-metadata-sha256 "$signing_hash" \
-    --unsigned-manifest-sha256 "$signing_hash" >/dev/null 2>&1; then
-    printf 'repository check failed: unmarked disposable GNUPGHOME accepted\n' >&2
+if bash "$repo_root/repository/run-offline-signing.sh" snapshot >/dev/null 2>&1 ||
+    bash -p "$repo_root/repository/offline-sign-release.sh" >/dev/null 2>&1 ||
+    bash -p "$repo_root/repository/offline-finalize-release.sh" >/dev/null 2>&1; then
+    printf 'repository check failed: direct offline signing entry was accepted\n' >&2
     exit 1
 fi
-[ -d "$unmarked_home" ] || {
-    printf 'repository check failed: refused unmarked GNUPGHOME was deleted\n' >&2
+if python3 -I "$repo_root/repository/offline-signing-fd-guard.py" unknown >/dev/null 2>&1; then
+    printf 'repository check failed: unknown descriptor-guard mode was accepted\n' >&2
     exit 1
-}
-rm -rf -- "$unmarked_home"
+fi
 
-marked_home="$(mktemp -d /tmp/arch-linux-signing-home.XXXXXXXX)"
-chmod 0700 -- "$marked_home"
-printf '%s\n' 'arch-linux-offline-signing-disposable-v1' \
-    >"$marked_home/.arch-linux-disposable-signing-home"
-chmod 0600 -- "$marked_home/.arch-linux-disposable-signing-home"
-GNUPGHOME="$marked_home" gpg-connect-agent --homedir "$marked_home" /bye >/dev/null 2>&1
-if GNUPGHOME="$marked_home" bash "$repo_root/repository/run-offline-signing.sh" \
-    --build-metadata-sha256 "$signing_hash" >/dev/null 2>&1; then
-    printf 'repository check failed: incomplete signing digest authority accepted\n' >&2
-    exit 1
-fi
-[ ! -e "$marked_home" ] && [ ! -L "$marked_home" ] || {
-    printf 'repository check failed: marked disposable GNUPGHOME survived failure cleanup\n' >&2
+PYTHONDONTWRITEBYTECODE=1 python3 -I -B - \
+    "$repo_root/repository/offline-signing-fd-guard.py" <<'PY'
+import fcntl
+import os
+import subprocess
+import sys
+
+guard = sys.argv[1]
+diagnostic = b"ERROR: offline signing descriptor hygiene failed\n"
+fixed_home = "/run/user/0/arch-linux-offline/gnupg"
+valid_arguments = [
+    "/usr/bin/gpg", "--batch", "--no-options", "--no-autostart", "--with-colons",
+    "--with-subkey-fingerprint", "--list-secret-keys", "--", "A" * 40 + "!",
+]
+
+
+def rejected(*, sealed, home, arguments):
+    descriptor = os.memfd_create("arch-linux-test-passphrase", os.MFD_ALLOW_SEALING)
+    try:
+        os.fchmod(descriptor, 0o600)
+        os.write(descriptor, b"fixture-passphrase\n")
+        if sealed:
+            seals = fcntl.F_SEAL_WRITE | fcntl.F_SEAL_GROW | fcntl.F_SEAL_SHRINK | fcntl.F_SEAL_SEAL
+            fcntl.fcntl(descriptor, fcntl.F_ADD_SEALS, seals)
+        if descriptor != 7:
+            os.dup2(descriptor, 7, inheritable=True)
+            os.close(descriptor)
+            descriptor = 7
+        metadata = os.fstat(descriptor)
+        environment = {
+            "ARCH_LINUX_PASSPHRASE_IDENTITY":
+                f"{metadata.st_dev}:{metadata.st_ino}:{metadata.st_size}",
+            "GNUPGHOME": home,
+        }
+        completed = subprocess.run(
+            ["/usr/bin/python3", "-I", guard, "exec-private-gpg", *arguments],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=environment,
+            pass_fds=(descriptor,),
+            check=False,
+        )
+        if completed.returncode != 1 or completed.stdout or completed.stderr != diagnostic:
+            raise SystemExit("private GPG descriptor/environment negative did not fail in the guard")
+    finally:
+        os.close(descriptor)
+
+
+rejected(sealed=True, home="/tmp/not-the-private-runtime", arguments=valid_arguments)
+rejected(sealed=True, home=fixed_home, arguments=[*valid_arguments[:-1], "a" * 40 + "!"])
+rejected(sealed=False, home=fixed_home, arguments=valid_arguments)
+PY
+
+atomic_root="$work/atomic-publish"
+mkdir -m0700 -- "$atomic_root" "$atomic_root/output-parent"
+mkdir -m0700 -- "$atomic_root/stage"
+printf '%s\n' accepted >"$atomic_root/stage/payload"
+env -i HOME=/nonexistent LANG=C LC_ALL=C PATH=/usr/bin:/bin TMPDIR=/tmp \
+    python3 -I "$repo_root/repository/offline-signing-fd-guard.py" atomic-publish \
+    "$atomic_root/stage" "$atomic_root/output-parent/published" </dev/null
+[ ! -e "$atomic_root/stage" ] && [ ! -L "$atomic_root/stage" ] &&
+    [ "$(cat -- "$atomic_root/output-parent/published/payload")" = accepted ] || {
+    printf 'repository check failed: atomic no-replace publication readback differs\n' >&2
     exit 1
 }
+mkdir -m0700 -- "$atomic_root/stage-collision" "$atomic_root/output-parent/collision"
+printf '%s\n' staged >"$atomic_root/stage-collision/payload"
+printf '%s\n' retained >"$atomic_root/output-parent/collision/payload"
+if env -i HOME=/nonexistent LANG=C LC_ALL=C PATH=/usr/bin:/bin TMPDIR=/tmp \
+    python3 -I "$repo_root/repository/offline-signing-fd-guard.py" atomic-publish \
+    "$atomic_root/stage-collision" "$atomic_root/output-parent/collision" </dev/null >/dev/null 2>&1; then
+    printf 'repository check failed: atomic publication replaced an existing output\n' >&2
+    exit 1
+fi
+[ "$(cat -- "$atomic_root/stage-collision/payload")" = staged ] &&
+    [ "$(cat -- "$atomic_root/output-parent/collision/payload")" = retained ] || {
+    printf 'repository check failed: rejected atomic publication changed an object\n' >&2
+    exit 1
+}
+mkdir -m0755 -- "$atomic_root/unsafe-parent"
+mkdir -m0700 -- "$atomic_root/stage-unsafe"
+if env -i HOME=/nonexistent LANG=C LC_ALL=C PATH=/usr/bin:/bin TMPDIR=/tmp \
+    python3 -I "$repo_root/repository/offline-signing-fd-guard.py" atomic-publish \
+    "$atomic_root/stage-unsafe" "$atomic_root/unsafe-parent/published" </dev/null >/dev/null 2>&1; then
+    printf 'repository check failed: atomic publication accepted an unsafe output parent\n' >&2
+    exit 1
+fi
+
+launcher_fixture="$work/offline-signing-launcher"
+cc -std=c17 -O2 -static-pie -fstack-protector-strong -D_FORTIFY_SOURCE=3 -Wall -Wextra -Werror \
+    '-DALI_ACCEPTED_COMMIT_SHA="0000000000000000000000000000000000000000"' \
+    '-DALI_ACCEPTED_TREE_SHA="1111111111111111111111111111111111111111"' \
+    '-DALI_ACCEPTED_TREE_SHA256="2222222222222222222222222222222222222222222222222222222222222222"' \
+    -DALI_SIGNING_UID=65534 -DALI_SIGNING_GID=65534 \
+    -o "$launcher_fixture" "$repo_root/repository/offline-signing-launcher.c"
+file "$launcher_fixture" | grep -Fq 'static-pie linked' || {
+    printf 'repository check failed: launcher is not static PIE\n' >&2
+    exit 1
+}
+if readelf -l "$launcher_fixture" | grep -Fq INTERP; then
+    printf 'repository check failed: launcher has PT_INTERP\n' >&2
+    exit 1
+fi
+
+namespace_marker=full
+parent_user="$(stat -Lc '%i' -- /proc/self/ns/user)"
+parent_net="$(stat -Lc '%i' -- /proc/self/ns/net)"
+parent_pid="$(stat -Lc '%i' -- /proc/self/ns/pid)"
+parent_mnt="$(stat -Lc '%i' -- /proc/self/ns/mnt)"
+# shellcheck disable=SC2016
+if ! env PARENT_USER="$parent_user" PARENT_NET="$parent_net" PARENT_PID="$parent_pid" PARENT_MNT="$parent_mnt" \
+    unshare --user --map-root-user --net --pid --mount --mount-proc --fork --kill-child=SIGKILL \
+    bash -c '
+        set -euo pipefail
+        [ "$BASHPID" = 1 ]
+        [ "$(stat -Lc %i -- /proc/self/ns/user)" != "$PARENT_USER" ]
+        [ "$(stat -Lc %i -- /proc/self/ns/net)" != "$PARENT_NET" ]
+        [ "$(stat -Lc %i -- /proc/self/ns/pid)" != "$PARENT_PID" ]
+        [ "$(stat -Lc %i -- /proc/self/ns/mnt)" != "$PARENT_MNT" ]
+        [ "$(awk '\''{$1=$1; print}'\'' /proc/self/uid_map)" = "0 '"$(id -u)"' 1" ]
+        [ "$(awk '\''{$1=$1; print}'\'' /proc/self/gid_map)" = "0 '"$(id -g)"' 1" ]
+        [ "$(awk -F: '\''NR>2 {gsub(/[[:space:]]/,"",$1); if($1!="") print $1}'\'' /proc/self/net/dev)" = lo ]
+    ' >/dev/null 2>&1; then
+    hosted=false
+    [ "${ARCH_LINUX_ALLOW_HOSTED_NAMESPACE_DEFERRAL:-}" = github-hosted-container-v1 ] &&
+        [ "${CI:-}" = true ] && [ "${GITHUB_ACTIONS:-}" = true ] &&
+        [ "${RUNNER_ENVIRONMENT:-}" = github-hosted ] && [ -f /.dockerenv ] && [ ! -L /.dockerenv ] && hosted=true
+    if [ "$require_full_namespace" = true ] || [ "$hosted" != true ]; then
+        printf 'repository check failed: full namespace fixture unavailable\n' >&2
+        exit 1
+    fi
+    namespace_marker=deferred
+fi
 
 make_key() {
     local home="$1" identity="$2" primary signing metadata
@@ -80,16 +202,25 @@ sign_file() {
 fixture_project="$work/project"
 fixture_packages="$work/valid-package-fixtures"
 mkdir -p -- "$fixture_project/repository/lib" "$fixture_project/repository/trust" \
-    "$fixture_project/packages" "$fixture_packages"
+    "$fixture_project/packages" "$fixture_project/tests/vm/guest" \
+    "$fixture_project/maintenance" "$fixture_packages"
 PACKAGE_FIXTURE_OUTPUT_DIR="$fixture_packages" bash "$repo_root/tests/package-checks.sh" >/dev/null
 cp -- "$repo_root/repository/lib/common.sh" "$fixture_project/repository/lib/common.sh"
 printf '%s\n' arch-linux-keyring arch-linux-marble-profile >"$fixture_project/repository/package-set"
 cp -- "$repo_root/repository/source-date-epoch" "$fixture_project/repository/source-date-epoch"
 cp -- "$repo_root/repository/safe-extract-snapshot.py" "$fixture_project/repository/safe-extract-snapshot.py"
+cp -- "$repo_root/repository/acceptance-manifest.py" "$fixture_project/repository/acceptance-manifest.py"
 cp -- "$repo_root/repository/snapshot-manifest.py" "$fixture_project/repository/snapshot-manifest.py"
 cp -- "$repo_root/repository/verify-release-assets.sh" "$fixture_project/repository/verify-release-assets.sh"
 cp -- "$repo_root/repository/verify-signed-repository.sh" "$fixture_project/repository/verify-signed-repository.sh"
 cp -- "$repo_root/repository/verify-unsigned-build.sh" "$fixture_project/repository/verify-unsigned-build.sh"
+cp -- "$repo_root/maintenance/accepted-arch-iso.json" \
+    "$fixture_project/maintenance/accepted-arch-iso.json"
+for harness_file in \
+    tests/vm/run.sh tests/vm/frame-evidence.py tests/vm/qga-client.py tests/vm/https-server.py \
+    tests/vm/prepare-marble-repository.sh tests/vm/guest/bootstrap.sh tests/vm/guest/verify.sh; do
+    cp -- "$repo_root/$harness_file" "$fixture_project/$harness_file"
+done
 for package in arch-linux-keyring arch-linux-marble-profile; do
     cp -a -- "$repo_root/packages/$package" "$fixture_project/packages/$package"
 done
@@ -106,12 +237,142 @@ destination.write_text(
 PY
 chmod 0755 -- "$fixture_project/repository/lib/common.sh" \
     "$fixture_project/repository/safe-extract-snapshot.py" \
+    "$fixture_project/repository/acceptance-manifest.py" \
     "$fixture_project/repository/snapshot-manifest.py" \
     "$fixture_project/repository/verify-release-assets.sh" \
     "$fixture_project/repository/verify-signed-repository.sh" \
     "$fixture_project/repository/verify-unsigned-build.sh" \
     "$fixture_project/repository/verify-package-metadata.py"
 chmod 0644 -- "$fixture_project/repository/package-set" "$fixture_project/repository/source-date-epoch"
+PYTHONDONTWRITEBYTECODE=1 python3 -I -B - \
+    "$fixture_project/repository/acceptance-manifest.py" <<'PY'
+import importlib.util
+import io
+import json
+import sys
+
+spec = importlib.util.spec_from_file_location("acceptance_negative_fixture", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+
+def require_rejected(callback, label):
+    try:
+        callback()
+    except module.ManifestError:
+        return
+    raise SystemExit(f"acceptance negative did not fail closed: {label}")
+
+
+marker = module.SECRET_MARKERS[0]
+split_payload = b"x" * (1024 * 1024 - len(marker) // 2) + marker + b"x"
+require_rejected(
+    lambda: module.inspect_binary_secret_markers("selected-frame.ppm", io.BytesIO(split_payload)),
+    "private-key marker split across PPM chunks",
+)
+
+if module.challenge_measurements_are_valid([257, 64, 0], 256, {(16, 16)}, (16, 16)):
+    raise SystemExit("acceptance negative accepted an impossible framebuffer pixel delta")
+if module.challenge_measurements_are_valid(
+        [64, 64, 0], 8192 * 8192, {(8192, 8192)}, (8192, 8192)):
+    raise SystemExit("acceptance negative ignored the geometry-dependent framebuffer delta")
+
+qemu_identity = {
+    "pid": "101", "start_time": "1001", "qmp_identity": "30:40",
+}
+aliasing_header = {
+    "e": "header", "schema": 1, "phase": "firstboot", "segment": "boot",
+    "pid": 101, "start": "1001", "qmp": "30:40", "peerPid": 101, "peerUid": 1000,
+    "recorderPid": 101, "recorderStart": "1001", "device": "display0", "head": 0,
+    "intervalMs": 250, "maxGapMs": 500, "maxRawBytes": 45 * 1024 * 1024,
+    "maxSamples": 2000, "t": 1, "initial": "prelaunch",
+}
+require_rejected(
+    lambda: module.validate_retained_ledger(
+        (json.dumps(aliasing_header, sort_keys=True, separators=(",", ":")) + "\n").encode(),
+        "firstboot", "boot", qemu_identity, False,
+    ),
+    "recorder identity aliases QEMU identity",
+)
+
+bad_socket_identity = (
+    b"phase=firstboot\npid=101\nstart_time=1001\nqga_identity=10:20\n"
+    b"qmp_identity=30:40\nqmp_capture_identity=50:60\n"
+)
+require_rejected(
+    lambda: module.parse_identity(bad_socket_identity, "firstboot"),
+    "QEMU sockets do not have one distinct three-endpoint topology",
+)
+
+chronology_identities = {
+    "firstboot": {"start_time": "100", "qga_identity": "30:40"},
+    "postreboot": {"start_time": "200", "qga_identity": "30:50"},
+}
+chronology_recorders = {
+    "firstboot-boot": {"start_time": "110"},
+    "firstboot-shutdown": {"start_time": "120"},
+    "postreboot-boot": {"start_time": "210"},
+    "postreboot-shutdown": {"start_time": "220"},
+}
+chronology = {
+    "firstboot-boot": {"peerUid": 1000, "firstMonotonicNs": 100, "lastMonotonicNs": 200},
+    "firstboot-shutdown": {"peerUid": 1000, "firstMonotonicNs": 300, "lastMonotonicNs": 400},
+    "postreboot-boot": {"peerUid": 1000, "firstMonotonicNs": 350, "lastMonotonicNs": 500},
+    "postreboot-shutdown": {"peerUid": 1000, "firstMonotonicNs": 600, "lastMonotonicNs": 700},
+}
+require_rejected(
+    lambda: module.validate_run_process_chronology(
+        chronology_identities, chronology_recorders, chronology),
+    "overlapping firstboot/postreboot ledger chronology",
+)
+chronology["postreboot-boot"] = {
+    "peerUid": 1001, "firstMonotonicNs": 500, "lastMonotonicNs": 550,
+}
+require_rejected(
+    lambda: module.validate_run_process_chronology(
+        chronology_identities, chronology_recorders, chronology),
+    "inconsistent QMP peer UID across one run",
+)
+chronology["postreboot-boot"]["peerUid"] = 1000
+chronology_recorders["firstboot-shutdown"]["start_time"] = "200"
+require_rejected(
+    lambda: module.validate_run_process_chronology(
+        chronology_identities, chronology_recorders, chronology),
+    "firstboot recorder does not precede the postreboot QEMU process",
+)
+chronology_recorders["firstboot-shutdown"]["start_time"] = "120"
+chronology_identities["postreboot"]["qga_identity"] = "31:50"
+require_rejected(
+    lambda: module.validate_run_process_chronology(
+        chronology_identities, chronology_recorders, chronology),
+    "firstboot/postreboot QEMU sockets do not share one runtime device",
+)
+
+records = []
+for scenario_index in range(3):
+    qemu = {
+        phase: {"pid": str(200 + scenario_index * 10 + phase_index),
+                "start_time": str(2000 + scenario_index * 10 + phase_index)}
+        for phase_index, phase in enumerate(module.PHASES)
+    }
+    recorders = {
+        f"{phase}-{segment}": {
+            "pid": str(400 + scenario_index * 10 + segment_index),
+            "start_time": str(4000 + scenario_index * 10 + segment_index),
+        }
+        for segment_index, (phase, segment) in enumerate(module.SEGMENTS)
+    }
+    records.append({
+        "runId": f"run-{scenario_index}", "targetSerial": f"serial-{scenario_index}",
+        "payloadIsoSha256": "a" * 64 if scenario_index < 2 else "b" * 64,
+        "isoSha256": "c" * 64, "harnessSha256": "d" * 64,
+        "qemuIdentities": qemu, "recorderIdentities": recorders,
+    })
+require_rejected(
+    lambda: module.validate_cross_scenario_records(records),
+    "duplicate helper/config payload ISO across scenarios",
+)
+PY
 cat >"$fixture_project/arch-linux-installer.sh" <<'INSTALLER'
 #!/usr/bin/env bash
 if [ "$#" -eq 1 ] && [ "$1" = --version ]; then
@@ -410,7 +671,8 @@ find "$archive_stage" -type d -exec chmod 0755 -- {} +
 find "$archive_stage" -type f -exec chmod 0644 -- {} +
 (
     cd -- "$archive_stage"
-    tar --sort=name --format=ustar --owner=0 --group=0 --numeric-owner --mtime='@0' -cf - repo |
+    tar --sort=name --format=ustar --owner=0 --group=0 --numeric-owner \
+        --mtime="@${source_epoch}" -cf - repo |
         zstd --compress --quiet --threads=1 -19 --stdout >"$work/repository.tar.zst"
 )
 chmod 0644 -- "$work/repository.tar.zst"
@@ -477,6 +739,8 @@ chmod 0644 -- "$assets/arch-linux-installer.sh.sha256"
 for file in arch-linux.gpg primary-fingerprint signing-subkey-fingerprint; do
     install -m0644 -- "$fixture_project/repository/trust/$file" "$assets/$file"
 done
+install -m0644 -- "$build_metadata" "$assets/BUILD-METADATA.json"
+install -m0644 -- "$unsigned_manifest" "$assets/UNSIGNED-SHA256SUMS"
 refresh_release_manifest() {
     local target="$1"
     rm -f -- "$target/RELEASE-SHA256SUMS" "$target/RELEASE-SHA256SUMS.sig"
@@ -490,10 +754,15 @@ refresh_release_manifest() {
     sign_file "$key_home" "$signing" "$target/RELEASE-SHA256SUMS" "$target/RELEASE-SHA256SUMS.sig"
 }
 verify_release() {
-    RUNNER_TEMP="$release_verify_temp" "$fixture_project/repository/verify-release-assets.sh" "$1" \
+    local target="$1" closure="${2:---phase-a}"
+    local extra=()
+    [ "$closure" = --phase-a ] || extra=(--source-tree-sha256 "$source_tree_sha256")
+    RUNNER_TEMP="$release_verify_temp" "$fixture_project/repository/verify-release-assets.sh" "$target" \
+        "$closure" \
         --release-version 1.0.0 \
         --source-commit "$source_commit" \
         --source-tree "$source_tree" \
+        "${extra[@]}" \
         --build-metadata-sha256 "$build_metadata_hash" \
         --unsigned-manifest-sha256 "$unsigned_manifest_hash"
 }
@@ -506,6 +775,352 @@ expect_release_rejected() {
 }
 refresh_release_manifest "$assets"
 verify_release "$assets" >/dev/null
+
+source_tree_sha256="$(
+    git -C "$fixture_project" ls-files -z |
+        while IFS= read -r -d '' file; do
+            mode=0644
+            [ -x "$fixture_project/$file" ] && mode=0755
+            printf '%s %s *%s\n' "$mode" "$(sha256sum --binary -- "$fixture_project/$file" | awk '{print $1}')" "$file"
+        done | LC_ALL=C sort | sha256sum | awk '{print $1}'
+)"
+final_assets="$work/final-assets"
+cp -a -- "$assets" "$final_assets"
+evidence_name=arch-linux-acceptance-evidence-1.0.0.tar.zst
+acceptance_name=arch-linux-acceptance-1.0.0.json
+evidence_root="$work/final-evidence-stage/evidence"
+mkdir -p -- "$evidence_root"
+python3 -B - "$evidence_root" "$source_commit" "$source_tree" "$build_metadata_hash" \
+    "$unsigned_manifest_hash" "$(sha256sum --binary -- "$assets/$archive" | awk '{print $1}')" \
+    "$(sha256sum --binary -- "$assets/RELEASE-SHA256SUMS" | awk '{print $1}')" \
+    "$snapshot/repository-manifest.json" "$snapshot/repository-manifest.json.sig" \
+    "$assets" "$fixture_project" <<'PY'
+from __future__ import annotations
+import gzip, hashlib, importlib.util, json, os, pathlib, sys
+
+root=pathlib.Path(sys.argv[1])
+commit,tree,build_hash,unsigned_hash,snapshot_hash,release_hash=sys.argv[2:8]
+repository_manifest=pathlib.Path(sys.argv[8]).read_bytes()
+repository_signature=pathlib.Path(sys.argv[9]).read_bytes()
+assets=pathlib.Path(sys.argv[10])
+source=pathlib.Path(sys.argv[11])
+spec=importlib.util.spec_from_file_location('acceptance_manifest_fixture',source/'repository/acceptance-manifest.py')
+am=importlib.util.module_from_spec(spec); spec.loader.exec_module(am)
+scenarios=(
+    ('minimal-ext4-systemdboot','minimal','M'),
+    ('stock-gnome-btrfs-luks2-plymouth-grub','luksgrub','G'),
+    ('marble-gnome-btrfs-luks2-plymouth-systemdboot','marble','A'),
+)
+phases=('firstboot','postreboot')
+segments=tuple((phase,segment) for phase in phases for segment in ('boot','shutdown'))
+ledgers=sorted(f'{phase}-{segment}-frame-ledger.jsonl' for phase,segment in segments)
+confirmations=tuple(sorted(am.CONFIRMATIONS))
+manifest_value=json.loads(repository_manifest)
+objects=manifest_value['files']
+object_map={item['name']:item for item in objects}
+primary=(assets/'primary-fingerprint').read_text().strip()
+signing=(assets/'signing-subkey-fingerprint').read_text().strip()
+public_key_hash=hashlib.sha256((assets/'arch-linux.gpg').read_bytes()).hexdigest()
+installer_hash=hashlib.sha256((assets/'arch-linux-installer.sh').read_bytes()).hexdigest()
+bootstrap_hash=hashlib.sha256((assets/'install.sh').read_bytes()).hexdigest()
+iso_hash=json.loads((source/'maintenance/accepted-arch-iso.json').read_text())['sha256']
+
+def encoded(value):
+    return (json.dumps(value,sort_keys=True,separators=(',',':'))+'\n').encode()
+def digest(value):
+    return hashlib.sha256(value).hexdigest()
+def write(path,value):
+    path.parent.mkdir(parents=True,exist_ok=True)
+    path.write_bytes(value)
+    path.chmod(0o644)
+def ppm(width,height,seed):
+    pixel=bytes(((seed*17)%256,(seed*31)%256,(seed*47)%256))
+    return f'P6\n{width} {height}\n255\n'.encode()+pixel*(width*height)
+def identity(phase,index):
+    socket_device=10+index//10
+    start_time=9000+index if phase=='firstboot' else 9001+index
+    values={'phase':phase,'pid':str(100+index),'start_time':str(start_time),
+        'qga_identity':f'{socket_device}:{20+index}','qmp_identity':f'{socket_device}:{40+index}',
+        'qmp_capture_identity':f'{socket_device}:{60+index}'}
+    raw=''.join(f'{key}={values[key]}\n' for key in
+        ('phase','pid','start_time','qga_identity','qmp_identity','qmp_capture_identity')).encode()
+    return values,raw
+def raw_sample(ppm_sha,n,t,previous,width=16,height=16):
+    raw_name=f'frame-{ppm_sha}.ppm.gz'
+    return {'e':'sample','n':n,'t':t,'gapMs':0 if previous is None else (t-previous)//1_000_000,
+        'ppm':ppm_sha,'raw':raw_name,'rawSha':digest(('raw:'+ppm_sha).encode()),'w':width,'h':height}
+def control(name,n,t,index):
+    return {'e':'control','name':name,'nonce':f'{index:016x}','n':n,'t':t,'state':'running'}
+def ledger(phase,segment,ident,digests,index,challenge=False):
+    base=1_000_000_000+index*10_000_000_000
+    header={'e':'header','schema':1,'phase':phase,'segment':segment,'pid':int(ident['pid']),
+        'start':ident['start_time'],'qmp':ident['qmp_identity'],'peerPid':int(ident['pid']),
+        'peerUid':1000,'recorderPid':5000+index,'recorderStart':str(9000+index),
+        'device':'display0','head':0,'intervalMs':250,'maxGapMs':500,
+        'maxRawBytes':45*1024*1024,'maxSamples':2000,'t':base,
+        'initial':'prelaunch' if segment=='boot' else 'running'}
+    records=[header]
+    previous=None
+    def add_sample(value,offset):
+        nonlocal previous
+        item=raw_sample(value,len([row for row in records if row.get('e')=='sample']),base+offset,previous)
+        records.append(item); previous=item['t']
+    add_sample(digests[0],100_000_000)
+    records.append({'e':'ready','n':0,'t':base+110_000_000,'ppm':digests[0],
+                    'state':header['initial']})
+    if segment=='shutdown':
+        records.append(control('shutdown-armed',0,base+120_000_000,index*10+1))
+        add_sample(digests[-1],200_000_000)
+        records.append({'e':'terminal','reason':'qemu-exit','n':2,'t':base+250_000_000,'qemuExit':True})
+    elif challenge:
+        records.append(control('cont-sent',0,base+120_000_000,index*10+1))
+        add_sample(digests[1],200_000_000)
+        records.append(control('challenge-before',1,base+210_000_000,index*10+2))
+        add_sample(digests[2],300_000_000)
+        records.append(control('challenge-after',2,base+310_000_000,index*10+3))
+        add_sample(digests[3],400_000_000)
+        records.append(control('challenge-cleared',3,base+410_000_000,index*10+4))
+        add_sample(digests[3],450_000_000)
+        records.append(control('stop-boot',4,base+460_000_000,index*10+5))
+        records.append({'e':'terminal','reason':'requested-stop','n':4,'t':base+470_000_000,
+                        'qemuExit':False})
+    else:
+        records.append(control('cont-sent',0,base+120_000_000,index*10+1))
+        for offset,value in enumerate(digests[1:],2):
+            add_sample(value,offset*100_000_000)
+        last=len([row for row in records if row.get('e')=='sample'])-1
+        records.append(control('stop-boot',last,base+(len(digests)+2)*100_000_000,index*10+2))
+        records.append({'e':'terminal','reason':'requested-stop','n':last,
+                        't':base+(len(digests)+2)*100_000_000+10_000_000,'qemuExit':False})
+    raw_map={}
+    for item in records:
+        if item.get('e')=='sample':
+            raw_map[f"frame-raw/{phase}-{segment}/{item['raw']}"]=item['rawSha']
+    return records,raw_map
+
+for index,(scenario,prefix,serial_code) in enumerate(scenarios,1):
+    run=root/scenario
+    evidence=run/'evidence'
+    evidence.mkdir(parents=True)
+    run_id=f'{prefix}-20260902T00000{index}Z-{index:08x}'
+    selected=list(am.EXPECTED_SCREENSHOTS[scenario])
+    contacts=sorted(f'{phase}-{segment}-contact-sheet-001.ppm' for phase,segment in segments)
+    identities={}
+    for phase_index,phase in enumerate(phases,1):
+        values,raw=identity(phase,index*10+phase_index)
+        identities[phase]=values
+        write(evidence/f'{phase}-qemu.identity',raw)
+    selected_bytes={name:ppm(16,16,index*20+item) for item,name in enumerate(selected,1)}
+    for name,value in selected_bytes.items():
+        write(evidence/name,value)
+    selected_hashes={name:digest(value) for name,value in selected_bytes.items()}
+    raw_hashes={}
+    challenge_values={}
+    segment_values=[]
+    for segment_index,(phase,segment) in enumerate(segments,1):
+        challenge=prefix=='minimal' and segment=='boot'
+        if challenge:
+            before=digest(ppm(16,16,index*30+segment_index))
+            after=selected_hashes[f'{phase}-tty.ppm']
+            cleared=digest(ppm(16,16,index*30+segment_index+10))
+            initial=digest(ppm(16,16,index*30+segment_index+20))
+            values=[initial,before,after,cleared]
+            challenge_values[phase]=(before,after,cleared)
+        elif segment=='boot' and phase=='firstboot':
+            values=[digest(ppm(16,16,index*40+segment_index)),
+                    *(selected_hashes[name] for name in selected)]
+        else:
+            values=[digest(ppm(16,16,index*40+segment_index)),
+                    digest(ppm(16,16,index*40+segment_index+10))]
+        records,raw_map=ledger(phase,segment,identities[phase],values,index*10+segment_index,challenge)
+        if index==1 and phase=='firstboot' and segment=='boot':
+            mutations=((0,'schema',2),(0,'schema',True),(0,'head',1),(1,'gapMs',False),
+                       (2,'n',False),(3,'n',True))
+            for record_index,field,bad_value in mutations:
+                changed=json.loads(json.dumps(records))
+                changed[record_index][field]=bad_value
+                try:
+                    am.validate_retained_ledger(
+                        b''.join(encoded(item) for item in changed),phase,segment,
+                        identities[phase],challenge)
+                except am.ManifestError:
+                    pass
+                else:
+                    raise SystemExit(
+                        f'acceptance negative accepted {field}={bad_value!r}')
+        write(evidence/f'{phase}-{segment}-frame-ledger.jsonl',b''.join(encoded(item) for item in records))
+        raw_hashes.update(raw_map)
+        segment_values.append({'phase':phase,'segment':segment,
+                               'samples':sum(item.get('e')=='sample' for item in records),'sheets':1})
+    for contact_index,name in enumerate(contacts,1):
+        write(evidence/name,ppm(1280,800,index*10+contact_index))
+    retained=[*(f'evidence/{name}' for name in ledgers),
+        *(f'evidence/{phase}-qemu.identity' for phase in phases),
+        *(f'evidence/{name}' for name in selected),*(f'evidence/{name}' for name in contacts)]
+    file_hashes={name:digest((run/name).read_bytes()) for name in retained}
+    file_hashes.update(raw_hashes)
+    challenges={}
+    if prefix=='minimal':
+        suffix=run_id.rsplit('-',1)[-1]
+        for phase in phases:
+            before,after,cleared=challenge_values[phase]
+            challenges[phase]={'challenge':f'ali-{phase}-{suffix}','before':{'sha256':before},
+                'after':{'sha256':after},'cleared':{'sha256':cleared},'changedPixels':256,
+                'clearChangedPixels':256,'restoredPixels':0,'input':'hmp-no-enter','clearInput':'ctrl-u'}
+    frame_manifest={'schema':1,'status':'SEALED','sourceCommit':commit,'sourceTree':tree,
+        'runId':run_id,'scenario':scenario,
+        'policy':{'device':'display0','head':0,'intervalMs':250,'maxGapMs':500,
+                  'maxEvidenceBytes':500*1024*1024},
+        'qemuIdentities':identities,'segments':segment_values,
+        'selectedFrames':sorted(selected),'challenges':challenges,'fileHashes':file_hashes}
+    frame_manifest_raw=encoded(frame_manifest)
+    write(evidence/'frame-evidence-manifest.json',frame_manifest_raw)
+    template={'schema':1,'verdict':'PENDING','reviewer':'','reviewedAt':'',
+        'sourceCommit':commit,'sourceTree':tree,'runId':run_id,'scenario':scenario,
+        'manifestSha256':digest(frame_manifest_raw),'pendingResultSha256':'',
+        'confirmations':{name:False for name in confirmations},'notes':''}
+    template_raw=encoded(template)
+    write(evidence/'manual-review-template.json',template_raw)
+    object_rows=''.join(f"{item['name']}\t{item['sha256']}\t{item['size']}\n" for item in objects).encode()
+    write(evidence/'repository-objects.tsv',object_rows)
+    write(evidence/'repository-manifest.json',repository_manifest)
+    write(evidence/'repository-manifest.json.sig',repository_signature)
+    marker={'minimal':'MINIMAL','luksgrub':'LUKSGRUB','marble':'MARBLE'}[prefix]
+    log=f'{marker}_QEMU_INSTALLER_EXIT status=0\n{marker}_QEMU_INSTALL_COMPLETE run_id={run_id}\n'.encode()
+    write(evidence/'scenario.log.gz',gzip.compress(log,mtime=0))
+    write(evidence/'final-qemu-img-check.txt',b'No errors were found on the image.\n')
+    write(evidence/'no-qemu-process.txt',f'no matching QEMU process remains for {run_id}\n'.encode())
+    harness=b''.join(f'{digest((source/name).read_bytes())}  {name}\n'.encode() for name in am.HARNESS_FILES)
+    write(run/'harness.sha256',harness)
+    write(evidence/'preseal-harness-check.txt',b''.join(f'{name}: OK\n'.encode() for name in am.HARNESS_FILES))
+    run_path=f'/fixture/{run_id}'
+    initial_ovmf=digest(b'OVMF template fixture')
+    final_ovmf=digest(f'OVMF final {scenario}'.encode())
+    write(run/'OVMF_VARS.initial.sha256',f'{initial_ovmf}  {run_path}/OVMF_VARS.fd\n'.encode())
+    write(run/'OVMF_VARS.final.sha256',f'{final_ovmf}  {run_path}/OVMF_VARS.fd\n'.encode())
+    write(run/'payload.iso.sha256',f"{digest(f'payload {scenario}'.encode())}  {run_path}/payload.iso\n".encode())
+    runtime_names=('/usr/bin/qemu-system-x86_64','/usr/bin/qemu-img',
+                   '/usr/share/OVMF/OVMF_CODE_4M.fd','/usr/share/OVMF/OVMF_VARS_4M.fd')
+    write(run/'runtime-inputs.sha256',b''.join(
+        f"{digest(f'{scenario}:{name}'.encode())}  {name}\n".encode() for name in runtime_names))
+    assertion_rows=[]
+    assertion_values=[]
+    for assertion_id in am.EXPECTED_ASSERTIONS[scenario]:
+        detail=f'fixture exercises exact required assertion {assertion_id}'
+        assertion_rows.append(f'{assertion_id}\tPASS\t{detail}\n')
+        assertion_values.append({'id':assertion_id,'status':'PASS','detail':detail})
+    write(run/'assertions.tsv',''.join(assertion_rows).encode())
+    write(run/'qemu-version.txt',b'QEMU emulator version 9.2.0\n')
+    if prefix=='marble':
+        runtime_suffixes=('/repository/repository.env','/repository.contract','/repository-ca.crt',
+                          '/repository-server.crt')
+        write(run/'repository-runtime.sha256',b''.join(
+            f"{digest(f'{scenario}:{name}'.encode())}  {run_path}{name}\n".encode()
+            for name in runtime_suffixes))
+    retained_counter=400_000_000+index
+    write(run/'evidence-size.txt',f'{retained_counter}\n'.encode())
+    serial=f'ALI100{serial_code}{index:012X}'
+    result={'assertions':assertion_values,
+        'buildMetadataSha256':build_hash,'contactSheets':contacts,'exitStatus':0,'failedPhase':None,
+        'frameLedgers':ledgers,'harnessSha256':digest(harness),'inputMode':'staged',
+        'installerSha256':installer_hash,'isoSha256':iso_hash,
+        'manualReviewStatus':'PENDING','manualReviewTemplateSha256':digest(template_raw),
+        'releaseSha256sumsSha256':release_hash,'releaseVersion':'1.0.0',
+        'repositoryDatabaseSha256':object_map['arch-linux.db.tar.gz']['sha256'],
+        'repositoryDatabaseSignatureSha256':object_map['arch-linux.db.tar.gz.sig']['sha256'],
+        'repositoryFilesSha256':object_map['arch-linux.files.tar.gz']['sha256'],
+        'repositoryFilesSignatureSha256':object_map['arch-linux.files.tar.gz.sig']['sha256'],
+        'repositoryManifestSha256':digest(repository_manifest),
+        'repositoryManifestSignatureSha256':digest(repository_signature),
+        'repositoryObjects':objects,'repositoryPackageSetSha256':manifest_value['packageSetSha256'],
+        'repositoryPrimaryFingerprint':primary,'repositoryPublicKeySha256':public_key_hash,
+        'repositorySigningFingerprint':signing,'repositorySnapshotSha256':snapshot_hash,
+        'retainedEvidenceBytes':retained_counter,'runId':run_id,'scenario':scenario,
+        'screenshots':sorted(selected),'snapshotVerification':'INDEPENDENT_PASS',
+        'sourceCommit':commit,'sourceTree':tree,'status':'PENDING_VISUAL_REVIEW',
+        'targetSerial':serial,'unsignedManifestSha256':unsigned_hash}
+    assert set(result)==am.RESULT_KEYS
+    model={'minimal':'MIN','luksgrub':'GRB','marble':'MAR'}[prefix]
+    identity_rows=[
+        ('scenario',scenario),('input_mode','staged'),('release_version','1.0.0'),('run_id',run_id),
+        ('source_commit',commit),('source_tree',tree),('installer_sha256',installer_hash),
+        ('bootstrap_sha256',bootstrap_hash),('harness_sha256',digest(harness)),('iso_sha256',iso_hash),
+        ('snapshot_sha256',snapshot_hash),('build_metadata_sha256',build_hash),
+        ('unsigned_manifest_sha256',unsigned_hash),('target_serial',serial),('target_vendor','SNAPLYZE'),
+        ('target_model',f'ALI_{model}_{index:08X}'),('repository_public_key_sha256',public_key_hash),
+        ('repository_primary_fingerprint',primary),('repository_signing_fingerprint',signing),
+        ('repository_package_set_sha256',manifest_value['packageSetSha256']),
+        ('repository_manifest_sha256',digest(repository_manifest)),
+        ('repository_manifest_signature_sha256',digest(repository_signature)),
+        ('repository_database_sha256',object_map['arch-linux.db.tar.gz']['sha256']),
+        ('repository_database_signature_sha256',object_map['arch-linux.db.tar.gz.sig']['sha256']),
+        ('repository_files_sha256',object_map['arch-linux.files.tar.gz']['sha256']),
+        ('repository_files_signature_sha256',object_map['arch-linux.files.tar.gz.sig']['sha256']),
+        ('release_sha256sums_sha256',release_hash),
+    ]
+    identity_text=''.join(f'{key}={value}\n' for key,value in identity_rows)
+    identity_text+=''.join(
+        f"repository_object_sha256={item['sha256']} name={item['name']} size={item['size']}\n"
+        for item in objects)
+    if prefix=='marble': identity_text+='repository_server_port=43210\n'
+    write(run/'identity.txt',identity_text.encode())
+    result_raw=encoded(result)
+    write(run/'result.json',result_raw)
+    receipt=template|{'verdict':'PASS','reviewer':'fixture-reviewer',
+        'reviewedAt':'2026-09-02T00:10:00Z','pendingResultSha256':digest(result_raw),
+        'confirmations':{name:True for name in confirmations}}
+    receipt_raw=encoded(receipt)
+    write(evidence/'manual-review-receipt.json',receipt_raw)
+    verdict={'schema':1,'status':'PASS','sourceCommit':commit,'sourceTree':tree,
+        'runId':run_id,'scenario':scenario,'manifestSha256':digest(frame_manifest_raw),
+        'templateSha256':digest(template_raw),'receiptSha256':digest(receipt_raw),
+        'pendingResultSha256':digest(result_raw),'rawFramesRemoved':True,
+        'budgetBytes':500*1024*1024,'transientEvidenceBytes':480_000_000,
+        'cumulativePermanentEvidenceBytes':470_000_000}
+    write(run/'visual-review-verdict.json',encoded(verdict))
+
+for base,dirs,files in os.walk(root):
+    pathlib.Path(base).chmod(0o755)
+    for name in dirs:
+        (pathlib.Path(base)/name).chmod(0o755)
+    for name in files:
+        (pathlib.Path(base)/name).chmod(0o644)
+PY
+evidence_tar="$work/final-evidence.tar"
+python3 - "$evidence_root" "$evidence_tar" "$source_epoch" <<'PY'
+import io, pathlib, sys, tarfile
+root=pathlib.Path(sys.argv[1]); output=pathlib.Path(sys.argv[2]); epoch=int(sys.argv[3])
+paths=[root,*root.rglob('*')]
+paths.sort(key=lambda path: pathlib.PurePosixPath('evidence',*path.relative_to(root).parts).as_posix())
+with tarfile.open(output,'w',format=tarfile.USTAR_FORMAT) as archive:
+    for path in paths:
+        name=pathlib.PurePosixPath('evidence',*path.relative_to(root).parts).as_posix()
+        info=tarfile.TarInfo(name); info.uid=info.gid=0; info.uname=info.gname=''; info.mtime=epoch
+        if path.is_dir():
+            info.type=tarfile.DIRTYPE; info.mode=0o755; info.size=0; archive.addfile(info)
+        else:
+            payload=path.read_bytes(); info.type=tarfile.REGTYPE; info.mode=0o644; info.size=len(payload)
+            archive.addfile(info,io.BytesIO(payload))
+PY
+zstd --compress --quiet --threads=1 -19 --stdout -- "$evidence_tar" >"$final_assets/$evidence_name"
+chmod 0644 -- "$final_assets/$evidence_name"
+python3 "$fixture_project/repository/acceptance-manifest.py" create \
+    --phase-a "$assets" --evidence-root "$evidence_root" \
+    --evidence-archive "$final_assets/$evidence_name" --release-version 1.0.0 \
+    --source-commit "$source_commit" --source-tree "$source_tree" \
+    --source-tree-sha256 "$source_tree_sha256" --build-metadata-sha256 "$build_metadata_hash" \
+    --unsigned-manifest-sha256 "$unsigned_manifest_hash" \
+    --snapshot-sha256 "$(sha256sum --binary -- "$assets/$archive" | awk '{print $1}')" \
+    --output "$final_assets/$acceptance_name"
+sign_file "$key_home" "$signing" "$final_assets/$evidence_name" "$final_assets/$evidence_name.sig"
+sign_file "$key_home" "$signing" "$final_assets/$acceptance_name" "$final_assets/$acceptance_name.sig"
+verify_release "$final_assets" --finalized >/dev/null
+for file in "$assets"/*; do
+    cmp --silent -- "$file" "$final_assets/${file##*/}" || {
+        printf 'repository check failed: finalized closure changed Phase A\n' >&2
+        exit 1
+    }
+done
 
 negative="$work/release-installer-checksum-private-mode"
 cp -a -- "$assets" "$negative"
@@ -527,6 +1142,79 @@ negative="$work/release-modified-bootstrap"
 cp -a -- "$assets" "$negative"
 printf 'tamper\n' >>"$negative/install.sh"
 expect_release_rejected 'modified install.sh' "$negative"
+
+negative="$work/final-release-nonempty-deferred"
+cp -a -- "$final_assets" "$negative"
+python3 - "$negative/$acceptance_name" <<'PY'
+import json,pathlib,sys
+p=pathlib.Path(sys.argv[1]); d=json.loads(p.read_text()); d['deferred']=['bad']; p.write_text(json.dumps(d,sort_keys=True,separators=(',',':'))+'\n')
+PY
+rm -- "$negative/$acceptance_name.sig"
+sign_file "$key_home" "$signing" "$negative/$acceptance_name" "$negative/$acceptance_name.sig"
+if verify_release "$negative" --finalized >/dev/null 2>&1; then
+    printf 'repository check failed: finalized nonempty deferred accepted\n' >&2
+    exit 1
+fi
+
+negative="$work/final-release-wrong-qemu-result-binding"
+cp -a -- "$final_assets" "$negative"
+python3 - "$negative/$acceptance_name" <<'PY'
+import json,pathlib,sys
+p=pathlib.Path(sys.argv[1]); d=json.loads(p.read_text())
+scenario='minimal-ext4-systemdboot'
+actual=d['qemu'][scenario]['resultSha256']
+d['qemu'][scenario]['resultSha256']=('f'*64 if actual != 'f'*64 else 'e'*64)
+p.write_text(json.dumps(d,sort_keys=True,separators=(',',':'))+'\n')
+PY
+rm -- "$negative/$acceptance_name.sig"
+sign_file "$key_home" "$signing" "$negative/$acceptance_name" "$negative/$acceptance_name.sig"
+if verify_release "$negative" --finalized >/dev/null 2>&1; then
+    printf 'repository check failed: finalized wrong QEMU result binding accepted\n' >&2
+    exit 1
+fi
+
+negative="$work/final-release-noncanonical-acceptance"
+cp -a -- "$final_assets" "$negative"
+python3 - "$negative/$acceptance_name" <<'PY'
+import json,pathlib,sys
+p=pathlib.Path(sys.argv[1]); p.write_text(json.dumps(json.loads(p.read_text()),indent=2)+'\n')
+PY
+rm -- "$negative/$acceptance_name.sig"
+sign_file "$key_home" "$signing" "$negative/$acceptance_name" "$negative/$acceptance_name.sig"
+if verify_release "$negative" --finalized >/dev/null 2>&1; then
+    printf 'repository check failed: finalized noncanonical acceptance manifest accepted\n' >&2
+    exit 1
+fi
+
+negative="$work/final-release-linked-evidence-member"
+cp -a -- "$final_assets" "$negative"
+unsafe_evidence_tar="$work/unsafe-final-evidence.tar"
+python3 - "$unsafe_evidence_tar" "$source_epoch" <<'PY'
+import pathlib,sys,tarfile
+output=pathlib.Path(sys.argv[1]); epoch=int(sys.argv[2])
+with tarfile.open(output,'w',format=tarfile.USTAR_FORMAT) as archive:
+    root=tarfile.TarInfo('evidence'); root.type=tarfile.DIRTYPE; root.mode=0o755
+    root.uid=root.gid=0; root.uname=root.gname=''; root.mtime=epoch; archive.addfile(root)
+    link=tarfile.TarInfo('evidence/unsafe-link'); link.type=tarfile.SYMTYPE; link.mode=0o777
+    link.uid=link.gid=0; link.uname=link.gname=''; link.mtime=epoch; link.linkname='../../outside'
+    archive.addfile(link)
+PY
+zstd --compress --quiet --threads=1 -19 --stdout -- "$unsafe_evidence_tar" >"$negative/$evidence_name"
+chmod 0644 -- "$negative/$evidence_name"
+python3 - "$negative/$acceptance_name" "$negative/$evidence_name" <<'PY'
+import hashlib,json,pathlib,sys
+manifest=pathlib.Path(sys.argv[1]); evidence=pathlib.Path(sys.argv[2]); data=json.loads(manifest.read_text())
+data['evidenceArchiveSha256']=hashlib.sha256(evidence.read_bytes()).hexdigest()
+data['evidenceArchiveSizeBytes']=evidence.stat().st_size
+manifest.write_text(json.dumps(data,sort_keys=True,separators=(',',':'))+'\n')
+PY
+rm -- "$negative/$evidence_name.sig" "$negative/$acceptance_name.sig"
+sign_file "$key_home" "$signing" "$negative/$evidence_name" "$negative/$evidence_name.sig"
+sign_file "$key_home" "$signing" "$negative/$acceptance_name" "$negative/$acceptance_name.sig"
+if verify_release "$negative" --finalized >/dev/null 2>&1; then
+    printf 'repository check failed: finalized linked evidence archive member accepted\n' >&2
+    exit 1
+fi
 
 negative="$work/release-wrong-archive-signature"
 cp -a -- "$assets" "$negative"
@@ -552,4 +1240,5 @@ sign_file "$wrong_home" "$wrong_signing" "$negative/RELEASE-SHA256SUMS" \
     "$negative/RELEASE-SHA256SUMS.sig"
 expect_release_rejected 'release manifest signature from another key' "$negative"
 
-printf 'repository checks passed (schema-2 identity, exact release closure, signatures, and archives)\n'
+printf 'REPOSITORY_CHECKS_RESULT schema=1 namespace_fixtures=%s scenarios=10 signer=passed release_closures=14+18 deferred=%s\n' \
+    "$namespace_marker" "$([ "$namespace_marker" = full ] && printf none || printf github-hosted-container-v1)"

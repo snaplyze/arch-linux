@@ -38,6 +38,23 @@ repository/build-packages.sh "$ARTIFACT_DIR/unsigned"
 repository/verify-unsigned-build.sh "$ARTIFACT_DIR/unsigned"
 ```
 
+Release-host acceptance additionally requires the unflagged and full namespace repository modes,
+the root publication boundary, and both keyring modes:
+
+```bash
+bash tests/repository-checks.sh
+bash tests/repository-checks.sh --require-full-namespace
+/usr/bin/env -i HOME=/root LANG=C LC_ALL=C PATH=/usr/bin:/usr/sbin \
+  /usr/bin/bash --noprofile --norc tests/publication-root-check.sh </dev/null
+bash tests/keyring-rotation-checks.sh
+env ARCH_LINUX_PRIVILEGED_ACCEPTANCE=true bash tests/keyring-rotation-checks.sh
+```
+
+The mandatory full repository run ends only with
+`REPOSITORY_CHECKS_RESULT schema=1 namespace_fixtures=full scenarios=10 signer=passed
+release_closures=14+18 deferred=none`. Schema 1 here names the release-host acceptance result;
+package build and repository metadata remain schema 2.
+
 Do not run destructive installer paths on a development workstation. Use disposable virtual
 machines and exact release inputs for installation acceptance.
 
@@ -71,6 +88,37 @@ only independently verified package bytes. Pacman trust remains
 mandatory. CI may build unsigned packages but must never receive a production private key,
 passphrase, recovery material or signing authority. Do not introduce unsigned fallback, `TrustAll`,
 automatic fingerprint acceptance or keyserver bootstrap.
+
+Before production signing, independently bind the accepted Git commit/tree and canonical
+mode-and-byte SHA-256, then copy the hash-pinned sealer into a fresh root-owned mode-`0700`
+bootstrap directory as a mode-`0500` file. Execute that pinned copy only as host root with `env -i`,
+the exact four-variable environment and stdin `/dev/null`. The sealer creates one immutable
+root-owned exact-file closure and compiles a fresh x86-64 static PIE launcher with no `PT_INTERP`.
+
+The generated `repository/offline-signing-launcher` is the sole production entrypoint. It runs only
+as the locked, nologin, no-home, quiescent `arch-linux-signing` account with no supplementary groups.
+Its FIFO stdin contains exactly two canonical pathnames: the existing private home and the mode-0600
+passphrase file. Those pathnames never enter argv, environment, logs or evidence. The launcher
+retains the home as FD 6, captures the passphrase into a fully sealed memfd 7, carries only its
+one-shot capability on FD 8 and locks the home on FD 9. It closes ambient descriptors, disables
+core dumps and dumpability, and never exposes private bytes to GitHub, a VM or `repo-add`.
+
+Both launcher modes, `snapshot` and `finalize`, enter fresh user, network, PID and mount namespaces.
+Namespace PID 1 binds only retained FD 6 at the fixed private home, keeps every agent socket on
+private tmpfs, exposes loopback only, revalidates memfd 7 immediately before every GPG operation and
+destroys every agent/socket when its supervisor dies. Direct, sourced, inner-script and CI entry
+must reject before private access. The public key must remain one certification-only primary plus
+one signing-only subkey with at least 180 days remaining; GPG receives the passphrase only through
+FD 7. `repo-add --include-sigs` receives no private descriptor or key selector; database/files
+signatures are added explicitly afterward.
+
+`snapshot` emits exactly 14 Phase-A assets: the existing 12-file signed release closure plus
+byte-identical `BUILD-METADATA.json` and `UNSIGNED-SHA256SUMS`. Signed `RELEASE-SHA256SUMS` covers
+exactly the 12 non-self files. After three independently reviewed QEMU PASS results, `finalize`
+copies all 14 bytes unchanged and adds the signed acceptance JSON and signed evidence `.tar.zst`,
+forming exact 18. The JSON binds commit/tree/canonical source hash, build/unsigned/snapshot hashes,
+the exact Phase-A name/hash/size map and aggregate, its manifest hash, three PASS verdicts,
+evidence at most 500 MiB and `deferred=[]`.
 
 ## Marble and GDM boundaries
 

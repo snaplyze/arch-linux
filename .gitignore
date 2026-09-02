@@ -16,6 +16,7 @@
 # Private signing and recovery material
 /.arch-linux-signing-private/
 /offline-signing/
+/repository/offline-signing-launcher
 /*.key
 /*.rev
 

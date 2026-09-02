@@ -150,7 +150,7 @@ receipt="$RUN_ROOT/evidence/manual-review-receipt.json"
 [ ! -e "$receipt" ]
 receipt_tmp="$(mktemp "$RUN_ROOT/evidence/.manual-review-receipt.XXXXXX")"
 trap 'rm -f -- "$receipt_tmp"' EXIT
-jq --arg reviewer "$REVIEWER" --arg reviewed_at "$reviewed_at" --arg result_sha "$result_sha" '
+jq -cS --arg reviewer "$REVIEWER" --arg reviewed_at "$reviewed_at" --arg result_sha "$result_sha" '
   .verdict = "PASS" |
   .reviewer = $reviewer |
   .reviewedAt = $reviewed_at |

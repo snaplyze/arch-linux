@@ -677,9 +677,9 @@ def load_identity(path, phase):
     demand(set(values) == expected and values.get("phase") == phase, "QEMU identity fields differ")
     demand(values["pid"].isdigit() and int(values["pid"]) > 1, "QEMU identity pid")
     demand(values["start_time"].isdigit() and int(values["start_time"]) > 0, "QEMU start")
-    sockets = ("qga_identity", "qmp_identity", "qmp_capture_identity")
-    demand(all(SOCKET_ID.fullmatch(values[key]) for key in sockets), "QEMU socket identity")
-    demand(values["qmp_identity"] != values["qmp_capture_identity"], "QMP sockets are not separate")
+    sock = [values[key] for key in ("qga_identity", "qmp_identity", "qmp_capture_identity")]
+    ok = len(set(sock)) == 3 and len({value.split(":", 1)[0] for value in sock}) == 1
+    demand(all(SOCKET_ID.fullmatch(value) for value in sock) and ok, "QEMU sockets")
     return values
 def check_challenge_pair(challenges, run_id):
     demand(isinstance(challenges, dict) and set(challenges) == set(PHASES), "challenge phases differ")
@@ -1193,7 +1193,7 @@ def _selftest_run():
         def control(name, number, when, nonce):
             return {"e": "control", "name": name, "nonce": nonce * 16, "n": number, "t": when, "state": "running"}
         args = argparse.Namespace(phase=phase, segment=segment, qemu_pid=pid, qemu_start="777777")
-        fake_qmp = argparse.Namespace(identity="7:8", pid=pid, peer_uid=os.getuid())
+        fake_qmp = argparse.Namespace(identity="5:8", pid=pid, peer_uid=os.getuid())
         header = header_record(args, fake_qmp, "888888", stamp)
         records = [header, sample(0, black), {"e": "ready", "n": 0, "t": stamp + 1,
             "ppm": black[3], "state": header["initial"]}]
@@ -1268,11 +1268,11 @@ def _selftest_run():
     ensure_dir(work)
     for phase, pid in (("firstboot", 900001), ("postreboot", 900002)):
         identity = (f"phase={phase}\npid={pid}\nstart_time=777777\nqga_identity=5:6\n"
-            "qmp_identity=7:8\nqmp_capture_identity=9:10\n")
+            "qmp_identity=5:8\nqmp_capture_identity=5:10\n")
         identity_path = evdir / f"{phase}-qemu.identity"
         if phase == "firstboot":
-            create(identity_path, identity.replace("qmp_capture_identity=9:10",
-                "qmp_capture_identity=7:8").encode())
+            create(identity_path, identity.replace("qga_identity=5:6",
+                "qga_identity=5:8").encode())
             reject(load_identity, identity_path, phase)
             identity_path.unlink()
         create(identity_path, identity.encode())

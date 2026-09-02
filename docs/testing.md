@@ -46,10 +46,13 @@ If no genuine clean Arch environment with `makepkg` is available, report
 
 ## Repository signatures
 
-`bash tests/repository-checks.sh` uses an ephemeral test key only. It proves the verifier accepts one
-valid signed snapshot and rejects tampered packages, a signature from another key, missing
-signatures, extra files, path traversal and symlink archives. It does not constitute production
-signing.
+`bash tests/repository-checks.sh` uses an ephemeral test key only. Repository and package manifests
+remain schema 2. The test's release-host result is the separate schema-1 full-namespace,
+ten-scenario, signer-passed, no-deferral acceptance marker; it also proves repository negatives plus
+exact-14 Phase-A and exact-18 finalized closures. Release-host acceptance additionally runs
+`bash tests/repository-checks.sh --require-full-namespace`, the exact empty-derived root
+`tests/publication-root-check.sh` command from `AGENTS.md`, and ordinary plus privileged
+`tests/keyring-rotation-checks.sh`. These fixtures do not constitute production signing.
 
 ## QEMU acceptance
 
@@ -98,7 +101,9 @@ budget.
 
 Production offline signing, immutable Release creation, verified Pages deployment and the final
 public VM readback are separate stages. Source or synthetic signature tests cannot be promoted to
-those statuses. The final public VM uses only the tagged public bootstrap, immutable Release
+those statuses. Staged QEMU consumes only the exact 14-file Phase-A closure. After three reviewed
+PASS verdicts, launcher `finalize` preserves those 14 bytes and adds signed acceptance JSON/evidence
+for exact 18; Pages accepts only that final closure. The final public VM uses only the tagged public bootstrap, immutable Release
 installer/key assets and the public Pages repository; local installer, key, snapshot, CA and
 repository bytes are forbidden from its payload. Inside the public guest, signed
 `RELEASE-SHA256SUMS` binds the expected archive digest, the archive detached signature is verified,
