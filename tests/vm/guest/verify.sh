@@ -1089,9 +1089,11 @@ verify_public_release_pages_binding() (
     public_fetch "${release_base}/RELEASE-SHA256SUMS.sig" "${sums_signature}"
     verify_public_detached_signature "${keyring}" "${sums_signature}" "${sums}"
     awk 'NF != 2 || $1 !~ /^[a-f0-9]{64}$/ || $2 !~ /^\*[A-Za-z0-9][A-Za-z0-9+._-]*$/ { exit 1 }
-         END { if (NR != 10) exit 1 }' "${sums}"
+         END { if (NR != 12) exit 1 }' "${sums}"
     release_sums_hash="$(sha256sum --binary -- "${sums}" | awk '{print $1}')"
     [ "$(release_sum_for "${sums}" arch-linux.gpg)" = "${public_key_sha256}" ]
+    [ "$(release_sum_for "${sums}" BUILD-METADATA.json)" = "${build_metadata_sha256}" ]
+    [ "$(release_sum_for "${sums}" UNSIGNED-SHA256SUMS)" = "${unsigned_manifest_sha256}" ]
 
     public_fetch "${archive_url}" "${archive}"
     public_fetch "${archive_url}.sig" "${archive_signature}"

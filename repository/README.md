@@ -12,8 +12,12 @@ repository. It deliberately separates unsigned building, offline signing and pub
 - `build-packages.sh`: one clean unprivileged Arch build.
 - `verify-unsigned-build.sh`: exact unsigned artifact closure and package metadata.
 - `compare-package-builds.sh`: advisory A+B byte comparison.
-- `offline-sign-release.sh`: local signing and repository/release assembly; forbidden in CI.
-- `run-offline-signing.sh`: loopback-only namespace wrapper.
+- `seal-offline-signing-code.py`: root-only exact-tree sealer and static-launcher builder.
+- `offline-signing-launcher.c`: sole production signing entry, compiled into the sealed closure.
+- `run-offline-signing.sh` and `offline-signing-namespace.sh`: descriptor and full-namespace boundary.
+- `offline-sign-release.sh`: exact-14 Phase-A snapshot signer.
+- `offline-finalize-release.sh`: byte-preserving exact-18 acceptance finalizer.
+- `acceptance-manifest.py`: canonical three-QEMU PASS and evidence binding.
 - `snapshot-manifest.py`: canonical flat signed manifest.
 - `verify-signed-repository.sh`: exact package/database/signature verification.
 - `verify-release-assets.sh`: exact public release-asset verification.
@@ -56,49 +60,240 @@ repository/compare-package-builds.sh "$ARTIFACT_DIR/build-a" "$ARTIFACT_DIR/buil
 
 ## Offline signing
 
-Run only after separate authorization and outside CI. First create a fresh canonical
-`/tmp/arch-linux-signing-home.XXXXXXXX` directory with mode `0700`, populate it locally with only the
-accepted production signing subkey and public certificate through the separately approved
-non-logging key-transfer procedure, stop its agent, then add the required marker:
+Run only after separate authorization and outside CI. Independently calculate the accepted commit,
+tree and canonical mode/byte SHA-256. As host root, copy `seal-offline-signing-code.py` by its
+independently recorded hash into a fresh root-private bootstrap directory, mode `0500`, and invoke
+that copy through `env -i` and stdin `/dev/null`. It verifies the locked/nologin/no-home
+`arch-linux-signing` account, captures the exact source, and builds a root-owned read-only closure
+containing a fresh static PIE launcher without `PT_INTERP`.
+
+Create the dedicated account once, only if it is absent. Do not repurpose an existing UID or group:
 
 ```bash
-printf '%s\n' 'arch-linux-offline-signing-disposable-v1' \
-  >"$DISPOSABLE_GNUPGHOME/.arch-linux-disposable-signing-home"
-chmod 0600 "$DISPOSABLE_GNUPGHOME/.arch-linux-disposable-signing-home"
-gpgconf --homedir "$DISPOSABLE_GNUPGHOME" --kill all
+/usr/sbin/groupadd --system arch-linux-signing
+/usr/sbin/useradd --system --gid arch-linux-signing --home-dir /nonexistent \
+  --shell /usr/sbin/nologin --no-create-home arch-linux-signing
+/usr/sbin/usermod --lock arch-linux-signing
 ```
 
-`BUILD_METADATA_SHA256` and `UNSIGNED_MANIFEST_SHA256` are the independently recorded hashes from
-the downloaded canonical build, not values newly accepted inside the signing operation. Invoke:
+If either name already exists, stop and let the sealer validate it rather than changing it. The
+account must have one unique nonzero UID/GID, no supplementary groups, `/nonexistent`, nologin, a
+locked shadow entry, and no running process. Persistent private material remains only encrypted in
+the authorized external recovery directory; never sign directly from that directory and do not
+change its mount ownership. Inside one root-controlled, no-network operation, follow that recovery
+set's own `README.md` to verify/decrypt its exact archive into a fresh `tmpfs` directory. Import only
+the public certificate and `signing-only-secret.asc` into a one-use GNUPGHOME owned by the signing
+UID/GID at mode `0700`, and copy `key-passphrase` only to a one-use, nonempty, single-link file with
+that ownership and mode `0600`. These are ephemeral signing authorities, not additional persistent
+recovery copies. Keep their canonical paths in unexported shell variables with tracing disabled,
+kill any preparation agent, require the signing UID to be quiescent, and destroy the exact tmpfs
+work directory immediately after signing. Never import the full certification primary for routine
+release signing.
+
+The sealer has exactly five positional arguments after its pathname. This is the complete bootstrap
+shape; `EXPECTED_SEALER_SHA256` and all accepted source identities must already have been recorded by
+independent source review:
 
 ```bash
-GNUPGHOME="$DISPOSABLE_GNUPGHOME" GPG_TTY="$(tty)" \
-  repository/run-offline-signing.sh \
-  --unsigned "$ARTIFACT_DIR/unsigned" \
-  --installer "$REPO_ROOT/arch-linux-installer.sh" \
-  --output "$ARTIFACT_DIR/signed" \
-  --release-version "$VERSION" \
-  --build-metadata-sha256 "$BUILD_METADATA_SHA256" \
-  --unsigned-manifest-sha256 "$UNSIGNED_MANIFEST_SHA256"
+set +x
+test -z "$(git -C "$SOURCE_ROOT" status --porcelain=v1 --untracked-files=all)"
+test -z "$(git -C "$SOURCE_ROOT" clean -ndX)"
+test "$(git -C "$SOURCE_ROOT" rev-parse HEAD)" = "$SOURCE_COMMIT"
+test "$(git -C "$SOURCE_ROOT" rev-parse 'HEAD^{tree}')" = "$SOURCE_TREE"
+test "$(sha256sum --binary -- "$SOURCE_ROOT/repository/seal-offline-signing-code.py" | awk '{print $1}')" = \
+  "$EXPECTED_SEALER_SHA256"
+
+BOOTSTRAP_DIR="$(mktemp -d /root/arch-linux-sealer.XXXXXXXX)"
+install -m0500 -o0 -g0 -- "$SOURCE_ROOT/repository/seal-offline-signing-code.py" \
+  "$BOOTSTRAP_DIR/sealer"
+test "$(sha256sum --binary -- "$BOOTSTRAP_DIR/sealer" | awk '{print $1}')" = \
+  "$EXPECTED_SEALER_SHA256"
+
+# SEALED_ROOT must be missing. Its existing parent and every ancestor are root-owned,
+# non-writable by group/others, and searchable by arch-linux-signing.
+/usr/bin/env -i HOME=/root LANG=C LC_ALL=C PATH=/usr/bin:/usr/sbin \
+  /usr/bin/python3 -I "$BOOTSTRAP_DIR/sealer" \
+  "$SOURCE_ROOT" "$SOURCE_COMMIT" "$SOURCE_TREE" "$SOURCE_TREE_SHA256" "$SEALED_ROOT" \
+  </dev/null
 ```
 
-The signer accepts no passphrase/key file option and no automatic key retrieval. It uses an empty
-derived environment plus user, PID, mount and loopback-only network namespaces, verifies the
-canonical hash pair and every package before signing, constructs the exact release closure and
-invokes the public verifiers. The wrapper stops its agent and deletes the marked disposable home on
-success or failure. It refuses an unmarked, non-canonical or persistent home.
+The launcher drops privileges before parsing its signer arguments. Therefore stage the already
+verified unsigned closure—and later each finalized QEMU run—once into a separate fresh accepted-input
+root whose ancestors are searchable by the signing UID. Accepted directories are root-owned mode
+`0755`; accepted files are root-owned mode `0644`, single-link and non-writable by the signer. Reject
+links/special objects and compare the copied identities to the source before use. The exact QEMU
+destination basenames remain `minimal-ext4-systemdboot`,
+`stock-gnome-btrfs-luks2-plymouth-grub`, and
+`marble-gnome-btrfs-luks2-plymouth-systemdboot`; a native mode-`0700` run directory is never passed
+directly to the launcher.
+
+One root-owned accepted-input staging shape is:
+
+```bash
+# ACCEPTED_INPUT_ROOT must be a reviewed missing absolute path below safe root-owned ancestors.
+test ! -e "$ACCEPTED_INPUT_ROOT" && test ! -L "$ACCEPTED_INPUT_ROOT"
+install -d -m0755 -o0 -g0 -- "$ACCEPTED_INPUT_ROOT"
+cp -a --no-preserve=ownership -- "$UNSIGNED_SOURCE" "$ACCEPTED_INPUT_ROOT/unsigned"
+# Run the next three copies only after their independent visual PASS receipts exist.
+cp -a --no-preserve=ownership -- "$MINIMAL_RUN_SOURCE" \
+  "$ACCEPTED_INPUT_ROOT/minimal-ext4-systemdboot"
+cp -a --no-preserve=ownership -- "$STOCK_RUN_SOURCE" \
+  "$ACCEPTED_INPUT_ROOT/stock-gnome-btrfs-luks2-plymouth-grub"
+cp -a --no-preserve=ownership -- "$MARBLE_RUN_SOURCE" \
+  "$ACCEPTED_INPUT_ROOT/marble-gnome-btrfs-luks2-plymouth-systemdboot"
+test -z "$(find "$ACCEPTED_INPUT_ROOT" -mindepth 1 \
+  \( -type l -o \( ! -type f ! -type d \) \) -print -quit)"
+test -z "$(find "$ACCEPTED_INPUT_ROOT" -type f ! -links 1 -print -quit)"
+find "$ACCEPTED_INPUT_ROOT" -type d -exec chmod 0755 -- {} +
+find "$ACCEPTED_INPUT_ROOT" -type f -exec chmod 0644 -- {} +
+ACCEPTED_UNSIGNED="$ACCEPTED_INPUT_ROOT/unsigned"
+ACCEPTED_MINIMAL_RUN="$ACCEPTED_INPUT_ROOT/minimal-ext4-systemdboot"
+ACCEPTED_STOCK_RUN="$ACCEPTED_INPUT_ROOT/stock-gnome-btrfs-luks2-plymouth-grub"
+ACCEPTED_MARBLE_RUN="$ACCEPTED_INPUT_ROOT/marble-gnome-btrfs-luks2-plymouth-systemdboot"
+```
+
+For snapshot, omit the three QEMU copies because they do not exist yet. Before either launcher call,
+re-run the public verifier appropriate to every accepted input, compare a sorted name/size/SHA-256
+inventory to its independently accepted source, and then make no further input change.
+
+Prepare a separate missing output name below an existing directory owned by
+`arch-linux-signing:arch-linux-signing` at mode `0700`. Accepted inputs, sealed source, ephemeral
+private home and output must be pairwise disjoint. Both `$SNAPSHOT_OUTPUT` and `$FINAL_OUTPUT` below
+must be absent before invocation. Before copying, resolve every variable to a reviewed absolute path;
+never use an empty value or a broad filesystem root as a destination.
+
+Immediately before invocation, enter a root shell in a fresh network namespace, confirm it has no
+IPv4/IPv6 route, prepare the tmpfs signing home as described above, and set
+`PRIVATE_HOME` and `PASSPHRASE_FILE` to those ephemeral paths. A safe preparation follows this shape;
+`RECOVERY_EXTRACTED` is the already validated exact eight-file tmpfs extraction produced by the
+external recovery runbook:
+
+```bash
+# Run this as host root, then execute the remaining preparation and one launcher invocation
+# inside the resulting shell.
+/usr/bin/unshare --net --mount --propagation private --fork \
+  /usr/bin/bash --noprofile --norc
+
+set -Eeuo pipefail
+set +x
+umask 077
+ulimit -c 0
+test -z "$(/usr/bin/ip -4 route show)"
+test -z "$(/usr/bin/ip -6 route show)"
+SIGNING_UID="$(id -u arch-linux-signing)"
+SIGNING_GID="$(id -g arch-linux-signing)"
+SIGNING_WORK="$(mktemp -d /dev/shm/arch-linux-release-signing.XXXXXXXX)"
+chmod 0711 -- "$SIGNING_WORK"
+PRIVATE_HOME="$SIGNING_WORK/gnupg"
+PASSPHRASE_FILE="$SIGNING_WORK/key-passphrase"
+cleanup_signing_work() {
+  status=$?
+  trap - EXIT HUP INT TERM
+  set +e
+  if [[ "$SIGNING_WORK" =~ ^/dev/shm/arch-linux-release-signing\.[A-Za-z0-9]{8}$ ]] &&
+      [ -d "$SIGNING_WORK" ] && [ ! -L "$SIGNING_WORK" ]; then
+    setpriv --reuid="$SIGNING_UID" --regid="$SIGNING_GID" --clear-groups \
+      env -i HOME=/nonexistent LANG=C LC_ALL=C PATH=/usr/bin:/bin \
+      gpgconf --homedir "$PRIVATE_HOME" --kill all >/dev/null 2>&1
+    find "$SIGNING_WORK" -xdev -depth -delete
+  else
+    printf 'Refusing unsafe signing-work cleanup target\n' >&2
+    status=1
+  fi
+  exit "$status"
+}
+trap cleanup_signing_work EXIT HUP INT TERM
+install -d -m0700 -o "$SIGNING_UID" -g "$SIGNING_GID" -- "$PRIVATE_HOME"
+install -m0600 -o "$SIGNING_UID" -g "$SIGNING_GID" -- \
+  "$RECOVERY_EXTRACTED/key-passphrase" "$PASSPHRASE_FILE"
+setpriv --reuid="$SIGNING_UID" --regid="$SIGNING_GID" --clear-groups \
+  env -i HOME=/nonexistent LANG=C LC_ALL=C PATH=/usr/bin:/bin \
+  gpg --batch --no-options --homedir "$PRIVATE_HOME" --import \
+  <"$RECOVERY_EXTRACTED/arch-linux.gpg"
+setpriv --reuid="$SIGNING_UID" --regid="$SIGNING_GID" --clear-groups \
+  env -i HOME=/nonexistent LANG=C LC_ALL=C PATH=/usr/bin:/bin \
+  gpg --batch --no-options --homedir "$PRIVATE_HOME" --import \
+  <"$RECOVERY_EXTRACTED/signing-only-secret.asc"
+setpriv --reuid="$SIGNING_UID" --regid="$SIGNING_GID" --clear-groups \
+  env -i HOME=/nonexistent LANG=C LC_ALL=C PATH=/usr/bin:/bin \
+  gpgconf --homedir "$PRIVATE_HOME" --kill all
+for attempt in {1..100}; do
+  ! pgrep -u "$SIGNING_UID" >/dev/null 2>&1 && break
+  sleep 0.05
+done
+! pgrep -u "$SIGNING_UID" >/dev/null 2>&1
+```
+
+Run that block and the launcher below inside the same network-disabled operation. On every exit,
+kill the ephemeral agent again, verify that no process of the signing UID remains, then delete only
+the exact `SIGNING_WORK` path after checking its `/dev/shm/arch-linux-release-signing.` prefix. Exit
+the temporary network namespace after cleanup. Repeat this recovery-to-tmpfs procedure from scratch
+for `finalize`; never retain the snapshot signing home or passphrase across the QEMU stage.
+
+```bash
+set +x
+printf '%s\n%s\n' "$PRIVATE_HOME" "$PASSPHRASE_FILE" | \
+  /usr/bin/env -i "$SEALED_ROOT/repository/offline-signing-launcher" snapshot \
+    --unsigned "$ACCEPTED_UNSIGNED" \
+    --installer "$SEALED_ROOT/arch-linux-installer.sh" \
+    --output "$SNAPSHOT_OUTPUT" --release-version "$VERSION" \
+    --build-metadata-sha256 "$BUILD_METADATA_SHA256" \
+    --unsigned-manifest-sha256 "$UNSIGNED_MANIFEST_SHA256"
+```
+
+Invoke the launcher as host root. It revalidates the exact unique locked account and then irreversibly
+drops to that account before reading either private pathname. The sealed root and all ancestors must
+be root-owned, non-writable and searchable by the signing account; keep the separate sealer bootstrap
+directory mode `0700`. Do not substitute shell tracing,
+argv, exported variables or chat for that two-line FIFO. The
+launcher retains the home as FD 6, seals the passphrase in memfd 7, uses capability FD 8 and lock FD
+9, and enters fresh user/network/PID/mount namespaces with private tmpfs agent sockets. Inner scripts
+reject direct, sourced and CI use before private access. The signing subkey must be signing-only and
+have at least 180 days remaining. `repo-add --include-sigs` receives no private authority.
+
+After all three staged QEMU verdicts are independently finalized as PASS, use the same launcher with
+the complete nine-option finalizer contract. QEMU run paths are accepted read-only copies; the output
+name is still missing below the same signing-owned mode-`0700` output parent:
+
+```bash
+set +x
+printf '%s\n%s\n' "$PRIVATE_HOME" "$PASSPHRASE_FILE" | \
+  /usr/bin/env -i "$SEALED_ROOT/repository/offline-signing-launcher" finalize \
+    --phase-a "$SNAPSHOT_OUTPUT/assets" \
+    --output "$FINAL_OUTPUT" \
+    --release-version "$VERSION" \
+    --build-metadata-sha256 "$BUILD_METADATA_SHA256" \
+    --unsigned-manifest-sha256 "$UNSIGNED_MANIFEST_SHA256" \
+    --snapshot-sha256 "$SNAPSHOT_SHA256" \
+    --minimal-run "$ACCEPTED_MINIMAL_RUN" \
+    --stock-run "$ACCEPTED_STOCK_RUN" \
+    --marble-run "$ACCEPTED_MARBLE_RUN"
+```
+
+It copies the 14 Phase-A bytes unchanged and adds the signed acceptance JSON and evidence archive,
+producing exact 18. The acceptance consumer independently binds the tracked Arch ISO; each distinct
+helper/config payload ISO; QEMU and recorder PID/start identities; complete ledgers and framebuffer
+geometry; exact assertions, repository objects and runtime markers; and the manual review chain.
+
+`BUILD_METADATA_SHA256` and `UNSIGNED_MANIFEST_SHA256` always come from the independently accepted
+canonical build, not from the signing operation.
 
 ## Public verification
 
 ```bash
-repository/verify-signed-repository.sh "$ARTIFACT_DIR/signed/repository" \
+repository/verify-signed-repository.sh "$SNAPSHOT_OUTPUT/repository" \
   --release-version "$VERSION" \
   --source-commit "$SOURCE_COMMIT" --source-tree "$SOURCE_TREE" \
   --build-metadata-sha256 "$BUILD_METADATA_SHA256" \
   --unsigned-manifest-sha256 "$UNSIGNED_MANIFEST_SHA256"
-repository/verify-release-assets.sh "$ARTIFACT_DIR/signed/assets" \
+repository/verify-release-assets.sh "$SNAPSHOT_OUTPUT/assets" --phase-a \
   --release-version "$VERSION" \
   --source-commit "$SOURCE_COMMIT" --source-tree "$SOURCE_TREE" \
+  --build-metadata-sha256 "$BUILD_METADATA_SHA256" \
+  --unsigned-manifest-sha256 "$UNSIGNED_MANIFEST_SHA256"
+repository/verify-release-assets.sh "$FINAL_OUTPUT" --finalized \
+  --release-version "$VERSION" --source-commit "$SOURCE_COMMIT" --source-tree "$SOURCE_TREE" \
+  --source-tree-sha256 "$SOURCE_TREE_SHA256" \
   --build-metadata-sha256 "$BUILD_METADATA_SHA256" \
   --unsigned-manifest-sha256 "$UNSIGNED_MANIFEST_SHA256"
 ```
@@ -112,7 +307,7 @@ repository snapshot.
 ## Pages
 
 Pages deployment is public-key-only. `.github/workflows/pages.yml` receives the numeric draft
-Release ID plus the exact frozen commit/tree and build/snapshot hashes. It reads back exactly twelve
-draft assets through the authenticated GitHub API, verifies their API digests, annotated tag,
+Release ID plus the exact frozen commit/tree/canonical hash and build/snapshot hashes. It reads back
+exactly eighteen draft assets through the authenticated GitHub API, verifies their API digests, annotated tag,
 checksums, signatures and full repository closure, then safely extracts and uploads the Pages
 artifact. Production private material is never an Actions secret.

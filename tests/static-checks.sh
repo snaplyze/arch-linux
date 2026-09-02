@@ -9,6 +9,11 @@ required=(
     repository/offline-sign-release.sh repository/verify-signed-repository.sh
     repository/verify-release-assets.sh repository/safe-extract-snapshot.py
     repository/snapshot-manifest.py repository/verify-package-metadata.py
+    repository/offline-signing-launcher.c repository/offline-signing-fd-guard.py
+    repository/offline-signing-namespace.sh repository/run-offline-signing.sh
+    repository/seal-offline-signing-code.py repository/verify-sealed-offline-code.py
+    repository/offline-finalize-release.sh repository/acceptance-manifest.py
+    tests/publication-root-check.sh tests/keyring-rotation-checks.sh
     maintenance/check-arch-iso.py maintenance/check-sources.py maintenance/sources.json
     tests/vm/frame-evidence.py
     .github/workflows/ci.yml .github/workflows/packages.yml
@@ -131,9 +136,9 @@ done
 ! grep -Fq 'push:' "$packages_workflow" || fail 'canonical package workflow has an automatic tag build'
 
 # shellcheck disable=SC2016
-for literal in release_id release_version source_commit source_tree snapshot_sha256 \
+for literal in release_id release_version source_commit source_tree source_tree_sha256 snapshot_sha256 \
     build_metadata_sha256 unsigned_manifest_sha256 'GH_TOKEN: ${{ github.token }}' \
-    'releases/${RELEASE_ID}' 'draft == true' '(.assets | length == 12)' \
+    'releases/${RELEASE_ID}' 'draft == true' '(.assets | length == 18)' \
     "refs/tags/\${RELEASE_VERSION}^{}" 'verify-release-assets.sh' '.tar.zst'; do
     grep -Fq -- "$literal" "$pages_workflow" || fail "Pages draft binding absent: $literal"
 done
@@ -163,24 +168,74 @@ for path in repository/verify-unsigned-build.sh repository/verify-signed-reposit
     grep -Fq -- 'verify-package-metadata.py" --verify-package' "$repo_root/$path" ||
         fail "exact package payload verification absent: $path"
 done
-for path in repository/run-offline-signing.sh repository/offline-sign-release.sh; do
+for path in repository/offline-sign-release.sh repository/offline-finalize-release.sh; do
     for literal in --build-metadata-sha256 --unsigned-manifest-sha256; do
         grep -Fq -- "$literal" "$repo_root/$path" ||
             fail "independently accepted signing digest absent from $path: $literal"
     done
+    # shellcheck disable=SC2016
+    grep -Fq -- 'repository_assert_private_signing_subkey "$primary" "$signing" "$fd_guard"' \
+        "$repo_root/$path" || fail "guarded private-key inspection absent from $path"
+    # shellcheck disable=SC2016
+    [ "$(grep -Fc -- 'atomic-publish "$stage" "$output"' "$repo_root/$path")" -eq 1 ] ||
+        fail "atomic no-replace publication differs in $path"
+    # shellcheck disable=SC2016
+    ! grep -Fq -- '/usr/bin/mv -- "$stage" "$output"' "$repo_root/$path" ||
+        fail "replace-capable publication remains in $path"
 done
-for literal in '/usr/bin/env -i' '.arch-linux-disposable-signing-home' \
-    'arch-linux-signing-home\.' '--net' '--pid' '--kill-child=SIGKILL' '--mount-proc'; do
+grep -Fq -- 'exec-private-gpg /usr/bin/gpg' "$repo_root/repository/lib/common.sh" ||
+    fail 'private signing-subkey inspection bypasses its exact descriptor guard'
+for literal in '--sealed-broker' ARCH_LINUX_OFFLINE_ACCEPTED_COMMIT \
+    offline-signing-fd-guard.py '--net' '--pid' '--kill-child' '--mount-proc'; do
     grep -Fq -- "$literal" "$repo_root/repository/run-offline-signing.sh" ||
         fail "offline signing boundary assertion absent: $literal"
 done
 ! grep -Eq -- 'export-secret|cp[^\n]*GNUPGHOME' "$repo_root/repository/run-offline-signing.sh" ||
     fail 'offline signing wrapper copies or exports private key material'
+launcher="$repo_root/repository/offline-signing-launcher.c"
+for literal in ALI_ACCEPTED_COMMIT_SHA ALI_ACCEPTED_TREE_SHA ALI_ACCEPTED_TREE_SHA256 \
+    CLOSE_RANGE_UNSHARE S_ISFIFO MFD_ALLOW_SEALING F_SEAL_WRITE HOME_FD PASSPHRASE_FD BROKER_FD \
+    'strcmp(argv[1], "snapshot")' 'strcmp(argv[1], "finalize")' PR_SET_DUMPABLE PR_SET_PDEATHSIG \
+    validate_account_and_drop_privileges /etc/shadow setresuid setresgid; do
+    grep -Fq -- "$literal" "$launcher" || fail "static launcher boundary absent: $literal"
+done
+for literal in -static-pie ALI_ACCEPTED_COMMIT_SHA sourceCommitSha signingAccount \
+    offline-signing-launcher; do
+    grep -Fq -- "$literal" "$repo_root/repository/seal-offline-signing-code.py" ||
+        fail "root sealer boundary absent: $literal"
+done
+for literal in offline-sign-release.sh offline-finalize-release.sh sealed-root-v1 \
+    '/proc/self/fd/6' '/proc/self/fd/7' '/run/user' 'BASHPID' repository_assert_loopback_only_network; do
+    grep -Fq -- "$literal" "$repo_root/repository/offline-signing-namespace.sh" ||
+        fail "full namespace boundary absent: $literal"
+done
+for literal in '--pinentry-mode loopback' '--passphrase-file /proc/self/fd/7' \
+    'exec-public' 'exec-private-gpg' 'atomic-publish' '/usr/bin/repo-add --include-sigs'; do
+    grep -Fq -- "$literal" "$repo_root/repository/offline-sign-release.sh" ||
+        fail "snapshot signing boundary absent: $literal"
+done
+! grep -Eq -- 'repo-add[^\n]*(--sign|--key)' "$repo_root/repository/offline-sign-release.sh" ||
+    fail 'repo-add receives private signing authority'
+for literal in BUILD-METADATA.json UNSIGNED-SHA256SUMS '--phase-a' 'release asset closure is not exact' \
+    arch-linux-acceptance-evidence- 'phaseAAssets' phaseAAggregateSha256 deferred; do
+    grep -RqsF -- "$literal" "$repo_root/repository/verify-release-assets.sh" \
+        "$repo_root/repository/acceptance-manifest.py" || fail "exact14/18 contract absent: $literal"
+done
+grep -Fq -- \
+    'REPOSITORY_CHECKS_RESULT schema=1 namespace_fixtures=%s scenarios=10 signer=passed release_closures=14+18 deferred=%s' \
+    "$repo_root/tests/repository-checks.sh" ||
+    fail 'repository release-host result marker is not the normative schema-1/full/10/signer/no-deferral contract'
+for literal in 'payloadIsoSha256' 'recorderIdentities' 'challenge_measurements_are_valid' \
+    'maintenance/accepted-arch-iso.json' 'inspect_binary_secret_markers'; do
+    grep -RqsF -- "$literal" "$repo_root/repository/acceptance-manifest.py" \
+        "$repo_root/repository/seal-offline-signing-code.py" ||
+        fail "sealed acceptance evidence binding absent: $literal"
+done
 offline_signer="$repo_root/repository/offline-sign-release.sh"
 # shellcheck disable=SC2016
-safe_private_copy='    cp -a --no-preserve=ownership -- "$unsigned" "$accepted_unsigned"'
+safe_private_copy='    public_exec /usr/bin/cp -a --no-preserve=ownership -- "$unsigned" "$accepted_unsigned"'
 # shellcheck disable=SC2016
-unsafe_private_copy='    cp -a -- "$unsigned" "$accepted_unsigned"'
+unsafe_private_copy='    public_exec /usr/bin/cp -a -- "$unsigned" "$accepted_unsigned"'
 if [ "$(grep -Fxc -- "$safe_private_copy" "$offline_signer")" -ne 1 ] ||
     grep -Fqx -- "$unsafe_private_copy" "$offline_signer"; then
     fail 'offline signing private copy must not preserve its unmapped host owner'
@@ -193,8 +248,8 @@ root=Path(sys.argv[1])
 offline_lines=(root/'repository/offline-sign-release.sh').read_text(encoding='utf-8').splitlines()
 checksum_mode_sequence=[
     "    printf '%s *arch-linux-installer.sh\\n' \\",
-    '        "$(repository_sha256 "$assets/arch-linux-installer.sh")" >"$assets/arch-linux-installer.sh.sha256"',
-    '    chmod 0644 -- "$assets/arch-linux-installer.sh.sha256"',
+    '        "$(repository_sha256 "$assets/arch-linux-installer.sh" 7<&-)" >"$assets/arch-linux-installer.sh.sha256"',
+    '    public_exec /usr/bin/chmod 0644 -- "$assets/arch-linux-installer.sh.sha256"',
 ]
 matches=sum(
     offline_lines[index:index + len(checksum_mode_sequence)] == checksum_mode_sequence
@@ -416,6 +471,11 @@ def contract(run_text, helper_text=helper, static_text=static):
          'qga_verify update firstboot-update'),
         "firstboot challenge validation/update order",
     )
+    stock_identity_branch = (
+        'elif [ "${run_prefix}" = grub ] || [ "${run_prefix}" = luksgrub ]; then'
+    )
+    if stock_identity_branch not in run_text or "ALI100G" not in run_text or "ALI_GRB_" not in run_text:
+        raise ValueError("Stock LUKS+GRUB disk identity differs from the final acceptance contract")
     ordered(
         function(run_text, "main"),
         ('"${qemu_img}" check -- "${run_root}/target.qcow2" >"${evidence}/final-qemu-img-check.txt"',

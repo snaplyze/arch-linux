@@ -19,6 +19,10 @@ on:
         description: Exact frozen 40-character source tree
         required: true
         type: string
+      source_tree_sha256:
+        description: Canonical mode-and-byte SHA-256 of the frozen source tree
+        required: true
+        type: string
       snapshot_sha256:
         description: Expected SHA-256 of the signed repository archive
         required: true
@@ -68,11 +72,13 @@ jobs:
           RELEASE_VERSION: ${{ inputs.release_version }}
           SOURCE_COMMIT: ${{ inputs.source_commit }}
           SOURCE_TREE: ${{ inputs.source_tree }}
+          SOURCE_TREE_SHA256: ${{ inputs.source_tree_sha256 }}
         run: |
           set -euo pipefail
           [[ "${RELEASE_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           [[ "${SOURCE_COMMIT}" =~ ^[a-f0-9]{40}$ ]]
           [[ "${SOURCE_TREE}" =~ ^[a-f0-9]{40}$ ]]
+          [[ "${SOURCE_TREE_SHA256}" =~ ^[a-f0-9]{64}$ ]]
           test "${GITHUB_REF}" = refs/heads/main
           test "${GITHUB_SHA}" = "${SOURCE_COMMIT}"
           test "$(git rev-parse --verify 'HEAD^{commit}')" = "${SOURCE_COMMIT}"
@@ -91,6 +97,7 @@ jobs:
           RELEASE_VERSION: ${{ inputs.release_version }}
           SOURCE_COMMIT: ${{ inputs.source_commit }}
           SOURCE_TREE: ${{ inputs.source_tree }}
+          SOURCE_TREE_SHA256: ${{ inputs.source_tree_sha256 }}
           SNAPSHOT_SHA256: ${{ inputs.snapshot_sha256 }}
           BUILD_METADATA_SHA256: ${{ inputs.build_metadata_sha256 }}
           UNSIGNED_MANIFEST_SHA256: ${{ inputs.unsigned_manifest_sha256 }}
@@ -102,6 +109,7 @@ jobs:
           [[ "${RELEASE_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           [[ "${SOURCE_COMMIT}" =~ ^[a-f0-9]{40}$ ]]
           [[ "${SOURCE_TREE}" =~ ^[a-f0-9]{40}$ ]]
+          [[ "${SOURCE_TREE_SHA256}" =~ ^[a-f0-9]{64}$ ]]
           [[ "${SNAPSHOT_SHA256}" =~ ^[a-f0-9]{64}$ ]]
           [[ "${BUILD_METADATA_SHA256}" =~ ^[a-f0-9]{64}$ ]]
           [[ "${UNSIGNED_MANIFEST_SHA256}" =~ ^[a-f0-9]{64}$ ]]
@@ -113,7 +121,7 @@ jobs:
             >"${release_json}"
           jq -e --argjson id "${RELEASE_ID}" --arg version "${RELEASE_VERSION}" '
             .id == $id and .tag_name == $version and .name == $version and
-            .draft == true and .prerelease == false and (.assets | length == 12) and
+            .draft == true and .prerelease == false and (.assets | length == 18) and
             ([.assets[].id] | length == (unique | length)) and
             ([.assets[].name] | length == (unique | length)) and
             all(.assets[];
@@ -124,12 +132,16 @@ jobs:
               .state == "uploaded")
           ' "${release_json}" >/dev/null
           expected="$(printf '%s\n' \
-            RELEASE-SHA256SUMS RELEASE-SHA256SUMS.sig install.sh \
+            BUILD-METADATA.json RELEASE-SHA256SUMS RELEASE-SHA256SUMS.sig UNSIGNED-SHA256SUMS install.sh \
             arch-linux-installer.sh arch-linux-installer.sh.sha256 arch-linux-installer.sh.sig \
             arch-linux.gpg primary-fingerprint signing-subkey-fingerprint \
             "arch-linux-repository-${RELEASE_VERSION}.tar.zst" \
             "arch-linux-repository-${RELEASE_VERSION}.tar.zst.sha256" \
-            "arch-linux-repository-${RELEASE_VERSION}.tar.zst.sig" | LC_ALL=C sort)"
+            "arch-linux-repository-${RELEASE_VERSION}.tar.zst.sig" \
+            "arch-linux-acceptance-${RELEASE_VERSION}.json" \
+            "arch-linux-acceptance-${RELEASE_VERSION}.json.sig" \
+            "arch-linux-acceptance-evidence-${RELEASE_VERSION}.tar.zst" \
+            "arch-linux-acceptance-evidence-${RELEASE_VERSION}.tar.zst.sig" | LC_ALL=C sort)"
           actual="$(jq -r '.assets[].name' "${release_json}" | LC_ALL=C sort)"
           test "${actual}" = "${expected}"
           while IFS=$'\t' read -r name asset_id size api_digest; do
@@ -152,6 +164,7 @@ jobs:
             --release-version "${RELEASE_VERSION}" \
             --source-commit "${SOURCE_COMMIT}" \
             --source-tree "${SOURCE_TREE}" \
+            --source-tree-sha256 "${SOURCE_TREE_SHA256}" \
             --build-metadata-sha256 "${BUILD_METADATA_SHA256}" \
             --unsigned-manifest-sha256 "${UNSIGNED_MANIFEST_SHA256}"
           python3 repository/safe-extract-snapshot.py \
