@@ -58,20 +58,139 @@ jobs:
           test -z "$(git -c safe.directory="${GITHUB_WORKSPACE}" -C "${GITHUB_WORKSPACE}" status --porcelain=v1 --untracked-files=all)"
 
       - name: Validate source before package execution
-        run: |
-          set -euo pipefail
-          bash tests/source-tests.sh
-
-      - name: Build as a temporary unprivileged user
+        env:
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          SOURCE_TREE: ${{ inputs.source_tree }}
         run: |
           set -euo pipefail
           useradd --create-home --shell /bin/bash package-builder
-          chmod -R a+rX -- "${GITHUB_WORKSPACE}"
+          workspace_parent="$(dirname -- "${GITHUB_WORKSPACE}")"
+          source_parent="${workspace_parent}/arch-linux-source-validation"
+          source_temp="${workspace_parent}/arch-linux-source-temp"
+          test "$(stat --file-system --format=%t -- "${workspace_parent}")" = ef53
+          test -f /.dockerenv
+          test ! -L /.dockerenv
+          [[ "${SOURCE_COMMIT}" =~ ^[a-f0-9]{40}$ ]]
+          [[ "${SOURCE_TREE}" =~ ^[a-f0-9]{40}$ ]]
+          test ! -e "${source_parent}"
+          test ! -L "${source_parent}"
+          test ! -e "${source_temp}"
+          test ! -L "${source_temp}"
+          chown -R root:root -- "${GITHUB_WORKSPACE}"
+          chmod -R go-w -- "${GITHUB_WORKSPACE}"
+          install -d -m0700 -o package-builder -g package-builder -- \
+            "${source_parent}" "${source_temp}"
+          test "$(stat --file-system --format=%t -- "${source_parent}")" = ef53
+          test "$(stat --file-system --format=%t -- "${source_temp}")" = ef53
+          builder_home="$(getent passwd package-builder | cut -d: -f6)"
+          test -n "${builder_home}"
+          current="${GITHUB_WORKSPACE}"
+          while test "${current}" != /; do
+            if runuser -u package-builder -- test -w "${current}"; then
+              printf 'package builder can replace canonical source through writable path: %s\n' \
+                "${current}" >&2
+              exit 1
+            fi
+            current="$(dirname -- "${current}")"
+          done
+          writable_path="$(runuser -u package-builder -- \
+            find "${GITHUB_WORKSPACE}" -writable -print -quit)"
+          if test -n "${writable_path}"; then
+            printf 'package builder can write canonical source\n' >&2
+            exit 1
+          fi
+          test "$(git -c safe.directory="${GITHUB_WORKSPACE}" -C "${GITHUB_WORKSPACE}" \
+            rev-parse --verify 'HEAD^{commit}')" = "${SOURCE_COMMIT}"
+          test "$(git -c safe.directory="${GITHUB_WORKSPACE}" -C "${GITHUB_WORKSPACE}" \
+            rev-parse --verify 'HEAD^{tree}')" = "${SOURCE_TREE}"
+          test -z "$(git -c safe.directory="${GITHUB_WORKSPACE}" -C "${GITHUB_WORKSPACE}" \
+            status --porcelain=v1 --untracked-files=all)"
+          test ! -e "${builder_home}/.gitconfig"
+          test ! -L "${builder_home}/.gitconfig"
+          runuser -u package-builder -- env -i \
+            HOME="${builder_home}" USER=package-builder LOGNAME=package-builder \
+            LANG=C LC_ALL=C PATH=/usr/local/bin:/usr/bin:/bin \
+            git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+          runuser -u package-builder -- env -i \
+            HOME="${builder_home}" USER=package-builder LOGNAME=package-builder \
+            LANG=C LC_ALL=C PATH=/usr/local/bin:/usr/bin:/bin \
+            git config --global --add safe.directory "${GITHUB_WORKSPACE}/.git"
+          runuser -u package-builder -- env -i \
+            HOME="${builder_home}" USER=package-builder LOGNAME=package-builder \
+            LANG=C LC_ALL=C PATH=/usr/local/bin:/usr/bin:/bin \
+            git clone --no-local --no-hardlinks \
+            --no-checkout -- "${GITHUB_WORKSPACE}" "${source_parent}/repo"
+          rm -f -- "${builder_home}/.gitconfig"
+          test ! -e "${builder_home}/.gitconfig"
+          test ! -L "${builder_home}/.gitconfig"
+          runuser -u package-builder -- env -i \
+            HOME="${builder_home}" USER=package-builder LOGNAME=package-builder \
+            LANG=C LC_ALL=C PATH=/usr/local/bin:/usr/bin:/bin \
+            git -C "${source_parent}/repo" checkout --detach "${SOURCE_COMMIT}"
+          test "$(git -c safe.directory="${source_parent}/repo" -C "${source_parent}/repo" \
+            rev-parse --verify 'HEAD^{commit}')" = \
+            "${SOURCE_COMMIT}"
+          test "$(git -c safe.directory="${source_parent}/repo" -C "${source_parent}/repo" \
+            rev-parse --verify 'HEAD^{tree}')" = \
+            "${SOURCE_TREE}"
+          test -z "$(git -c safe.directory="${source_parent}/repo" -C "${source_parent}/repo" \
+            status --porcelain=v1 --untracked-files=all)"
+          test ! -e "${source_parent}/repo/.git/objects/info/alternates"
+          test ! -L "${source_parent}/repo/.git/objects/info/alternates"
+          test -z "$(find "${source_parent}/repo" -type f -links +1 -print -quit)"
+          runuser -u package-builder -- env -i \
+            HOME="${builder_home}" USER=package-builder LOGNAME=package-builder \
+            LANG=C LC_ALL=C PATH=/usr/local/bin:/usr/bin:/bin \
+            CI=true GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted \
+            ARCH_LINUX_ALLOW_HOSTED_NAMESPACE_DEFERRAL=github-hosted-container-v1 \
+            RUNNER_TEMP="${source_temp}" \
+            bash "${source_parent}/repo/tests/source-tests.sh"
+          test -z "$(git -c safe.directory="${source_parent}/repo" -C "${source_parent}/repo" \
+            status --porcelain=v1 --untracked-files=all)"
+
+      - name: Build as a temporary unprivileged user
+        env:
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          SOURCE_TREE: ${{ inputs.source_tree }}
+        run: |
+          set -euo pipefail
           install -d -m0755 -o package-builder -g package-builder /tmp/arch-linux-build
-          runuser -u package-builder -- env \
+          builder_home="$(getent passwd package-builder | cut -d: -f6)"
+          test -n "${builder_home}"
+          test "$(git -c safe.directory="${GITHUB_WORKSPACE}" -C "${GITHUB_WORKSPACE}" \
+            rev-parse --verify 'HEAD^{commit}')" = "${SOURCE_COMMIT}"
+          test "$(git -c safe.directory="${GITHUB_WORKSPACE}" -C "${GITHUB_WORKSPACE}" \
+            rev-parse --verify 'HEAD^{tree}')" = "${SOURCE_TREE}"
+          test -z "$(git -c safe.directory="${GITHUB_WORKSPACE}" -C "${GITHUB_WORKSPACE}" \
+            status --porcelain=v1 --untracked-files=all)"
+          writable_path="$(runuser -u package-builder -- \
+            find "${GITHUB_WORKSPACE}" -writable -print -quit)"
+          if test -n "${writable_path}"; then
+            printf 'package builder can write canonical source before build\n' >&2
+            exit 1
+          fi
+          test ! -e "${builder_home}/.gitconfig"
+          test ! -L "${builder_home}/.gitconfig"
+          runuser -u package-builder -- env -i \
+            HOME="${builder_home}" USER=package-builder LOGNAME=package-builder \
+            LANG=C.UTF-8 LC_ALL=C PATH=/usr/local/bin:/usr/bin:/bin \
             RUNNER_TEMP=/tmp/arch-linux-build \
             bash "${GITHUB_WORKSPACE}/repository/build-packages.sh" \
             /tmp/arch-linux-build/canonical-unsigned
+          test "$(git -c safe.directory="${GITHUB_WORKSPACE}" -C "${GITHUB_WORKSPACE}" \
+            rev-parse --verify 'HEAD^{commit}')" = "${SOURCE_COMMIT}"
+          test "$(git -c safe.directory="${GITHUB_WORKSPACE}" -C "${GITHUB_WORKSPACE}" \
+            rev-parse --verify 'HEAD^{tree}')" = "${SOURCE_TREE}"
+          test -z "$(git -c safe.directory="${GITHUB_WORKSPACE}" -C "${GITHUB_WORKSPACE}" \
+            status --porcelain=v1 --untracked-files=all)"
+          writable_path="$(runuser -u package-builder -- \
+            find "${GITHUB_WORKSPACE}" -writable -print -quit)"
+          if test -n "${writable_path}"; then
+            printf 'package builder can write canonical source after build\n' >&2
+            exit 1
+          fi
+          test ! -e "${builder_home}/.gitconfig"
+          test ! -L "${builder_home}/.gitconfig"
           PACKAGE_ARTIFACT_DIR=/tmp/arch-linux-build/canonical-unsigned \
             bash tests/package-checks.sh
 

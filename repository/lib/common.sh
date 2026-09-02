@@ -123,7 +123,7 @@ repository_read_fingerprint() {
 }
 
 repository_assert_public_certificate() {
-    local certificate="$1" primary_file="$2" signing_file="$3"
+    local certificate="$1" primary_file="$2" signing_file="$3" minimum_remaining="${4:-0}"
     local primary signing metadata packets home pub_count sub_count uid_count fpr_count
     local actual_primary actual_signing primary_algorithm signing_algorithm
     local primary_validity signing_validity primary_capabilities signing_capabilities
@@ -193,9 +193,30 @@ repository_assert_public_certificate() {
     signing_expires="$(awk -F: '$1=="sub"{print $7; exit}' <<<"$metadata")"
     [[ "$signing_expires" =~ ^[0-9]+$ ]] ||
         repository_die 'signing subkey must have a finite expiration time' || return
+    [[ "$minimum_remaining" =~ ^[0-9]+$ ]] ||
+        repository_die 'minimum signing lifetime is invalid' || return
     now="$(date +%s)"
     [[ "$now" =~ ^[0-9]+$ ]] || repository_die 'invalid current-time input for certificate check' || return
     [ "$signing_expires" -gt "$now" ] || repository_die 'signing subkey is expired' || return
+    [ "$((signing_expires - now))" -ge "$minimum_remaining" ] ||
+        repository_die 'signing subkey lifetime is below the required minimum' || return
+}
+
+repository_assert_private_signing_subkey() {
+    local expected_primary="$1" expected_signing="$2" guard_path="$3" listing shape
+    repository_assert_regular_file "$guard_path" 'offline signing descriptor guard' || return
+    listing="$(/usr/bin/python3 -I "$guard_path" exec-private-gpg /usr/bin/gpg \
+        --batch --no-options --no-autostart --with-colons --with-subkey-fingerprint \
+        --list-secret-keys -- "${expected_signing}!" 2>/dev/null)" ||
+        repository_die 'required private signing subkey is unavailable' || return
+    shape="$(awk -F: '
+        $1=="sec" {pc++; pa=$15; wanted="p"; next}
+        $1=="ssb" {sc++; sa=$15; cap=$12; gsub(/[A-Z]/,"",cap); wanted="s"; next}
+        wanted!="" && $1=="fpr" {if(wanted=="p") pf=toupper($10); else sf=toupper($10); wanted=""}
+        END {printf "%d|%s|%s|%d|%s|%s|%s",pc+0,pf,pa,sc+0,sf,sa,cap}
+    ' <<<"$listing")"
+    [ "$shape" = "1|${expected_primary}|#|1|${expected_signing}|+|s" ] ||
+        repository_die 'signer must expose one unavailable certification primary and one available signing-only subkey'
 }
 
 repository_verify_signature() {

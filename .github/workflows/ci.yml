@@ -22,18 +22,16 @@ jobs:
     name: Source checks
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    container:
+      image: ubuntu@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517
     steps:
-      - name: Check out source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
       - name: Install check dependencies
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends \
-            ca-certificates curl dconf-cli gnupg libarchive-tools xz-utils zstd
+          apt-get update
+          apt-get install --yes --no-install-recommends \
+            build-essential ca-certificates curl dconf-cli file git gnupg libarchive-tools \
+            python3 util-linux xz-utils zstd
           shellcheck_version=0.11.0
           shellcheck_archive="shellcheck-v${shellcheck_version}.linux.x86_64.tar.xz"
           shellcheck_sha256=8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
@@ -44,19 +42,121 @@ jobs:
           printf '%s *%s\n' "${shellcheck_sha256}" "${shellcheck_download}" |
             sha256sum --check --strict
           tar --extract --xz --file "${shellcheck_download}" --directory "${RUNNER_TEMP}"
-          sudo install -m0755 -o root -g root -- \
+          install -m0755 -o root -g root -- \
             "${RUNNER_TEMP}/shellcheck-v${shellcheck_version}/shellcheck" \
             /usr/local/bin/shellcheck
           test "$(command -v shellcheck)" = /usr/local/bin/shellcheck
           test "$(shellcheck --version | awk '$1 == "version:" { print $2 }')" = \
             "${shellcheck_version}"
 
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Prepare unprivileged source checker
+        run: |
+          set -euo pipefail
+          useradd --create-home --shell /bin/bash source-checker
+          workspace_parent="$(dirname -- "${GITHUB_WORKSPACE}")"
+          source_parent="${workspace_parent}/arch-linux-source-validation"
+          source_temp="${workspace_parent}/arch-linux-source-temp"
+          test "$(stat --file-system --format=%t -- "${workspace_parent}")" = ef53
+          test -f /.dockerenv
+          test ! -L /.dockerenv
+          test ! -e "${source_parent}"
+          test ! -L "${source_parent}"
+          test ! -e "${source_temp}"
+          test ! -L "${source_temp}"
+          chown -R root:root -- "${GITHUB_WORKSPACE}"
+          chmod -R go-w -- "${GITHUB_WORKSPACE}"
+          install -d -m0700 -o source-checker -g source-checker -- \
+            "${source_parent}" "${source_temp}"
+          test "$(stat --file-system --format=%t -- "${source_parent}")" = ef53
+          test "$(stat --file-system --format=%t -- "${source_temp}")" = ef53
+          current="${GITHUB_WORKSPACE}"
+          while test "${current}" != /; do
+            if runuser -u source-checker -- test -w "${current}"; then
+              printf 'source checker can replace canonical source through writable path: %s\n' \
+                "${current}" >&2
+              exit 1
+            fi
+            current="$(dirname -- "${current}")"
+          done
+          writable_path="$(runuser -u source-checker -- \
+            find "${GITHUB_WORKSPACE}" -writable -print -quit)"
+          if test -n "${writable_path}"; then
+            printf 'source checker can write canonical source\n' >&2
+            exit 1
+          fi
+          canonical_commit="$(git -c safe.directory="${GITHUB_WORKSPACE}" \
+            -C "${GITHUB_WORKSPACE}" rev-parse --verify 'HEAD^{commit}')"
+          canonical_tree="$(git -c safe.directory="${GITHUB_WORKSPACE}" \
+            -C "${GITHUB_WORKSPACE}" rev-parse --verify 'HEAD^{tree}')"
+          checker_home="$(getent passwd source-checker | cut -d: -f6)"
+          test -n "${checker_home}"
+          test ! -e "${checker_home}/.gitconfig"
+          test ! -L "${checker_home}/.gitconfig"
+          runuser -u source-checker -- env -i \
+            HOME="${checker_home}" LANG=C LC_ALL=C PATH=/usr/local/bin:/usr/bin:/bin \
+            git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+          runuser -u source-checker -- env -i \
+            HOME="${checker_home}" LANG=C LC_ALL=C PATH=/usr/local/bin:/usr/bin:/bin \
+            git config --global --add safe.directory "${GITHUB_WORKSPACE}/.git"
+          runuser -u source-checker -- env -i \
+            HOME="${checker_home}" LANG=C LC_ALL=C PATH=/usr/local/bin:/usr/bin:/bin \
+            git clone --no-local --no-hardlinks \
+            --no-checkout -- "${GITHUB_WORKSPACE}" "${source_parent}/repo"
+          rm -f -- "${checker_home}/.gitconfig"
+          test ! -e "${checker_home}/.gitconfig"
+          test ! -L "${checker_home}/.gitconfig"
+          runuser -u source-checker -- env -i \
+            HOME="${checker_home}" LANG=C LC_ALL=C PATH=/usr/local/bin:/usr/bin:/bin \
+            git -C "${source_parent}/repo" checkout --detach "${canonical_commit}"
+          test "$(git -c safe.directory="${source_parent}/repo" -C "${source_parent}/repo" \
+            rev-parse --verify 'HEAD^{commit}')" = \
+            "${canonical_commit}"
+          test "$(git -c safe.directory="${source_parent}/repo" -C "${source_parent}/repo" \
+            rev-parse --verify 'HEAD^{tree}')" = \
+            "${canonical_tree}"
+          test -z "$(git -c safe.directory="${source_parent}/repo" -C "${source_parent}/repo" \
+            status --porcelain=v1 --untracked-files=all)"
+          test ! -e "${source_parent}/repo/.git/objects/info/alternates"
+          test ! -L "${source_parent}/repo/.git/objects/info/alternates"
+          test -z "$(find "${source_parent}/repo" -type f -links +1 -print -quit)"
+
       - name: Run required source checks
         run: |
           set -euo pipefail
-          bash tests/source-tests.sh
+          checker_home="$(getent passwd source-checker | cut -d: -f6)"
+          test -n "${checker_home}"
+          runuser -u source-checker -- env -i \
+            HOME="${checker_home}" LANG=C LC_ALL=C PATH=/usr/local/bin:/usr/bin:/bin \
+            CI=true GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted \
+            ARCH_LINUX_ALLOW_HOSTED_NAMESPACE_DEFERRAL=github-hosted-container-v1 \
+            RUNNER_TEMP="$(dirname -- "${GITHUB_WORKSPACE}")/arch-linux-source-temp" \
+            bash "$(dirname -- "${GITHUB_WORKSPACE}")/arch-linux-source-validation/repo/tests/source-tests.sh"
 
       - name: Check whitespace
         run: |
           set -euo pipefail
-          git diff --check
+          checker_home="$(getent passwd source-checker | cut -d: -f6)"
+          test -n "${checker_home}"
+          source_root="$(dirname -- "${GITHUB_WORKSPACE}")/arch-linux-source-validation/repo"
+          runuser -u source-checker -- env -i \
+            HOME="${checker_home}" LANG=C LC_ALL=C PATH=/usr/local/bin:/usr/bin:/bin \
+            git -C "${source_root}" diff --check
+          test -z "$(git -c safe.directory="${source_root}" -C "${source_root}" \
+            status --porcelain=v1 --untracked-files=all)"
+          test "$(git -c safe.directory="${source_root}" -C "${source_root}" \
+            rev-parse --verify 'HEAD^{commit}')" = \
+            "$(git -c safe.directory="${GITHUB_WORKSPACE}" -C "${GITHUB_WORKSPACE}" \
+              rev-parse --verify 'HEAD^{commit}')"
+          test "$(git -c safe.directory="${source_root}" -C "${source_root}" \
+            rev-parse --verify 'HEAD^{tree}')" = \
+            "$(git -c safe.directory="${GITHUB_WORKSPACE}" -C "${GITHUB_WORKSPACE}" \
+              rev-parse --verify 'HEAD^{tree}')"
+          test -z "$(git -c safe.directory="${GITHUB_WORKSPACE}" -C "${GITHUB_WORKSPACE}" \
+            status --porcelain=v1 --untracked-files=all)"
+          test ! -e "${checker_home}/.gitconfig"
+          test ! -L "${checker_home}/.gitconfig"

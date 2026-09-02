@@ -31,26 +31,37 @@ The monthly A+B comparison is advisory and is not a release gate.
 
 Move the downloaded and independently verified unsigned closure to the authorized offline signing
 environment. Record the exact canonical `BUILD-METADATA.json` and `UNSIGNED-SHA256SUMS` SHA-256
-values before entering the signing boundary. Create a fresh canonical mode-`0700`
-`/tmp/arch-linux-signing-home.XXXXXXXX`, populate it locally with only the accepted signing subkey
-through the separate non-logging manual key-transfer procedure, stop its agent, and add the exact
-mode-`0600` disposable marker documented in [repository tooling](../repository/README.md). Then run:
+values before entering the signing boundary. Follow the root hash-pinned sealer and dedicated
+`arch-linux-signing` account procedure in [repository tooling](../repository/README.md). Supply the
+canonical private-home and passphrase paths only as the launcher's two-line FIFO input; never place
+either in argv, environment, logs or evidence. Invoke the generated static launcher in `snapshot`
+mode with the canonical build arguments. The linked runbook is mandatory: it contains the exact
+five-argument sealer invocation, account policy and ownership/mode preconditions. In particular,
+persistent private bytes remain encrypted only in the one authorized external recovery directory.
+Routine signing decrypts/imports only the signing-only export into one-use tmpfs objects inside the
+same no-network operation, and destroys them afterward. The accepted unsigned/QEMU inputs are
+root-owned readable copies (never their native mode-`0700` run roots), while the missing
+snapshot/final output names share a separate signing-owned mode-`0700` parent.
 
 ```bash
-GNUPGHOME="$DISPOSABLE_GNUPGHOME" GPG_TTY="$(tty)" \
-  repository/run-offline-signing.sh \
-  --unsigned "$ARTIFACT_DIR/unsigned" \
-  --installer "$REPO_ROOT/arch-linux-installer.sh" \
-  --output "$ARTIFACT_DIR/signed" \
+set +x
+printf '%s\n%s\n' "$PRIVATE_HOME" "$PASSPHRASE_FILE" | \
+  /usr/bin/env -i "$SEALED_ROOT/repository/offline-signing-launcher" snapshot \
+    --unsigned "$ACCEPTED_UNSIGNED" \
+  --installer "$SEALED_ROOT/arch-linux-installer.sh" \
+    --output "$SNAPSHOT_OUTPUT" \
   --release-version "$VERSION" \
   --build-metadata-sha256 "$BUILD_METADATA_SHA256" \
   --unsigned-manifest-sha256 "$UNSIGNED_MANIFEST_SHA256"
 ```
 
-The operation signs packages and repository databases, creates the signed manifest and release
-assets, and verifies the resulting public closure. It must not run in CI. The wrapper exposes only
-loopback inside fresh user/PID/mount/network namespaces, accepts passphrases only through pinentry,
-and deletes the marked disposable `GNUPGHOME` on success or failure.
+The launcher is entered as host root, validates the unique locked signing account, then drops all
+root identity before it reads the FIFO pathnames. The operation emits `$SNAPSHOT_OUTPUT/assets`
+with exact 14 Phase-A assets and `$SNAPSHOT_OUTPUT/repository` with the signed Pages tree. The
+Phase-A set is the former 12 files plus byte-identical build metadata
+and unsigned manifest. Signed `RELEASE-SHA256SUMS` covers the exact 12 non-self files. The launcher
+retains private authority only through FDs 6/7, uses capability FD 8 and lock FD 9, exposes loopback
+only inside fresh user/PID/mount/network namespaces and removes every private agent/socket on exit.
 
 ## 4. Independent verification
 
@@ -58,14 +69,14 @@ From a clean verifier that has only source public trust:
 
 ```bash
 repository/verify-signed-repository.sh \
-  "$ARTIFACT_DIR/signed/repository" \
+  "$ARTIFACT_DIR/snapshot/repository" \
   --release-version "$VERSION" \
   --source-commit "$SOURCE_COMMIT" \
   --source-tree "$SOURCE_TREE" \
   --build-metadata-sha256 "$BUILD_METADATA_SHA256" \
   --unsigned-manifest-sha256 "$UNSIGNED_MANIFEST_SHA256"
 repository/verify-release-assets.sh \
-  "$ARTIFACT_DIR/signed/assets" \
+  "$ARTIFACT_DIR/snapshot/assets" --phase-a \
   --release-version "$VERSION" \
   --source-commit "$SOURCE_COMMIT" \
   --source-tree "$SOURCE_TREE" \
@@ -108,11 +119,31 @@ public QEMU PASS exists from the automated result alone.
 
 ## 6. GitHub Release and Pages
 
-After all three staged QEMU scenarios pass, create annotated tag `$VERSION` on the frozen commit and
-create a draft GitHub Release. Upload exactly the twelve already verified assets without changing
+After all three staged QEMU scenarios pass, invoke the sealed launcher in `finalize` mode. It must
+copy all 14 Phase-A files byte-for-byte and add the signed acceptance JSON and signed compressed
+evidence archive. The JSON binds the exact Phase-A map/aggregate/manifest, commit/tree/canonical
+source hash, build/snapshot inputs, three PASS verdicts, evidence at most 500 MiB and `deferred=[]`.
+
+```bash
+set +x
+printf '%s\n%s\n' "$PRIVATE_HOME" "$PASSPHRASE_FILE" | \
+  /usr/bin/env -i "$SEALED_ROOT/repository/offline-signing-launcher" finalize \
+    --phase-a "$SNAPSHOT_OUTPUT/assets" \
+    --output "$FINAL_OUTPUT" \
+    --release-version "$VERSION" \
+    --build-metadata-sha256 "$BUILD_METADATA_SHA256" \
+    --unsigned-manifest-sha256 "$UNSIGNED_MANIFEST_SHA256" \
+    --snapshot-sha256 "$SNAPSHOT_SHA256" \
+    --minimal-run "$ACCEPTED_MINIMAL_RUN" \
+    --stock-run "$ACCEPTED_STOCK_RUN" \
+    --marble-run "$ACCEPTED_MARBLE_RUN"
+```
+
+Then create annotated tag `$VERSION` on the frozen commit and create a draft GitHub Release. Upload
+exactly the eighteen already verified assets without changing
 their names or bytes. Download every draft asset again, verify hashes, detached signatures,
 installer version and tag-to-commit-to-tree, then run `.github/workflows/pages.yml` with the numeric
-draft Release ID and the exact source/tree/snapshot/build hashes. The workflow performs authenticated
+draft Release ID and the exact source/tree/canonical-source/snapshot/build hashes. The workflow performs authenticated
 API readback and public-key-only verification before deploying Pages. Verify package/database
 objects over public HTTPS, publish the Release without replacing any asset, then repeat
 unauthenticated asset and Pages readback.

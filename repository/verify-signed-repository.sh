@@ -10,7 +10,8 @@ usage() {
     cat >&2 <<USAGE
 Usage: $0 SNAPSHOT_DIRECTORY --release-version X.Y.Z \\
   --source-commit SHA --source-tree SHA \\
-  --build-metadata-sha256 SHA --unsigned-manifest-sha256 SHA
+  --build-metadata-sha256 SHA --unsigned-manifest-sha256 SHA \
+  [--sealed-offline-root]
 USAGE
 }
 
@@ -76,7 +77,7 @@ PY
 
 main() {
     [ "$#" -ge 1 ] || { usage; return 2; }
-    local snapshot_arg="$1" version='' source_commit='' source_tree=''
+    local snapshot_arg="$1" sealed=false version='' source_commit='' source_tree=''
     local build_metadata_hash='' unsigned_manifest_hash=''
     local snapshot primary signing keyring package file unexpected installer_hash package_set_hash source_epoch
     local packages=() package_paths=() package_names=() expected=() actual=()
@@ -88,6 +89,7 @@ main() {
             --source-tree) [ "$#" -ge 2 ] || { usage; return 2; }; source_tree="$2"; shift 2 ;;
             --build-metadata-sha256) [ "$#" -ge 2 ] || { usage; return 2; }; build_metadata_hash="$2"; shift 2 ;;
             --unsigned-manifest-sha256) [ "$#" -ge 2 ] || { usage; return 2; }; unsigned_manifest_hash="$2"; shift 2 ;;
+            --sealed-offline-root) [ "$sealed" = false ] || { usage; return 2; }; sealed=true; shift ;;
             *) usage; return 2 ;;
         esac
     done
@@ -103,7 +105,19 @@ main() {
     for command_name in awk cat cmp find git gpg gpgv python3 realpath sha256sum sort stat zstd; do
         repository_require_command "$command_name"
     done
-    repository_assert_source_identity "$repo_root" "$source_commit" "$source_tree"
+    if [ "$sealed" = true ]; then
+        [ "${ARCH_LINUX_OFFLINE_NAMESPACE_RECEIPT:-}" = sealed-root-v1 ] &&
+            [ "${ARCH_LINUX_OFFLINE_CODE_ROOT:-}" = "$repo_root" ] &&
+            [ "${ARCH_LINUX_OFFLINE_ACCEPTED_COMMIT:-}" = "$source_commit" ] &&
+            [ "${ARCH_LINUX_OFFLINE_ACCEPTED_TREE:-}" = "$source_tree" ] ||
+            repository_die 'sealed repository verification requires the accepted offline namespace' || return
+        [ "$(stat -Lc '%d:%i' -- "$repo_root")" = "${ARCH_LINUX_OFFLINE_CODE_ROOT_IDENTITY:-}" ] ||
+            repository_die 'sealed repository verifier source identity differs' || return
+        /usr/bin/python3 -I "${script_dir}/offline-signing-fd-guard.py" assert-public ||
+            repository_die 'sealed repository verification descriptor authority differs' || return
+    else
+        repository_assert_source_identity "$repo_root" "$source_commit" "$source_tree"
+    fi
     installer_hash="$(repository_sha256 "$repo_root/arch-linux-installer.sh")"
     package_set_hash="$(repository_sha256 "$repo_root/repository/package-set")"
     source_epoch="$(cat -- "$repo_root/repository/source-date-epoch")"

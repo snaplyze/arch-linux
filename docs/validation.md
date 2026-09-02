@@ -23,6 +23,9 @@ matrix is Minimal TTY/ext4/systemd-boot, Stock GNOME/Btrfs/LUKS2/GRUB and
 Marble/Btrfs/LUKS2/systemd-boot with the separate experimental Marble GDM opt-in. All three staged
 runs bind the same independently verified production-signed repository archive, source commit/tree,
 build-metadata hash, unsigned-manifest hash and frozen Arch ISO hash.
+The staged inputs are the exact 14 Phase-A assets, whose signed checksum manifest covers exactly 12
+non-self files. Finalization is allowed only after all three reviewed PASS verdicts and preserves all
+14 bytes while adding signed acceptance JSON and evidence archive for exact 18.
 
 Each scenario retains two to four necessary screenshots, a short compressed marker log, exact input
 and tool hashes, the production-signed repository manifest/signature, its exact per-package/database
@@ -62,8 +65,12 @@ sheets and two to four selected frames within the same 500 MiB cumulative budget
 
 Contains signed repository/release-asset verification, immutable release asset identities, Pages
 readback and the final public VM result. It is created only after the corresponding operations and
-cannot retroactively change source/build/QEMU results. The final public Marble/GDM VM carries no
-local product bytes: it downloads the immutable tagged bootstrap, verifies the Release installer and
+cannot retroactively change source/build/QEMU results.
+The acceptance JSON binds the commit/tree/canonical source SHA-256, build/unsigned/snapshot hashes,
+the exact Phase-A name/hash/size map and aggregate, its manifest hash, three PASS verdicts,
+evidence no larger than 500 MiB and `deferred=[]`.
+
+The final public Marble/GDM VM carries no local product bytes: it downloads the immutable tagged bootstrap, verifies the Release installer and
 public key, executes only that verified installer, and obtains project packages and databases from
 the exact public Pages URL under `PackageRequired DatabaseRequired TrustedOnly`. Public readback
 verifies signed `RELEASE-SHA256SUMS`, the exact archive digest and signature, byte equality between

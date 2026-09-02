@@ -99,7 +99,7 @@ source "$repository_dir/lib/common.sh"
 
 archive="$release_assets/arch-linux-repository-${release_version}.tar.zst"
 "$repository_dir/verify-release-assets.sh" \
-    "$release_assets" \
+    "$release_assets" --phase-a \
     --release-version "$release_version" \
     --source-commit "$source_commit" \
     --source-tree "$source_tree" \

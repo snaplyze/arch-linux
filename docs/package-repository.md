@@ -40,39 +40,42 @@ payload, ownership, modes, dependencies, hooks, licenses and bounded internal sy
 
 ## Offline signing
 
-Production signing is local and explicitly authorized. Prepare a new mode-`0700` canonical
-`/tmp/arch-linux-signing-home.XXXXXXXX`, transfer only the accepted signing subkey into it through
-the separate protected local procedure, stop its agent and create the mode-`0600` marker described
-in [repository tooling](../repository/README.md). The independently accepted canonical build hashes
-are mandatory inputs:
+Production signing is local and explicitly authorized. Use the root hash-pinned sealer and generated
+static launcher described in [repository tooling](../repository/README.md). The private home and
+mode-`0600` passphrase pathname are supplied only as two FIFO lines; the launcher retains FD 6,
+sealed memfd 7, capability FD 8 and lock FD 9. The independently accepted canonical build hashes are
+mandatory inputs:
 
 ```bash
-GNUPGHOME="$DISPOSABLE_GNUPGHOME" GPG_TTY="$(tty)" \
-  repository/run-offline-signing.sh \
+set +x
+printf '%s\n%s\n' "$PRIVATE_HOME" "$PASSPHRASE_FILE" | \
+  /usr/bin/env -i "$SEALED_ROOT/repository/offline-signing-launcher" snapshot \
   --unsigned "$ARTIFACT_DIR/unsigned" \
-  --installer "$REPO_ROOT/arch-linux-installer.sh" \
-  --output "$ARTIFACT_DIR/signed" \
+  --installer "$SEALED_ROOT/arch-linux-installer.sh" \
+  --output "$ARTIFACT_DIR/snapshot" \
   --release-version 1.0.0 \
   --build-metadata-sha256 "$BUILD_METADATA_SHA256" \
   --unsigned-manifest-sha256 "$UNSIGNED_MANIFEST_SHA256"
 ```
 
-No production private key, passphrase or recovery material is accepted through source files, CI,
-command-line options or generated artifacts. The wrapper uses an empty-derived environment and
-user/PID/mount/network namespaces, exposes only loopback, and deletes the explicitly marked
-disposable key home on every exit. The signer verifies the independently accepted build hashes and
+The launcher is invoked as host root only so it can validate the exact unique locked account; it
+irreversibly drops to that account before reading either FIFO-supplied pathname. No production
+private key, passphrase or recovery material is accepted through source files, CI,
+command-line options or generated artifacts. The boundary uses an empty-derived environment and
+fresh user/PID/mount/network namespaces, exposes only loopback, and destroys its private agent/socket
+state on every exit. The signer verifies the independently accepted build hashes and
 each package payload before creating package signatures, signed database/files indexes, a signed
 canonical manifest, installer assets and a deterministic Pages snapshot.
 
 ## Verification
 
 ```bash
-repository/verify-signed-repository.sh "$ARTIFACT_DIR/signed/repository" \
+repository/verify-signed-repository.sh "$ARTIFACT_DIR/snapshot/repository" \
   --release-version 1.0.0 \
   --source-commit "$SOURCE_COMMIT" --source-tree "$SOURCE_TREE" \
   --build-metadata-sha256 "$BUILD_METADATA_SHA256" \
   --unsigned-manifest-sha256 "$UNSIGNED_MANIFEST_SHA256"
-repository/verify-release-assets.sh "$ARTIFACT_DIR/signed/assets" \
+repository/verify-release-assets.sh "$ARTIFACT_DIR/snapshot/assets" --phase-a \
   --release-version 1.0.0 \
   --source-commit "$SOURCE_COMMIT" --source-tree "$SOURCE_TREE" \
   --build-metadata-sha256 "$BUILD_METADATA_SHA256" \
@@ -98,7 +101,7 @@ normal updates use `pacman -Syu`.
 ## Pages deployment
 
 `.github/workflows/pages.yml` accepts a numeric draft Release ID and the exact frozen source/build
-identities. It reads back exactly twelve uploaded assets through the authenticated API, proves the
+identities. It reads back exactly eighteen finalized uploaded assets through the authenticated API, proves the
 annotated tag, API digests, archive checksum and signatures, safely extracts the snapshot, and
 re-verifies every package/database object before uploading the Pages artifact. Actions contains no
 private signing key.
