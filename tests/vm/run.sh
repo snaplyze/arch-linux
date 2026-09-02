@@ -10,6 +10,7 @@ unset BASH_ENV ENV CDPATH GLOBIGNORE
 
 readonly qemu_bin='/usr/bin/qemu-system-x86_64'
 readonly qemu_img='/usr/bin/qemu-img'
+readonly python_bin='/usr/bin/python3'
 readonly ovmf_code='/usr/share/OVMF/OVMF_CODE_4M.fd'
 readonly ovmf_vars_template='/usr/share/OVMF/OVMF_VARS_4M.fd'
 
@@ -56,6 +57,10 @@ qemu_start_time=''
 qga_socket=''
 qga_socket_identity=''
 hmp_socket=''
+qmp_socket=''
+qmp_socket_identity=''
+qmp_capture_socket=''
+qmp_capture_socket_identity=''
 serial_socket=''
 serial_bridge_pid=''
 serial_bridge_input_fd=''
@@ -86,6 +91,13 @@ repository_ready_file=''
 screenshot_count=0
 evidence_size_bytes=0
 run_storage_finalized='false'
+frame_recorder_pid=''
+frame_recorder_start_time=''
+frame_recorder_phase=''
+frame_recorder_segment=''
+frame_recorder_ledger=''
+frame_recorder_ready=''
+frame_recorder_control=''
 declare -a qemu_pids=()
 declare -A repository_package_hashes=()
 
@@ -121,6 +133,19 @@ process_is_exact_qemu() {
     local pid="$1" start_time="$2"
     [ "$(process_start_time "${pid}" 2>/dev/null || true)" = "${start_time}" ] &&
         [ "$(readlink -f -- "/proc/${pid}/exe" 2>/dev/null || true)" = "${qemu_bin}" ]
+}
+
+process_is_exact_frame_recorder() {
+    local pid="$1" start_time="$2"
+    [ "$(process_start_time "${pid}" 2>/dev/null || true)" = "${start_time}" ] &&
+        [ "$(readlink -f -- "/proc/${pid}/exe" 2>/dev/null || true)" = \
+            "$(readlink -f -- "${python_bin}")" ] &&
+        tr '\0' '\n' <"/proc/${pid}/cmdline" 2>/dev/null |
+            grep -Fxq -- "${script_dir}/frame-evidence.py" &&
+        tr '\0' '\n' <"/proc/${pid}/cmdline" 2>/dev/null | grep -Fxq -- record &&
+        tr '\0' '\n' <"/proc/${pid}/cmdline" 2>/dev/null | grep -Fxq -- "${run_root}" &&
+        tr '\0' '\n' <"/proc/${pid}/cmdline" 2>/dev/null | grep -Fxq -- "${frame_recorder_phase}" &&
+        tr '\0' '\n' <"/proc/${pid}/cmdline" 2>/dev/null | grep -Fxq -- "${frame_recorder_segment}"
 }
 
 process_is_exact_repository_server() {
@@ -230,9 +255,9 @@ compact_run_evidence() {
     : >"${summary}" || return 1
     while IFS= read -r -d '' candidate; do
         case "${candidate}" in
-        *.ppm | *.ppm.sha256) continue ;;
+        *.ppm) continue ;;
         esac
-        grep -aEh '(_QEMU_(READY|INSTALLER_EXIT|INSTALL_COMPLETE|GUEST_PASS|GUEST_FAIL)|QEMU_HOST_FAIL|exit_status=|qemu-img|signed repository checks passed|release asset checks passed)' \
+        grep -aEh '(_QEMU_(READY|INSTALLER_EXIT|INSTALL_COMPLETE|GUEST_PASS|GUEST_FAIL)|QEMU_HOST_FAIL|frame evidence failed:|exit_status=|qemu-img|signed repository checks passed|release asset checks passed)' \
             "${candidate}" 2>/dev/null || true
     done < <(find "${evidence}" -maxdepth 1 -type f -print0 | LC_ALL=C sort -z) |
         awk 'NR <= 2000 { print substr($0, 1, 4096) }' >>"${summary}" || return 1
@@ -242,12 +267,16 @@ compact_run_evidence() {
     while IFS= read -r -d '' candidate; do
         basename="${candidate##*/}"
         case "${basename}" in
-        *.ppm | *.ppm.sha256 | scenario.log.gz | final-qemu-img-check.txt | no-qemu-process.txt | \
-            repository-manifest.json | repository-manifest.json.sig | repository-objects.tsv) ;;
+        *.ppm | scenario.log.gz | final-qemu-img-check.txt | no-qemu-process.txt | \
+            repository-manifest.json | repository-manifest.json.sig | repository-objects.tsv | \
+            firstboot-qemu.identity | postreboot-qemu.identity | *-frame-ledger.jsonl | \
+            frame-evidence-manifest.json | manual-review-template.json | \
+            manual-review-receipt.json | preseal-harness-check.txt) ;;
         *) rm -f -- "${candidate}" || return 1 ;;
         esac
     done < <(find "${evidence}" -maxdepth 1 -type f -print0)
-    screenshot_total="$(find "${evidence}" -maxdepth 1 -type f -name '*.ppm' -printf '.' | wc -c)"
+    screenshot_total="$(find "${evidence}" -maxdepth 1 -type f -name '*.ppm' \
+        ! -name '*-contact-sheet-*.ppm' -printf '.' | wc -c)"
     [ "${screenshot_total}" -le 4 ] || {
         die 'retained screenshot count exceeds four'
         return 1
@@ -292,6 +321,23 @@ finalize_run_storage() {
     run_storage_finalized='true'
 }
 
+verify_frozen_source_unchanged() {
+    [ "$(git -C "${repository_root}" status --porcelain=v1 --untracked-files=all)" = '' ] ||
+        die 'source drifted during the VM run'
+    [ "$(git -C "${repository_root}" rev-parse HEAD)" = "${source_commit}" ] ||
+        die 'source commit drifted during the VM run'
+    [ "$(git -C "${repository_root}" rev-parse 'HEAD^{tree}')" = "${source_tree}" ] ||
+        die 'source tree drifted during the VM run'
+    [ "$(sha256sum --binary -- "${repository_root}/arch-linux-installer.sh" | awk '{ print $1 }')" = \
+        "${installer_sha256}" ] || die 'installer bytes drifted during the VM run'
+    [ "$(stat -Lc '%u:%a:%h' -- "${run_root}/harness.sha256")" = "$(id -u):600:1" ] ||
+        die 'harness manifest metadata drifted during the VM run'
+    [ "$(sha256sum --binary -- "${run_root}/harness.sha256" | awk '{ print $1 }')" = \
+        "${harness_sha256}" ] || die 'harness manifest drifted during the VM run'
+    (cd -- "${repository_root}" && sha256sum --strict --check -- "${run_root}/harness.sha256") \
+        >"${evidence}/preseal-harness-check.txt" || die 'harness bytes drifted during the VM run'
+}
+
 cleanup() {
     local status=$? deadline image_status=0 remaining_qemu=''
     trap - EXIT INT TERM
@@ -318,6 +364,19 @@ cleanup() {
         fi
         wait "${qemu_pid}" 2>/dev/null
     fi
+    if [[ "${frame_recorder_pid}" =~ ^[1-9][0-9]*$ ]]; then
+        deadline=$((SECONDS + 10))
+        while process_is_exact_frame_recorder "${frame_recorder_pid}" "${frame_recorder_start_time}" &&
+            [ "${SECONDS}" -lt "${deadline}" ]; do
+            sleep 0.1
+        done
+        if process_is_exact_frame_recorder "${frame_recorder_pid}" "${frame_recorder_start_time}"; then
+            kill -TERM -- "${frame_recorder_pid}" 2>/dev/null
+        fi
+        wait "${frame_recorder_pid}" 2>/dev/null
+    fi
+    frame_recorder_pid=''
+    frame_recorder_start_time=''
     if [ "${status}" -ne 0 ] && [ -n "${run_root}" ] && [ -d "${run_root}" ] &&
         [ -f "${run_root}/target.qcow2" ] && [ -d "${evidence}" ]; then
         "${qemu_img}" check -- "${run_root}/target.qcow2" \
@@ -360,9 +419,11 @@ cleanup() {
     unset runtime_password
     if [ -n "${runtime_dir}" ] && [ -d "${runtime_dir}" ]; then
         rm -f -- "${runtime_dir}/qga.sock" "${runtime_dir}/hmp.sock" \
+            "${runtime_dir}/qmp-recorder.sock" "${runtime_dir}/qmp-capture.sock" \
             "${runtime_dir}/serial.sock" "${runtime_dir}/repository.port" \
             "${runtime_dir}/repository-ca.key" "${runtime_dir}/repository-server.key" \
-            "${runtime_dir}/repository-server.csr" "${runtime_dir}/repository-server.ext"
+            "${runtime_dir}/repository-server.csr" "${runtime_dir}/repository-server.ext" \
+            "${runtime_dir}"/*-frame-recorder.ready "${runtime_dir}"/*-frame-recorder.control
         rmdir -- "${runtime_dir}" 2>/dev/null || true
     fi
     exit "${status}"
@@ -476,7 +537,7 @@ with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
             raise SystemExit('invalid screendump path')
         connection.sendall(f'screendump {value}\n'.encode('ascii'))
         frame(connection)
-    elif operation == 'type':
+    elif operation in ('type', 'type-no-enter'):
         mapping = {' ': 'spc', '/': 'slash', '-': 'minus', ';': 'semicolon', '=': 'equal', '.': 'dot'}
         keys = []
         for char in value:
@@ -488,19 +549,157 @@ with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
                 keys.append(mapping[char])
             else:
                 raise SystemExit(f'unsupported bootstrap character: {char!r}')
-        keys.append('ret')
+        if operation == 'type':
+            keys.append('ret')
         for key in keys:
             connection.sendall(f'sendkey {key} 50\n'.encode('ascii'))
             frame(connection)
             time.sleep(0.08)
     elif operation == 'key':
-        if value != 'ret':
+        if value not in ('ret', 'ctrl-u'):
             raise SystemExit('unsupported HMP key')
-        connection.sendall(b'sendkey ret 50\n')
+        connection.sendall(f'sendkey {value} 50\n'.encode('ascii'))
+        frame(connection)
+    elif operation == 'cont':
+        if value != '-':
+            raise SystemExit('unsupported HMP cont value')
+        connection.sendall(b'cont\n')
         frame(connection)
     else:
         raise SystemExit('unsupported HMP operation')
 PY
+}
+
+wait_for_frame_ledger_event() {
+    local event="$1" nonce="$2" deadline=$((SECONDS + 10))
+    while [ "${SECONDS}" -lt "${deadline}" ]; do
+        if [ -f "${frame_recorder_ledger}" ] &&
+            grep -F -- '"e":"control"' "${frame_recorder_ledger}" |
+                grep -F -- "\"name\":\"${event}\"" |
+                grep -Fq -- "\"nonce\":\"${nonce}\""; then
+            return 0
+        fi
+        process_is_exact_qemu "${qemu_pid}" "${qemu_start_time}" || return 1
+        process_is_exact_frame_recorder "${frame_recorder_pid}" "${frame_recorder_start_time}" || return 1
+        sleep 0.1
+    done
+    return 1
+}
+
+frame_recorder_event() {
+    local event="$1" nonce
+    case "${event}" in
+    cont-sent | shutdown-armed | stop-boot | challenge-before | challenge-after | challenge-cleared) ;;
+    *) die "frame recorder event is not allowlisted: ${event}"; return 1 ;;
+    esac
+    process_is_exact_frame_recorder "${frame_recorder_pid}" "${frame_recorder_start_time}" ||
+        die "frame recorder is not active for ${event}"
+    nonce="$(openssl rand -hex 8)"
+    [[ "${nonce}" =~ ^[a-f0-9]{16}$ ]] || die 'frame recorder event nonce is malformed'
+    printf '%s:%s\n' "${event}" "${nonce}" >>"${frame_recorder_control}"
+    wait_for_frame_ledger_event "${event}" "${nonce}" ||
+        die "frame recorder did not acknowledge ${event}"
+}
+
+capture_frame() {
+    local name="$1" after_event="${2:-}" different_from="${3:-}" restore_toward="${4:-}"
+    local -a relation=()
+    [ -n "${qmp_capture_socket}" ] && [ -n "${qmp_capture_socket_identity}" ] ||
+        die 'direct framebuffer capture lacks a bound QMP socket'
+    [ "$(stat -Lc '%d:%i' -- "${qmp_capture_socket}")" = "${qmp_capture_socket_identity}" ] ||
+        die 'QMP socket identity changed before framebuffer capture'
+    [ -n "${frame_recorder_ledger}" ] || die 'direct framebuffer capture lacks an active ledger'
+    [ -z "${after_event}" ] || relation+=(--after-event "${after_event}")
+    [ -z "${different_from}" ] || relation+=(--different-from "${different_from}")
+    [ -z "${restore_toward}" ] || relation+=(--restore-toward "${restore_toward}")
+    "${python_bin}" -I "${script_dir}/frame-evidence.py" capture \
+        --run-root "${run_root}" \
+        --qmp-socket "${qmp_capture_socket}" \
+        --qemu-pid "${qemu_pid}" \
+        --qemu-start "${qemu_start_time}" \
+        --phase "${frame_recorder_phase}" \
+        --name "${name}" \
+        --ledger "${frame_recorder_ledger}" \
+        "${relation[@]}"
+}
+
+start_frame_recorder() {
+    local phase="$1" segment="$2" deadline
+    [ -z "${frame_recorder_pid}" ] || die 'a framebuffer recorder is already active'
+    [ -d "${run_root}/frame-raw" ] || install -d -m 0700 -- "${run_root}/frame-raw"
+    [ "$(stat -Lc '%u:%a' -- "${run_root}/frame-raw")" = "$(id -u):700" ] ||
+        die 'frame raw root is unsafe'
+    frame_recorder_phase="${phase}"
+    frame_recorder_segment="${segment}"
+    frame_recorder_ledger="${evidence}/${phase}-${segment}-frame-ledger.jsonl"
+    frame_recorder_ready="${run_root}/frame-control/${phase}-${segment}.ready.json"
+    frame_recorder_control="${run_root}/frame-control/${phase}-${segment}.control"
+    "${python_bin}" -I "${script_dir}/frame-evidence.py" record \
+        --run-root "${run_root}" \
+        --qmp-socket "${qmp_socket}" \
+        --qemu-pid "${qemu_pid}" \
+        --qemu-start "${qemu_start_time}" \
+        --phase "${phase}" \
+        --segment "${segment}" \
+        >"${evidence}/${phase}-${segment}-frame-recorder.stdout" \
+        2>"${evidence}/${phase}-${segment}-frame-recorder.stderr" &
+    frame_recorder_pid=$!
+    frame_recorder_start_time="$(process_start_time "${frame_recorder_pid}")" ||
+        die 'cannot bind framebuffer recorder process'
+    process_is_exact_frame_recorder "${frame_recorder_pid}" "${frame_recorder_start_time}" ||
+        die 'framebuffer recorder process identity differs'
+    deadline=$((SECONDS + 30))
+    while [ "${SECONDS}" -lt "${deadline}" ]; do
+        [ -s "${frame_recorder_ready}" ] && break
+        process_is_exact_qemu "${qemu_pid}" "${qemu_start_time}" ||
+            die 'QEMU exited before framebuffer recorder readiness'
+        process_is_exact_frame_recorder "${frame_recorder_pid}" "${frame_recorder_start_time}" ||
+            die 'framebuffer recorder exited before readiness'
+        sleep 0.1
+    done
+    [ -s "${frame_recorder_ready}" ] || die 'framebuffer recorder READY record is missing'
+    jq -e --arg phase "${phase}" --arg segment "${segment}" \
+        --argjson qemu_pid "${qemu_pid}" --arg qemu_start "${qemu_start_time}" \
+        --arg qmp_identity "${qmp_socket_identity}" '
+        .schema == 1 and .status == "READY" and .phase == $phase and .segment == $segment and
+        .device == "display0" and .head == 0 and .pid == $qemu_pid and
+        .start == $qemu_start and .peerPid == $qemu_pid and .qmp == $qmp_identity and
+        .state == (if $segment == "boot" then "prelaunch" else "running" end) and
+        (.ppm | test("^[a-f0-9]{64}$"))
+    ' "${frame_recorder_ready}" >/dev/null || die 'framebuffer recorder READY record differs'
+    if [ "${segment}" = boot ]; then
+        hmp_request cont -
+        frame_recorder_event cont-sent
+    fi
+}
+
+finish_frame_recorder() {
+    local phase="$1" segment="$2" recorder_status
+    [ "${frame_recorder_phase}" = "${phase}" ] && [ "${frame_recorder_segment}" = "${segment}" ] ||
+        die 'framebuffer recorder phase/segment differs at exit'
+    set +e
+    wait "${frame_recorder_pid}"
+    recorder_status=$?
+    set -e
+    printf 'phase=%s\nexit_status=%s\n' "${phase}" "${recorder_status}" \
+        >"${evidence}/${phase}-${segment}-frame-recorder.exit"
+    [ "${recorder_status}" -eq 0 ] ||
+        die "framebuffer recorder failed: ${phase}/${segment}: ${recorder_status}"
+    frame_recorder_pid=''
+    frame_recorder_start_time=''
+    frame_recorder_phase=''
+    frame_recorder_segment=''
+    frame_recorder_ledger=''
+    frame_recorder_ready=''
+    frame_recorder_control=''
+}
+
+stop_boot_frame_recorder() {
+    local phase="$1"
+    [ "${frame_recorder_phase}" = "${phase}" ] && [ "${frame_recorder_segment}" = boot ] ||
+        die "boot framebuffer recorder is not active: ${phase}"
+    frame_recorder_event stop-boot
+    finish_frame_recorder "${phase}" boot
 }
 
 hmp_type_password() {
@@ -590,18 +789,37 @@ is_encrypted_grub_scenario() {
 }
 
 capture_screen() {
-    local name="$1" destination runtime_capture
+    local name="$1" destination
     [ "${screenshot_count}" -lt 4 ] || die 'scenario screenshot budget exceeds four'
     destination="${evidence}/${name}.ppm"
-    runtime_capture="${runtime_dir}/${name}.ppm"
     [ ! -e "${destination}" ] || die "screen capture already exists: ${name}"
-    [ ! -e "${runtime_capture}" ] || die "runtime screen capture already exists: ${name}"
-    hmp_request screendump "${runtime_capture}"
-    [ -s "${runtime_capture}" ] || die "runtime screen capture is empty: ${name}"
-    mv -- "${runtime_capture}" "${destination}"
+    capture_frame "${name}"
     [ -s "${destination}" ] || die "screen capture is empty: ${name}"
-    sha256sum -- "${destination}" >"${destination}.sha256"
     screenshot_count=$((screenshot_count + 1))
+}
+
+capture_minimal_tty_challenge() {
+    local phase="$1" challenge prior_boot_id
+    local before="${run_root}/frame-work/${phase}-tty-before.ppm"
+    local after="${evidence}/${phase}-tty.ppm"
+    challenge="ali-${phase}-${run_id##*-}"
+    [[ "${challenge}" =~ ^ali-(firstboot|postreboot)-[a-f0-9]{8}$ ]] ||
+        die 'Minimal framebuffer challenge is malformed'
+    [ "${screenshot_count}" -lt 4 ] || die 'scenario screenshot budget exceeds four'
+    [ ! -e "${after}" ] || die "Minimal framebuffer challenge already exists: ${phase}"
+    capture_frame "${phase}-tty-before"
+    frame_recorder_event challenge-before
+    hmp_request type-no-enter "${challenge}"
+    capture_frame "${phase}-tty" challenge-before "${before}"
+    frame_recorder_event challenge-after
+    hmp_request key ctrl-u
+    capture_frame "${phase}-tty-cleared" challenge-after "${after}" "${before}"
+    frame_recorder_event challenge-cleared
+    screenshot_count=$((screenshot_count + 1))
+    prior_boot_id="${last_boot_id}"
+    qga_verify "${phase}" "${phase}-postchallenge-verify"
+    [ "${last_boot_id}" = "${prior_boot_id}" ] ||
+        die "Minimal framebuffer challenge changed boot identity: ${phase}"
 }
 
 capture_and_unlock_luks_prompt() {
@@ -1070,12 +1288,14 @@ launch_qemu() {
         -drive "if=none,id=target,format=qcow2,file=${run_root}/target.qcow2,cache=writeback,discard=unmap"
         -device 'virtio-scsi-pci,id=scsi0'
         -device "scsi-hd,id=targetdev,drive=target,bus=scsi0.0,serial=${target_serial},vendor=SNAPLYZE,product=${target_model},bootindex=${bootindex}"
-        -device virtio-vga
+        -device 'virtio-vga,id=display0'
         -device virtio-serial-pci
         -chardev "socket,id=qga0,path=${runtime_dir}/qga.sock,server=on,wait=off"
         -device 'virtserialport,chardev=qga0,name=org.qemu.guest_agent.0'
         -chardev "socket,id=hmp0,path=${runtime_dir}/hmp.sock,server=on,wait=off"
         -mon 'chardev=hmp0,mode=readline'
+        -qmp "unix:${runtime_dir}/qmp-recorder.sock,server=on,wait=off"
+        -qmp "unix:${runtime_dir}/qmp-capture.sock,server=on,wait=off"
         -display none
         -boot 'menu=off,strict=on'
         -no-reboot
@@ -1095,11 +1315,14 @@ launch_qemu() {
         )
     else
         command+=(
+            -S
             -chardev "file,id=seriallog,path=${evidence}/${phase}-serial.log,append=on"
             -device 'isa-serial,chardev=seriallog,index=0'
         )
     fi
-    rm -f -- "${runtime_dir}/qga.sock" "${runtime_dir}/hmp.sock" "${runtime_dir}/serial.sock"
+    rm -f -- "${runtime_dir}/qga.sock" "${runtime_dir}/hmp.sock" \
+        "${runtime_dir}/qmp-recorder.sock" "${runtime_dir}/qmp-capture.sock" \
+        "${runtime_dir}/serial.sock"
     command+=( -D "${evidence}/${phase}-qemu-debug.log" )
     "${command[@]}" >"${evidence}/${phase}-qemu.stdout" 2>"${evidence}/${phase}-qemu.stderr" &
     qemu_pid=$!
@@ -1107,24 +1330,40 @@ launch_qemu() {
     process_is_exact_qemu "${qemu_pid}" "${qemu_start_time}" || die "QEMU process identity differs: ${phase}"
     qemu_pids+=("${qemu_pid}")
     hmp_socket="${runtime_dir}/hmp.sock"
+    qmp_socket="${runtime_dir}/qmp-recorder.sock"
+    qmp_capture_socket="${runtime_dir}/qmp-capture.sock"
     qga_socket="${runtime_dir}/qga.sock"
     serial_socket="${runtime_dir}/serial.sock"
     wait_for_socket "${hmp_socket}" 30 || die "HMP socket did not appear: ${phase}"
+    wait_for_socket "${qmp_socket}" 30 || die "QMP socket did not appear: ${phase}"
+    wait_for_socket "${qmp_capture_socket}" 30 || die "capture QMP socket did not appear: ${phase}"
     wait_for_socket "${qga_socket}" 30 || die "QGA socket did not appear: ${phase}"
     if [ "${install_phase}" = true ]; then
         wait_for_socket "${serial_socket}" 30 || die 'password serial socket did not appear'
         start_serial_bridge
     fi
     qga_socket_identity="$(stat -Lc '%d:%i' -- "${qga_socket}")"
-    printf 'phase=%s\npid=%s\nstart_time=%s\nqga_identity=%s\n' \
-        "${phase}" "${qemu_pid}" "${qemu_start_time}" "${qga_socket_identity}" \
-        >"${evidence}/${phase}-qemu.identity"
+    qmp_socket_identity="$(stat -Lc '%d:%i' -- "${qmp_socket}")"
+    qmp_capture_socket_identity="$(stat -Lc '%d:%i' -- "${qmp_capture_socket}")"
+    [ "${qmp_socket_identity}" != "${qmp_capture_socket_identity}" ] ||
+        die "recorder and capture QMP sockets are not distinct: ${phase}"
+    if [ "${install_phase}" = false ]; then
+        printf 'phase=%s\npid=%s\nstart_time=%s\nqga_identity=%s\nqmp_identity=%s\nqmp_capture_identity=%s\n' \
+            "${phase}" "${qemu_pid}" "${qemu_start_time}" "${qga_socket_identity}" \
+            "${qmp_socket_identity}" "${qmp_capture_socket_identity}" \
+            >"${evidence}/${phase}-qemu.identity"
+        start_frame_recorder "${phase}" boot
+    fi
 }
 
 wait_qemu_exit() {
     local phase="$1" timeout="$2" status bridge_status
     local deadline=$((SECONDS + timeout))
     while process_is_exact_qemu "${qemu_pid}" "${qemu_start_time}" && [ "${SECONDS}" -lt "${deadline}" ]; do
+        if [ -n "${frame_recorder_phase}" ]; then
+            process_is_exact_frame_recorder "${frame_recorder_pid}" "${frame_recorder_start_time}" ||
+                die "framebuffer recorder exited before QEMU: ${phase}"
+        fi
         sleep 1
     done
     process_is_exact_qemu "${qemu_pid}" "${qemu_start_time}" && die "QEMU did not exit: ${phase}"
@@ -1134,8 +1373,17 @@ wait_qemu_exit() {
     set -e
     printf 'phase=%s\nexit_status=%s\n' "${phase}" "${status}" >"${evidence}/${phase}-qemu.exit"
     [ "${status}" -eq 0 ] || die "QEMU exited unsuccessfully: ${phase}: ${status}"
+    if [ -n "${frame_recorder_phase}" ]; then
+        [ "${frame_recorder_segment}" = shutdown ] ||
+            die "QEMU exited while a non-shutdown recorder remained active: ${phase}"
+        finish_frame_recorder "${frame_recorder_phase}" shutdown
+    fi
     qemu_pid=''
     qemu_start_time=''
+    qmp_socket=''
+    qmp_socket_identity=''
+    qmp_capture_socket=''
+    qmp_capture_socket_identity=''
     if [[ "${serial_bridge_pid}" =~ ^[1-9][0-9]*$ ]]; then
         if [[ "${serial_bridge_input_fd}" =~ ^[0-9]+$ ]]; then
             exec {serial_bridge_input_fd}>&-
@@ -1278,6 +1526,13 @@ qga_verify() {
 
 schedule_transition() {
     local mode="$1" phase="$2" request start guest_pid status_request status_response=''
+    if [ -n "${frame_recorder_phase}" ]; then
+        stop_boot_frame_recorder "${phase}"
+    fi
+    [ -z "${frame_recorder_pid}" ] && [ -z "${frame_recorder_phase}" ] ||
+        die "boot framebuffer recorder did not close before transition: ${phase}"
+    start_frame_recorder "${phase}" shutdown
+    frame_recorder_event shutdown-armed
     request="$(jq -cn --arg unit "ali-${run_prefix}-${mode}-${run_id}" --arg mode "${mode}" '
       {execute:"guest-exec",arguments:{path:"/usr/bin/systemd-run","capture-output":true,
         arg:["--quiet","--no-block","--collect","--on-active=3s",("--unit="+$unit),
@@ -1361,6 +1616,7 @@ run_marble_acceptance() {
     record_assertion lock-password-unlock \
         'the Marble lock screen was captured and only the real password unlock restored the same GNOME Wayland session'
 
+    stop_boot_frame_recorder firstboot
     qga_verify update firstboot-update
     record_assertion update-hooks-safe \
         'pacman -Syu completed through the strict repository; Marble hooks revalidated active state and every Qkk gate stayed clean'
@@ -1387,10 +1643,17 @@ run_marble_acceptance() {
 build_result() {
     local result_status="$1" exit_status="$2" failed_phase="$3"
     local assertions_json screenshots_json repository_objects_json='[]'
+    local frame_ledgers_json contact_sheets_json manual_template_sha256='-'
     case "${result_status}" in
     PASS)
         [ "${exit_status}" -eq 0 ] && [ "${failed_phase}" = - ] || {
             die 'PASS result status arguments are inconsistent'
+            return 1
+        }
+        ;;
+    PENDING_VISUAL_REVIEW)
+        [ "${exit_status}" -eq 0 ] && [ "${failed_phase}" = - ] || {
+            die 'PENDING result status arguments are inconsistent'
             return 1
         }
         ;;
@@ -1404,8 +1667,17 @@ build_result() {
     esac
     assertions_json="$(jq -Rn '[inputs | split("\t") | {id:.[0],status:.[1],detail:.[2]}]' \
         <"${assertions_file}")" || return 1
-    screenshots_json="$(find "${evidence}" -maxdepth 1 -type f -name '*.ppm' -printf '%f\n' |
+    screenshots_json="$(find "${evidence}" -maxdepth 1 -type f -name '*.ppm' \
+        ! -name '*-contact-sheet-*.ppm' -printf '%f\n' |
         LC_ALL=C sort | jq -Rn '[inputs]')" || return 1
+    frame_ledgers_json="$(find "${evidence}" -maxdepth 1 -type f -name '*-frame-ledger.jsonl' \
+        -printf '%f\n' | LC_ALL=C sort | jq -Rn '[inputs]')" || return 1
+    contact_sheets_json="$(find "${evidence}" -maxdepth 1 -type f -name '*-contact-sheet-*.ppm' \
+        -printf '%f\n' | LC_ALL=C sort | jq -Rn '[inputs]')" || return 1
+    if [ -f "${evidence}/manual-review-template.json" ]; then
+        manual_template_sha256="$(sha256sum --binary -- \
+            "${evidence}/manual-review-template.json" | awk '{ print $1 }')"
+    fi
     if [ -f "${evidence}/repository-objects.tsv" ]; then
         repository_objects_json="$(jq -Rn '
           [inputs | split("\t") |
@@ -1438,8 +1710,12 @@ build_result() {
         --argjson retainedEvidenceBytes "${evidence_size_bytes}" \
         --argjson screenshots "${screenshots_json}" --argjson assertions "${assertions_json}" \
         --argjson repositoryObjects "${repository_objects_json}" \
+        --argjson frameLedgers "${frame_ledgers_json}" \
+        --argjson contactSheets "${contact_sheets_json}" \
+        --arg manualReviewTemplateSha256 "${manual_template_sha256}" \
         '{assertions:$assertions,buildMetadataSha256:$buildMetadataSha256,
           exitStatus:$exitStatus,failedPhase:(if $failedPhase == "-" then null else $failedPhase end),
+          contactSheets:$contactSheets,frameLedgers:$frameLedgers,
           harnessSha256:$harnessSha256,inputMode:$inputMode,
           installerSha256:$installerSha256,isoSha256:$isoSha256,runId:$runId,scenario:$scenario,
           releaseSha256sumsSha256:$releaseSha256sumsSha256,
@@ -1456,6 +1732,8 @@ build_result() {
           repositorySnapshotSha256:$repositorySnapshotSha256,
           repositorySigningFingerprint:$repositorySigningFingerprint,
           releaseVersion:$releaseVersion,retainedEvidenceBytes:$retainedEvidenceBytes,
+          manualReviewTemplateSha256:$manualReviewTemplateSha256,
+          manualReviewStatus:(if $status == "PENDING_VISUAL_REVIEW" then "PENDING" else null end),
           screenshots:$screenshots,snapshotVerification:$snapshotVerification,
           sourceCommit:$sourceCommit,sourceTree:$sourceTree,status:$status,
           targetSerial:$targetSerial,unsignedManifestSha256:$unsignedManifestSha256}' \
@@ -1463,7 +1741,8 @@ build_result() {
     jq -e --arg expected_status "${result_status}" --argjson expected_exit "${exit_status}" \
         --arg expected_phase "${failed_phase}" '
         .status == $expected_status and .exitStatus == $expected_exit and
-        (if $expected_status == "PASS" then .failedPhase == null and .exitStatus == 0
+        (if ($expected_status == "PASS" or $expected_status == "PENDING_VISUAL_REVIEW")
+         then .failedPhase == null and .exitStatus == 0
          else .failedPhase == $expected_phase and .exitStatus > 0 end)
     ' "${run_root}/result.json" >/dev/null || {
         die 'structured result status self-check failed'
@@ -1512,6 +1791,7 @@ main() {
     local first_boot_id post_boot_id final_qemu_matches install_outcome
     local -a harness_files=(
         tests/vm/run.sh
+        tests/vm/frame-evidence.py
         tests/vm/qga-client.py
         tests/vm/https-server.py
         tests/vm/prepare-marble-repository.sh
@@ -1844,14 +2124,15 @@ main() {
     if is_marble_scenario; then
         run_marble_acceptance
     elif [ "${scenario_id}" = minimal-ext4-systemdboot ]; then
-        capture_screen firstboot-tty
         qga_verify firstboot firstboot-verify
         first_boot_id="${last_boot_id}"
+        capture_minimal_tty_challenge firstboot
         record_assertion uefi-gpt-ext4-systemd-boot 'installed disk booted in UEFI with GPT, ext4 root, and systemd-boot'
         record_assertion minimal-tty-profile 'desktop and shell enhancement are off; multi-user target and tty1 getty are active'
         record_assertion installed-tty-boot 'installed qcow2 reached the tty1 login console'
         record_assertion network-works 'NetworkManager is active and Arch Linux DNS resolution succeeds'
         record_assertion failed-units-zero-firstboot 'systemctl --failed is empty on first boot'
+        stop_boot_frame_recorder firstboot
         current_phase='full-system-update'
         qga_verify update firstboot-update
         record_assertion pacman-syu 'pacman -Syu completed successfully inside the installed guest'
@@ -1861,9 +2142,9 @@ main() {
         current_phase='postreboot'
         launch_qemu postreboot false
         wait_qga || die 'post-reboot QEMU guest agent did not become ready'
-        capture_screen postreboot-tty
         qga_verify postreboot postreboot-verify
         post_boot_id="${last_boot_id}"
+        capture_minimal_tty_challenge postreboot
         [ "${first_boot_id}" != "${post_boot_id}" ] || die 'reboot did not produce a new kernel boot identity'
         record_assertion reboot-and-tty-return 'guest rebooted with a new boot id and tty1 returned'
         record_assertion failed-units-zero-postreboot 'systemctl --failed remains empty after reboot'
@@ -1969,6 +2250,7 @@ main() {
         qga_verify unlock firstboot-lock-finish
         record_assertion lock-password-unlock \
             'the real Stock GNOME session entered LockedHint=yes and only HMP password input restored the same gdm-password Wayland session'
+        stop_boot_frame_recorder firstboot
         current_phase='full-system-update'
         qga_verify update firstboot-update
         record_assertion pacman-syu 'pacman -Syu completed successfully inside the installed guest'
@@ -2037,7 +2319,9 @@ main() {
     stop_repository_server
     rm -f -- "${runtime_dir}/repository.port" "${runtime_dir}/repository-server.csr" \
         "${runtime_dir}/repository-server.ext" "${runtime_dir}/qga.sock" \
-        "${runtime_dir}/hmp.sock" "${runtime_dir}/serial.sock"
+        "${runtime_dir}/hmp.sock" "${runtime_dir}/qmp-recorder.sock" \
+        "${runtime_dir}/qmp-capture.sock" "${runtime_dir}/serial.sock" \
+        "${runtime_dir}"/*-frame-recorder.ready "${runtime_dir}"/*-frame-recorder.control
     [ -z "$(find "${runtime_dir}" -mindepth 1 -print -quit)" ] ||
         die 'run-owned runtime directory retains residue'
     rmdir -- "${runtime_dir}"
@@ -2058,16 +2342,24 @@ main() {
         [ "${snapshot_verification}" = PUBLIC_RELEASE_PAGES_BINDING_PASS ] ||
             die 'public Release-to-Pages snapshot binding did not pass'
     fi
+    verify_frozen_source_unchanged
+    remove_heavy_run_inputs
+    "${python_bin}" -I "${script_dir}/frame-evidence.py" seal \
+        --run-root "${run_root}" \
+        --source-commit "${source_commit}" --source-tree "${source_tree}" \
+        --run-id "${run_id}" --scenario "${scenario_id}"
     finalize_run_storage
-    build_result PASS 0 -
+    build_result PENDING_VISUAL_REVIEW 0 -
     enforce_evidence_budget
-    build_result PASS 0 -
+    build_result PENDING_VISUAL_REVIEW 0 -
     [ "$(du -sb -- "${output_parent}" | awk '{ print $1 }')" = "${evidence_size_bytes}" ] ||
         die 'final evidence size changed after sealing the structured result'
     runtime_password=''
     unset runtime_password
     current_phase='complete'
-    printf 'PASS run_id=%s run_root=%s result=%s\n' "${run_id}" "${run_root}" "${run_root}/result.json"
+    printf 'PENDING_VISUAL_REVIEW run_id=%s run_root=%s result=%s template=%s\n' \
+        "${run_id}" "${run_root}" "${run_root}/result.json" \
+        "${evidence}/manual-review-template.json"
 }
 
 main "$@"

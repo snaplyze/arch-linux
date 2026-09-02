@@ -37,6 +37,27 @@ firmware, ISOs, sockets or oversized logs. Verify that no run-owned QEMU/server 
 Total permanent evidence for the acceptance cycle is at most 500 MiB and contains no password,
 private key, passphrase or recovery material.
 
+Each installed-system `firstboot` and `postreboot` process starts paused with `-S`. Before `cont`, an
+exact-head direct-framebuffer recorder must bind the exact QEMU PID/start identity and QMP peer and
+write its first strict P6 frame and `READY` while QMP reports `prelaunch`/not-running. It records the
+bounded boot section through the verified visual state. A distinct recorder section starts
+immediately before reboot/poweroff, records `shutdown-armed` before the transition request, and ends
+only after the exact PID exits. For Minimal,
+phase-specific `qga_verify` and framebuffer prerequisites precede an allowlisted non-secret challenge
+that has no Enter/Return, does not log in or repair the guest and never sends Ctrl+Alt+F1. The ledger
+must bind a strict pre-challenge, challenge and post-challenge chronology and a non-zero framebuffer
+delta for both first boot and post-reboot. Arbitrary differing screenshots do not satisfy this gate.
+
+Automated success is provisional. An independent manual review of the ordered contact sheets and
+full-resolution selected frames is mandatory; uncertain manifest-bound frames are reconstructed from
+the temporary lossless raw closure into a separate private directory before finalization. OCR may
+assist navigation but is not evidence. The receipt binds the exact source commit/tree, run ID and
+frame-evidence manifest; its one `fileHashes` map binds every ledger, contact sheet, temporary raw
+object and selected-frame name/hash together with the fixed sheet geometry; the manifest
+does not contain per-cell records. Screenshot count, automated verdicts, QGA, delta or OCR alone never prove QEMU PASS.
+After review, remove unselected raw frames and retain the receipt, compact manifest/ledgers/contact
+sheets and two to four selected frames within the same 500 MiB cumulative budget.
+
 ## Release evidence
 
 Contains signed repository/release-asset verification, immutable release asset identities, Pages

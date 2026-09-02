@@ -95,6 +95,33 @@ Keep source, package-build output, QEMU evidence and release/public-readback evi
 Source archives must not contain ISO images, qcow2 disks, OVMF variable stores, package outputs,
 logs or earlier acceptance evidence. A result from one layer does not prove another layer.
 
+For every installed-system `firstboot` and `postreboot` QEMU process, start QEMU paused with `-S`,
+bind the direct-framebuffer recorder to the exact QEMU PID/start identity and QMP peer, require its
+first strict P6 frame and `READY` record while QMP reports `prelaunch`/not-running before `cont`.
+Record boot through the verified visual state, then stop that bounded section. Immediately before a
+scheduled reboot or poweroff, start a separate recorder section, require `READY`, record
+`shutdown-armed` before the guest transition request, and keep recording until that exact process
+exits. The gap between those sections may contain non-visual package work but no claimed visual gate.
+For Minimal, complete the phase-specific QGA verification and framebuffer prerequisites before an
+allowlisted non-secret phase challenge. The challenge must not include Enter/Return, must not log in
+or repair the guest, and must never send Ctrl+Alt+F1; forcing tty1 would mask the state being proved.
+The append-only frame ledger must prove strict pre-challenge/challenge/post-challenge chronology and
+a real framebuffer delta in each installed phase.
+
+Automated assertions, screenshot count and OCR do not establish QEMU PASS. An independent human
+must review the ordered contact sheets and full-resolution selected frames, reconstructing any
+uncertain manifest-bound raw ledger frame into a private directory at full resolution, then issue a
+receipt bound to the exact source commit/tree, run ID and frame-evidence manifest. That manifest
+binds the fixed contact-sheet geometry and the hashes of every ledger, contact sheet, temporary raw
+object and selected frame through its sole `fileHashes` map; it has no per-cell record model. Remove
+unselected raw frames only after that review; retain the receipt and two to four selected frames
+together with the compact manifest, ledgers and contact sheets while keeping cumulative evidence at
+or below 500 MiB.
+
+`tests/vm/frame-evidence.py` is one narrow stdlib-only lifecycle helper, not an evidence framework.
+Its runtime interface is limited to `record`, `capture`, `seal` and `finalize-review`, plus the local
+`--self-test`. Do not add generic plugins, schemas, exporters, controllers or parallel receipt paths.
+
 ## Secrets
 
 Private OpenPGP/SSH keys, tokens, passphrases, recovery phrases/shares, revocation material and local

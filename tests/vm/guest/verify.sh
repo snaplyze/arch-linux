@@ -764,7 +764,8 @@ verify_btrfs_contract() {
 }
 
 verify_minimal() {
-    local target config forbidden_package boot_id
+    local target config forbidden_package boot_id console_devices framebuffer_name
+    local framebuffer_index framebuffer_driver framebuffer_rows=0 framebuffer_vt=''
     [ "${phase}" = update ] && pacman -Syu --noconfirm --disable-download-timeout
     target="$(verify_common)"
     for forbidden_package in grub gdm gnome-shell fish starship; do
@@ -786,10 +787,33 @@ verify_minimal() {
     systemctl is-active --quiet getty@tty1.service
     [ -r /sys/class/tty/tty0/active ]
     [ "$(tr -d '\n' </sys/class/tty/tty0/active)" = tty1 ]
+    [ -r /sys/class/tty/console/active ]
+    console_devices="$(tr -d '\n' </sys/class/tty/console/active)"
+    [[ " ${console_devices} " = *' tty0 '* ]]
+    [ -s /proc/fb ]
+    while read -r framebuffer_index framebuffer_driver; do
+        [[ "${framebuffer_index}" =~ ^[0-9]+$ ]]
+        [[ "${framebuffer_driver}" =~ ^[A-Za-z0-9_.+-]+$ ]]
+        framebuffer_rows=$((framebuffer_rows + 1))
+    done </proc/fb
+    [ "${framebuffer_rows}" -ge 1 ]
+    [ -e /sys/class/graphics/fb0 ]
+    [ -r /sys/class/graphics/fb0/name ]
+    framebuffer_name="$(tr -d '\n' </sys/class/graphics/fb0/name)"
+    [[ "${framebuffer_name}" =~ ^[A-Za-z0-9_.+\ -]+$ ]]
+    [ -n "${framebuffer_name}" ]
+    for framebuffer_vt in /sys/class/vtconsole/vtcon*; do
+        [ -r "${framebuffer_vt}/name" ] && [ -r "${framebuffer_vt}/bind" ] || continue
+        grep -Fqi 'frame buffer' "${framebuffer_vt}/name" || continue
+        [ "$(tr -d '\n' <"${framebuffer_vt}/bind")" = 1 ] || continue
+        break
+    done
+    [ -n "${framebuffer_vt}" ] && grep -Fqi 'frame buffer' "${framebuffer_vt}/name" &&
+        [ "$(tr -d '\n' <"${framebuffer_vt}/bind")" = 1 ]
     boot_id="$(tr -d '\n' </proc/sys/kernel/random/boot_id)"
     [[ "${boot_id}" =~ ^[a-f0-9-]{36}$ ]]
-    printf 'MINIMAL_QEMU_GUEST_PASS run_id=%s scenario=%s phase=%s boot_id=%s target=%s pttype=gpt root=ext4 bootloader=systemd-boot network=online failed_units=0 desktop=off shell_enhancement=off default_target=multi-user.target getty_tty1=active active_vt=tty1\n' \
-        "${run_id}" "${scenario}" "${phase}" "${boot_id}" "${target}"
+    printf 'MINIMAL_QEMU_GUEST_PASS run_id=%s scenario=%s phase=%s boot_id=%s target=%s pttype=gpt root=ext4 bootloader=systemd-boot network=online failed_units=0 desktop=off shell_enhancement=off default_target=multi-user.target getty_tty1=active active_vt=tty1 kernel_console=tty0 framebuffer=%q fbcon=bound\n' \
+        "${run_id}" "${scenario}" "${phase}" "${boot_id}" "${target}" "${framebuffer_name}"
 }
 
 verify_stock_profile() {
