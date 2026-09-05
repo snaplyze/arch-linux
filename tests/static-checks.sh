@@ -519,9 +519,12 @@ PY
 python3 - "$repo_root" <<'FRAMEBUFFER_PY'
 from pathlib import Path
 import ast
+import json
+import os
 import re
 import subprocess
 import sys
+import tempfile
 
 root = Path(sys.argv[1])
 run_path = root / "tests/vm/run.sh"
@@ -880,6 +883,65 @@ for payload in (b'', b'\n', b'x driver\n', b'-1 driver\n', b'0\n',
 legacy_block = proc_block.replace('[ -r /proc/fb ]', '[ -s /proc/fb ]', 1)
 if framebuffer_stream_status(legacy_block, b'0 virtio_gpudrmfb\n') != 1:
     raise SystemExit('static check failed: legacy procfs size defect was not reproduced')
+
+# Deterministically publish an ACK at the liveness probe, after the actual waiter's empty
+# ledger poll. This is a scheduling fixture, not a QEMU or visual-acceptance substitute.
+waiter = function(run, 'wait_for_frame_ledger_event')
+death_branch = re.search(r'(?ms)^        if ! process_is_exact_frame_recorder .*?^        fi\n', waiter)
+if death_branch is None:
+    raise SystemExit('static check failed: recorder stop-ACK race handling is absent')
+legacy_waiter = waiter.replace(death_branch.group(),
+    '        process_is_exact_frame_recorder "${frame_recorder_pid}" "${frame_recorder_start_time}" || return 1\n', 1)
+nonce = 'a' * 16
+for label, event, emitted, emitted_nonce, qemu, expected in (
+    ('ack-then-exit', 'stop-boot', 'stop-boot', nonce, 'alive', 0),
+    ('wrong-nonce', 'stop-boot', 'stop-boot', 'b' * 16, 'alive', 1),
+    ('missing-ack', 'stop-boot', None, nonce, 'alive', 1),
+    ('wrong-event', 'stop-boot', 'challenge-cleared', nonce, 'alive', 1),
+    ('dead-qemu', 'stop-boot', 'stop-boot', nonce, 'dead', 1),
+    ('late-dead-qemu', 'stop-boot', 'stop-boot', nonce, 'late-dead', 1),
+    ('nonstop-death', 'challenge-cleared', 'challenge-cleared', nonce, 'alive', 1),
+):
+    record = '' if emitted is None else json.dumps(
+        {'e':'control', 'name':emitted, 'nonce':emitted_nonce}, separators=(',', ':'))
+    for version, body in (('current', waiter), ('legacy', legacy_waiter)):
+        with tempfile.TemporaryDirectory(prefix='arch-linux-stop-ack-', dir=os.environ.get('RUNNER_TEMP')) as work:
+            ledger = Path(work) / 'ledger'; ledger.write_bytes(b'')
+            program = '''set -Eeuo pipefail
+frame_recorder_ledger=$1; event=$2; nonce=$3; record=$4; qemu=$5
+qemu_pid=1; qemu_start_time=1; frame_recorder_pid=2; frame_recorder_start_time=1; probes=0
+process_is_exact_qemu() {
+    probes=$((probes + 1))
+    [ "$qemu" != dead ] && { [ "$qemu" != late-dead ] || [ "$probes" -eq 1 ]; }
+}
+process_is_exact_frame_recorder() {
+    printf '%s\\n' "$record" >>"$frame_recorder_ledger"
+    return 1
+}
+wait_for_frame_ledger_event() {
+''' + body + '}\nwait_for_frame_ledger_event "$event" "$nonce"\n'
+            result = subprocess.run(['/usr/bin/bash', '-c', program, 'stop-ack-fixture',
+                str(ledger), event, nonce, record, qemu], capture_output=True, timeout=3,
+                env={'PATH':'/usr/bin:/bin', 'LC_ALL':'C'})
+            wanted = expected if version == 'current' else 1
+            if result.returncode != wanted or result.stdout or result.stderr:
+                raise SystemExit(f'static check failed: stop-ACK fixture {label}/{version}')
+
+# The final ledger reread is not sufficient for PASS: execute the unmodified join/exit guard
+# directly under Bash errexit, with real owned children returning zero and nonzero statuses.
+for child_status in (0, 3):
+    with tempfile.TemporaryDirectory(prefix='arch-linux-recorder-exit-', dir=os.environ.get('RUNNER_TEMP')) as work:
+        program = 'set -Eeuo pipefail\nevidence=$1\nframe_recorder_phase=firstboot\nframe_recorder_segment=boot\n'
+        for name in ('die', 'finish_frame_recorder'):
+            program += name + '() {\n' + function(run, name) + '}\n'
+        program += '(exit "$2") &\nframe_recorder_pid=$!\nfinish_frame_recorder firstboot boot\n'
+        result = subprocess.run(['/usr/bin/bash', '-c', program, 'recorder-exit-fixture', work, str(child_status)],
+            capture_output=True, timeout=3, env={'PATH':'/usr/bin:/bin', 'LC_ALL':'C'})
+        recorded = (Path(work) / 'firstboot-boot-frame-recorder.exit').read_text()
+        if recorded != f'phase=firstboot\nexit_status={child_status}\n' or result.stdout or \
+                result.returncode != (0 if child_status == 0 else 1) or \
+                result.stderr != (b'' if child_status == 0 else b'QEMU_HOST_FAIL: framebuffer recorder failed: firstboot/boot: 3\n'):
+            raise SystemExit('static check failed: recorder exit status was not preserved')
 FRAMEBUFFER_PY
 
 printf 'static checks passed\n'

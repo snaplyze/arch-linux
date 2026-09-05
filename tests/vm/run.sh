@@ -580,7 +580,16 @@ wait_for_frame_ledger_event() {
             return 0
         fi
         process_is_exact_qemu "${qemu_pid}" "${qemu_start_time}" || return 1
-        process_is_exact_frame_recorder "${frame_recorder_pid}" "${frame_recorder_start_time}" || return 1
+        if ! process_is_exact_frame_recorder "${frame_recorder_pid}" "${frame_recorder_start_time}"; then
+            # A normal stop can publish its ACK and exit between the ledger poll and this check.
+            [ "${event}" = stop-boot ] || return 1
+            process_is_exact_qemu "${qemu_pid}" "${qemu_start_time}" || return 1
+            [ -f "${frame_recorder_ledger}" ] &&
+                grep -F -- '"e":"control"' "${frame_recorder_ledger}" |
+                    grep -F -- "\"name\":\"${event}\"" |
+                    grep -Fq -- "\"nonce\":\"${nonce}\""
+            return $?
+        fi
         sleep 0.1
     done
     return 1
