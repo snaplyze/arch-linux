@@ -15,6 +15,32 @@ _upstream_commit='fa07485895a2443f7cfbceefe9dcdde798a05215'
 source=("${pkgname}-${_upstream_commit}.tar.gz::https://github.com/vinceliuice/Colloid-icon-theme/archive/${_upstream_commit}.tar.gz")
 sha256sums=('27be4c8bf046bdfcac592b691b42abd38fda3dccb2659a46b77ecb7c7dc5eee7')
 
+_remove_colloid_export_paths() {
+    local icon_root="$1" theme size svg
+    local attribute='inkscape:export-filename="/home/[A-Za-z0-9._-]+/[^"[:cntrl:]]+\.png"'
+    local -a reviewed_icons=()
+
+    # The pinned source has four authoring-only export paths, not drawing or license data.
+    # Validate the complete reviewed set before changing any byte in the package staging tree.
+    for theme in Colloid-Dark Colloid-Light; do
+        for size in 22 24; do
+            svg="${icon_root}/${theme}/status/${size}/user-idle.svg"
+            test -f "${svg}" && test ! -L "${svg}" &&
+                test "$(stat -c '%h' -- "${svg}")" -eq 1 || return 1
+            test "$(LC_ALL=C grep -Fo -- 'inkscape:export-filename' "${svg}" | wc -l)" -eq 1 || return 1
+            test "$(LC_ALL=C grep -Eo -- "(^|[[:space:]])${attribute}([[:space:]]|/?>|$)" "${svg}" | wc -l)" -eq 1 || return 1
+            reviewed_icons+=("${svg}")
+        done
+    done
+    for svg in "${reviewed_icons[@]}"; do
+        # Remove only the attribute token; retain every surrounding byte, including whitespace.
+        LC_ALL=C sed -i -E "s@${attribute}@@" "${svg}" || return 1
+        if LC_ALL=C grep -Fq -- 'inkscape:export-filename' "${svg}"; then
+            return 1
+        fi
+    done
+}
+
 prepare() {
     local upstream="${srcdir}/Colloid-icon-theme-${_upstream_commit}"
     local cache_call='  gtk-update-icon-cache "${THEME_DIR}"'
@@ -38,6 +64,7 @@ package() {
     rm -f -- "${kerry_link}"
 
     bash "${upstream}/install.sh" --dest "${icon_root}" --theme default
+    _remove_colloid_export_paths "${icon_root}" || return 1
 
     # Resolve the one link which upstream routes through a symlinked directory. The original is
     # valid on disk, but a direct equivalent target keeps archive validators and pacman tooling
