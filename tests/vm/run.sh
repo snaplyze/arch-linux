@@ -339,7 +339,7 @@ verify_frozen_source_unchanged() {
 }
 
 cleanup() {
-    local status=$? deadline image_status=0 remaining_qemu=''
+    local status=$? deadline image_status=0 remaining_qemu='' recorder_status
     trap - EXIT INT TERM
     set +e
     stop_repository_server
@@ -374,6 +374,10 @@ cleanup() {
             kill -TERM -- "${frame_recorder_pid}" 2>/dev/null
         fi
         wait "${frame_recorder_pid}" 2>/dev/null
+        recorder_status=$?
+        record_frame_recorder_exit "${frame_recorder_phase}" "${frame_recorder_segment}" \
+            "${frame_recorder_pid}" "${frame_recorder_start_time}" "${recorder_status}" true ||
+            printf '%s\n' 'QEMU_HOST_FAIL: cannot preserve recorder exit diagnostics' >&2
     fi
     frame_recorder_pid=''
     frame_recorder_start_time=''
@@ -682,6 +686,32 @@ start_frame_recorder() {
     fi
 }
 
+record_frame_recorder_exit() {
+    local phase="$1" segment="$2" pid="$3" start="$4" status="$5" cleanup="${6:-false}" receipt record
+    case "${phase}" in firstboot | postreboot) ;; *) return 1 ;; esac
+    case "${segment}" in boot | shutdown) ;; *) return 1 ;; esac
+    case "${cleanup}" in true | false) ;; *) return 1 ;; esac
+    [[ "${pid}" =~ ^[1-9][0-9]{0,9}$ ]] && [[ "${start}" =~ ^[1-9][0-9]{0,19}$ ]] &&
+        [[ "${status}" =~ ^(0|[1-9][0-9]{0,2})$ ]] && [ "${status}" -le 255 ] || return 1
+    [ -d "${evidence}" ] && [ ! -L "${evidence}" ] &&
+        [ "$(stat -Lc '%u:%a' -- "${evidence}")" = "$(id -u):700" ] || return 1
+    receipt="${evidence}/${phase}-${segment}-frame-recorder.exit"
+    printf -v record 'phase=%s segment=%s recorder_pid=%s recorder_start=%s exit_status=%s\n' \
+        "${phase}" "${segment}" "${pid}" "${start}" "${status}"
+    if [ -e "${receipt}" ] || [ -L "${receipt}" ]; then
+        # A failed normal finish may reach cleanup and wait again: retain its first receipt.
+        [ "${cleanup}" = true ] && [ -f "${receipt}" ] && [ ! -L "${receipt}" ] &&
+            [ "$(stat -Lc '%u:%a:%h' -- "${receipt}")" = "$(id -u):600:1" ] &&
+            cmp --silent -- "${receipt}" <(printf '%s' "${record}")
+        return $?
+    fi
+    (
+        umask 077
+        set -o noclobber
+        printf '%s' "${record}" >"${receipt}"
+    )
+}
+
 finish_frame_recorder() {
     local phase="$1" segment="$2" recorder_status
     [ "${frame_recorder_phase}" = "${phase}" ] && [ "${frame_recorder_segment}" = "${segment}" ] ||
@@ -690,8 +720,9 @@ finish_frame_recorder() {
     wait "${frame_recorder_pid}"
     recorder_status=$?
     set -e
-    printf 'phase=%s\nexit_status=%s\n' "${phase}" "${recorder_status}" \
-        >"${evidence}/${phase}-${segment}-frame-recorder.exit"
+    record_frame_recorder_exit "${phase}" "${segment}" "${frame_recorder_pid}" \
+        "${frame_recorder_start_time}" "${recorder_status}" ||
+        die 'cannot preserve recorder exit diagnostics'
     [ "${recorder_status}" -eq 0 ] ||
         die "framebuffer recorder failed: ${phase}/${segment}: ${recorder_status}"
     frame_recorder_pid=''

@@ -383,7 +383,7 @@ def record_command(args):
                 time.sleep((next_due - now) / 1_000_000_000)
             sampled_at = time.monotonic_ns()
             if previous is not None:
-                demand(sampled_at - previous <= MAX_GAP_MS * 1_000_000, "recorder sampling gap exceeded")
+                demand(sampled_at - previous <= MAX_GAP_MS * 1_000_000, f"gapNs={sampled_at-previous}")
             temporary = paths["raw"] / f".sample-{sequence:06d}.ppm"
             try:
                 try:
