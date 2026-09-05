@@ -1096,7 +1096,7 @@ for index, (scenario, prefix, serial_code) in enumerate(scenarios, 1):
         if challenge:
             before = digest(ppm(16, 16, index * 30 + segment_index))
             after = selected_hashes[f'{phase}-tty.ppm']
-            cleared = digest(ppm(16, 16, index * 30 + segment_index + 10))
+            cleared = before
             initial = digest(ppm(16, 16, index * 30 + segment_index + 20))
             values = [initial, before, after, cleared]
             challenge_values[phase] = (before, after, cleared)
