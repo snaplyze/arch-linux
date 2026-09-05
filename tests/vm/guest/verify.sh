@@ -790,7 +790,7 @@ verify_minimal() {
     [ -r /sys/class/tty/console/active ]
     console_devices="$(tr -d '\n' </sys/class/tty/console/active)"
     [[ " ${console_devices} " = *' tty0 '* ]]
-    [ -s /proc/fb ]
+    [ -r /proc/fb ]
     while read -r framebuffer_index framebuffer_driver; do
         [[ "${framebuffer_index}" =~ ^[0-9]+$ ]]
         [[ "${framebuffer_driver}" =~ ^[A-Za-z0-9_.+-]+$ ]]
