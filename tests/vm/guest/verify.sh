@@ -318,8 +318,20 @@ run_in_user_session() {
         "$@"
 }
 
+wait_for_desktop_initialization() {
+    local autostart="$1" deadline=$((SECONDS + 300))
+    # A real GDM session can be active before its one-time settings autostart finishes.
+    # Observe completion only; never execute or repair the initializer from the test.
+    while [ -e "${autostart}" ] && [ "${SECONDS}" -lt "${deadline}" ]; do
+        [ -f "${autostart}" ] && [ ! -L "${autostart}" ] || return 1
+        sleep 1
+    done
+    [ ! -e "${autostart}" ] && [ ! -L "${autostart}" ]
+}
+
 verify_graphical_locale_keyboard_contract() {
     local uid="$1" config="/home/${username}/installer.conf" expected_x11 actual key expected shell_pid
+    wait_for_desktop_initialization "/home/${username}/.config/autostart/initialize.desktop"
     [ -f "${config}" ] && [ ! -L "${config}" ]
     grep -qx 'ARCH_LINUX_LOCALE_LANG=en_US' "${config}"
     grep -qx 'ARCH_LINUX_LOCALE_GEN_LIST=en_US.UTF-8 UTF-8' "${config}"
@@ -1277,20 +1289,6 @@ stock_gdm_process_environment_is_valid() {
     grep -qx 'DCONF_PROFILE=gdm' <<<"${environment}"
 }
 
-pacman_key_cleanup_diagnostics_are_valid() {
-    local file="$1" depth
-    local -a diagnostics=()
-    mapfile -t diagnostics <"${file}"
-    [ "${#diagnostics[@]}" -eq 7 ] || return 1
-    [ "${diagnostics[0]}" = 'gpg: Note: third-party key signatures using the SHA1 algorithm are rejected' ]
-    [ "${diagnostics[1]}" = 'gpg: (use option "--allow-weak-key-signatures" to override)' ]
-    [[ "${diagnostics[2]}" =~ ^gpg:\ marginals\ needed:\ [0-9]+\ +completes\ needed:\ [0-9]+\ +trust\ model:\ pgp$ ]]
-    for depth in 0 1 2; do
-        [[ "${diagnostics[depth + 3]}" =~ ^gpg:\ depth:\ ${depth}\ +valid:\ +[0-9]+\ +signed:\ +[0-9]+\ +trust:\ [0-9]+-,\ [0-9]+q,\ [0-9]+n,\ [0-9]+m,\ [0-9]+f,\ [0-9]+u$ ]]
-    done
-    [[ "${diagnostics[6]}" =~ ^gpg:\ next\ trustdb\ check\ due\ at\ 20[0-9]{2}-[0-9]{2}-[0-9]{2}$ ]]
-}
-
 verify_marble_gdm_process() {
     local expected="$1" greeter_session="$2" shell_pid environment helper_status
     helper_status="$(/usr/lib/arch-linux-marble-gdm/update-compatibility --status)"
@@ -1675,7 +1673,7 @@ verify_dual_boot_phase() {
     else
         expected_root="$(partition_name "${target}" 2)"
         [ "${root_device}" = "${expected_root}" ]
-        [ "$(hostname)" = ali-neighbor ]
+        [ "$(cat /proc/sys/kernel/hostname)" = ali-neighbor ]
         [ "$(cat /neighbor-preserved.txt)" = "${run_id}" ]
         systemctl is-active --quiet systemd-networkd systemd-resolved qemu-guest-agent
         getent ahostsv4 archlinux.org >/dev/null

@@ -701,7 +701,41 @@ run_grub_mkconfig_for_regression
     if result.returncode != code or result.stderr != b'new harmless diagnostic\n':
         raise SystemExit('static check failed: GRUB diagnostics changed the command exit status')
 
-print('guest framebuffer and diagnostic handling checks passed; QEMU=NOT_RUN')
+# The real compact collector must not treat error-handling source text inside a QGA
+# request as a runtime failure. Real failure output must still survive compaction.
+compact = re.search(r'(?ms)^compact_run_evidence\(\) \{\n.*?^\}\n', run)
+if compact is None:
+    raise SystemExit('static check failed: compact log collector is absent')
+program = 'set -Eeuo pipefail\n' + compact.group() + '''
+run_root="$1" evidence="$1/evidence"
+remove_secret_bearing_evidence() { :; }
+compact_run_evidence
+'''
+for failure in (False, True):
+    with tempfile.TemporaryDirectory(prefix='arch-linux-compact-check-') as temporary:
+        evidence = Path(temporary) / 'evidence'
+        evidence.mkdir()
+        actual = ('MINIMAL_QEMU_INSTALLER_EXIT status=0\n'
+                  'MINIMAL_QEMU_INSTALL_COMPLETE run_id=fixture\n')
+        if failure:
+            actual += 'MINIMAL_QEMU_GUEST_FAIL phase=firstboot status=1\n'
+        (evidence / 'runtime.stdout').write_text(actual)
+        (evidence / 'firstboot.request.json').write_text(json.dumps({
+            'arguments': {'script': 'printf "MINIMAL_QEMU_GUEST_FAIL status=1"'}}) + '\n')
+        (evidence / 'diagnostic.txt').write_text('source mentions _QEMU_GUEST_FAIL; not a result\n')
+        result = subprocess.run(['/usr/bin/bash', '-c', program, 'compact-fixture', temporary],
+                                capture_output=True, timeout=5)
+        import gzip
+        if (result.returncode != 0 or result.stderr or
+                gzip.decompress((evidence / 'scenario.log.gz').read_bytes()).decode() != actual):
+            raise SystemExit('static check failed: compact log confused commands and runtime results')
+
+keyboard = re.search(r'(?ms)^verify_graphical_locale_keyboard_contract\(\) \{\n.*?^\}\n', guest)
+if (keyboard is None or keyboard.group().index('wait_for_desktop_initialization') >=
+        keyboard.group().index('gsettings get')):
+    raise SystemExit('static check failed: graphical settings read before initialization completes')
+
+print('guest framebuffer, startup and diagnostic handling checks passed; QEMU=NOT_RUN')
 VM_GUEST_PY
 
 printf 'static checks passed\n'
