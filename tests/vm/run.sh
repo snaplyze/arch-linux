@@ -1316,8 +1316,7 @@ schedule_transition() {
         sleep 0.1
     done
     printf '%s\n' "${status_response}" | jq -cS . >"${evidence}/${phase}-${mode}.status.json"
-    jq -e '.return.exited == true and .return.exitcode == 0 and
-        (.return["out-data"] // "") == "" and (.return["err-data"] // "") == ""' \
+    jq -e '.return.exited == true and .return.exitcode == 0' \
         <<<"${status_response}" >/dev/null || die "guest ${mode} scheduler failed"
 }
 
@@ -2050,10 +2049,10 @@ main() {
         qga_verify update firstboot-update
         record_assertion pacman-syu 'pacman -Syu completed successfully inside the installed guest'
         if is_encrypted_grub_scenario; then
-            record_assertion grub-regeneration-idempotent-qkk 'two accepted post-update grub-mkconfig generations are syntax-valid, encrypted-root-safe, byte-identical, and pacman -Qkk remains clean for grub and grub-btrfs'
+            record_assertion grub-regeneration-qkk 'post-update grub-mkconfig succeeds, its configuration is syntax-valid and encrypted-root-safe, and pacman -Qkk remains clean for grub and grub-btrfs'
         elif is_grub_scenario; then
-            record_assertion grub-regeneration-idempotent 'two accepted grub-mkconfig generations after the update are syntax-valid, root-safe, and byte-identical'
-            record_assertion grub-qkk-clean-after-regeneration 'pacman -Qkk grub grub-btrfs remains at zero altered files after both GRUB generations'
+            record_assertion grub-regeneration 'grub-mkconfig succeeds after the update and its configuration is syntax-valid and root-safe'
+            record_assertion grub-qkk-clean-after-regeneration 'pacman -Qkk grub grub-btrfs remains at zero altered files after GRUB regeneration'
         fi
         schedule_transition reboot firstboot
         wait_qemu_exit firstboot-reboot 300

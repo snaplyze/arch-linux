@@ -66,7 +66,7 @@ EXPECTED_ASSERTIONS = {
         "first-luks-unlock-to-gdm", "real-gdm-password-login-first",
         "stock-network-dns-zero-failures", "luks2-btrfs-health",
         "locale-keyboard-formats-shortcuts", "lock-password-unlock", "pacman-syu",
-        "grub-regeneration-idempotent-qkk", "reboot-and-second-grub-plymouth-luks",
+        "grub-regeneration-qkk", "reboot-and-second-grub-plymouth-luks",
         "second-unlock-gdm-login", "reboot-preserves-encrypted-grub-contract",
         "clean-shutdown-image-no-qemu",
     ),

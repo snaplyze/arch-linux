@@ -685,6 +685,22 @@ with tempfile.TemporaryDirectory(prefix='arch-linux-guest-status-check-') as tem
                 b'VERIFY_CONTINUED\n' if accepted else b''):
             raise SystemExit('static check failed: guest status handling changed functional outcome')
 
+grub = re.search(r'(?ms)^run_grub_mkconfig_for_regression\(\) \{\n.*?^\}\n', guest)
+if grub is None:
+    raise SystemExit('static check failed: GRUB regeneration command is absent')
+for code in (0, 1, 7):
+    program = 'set -euo pipefail\n' + grub.group() + '''
+grub-mkconfig() {
+    [ "$*" = '-o /boot/grub/grub.cfg' ] || return 99
+    printf 'new harmless diagnostic\\n' >&2
+    return "$1_CODE"
+}
+run_grub_mkconfig_for_regression
+'''.replace('"$1_CODE"', str(code))
+    result = subprocess.run(['/usr/bin/bash', '-c', program], capture_output=True, timeout=5)
+    if result.returncode != code or result.stderr != b'new harmless diagnostic\n':
+        raise SystemExit('static check failed: GRUB diagnostics changed the command exit status')
+
 print('guest framebuffer and diagnostic handling checks passed; QEMU=NOT_RUN')
 VM_GUEST_PY
 
