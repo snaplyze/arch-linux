@@ -1,15 +1,22 @@
 #!/usr/bin/env bash
+set -E
 set -euo pipefail
+trap 'printf "ERROR: unsigned-build verification failed at source line %s\n" "$LINENO" >&2' ERR
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 # shellcheck source=repository/lib/common.sh
 source "${script_dir}/lib/common.sh"
 
 usage() {
-    printf 'Usage: %s UNSIGNED_BUILD_DIRECTORY\n' "$0" >&2
+    printf 'Usage: %s [--sealed-offline-root] UNSIGNED_BUILD_DIRECTORY\n' "$0" >&2
 }
 
 main() {
+    local sealed=false
+    if [ "${1:-}" = --sealed-offline-root ]; then
+        sealed=true
+        shift
+    fi
     [ "$#" -eq 1 ] || { usage; return 2; }
     local build="$1" package file info buildinfo expected actual unexpected source_epoch
     local expected_manifest source_commit source_tree installer_hash package_set_hash unsigned_hash
@@ -19,7 +26,19 @@ main() {
     for command_name in awk bsdtar cmp find git grep mktemp python3 realpath sha256sum sort stat; do
         repository_require_command "$command_name"
     done
-    repository_read_source_identity source_commit source_tree "$script_dir/.."
+    if [ "$sealed" = true ]; then
+        [ "${ARCH_LINUX_OFFLINE_NAMESPACE_RECEIPT:-}" = sealed-root-v1 ] &&
+            [ "${ARCH_LINUX_OFFLINE_CODE_ROOT:-}" = "$(cd -- "$script_dir/.." && pwd -P)" ] ||
+            repository_die 'sealed unsigned verification requires the offline namespace' || return
+        /usr/bin/python3 -I "${script_dir}/offline-signing-fd-guard.py" assert-public ||
+            repository_die 'sealed unsigned verification descriptor authority differs' || return
+        source_commit="${ARCH_LINUX_OFFLINE_ACCEPTED_COMMIT:-}"
+        source_tree="${ARCH_LINUX_OFFLINE_ACCEPTED_TREE:-}"
+        [[ "$source_commit" =~ ^[a-f0-9]{40}$ ]] && [[ "$source_tree" =~ ^[a-f0-9]{40}$ ]] ||
+            repository_die 'sealed source identity is missing or malformed' || return
+    else
+        repository_read_source_identity source_commit source_tree "$script_dir/.."
+    fi
     installer_hash="$(repository_sha256 "$script_dir/../arch-linux-installer.sh")"
     package_set_hash="$(repository_sha256 "${script_dir}/package-set")"
     repository_canonical_existing build "$build" 'unsigned build'

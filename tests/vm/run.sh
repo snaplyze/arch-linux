@@ -934,7 +934,7 @@ verify_staged_release_input() {
     local archive
     archive="${release_assets}/arch-linux-repository-${release_version}.tar.zst"
     "${repository_root}/repository/verify-release-assets.sh" \
-        "${release_assets}" \
+        "${release_assets}" --phase-a \
         --release-version "${release_version}" \
         --source-commit "${source_commit}" \
         --source-tree "${source_tree}" \
@@ -945,6 +945,10 @@ verify_staged_release_input() {
     [ -f "${archive}" ] && [ ! -L "${archive}" ] || die 'signed repository archive is unsafe'
     [ "$(sha256sum --binary -- "${archive}" | awk '{ print $1 }')" = "${snapshot_sha256}" ] ||
         die 'signed repository snapshot SHA-256 differs'
+    release_sha256sums_sha256="$(sha256sum --binary -- \
+        "${release_assets}/RELEASE-SHA256SUMS" | awk '{ print $1 }')"
+    [[ "${release_sha256sums_sha256}" =~ ^[a-f0-9]{64}$ ]] ||
+        die 'Phase-A release manifest SHA-256 is malformed'
     load_release_trust "${release_assets}"
 }
 
@@ -1684,7 +1688,7 @@ build_result() {
             {name:.[0],sha256:.[1],size:(.[2] | tonumber)}]' \
             <"${evidence}/repository-objects.tsv")" || return 1
     fi
-    jq -nS \
+    jq -cS -n \
         --arg status "${result_status}" --argjson exitStatus "${exit_status}" \
         --arg failedPhase "${failed_phase}" \
         --arg scenario "${scenario_id}" --arg runId "${run_id}" \
@@ -1932,7 +1936,7 @@ main() {
     [ "$(sha256sum --binary -- "${iso_path}" | awk '{ print $1 }')" = "${iso_sha256}" ] ||
         die 'accepted ISO digest differs'
     [ "$(git -C "${repository_root}" status --porcelain=v1 --untracked-files=all)" = '' ] ||
-        die 'run must start from a completely clean exact committed worktree'
+        die 'run must start from a completely clean exact committed canonical checkout'
     for member in arch-linux-installer.sh "${harness_files[@]}"; do
         git -C "${repository_root}" ls-files --error-unmatch -- "${member}" >/dev/null ||
             die "runtime source is not tracked: ${member}"
@@ -1952,7 +1956,7 @@ main() {
     elif [ "${run_prefix}" = btrfs ]; then
         target_serial="ALI100B$(openssl rand -hex 6 | tr '[:lower:]' '[:upper:]')"
         target_model="ALI_BTR_$(openssl rand -hex 4 | tr '[:lower:]' '[:upper:]')"
-    elif [ "${run_prefix}" = grub ]; then
+    elif [ "${run_prefix}" = grub ] || [ "${run_prefix}" = luksgrub ]; then
         target_serial="ALI100G$(openssl rand -hex 6 | tr '[:lower:]' '[:upper:]')"
         target_model="ALI_GRB_$(openssl rand -hex 4 | tr '[:lower:]' '[:upper:]')"
     elif [ "${run_prefix}" = luks ]; then

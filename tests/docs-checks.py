@@ -35,4 +35,30 @@ for literal in (
     if literal not in readme: fail(f"README lacks {literal!r}")
 for command_path in re.findall(r'`((?:repository|tests|maintenance)/[A-Za-z0-9_./-]+(?:\.sh|\.py))', readme):
     if not (ROOT/command_path).is_file(): fail(f"README names missing command: {command_path}")
+
+package_repository=(ROOT/'docs/package-repository.md').read_text(encoding='utf-8')
+offline_signing=package_repository.split('## Offline signing',1)[1].split('## Verification',1)[0]
+verification=package_repository.split('## Verification',1)[1].split('## Pacman policy',1)[0]
+for literal in (
+    '$ACCEPTED_UNSIGNED', '$SNAPSHOT_OUTPUT', 'root-owned, single-link',
+    'signing-account-owned mode-`0700` parent',
+):
+    if literal not in offline_signing:
+        fail(f"package repository offline-signing contract lacks {literal!r}")
+for stale in (
+    '--unsigned "$ARTIFACT_DIR/unsigned"', '--output "$ARTIFACT_DIR/snapshot"',
+):
+    if stale in offline_signing:
+        fail(f"package repository retains rejected signing path: {stale}")
+for literal in ('$SNAPSHOT_OUTPUT/repository', '$SNAPSHOT_OUTPUT/assets'):
+    if literal not in verification:
+        fail(f"package repository verification path lacks {literal!r}")
+
+release_process=(ROOT/'docs/release-process.md').read_text(encoding='utf-8')
+release_verification=release_process.split('## 4. Independent verification',1)[1].split(
+    '## 5. Three QEMU scenarios',1
+)[0]
+for literal in ('$SNAPSHOT_OUTPUT/repository', '$SNAPSHOT_OUTPUT/assets'):
+    if literal not in release_verification:
+        fail(f"release verification path lacks {literal!r}")
 print(f"documentation checks passed: files={len(seen)}")

@@ -150,7 +150,7 @@ receipt="$RUN_ROOT/evidence/manual-review-receipt.json"
 [ ! -e "$receipt" ]
 receipt_tmp="$(mktemp "$RUN_ROOT/evidence/.manual-review-receipt.XXXXXX")"
 trap 'rm -f -- "$receipt_tmp"' EXIT
-jq --arg reviewer "$REVIEWER" --arg reviewed_at "$reviewed_at" --arg result_sha "$result_sha" '
+jq -cS --arg reviewer "$REVIEWER" --arg reviewed_at "$reviewed_at" --arg result_sha "$result_sha" '
   .verdict = "PASS" |
   .reviewer = $reviewer |
   .reviewedAt = $reviewed_at |
@@ -171,7 +171,8 @@ trap - EXIT
 [ "$(stat -Lc '%u:%a:%h' -- "$receipt")" = "$(id -u):600:1" ]
 ```
 
-Finalize from the same clean frozen source checkout with the exact run path:
+Finalize from the same clean frozen canonical checkout, not a copied or per-cycle source checkout,
+with the exact run path:
 
 ```bash
 python3 -I tests/vm/frame-evidence.py finalize-review \

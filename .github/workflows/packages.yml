@@ -51,31 +51,210 @@ jobs:
           SOURCE_TREE: ${{ inputs.source_tree }}
         run: |
           set -euo pipefail
+          canonical_source=/opt/arch-linux-canonical
           [[ "${SOURCE_COMMIT}" =~ ^[a-f0-9]{40}$ ]]
           [[ "${SOURCE_TREE}" =~ ^[a-f0-9]{40}$ ]]
           test "$(git -c safe.directory="${GITHUB_WORKSPACE}" -C "${GITHUB_WORKSPACE}" rev-parse --verify 'HEAD^{commit}')" = "${SOURCE_COMMIT}"
           test "$(git -c safe.directory="${GITHUB_WORKSPACE}" -C "${GITHUB_WORKSPACE}" rev-parse --verify 'HEAD^{tree}')" = "${SOURCE_TREE}"
           test -z "$(git -c safe.directory="${GITHUB_WORKSPACE}" -C "${GITHUB_WORKSPACE}" status --porcelain=v1 --untracked-files=all)"
+          test -d /opt
+          test ! -L /opt
+          test ! -e "${canonical_source}"
+          test ! -L "${canonical_source}"
+          git clone --no-local --no-hardlinks --no-checkout -- \
+            "${GITHUB_WORKSPACE}" "${canonical_source}"
+          git -C "${canonical_source}" checkout --detach "${SOURCE_COMMIT}"
+          git -C "${canonical_source}" remote remove origin
+          test "$(git -C "${canonical_source}" rev-parse --verify 'HEAD^{commit}')" = \
+            "${SOURCE_COMMIT}"
+          test "$(git -C "${canonical_source}" rev-parse --verify 'HEAD^{tree}')" = \
+            "${SOURCE_TREE}"
+          test -z "$(git -C "${canonical_source}" \
+            status --porcelain=v1 --untracked-files=all)"
+          test ! -e "${canonical_source}/.git/objects/info/alternates"
+          test ! -L "${canonical_source}/.git/objects/info/alternates"
+          test -z "$(find "${canonical_source}" -type f -links +1 -print -quit)"
+          chown -R root:root -- "${canonical_source}"
+          chmod -R go-w -- "${canonical_source}"
+          test -z "$(find "${canonical_source}" \
+            \( ! -user root -o ! -group root \) -print -quit)"
+          test -z "$(find "${canonical_source}" -perm /022 -print -quit)"
 
       - name: Validate source before package execution
+        working-directory: /opt/arch-linux-canonical
+        env:
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          SOURCE_TREE: ${{ inputs.source_tree }}
         run: |
           set -euo pipefail
-          bash tests/source-tests.sh
+          canonical_source=/opt/arch-linux-canonical
+          useradd --create-home --shell /bin/bash package-builder
+          workspace_parent="$(dirname -- "${GITHUB_WORKSPACE}")"
+          source_parent="${workspace_parent}/arch-linux-source-validation"
+          source_temp="${workspace_parent}/arch-linux-source-temp"
+          test "$(stat --file-system --format=%t -- "${workspace_parent}")" = ef53
+          test -f /.dockerenv
+          test ! -L /.dockerenv
+          [[ "${SOURCE_COMMIT}" =~ ^[a-f0-9]{40}$ ]]
+          [[ "${SOURCE_TREE}" =~ ^[a-f0-9]{40}$ ]]
+          test ! -e "${source_parent}"
+          test ! -L "${source_parent}"
+          test ! -e "${source_temp}"
+          test ! -L "${source_temp}"
+          install -d -m0700 -o package-builder -g package-builder -- \
+            "${source_parent}" "${source_temp}"
+          test "$(stat --file-system --format=%t -- "${source_parent}")" = ef53
+          test "$(stat --file-system --format=%t -- "${source_temp}")" = ef53
+          builder_home="$(getent passwd package-builder | cut -d: -f6)"
+          test -n "${builder_home}"
+          test "$(git -C "${canonical_source}" rev-parse --verify 'HEAD^{commit}')" = \
+            "${SOURCE_COMMIT}"
+          test "$(git -C "${canonical_source}" rev-parse --verify 'HEAD^{tree}')" = \
+            "${SOURCE_TREE}"
+          test -z "$(git -C "${canonical_source}" \
+            status --porcelain=v1 --untracked-files=all)"
+          test -z "$(find "${canonical_source}" \
+            \( ! -user root -o ! -group root \) -print -quit)"
+          test -z "$(find "${canonical_source}" -perm /022 -print -quit)"
+          current="${canonical_source}"
+          while :; do
+            test ! -L "${current}"
+            if runuser -u package-builder -- test -w "${current}"; then
+              printf 'package builder can replace canonical source through writable path: %s\n' \
+                "${current}" >&2
+              exit 1
+            fi
+            test "${current}" = / && break
+            current="$(dirname -- "${current}")"
+          done
+          writable_path="$(runuser -u package-builder -- \
+            find "${canonical_source}" -writable -print -quit)"
+          if test -n "${writable_path}"; then
+            printf 'package builder can write canonical source\n' >&2
+            exit 1
+          fi
+          test ! -e "${builder_home}/.gitconfig"
+          test ! -L "${builder_home}/.gitconfig"
+          runuser -u package-builder -- env -i \
+            HOME="${builder_home}" USER=package-builder LOGNAME=package-builder \
+            LANG=C LC_ALL=C PATH=/usr/local/bin:/usr/bin:/bin \
+            git config --global --add safe.directory "${canonical_source}"
+          runuser -u package-builder -- env -i \
+            HOME="${builder_home}" USER=package-builder LOGNAME=package-builder \
+            LANG=C LC_ALL=C PATH=/usr/local/bin:/usr/bin:/bin \
+            git config --global --add safe.directory "${canonical_source}/.git"
+          runuser -u package-builder -- env -i \
+            HOME="${builder_home}" USER=package-builder LOGNAME=package-builder \
+            LANG=C LC_ALL=C PATH=/usr/local/bin:/usr/bin:/bin \
+            git clone --no-local --no-hardlinks \
+            --no-checkout -- "${canonical_source}" "${source_parent}/repo"
+          rm -f -- "${builder_home}/.gitconfig"
+          test ! -e "${builder_home}/.gitconfig"
+          test ! -L "${builder_home}/.gitconfig"
+          runuser -u package-builder -- env -i \
+            HOME="${builder_home}" USER=package-builder LOGNAME=package-builder \
+            LANG=C LC_ALL=C PATH=/usr/local/bin:/usr/bin:/bin \
+            git -C "${source_parent}/repo" checkout --detach "${SOURCE_COMMIT}"
+          test "$(runuser -u package-builder -- env -i \
+            HOME="${builder_home}" USER=package-builder LOGNAME=package-builder \
+            LANG=C LC_ALL=C PATH=/usr/local/bin:/usr/bin:/bin \
+            git -C "${source_parent}/repo" rev-parse --verify 'HEAD^{commit}')" = \
+            "${SOURCE_COMMIT}"
+          test "$(runuser -u package-builder -- env -i \
+            HOME="${builder_home}" USER=package-builder LOGNAME=package-builder \
+            LANG=C LC_ALL=C PATH=/usr/local/bin:/usr/bin:/bin \
+            git -C "${source_parent}/repo" rev-parse --verify 'HEAD^{tree}')" = \
+            "${SOURCE_TREE}"
+          test -z "$(runuser -u package-builder -- env -i \
+            HOME="${builder_home}" USER=package-builder LOGNAME=package-builder \
+            LANG=C LC_ALL=C PATH=/usr/local/bin:/usr/bin:/bin \
+            git -C "${source_parent}/repo" status --porcelain=v1 --untracked-files=all)"
+          runuser -u package-builder -- test ! -e \
+            "${source_parent}/repo/.git/objects/info/alternates"
+          runuser -u package-builder -- test ! -L \
+            "${source_parent}/repo/.git/objects/info/alternates"
+          test -z "$(runuser -u package-builder -- \
+            find "${source_parent}/repo" -type f -links +1 -print -quit)"
+          runuser -u package-builder -- env -i \
+            HOME="${builder_home}" USER=package-builder LOGNAME=package-builder \
+            LANG=C LC_ALL=C PATH=/usr/local/bin:/usr/bin:/bin \
+            CI=true GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted \
+            ARCH_LINUX_ALLOW_HOSTED_NAMESPACE_DEFERRAL=github-hosted-container-v1 \
+            RUNNER_TEMP="${source_temp}" \
+            bash "${source_parent}/repo/tests/source-tests.sh"
+          test -z "$(runuser -u package-builder -- env -i \
+            HOME="${builder_home}" USER=package-builder LOGNAME=package-builder \
+            LANG=C LC_ALL=C PATH=/usr/local/bin:/usr/bin:/bin \
+            git -C "${source_parent}/repo" status --porcelain=v1 --untracked-files=all)"
+          test "$(git -C "${canonical_source}" rev-parse --verify 'HEAD^{commit}')" = \
+            "${SOURCE_COMMIT}"
+          test "$(git -C "${canonical_source}" rev-parse --verify 'HEAD^{tree}')" = \
+            "${SOURCE_TREE}"
+          test -z "$(git -C "${canonical_source}" \
+            status --porcelain=v1 --untracked-files=all)"
+          test -z "$(runuser -u package-builder -- \
+            find "${canonical_source}" -writable -print -quit)"
+          test ! -e "${builder_home}/.gitconfig"
+          test ! -L "${builder_home}/.gitconfig"
 
       - name: Build as a temporary unprivileged user
+        working-directory: /opt/arch-linux-canonical
+        env:
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          SOURCE_TREE: ${{ inputs.source_tree }}
         run: |
           set -euo pipefail
-          useradd --create-home --shell /bin/bash package-builder
-          chmod -R a+rX -- "${GITHUB_WORKSPACE}"
+          canonical_source=/opt/arch-linux-canonical
           install -d -m0755 -o package-builder -g package-builder /tmp/arch-linux-build
-          runuser -u package-builder -- env \
+          builder_home="$(getent passwd package-builder | cut -d: -f6)"
+          test -n "${builder_home}"
+          check_canonical_source() {
+            local current writable_path
+            test "$(git -C "${canonical_source}" rev-parse --verify 'HEAD^{commit}')" = \
+              "${SOURCE_COMMIT}"
+            test "$(git -C "${canonical_source}" rev-parse --verify 'HEAD^{tree}')" = \
+              "${SOURCE_TREE}"
+            test -z "$(git -C "${canonical_source}" \
+              status --porcelain=v1 --untracked-files=all)"
+            test ! -e "${canonical_source}/.git/objects/info/alternates"
+            test ! -L "${canonical_source}/.git/objects/info/alternates"
+            test -z "$(find "${canonical_source}" -type f -links +1 -print -quit)"
+            test -z "$(find "${canonical_source}" \
+              \( ! -user root -o ! -group root \) -print -quit)"
+            test -z "$(find "${canonical_source}" -perm /022 -print -quit)"
+            current="${canonical_source}"
+            while :; do
+              test ! -L "${current}"
+              if runuser -u package-builder -- test -w "${current}"; then
+                printf 'package builder can replace canonical source: %s\n' \
+                  "${current}" >&2
+                return 1
+              fi
+              test "${current}" = / && break
+              current="$(dirname -- "${current}")"
+            done
+            writable_path="$(runuser -u package-builder -- \
+              find "${canonical_source}" -writable -print -quit)"
+            test -z "${writable_path}"
+          }
+          check_canonical_source
+          test ! -e "${builder_home}/.gitconfig"
+          test ! -L "${builder_home}/.gitconfig"
+          runuser -u package-builder -- env -i \
+            HOME="${builder_home}" USER=package-builder LOGNAME=package-builder \
+            LANG=C.UTF-8 LC_ALL=C PATH=/usr/local/bin:/usr/bin:/bin \
             RUNNER_TEMP=/tmp/arch-linux-build \
-            bash "${GITHUB_WORKSPACE}/repository/build-packages.sh" \
+            bash "${canonical_source}/repository/build-packages.sh" \
             /tmp/arch-linux-build/canonical-unsigned
+          check_canonical_source
+          test ! -e "${builder_home}/.gitconfig"
+          test ! -L "${builder_home}/.gitconfig"
           PACKAGE_ARTIFACT_DIR=/tmp/arch-linux-build/canonical-unsigned \
-            bash tests/package-checks.sh
+            bash "${canonical_source}/tests/package-checks.sh"
+          check_canonical_source
 
       - name: Record canonical provenance
+        working-directory: /opt/arch-linux-canonical
         id: provenance
         env:
           SOURCE_COMMIT: ${{ inputs.source_commit }}

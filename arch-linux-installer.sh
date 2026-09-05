@@ -1173,20 +1173,23 @@ repository_key_metadata_matches() {
     local metadata="$1" trust_state="$2" current_epoch="$3"
     local expected_primary="${4:-$REPOSITORY_PRIMARY_FINGERPRINT}"
     local expected_signing="${5:-$REPOSITORY_SIGNING_SUBKEY_FINGERPRINT}"
-    local primary_count subkey_count fingerprint_count secret_count
+    local primary_count subkey_count uid_count uat_count fingerprint_count secret_count
     local primary_fingerprint signing_fingerprint primary_algorithm subkey_algorithm
     local primary_capabilities subkey_capabilities primary_expiry subkey_expiry
-    local primary_validity subkey_validity
+    local primary_validity subkey_validity uid_validity
 
     [ "$trust_state" = 'untrusted' ] || [ "$trust_state" = 'trusted' ] || return 1
     [[ "$current_epoch" =~ ^[0-9]+$ ]] || return 1
 
     primary_count="$(awk -F: '$1 == "pub" { count++ } END { print count + 0 }' <<<"$metadata")"
     subkey_count="$(awk -F: '$1 == "sub" { count++ } END { print count + 0 }' <<<"$metadata")"
+    uid_count="$(awk -F: '$1 == "uid" { count++ } END { print count + 0 }' <<<"$metadata")"
+    uat_count="$(awk -F: '$1 == "uat" { count++ } END { print count + 0 }' <<<"$metadata")"
     fingerprint_count="$(awk -F: '$1 == "fpr" { count++ } END { print count + 0 }' <<<"$metadata")"
     secret_count="$(awk -F: '$1 == "sec" || $1 == "ssb" { count++ } END { print count + 0 }' <<<"$metadata")"
-    [ "$primary_count" -eq 1 ] && [ "$subkey_count" -eq 1 ] && \
-        [ "$fingerprint_count" -eq 2 ] && [ "$secret_count" -eq 0 ] || return 1
+    [ "$primary_count" -eq 1 ] && [ "$subkey_count" -eq 1 ] && [ "$uid_count" -eq 1 ] && \
+        [ "$uat_count" -eq 0 ] && [ "$fingerprint_count" -eq 2 ] && \
+        [ "$secret_count" -eq 0 ] || return 1
 
     primary_fingerprint="$(awk -F: '$1 == "fpr" { print toupper($10); exit }' <<<"$metadata")"
     signing_fingerprint="$(awk -F: '$1 == "sub" { want = 1; next } want && $1 == "fpr" { print toupper($10); exit }' <<<"$metadata")"
@@ -1201,6 +1204,7 @@ repository_key_metadata_matches() {
     subkey_expiry="$(awk -F: '$1 == "sub" { print $7; exit }' <<<"$metadata")"
     primary_validity="$(awk -F: '$1 == "pub" { print $2; exit }' <<<"$metadata")"
     subkey_validity="$(awk -F: '$1 == "sub" { print $2; exit }' <<<"$metadata")"
+    uid_validity="$(awk -F: '$1 == "uid" { print $2; exit }' <<<"$metadata")"
     [ "$primary_algorithm" = '22' ] && [ "$subkey_algorithm" = '22' ] || return 1
     # GnuPG uses lowercase letters for this packet's capabilities and uppercase letters for
     # aggregate capabilities inherited from the complete keyblock. Require the exact packet-local
@@ -1211,9 +1215,11 @@ repository_key_metadata_matches() {
     [ "${subkey_capabilities//[A-Z]/}" = 's' ] || return 1
     case "$primary_validity" in r|e|d|i|n) return 1 ;; esac
     case "$subkey_validity" in r|e|d|i|n) return 1 ;; esac
+    case "$uid_validity" in r|e|d|i|n) return 1 ;; esac
     if [ "$trust_state" = 'trusted' ]; then
         [ "$primary_validity" = 'f' ] || [ "$primary_validity" = 'u' ] || return 1
         [ "$subkey_validity" = 'f' ] || [ "$subkey_validity" = 'u' ] || return 1
+        [ "$uid_validity" = 'f' ] || [ "$uid_validity" = 'u' ] || return 1
     fi
     { [ -z "$primary_expiry" ] || [ "$primary_expiry" = '0' ]; } || return 1
     [[ "$subkey_expiry" =~ ^[0-9]+$ ]] && [ "$subkey_expiry" -gt "$current_epoch" ]

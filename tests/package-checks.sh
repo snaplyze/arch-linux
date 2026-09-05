@@ -24,7 +24,7 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
-python3 - "$repo_root" "$fixture_root" <<'PY'
+python3 -B - "$repo_root" "$fixture_root" <<'PY'
 import io
 import pathlib
 import sys
@@ -173,7 +173,7 @@ for case in ("owner", "mode", "path", "deps", "hook", "license", "link"):
     write_profile(f"wrong-{case}", case)
 PY
 
-python3 - "$verifier" <<'PY'
+python3 -B - "$verifier" <<'PY'
 import importlib.util
 import tarfile
 import sys
