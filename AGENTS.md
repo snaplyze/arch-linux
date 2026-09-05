@@ -200,14 +200,23 @@ applicable check after any source change.
 
 ## Bounded remediation
 
-For a source-candidate task, perform one coherent implementation pass and at most one coherent
-test-fix pass. Do not start a third architectural rewrite. Freeze the source tree before packaging
-the candidate.
+Unless the user explicitly authorizes continuous remediation, a source-candidate task allows one
+coherent implementation pass and at most one coherent test-fix pass. Continued remediation still
+requires a reproduced defect, a minimal correction and its regression test; it does not authorize
+speculative patch chains or architectural rewrites. Freeze the source tree before packaging the
+candidate.
 
 ## Product failure
 
-A reproducible product failure stops acceptance. Do not mask it with retries, weaker checks,
-changed fixtures or a removed negative test. Report one primary blocker when it remains.
+A reproducible product failure stops acceptance of that exact candidate. Do not mask it with retries,
+weaker checks, changed fixtures or a removed negative test. When continuous remediation is explicitly
+authorized, continue the development task without requesting another source-cycle authorization for
+each proven defect. Preserve the rejected freeze and its artifacts and evidence unchanged. Correct
+source through a new pull-request branch in the same canonical checkout, then require fresh tests,
+freeze, build, signing and VM evidence for the new identity. Never transfer a PASS to the corrected
+candidate or replace published bytes or tags. Missing external authority or required human review
+must be requested, never fabricated; continue independent eligible work while awaiting it. Report
+one primary blocker only when no authorized action can advance the task.
 
 ## Infrastructure retry
 

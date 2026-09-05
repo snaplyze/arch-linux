@@ -62,8 +62,8 @@ stock-gnome-btrfs-luks2-plymouth-systemdboot)
 stock-gnome-btrfs-luks2-plymouth-grub)
     marker_prefix='LUKSGRUB'
     case "${phase}" in prelogin | firstlogin | lock | unlock | update | postreboot-prelogin | secondlogin) ;; *) exit 2 ;; esac
-    [[ "${expected_serial}" =~ ^ALI100R[A-F0-9]{12}$ ]]
-    [[ "${expected_model}" =~ ^ALI_LGR_[A-F0-9]{8}$ ]]
+    [[ "${expected_serial}" =~ ^ALI100G[A-F0-9]{12}$ ]]
+    [[ "${expected_model}" =~ ^ALI_GRB_[A-F0-9]{8}$ ]]
     [[ "${run_id}" =~ ^luksgrub-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}$ ]]
     ;;
 marble-gnome-btrfs-luks2-plymouth-systemdboot)
