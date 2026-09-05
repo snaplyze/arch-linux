@@ -27,6 +27,8 @@ trap cleanup EXIT HUP INT TERM
 python3 -B - "$repo_root" "$fixture_root" <<'PY'
 import io
 import pathlib
+import re
+import subprocess
 import sys
 import tarfile
 
@@ -35,6 +37,63 @@ output = pathlib.Path(sys.argv[2])
 profile = root / "packages" / "arch-linux-marble-profile"
 keyring = root / "packages" / "arch-linux-keyring"
 trust = root / "repository" / "trust"
+colloid_pkgbuild = (root / "packages/arch-linux-colloid-icons/PKGBUILD").read_text()
+transform = re.search(r"^_remove_colloid_export_paths\(\) \{\n.*?^\}", colloid_pkgbuild, re.M | re.S)
+assert transform and '_remove_colloid_export_paths "${icon_root}" || return 1' in colloid_pkgbuild
+export_path = "/".join(("", "home", "fixture-author", "drawings", "user-idle.png"))
+export_attribute = f'inkscape:export-filename="{export_path}"'.encode()
+colloid_names = [
+    f"Colloid-{theme}/status/{size}/user-idle.svg"
+    for theme in ("Dark", "Light") for size in (22, 24)
+]
+
+
+def svg_bytes(name):
+    separator = b"\n   " if "/22/" in name else b" "
+    return (b'<svg xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"' + separator +
+            export_attribute + separator + b'width="24"><metadata>license retained</metadata>' +
+            b'<path d="M 1,2 L 3,4"/></svg>\n')
+
+
+def transform_fixture(mutation=None):
+    stage = output / ("transform-" + (mutation or "positive"))
+    stage.mkdir()
+    for name in colloid_names:
+        path = stage / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(svg_bytes(name))
+    target = stage / colloid_names[-1]  # An invalid last member must not partly rewrite the first.
+    if mutation == "missing":
+        target.unlink()
+    elif mutation == "symlink":
+        target.unlink(); target.symlink_to(stage / colloid_names[0])
+    elif mutation == "hardlink":
+        target.unlink(); target.hardlink_to(stage / colloid_names[0])
+    elif mutation == "duplicate":
+        target.write_bytes(target.read_bytes().replace(export_attribute, export_attribute + b" " + export_attribute))
+    elif mutation == "relative":
+        target.write_bytes(target.read_bytes().replace(export_attribute, b'inkscape:export-filename="drawing.png"'))
+    elif mutation == "single-quote":
+        target.write_bytes(target.read_bytes().replace(export_attribute, export_attribute.replace(b'"', b"'")))
+    elif mutation == "missing-attribute":
+        target.write_bytes(target.read_bytes().replace(export_attribute, b""))
+    sentinel = stage / "unrelated.svg"
+    sentinel.write_bytes(b'<svg><metadata>untouched</metadata></svg>\n')
+    before = {path: path.read_bytes() for path in stage.rglob("*") if path.is_file()}
+    result = subprocess.run(
+        ["bash", "--noprofile", "--norc", "-c", "set -euo pipefail\n" + transform.group() +
+         '\n_remove_colloid_export_paths "$1"', "colloid-transform-fixture", str(stage)],
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+    )
+    assert (result.returncode == 0) == (mutation is None), f"Colloid transform result differs: {mutation}"
+    for path, data in before.items():
+        expected = data.replace(export_attribute, b"") if mutation is None and path != sentinel else data
+        assert path.read_bytes() == expected, f"Colloid transform changed unrelated bytes: {mutation}"
+
+
+transform_fixture()
+for mutation in ("missing", "symlink", "hardlink", "duplicate", "relative", "single-quote", "missing-attribute"):
+    transform_fixture(mutation)
 
 profile_dependencies = [
     "arch-linux-keyring>=1.0.0",
@@ -171,10 +230,14 @@ write_keyring()
 write_profile("positive-profile")
 for case in ("owner", "mode", "path", "deps", "hook", "license", "link"):
     write_profile(f"wrong-{case}", case)
+for index, name in enumerate(colloid_names):
+    with tarfile.open(output / f"wrong-export-{index}.tar", "w", format=tarfile.PAX_FORMAT) as archive:
+        add_file(archive, "usr/share/icons/" + name, svg_bytes(name))
 PY
 
 python3 -B - "$verifier" <<'PY'
 import importlib.util
+import io
 import tarfile
 import sys
 
@@ -209,6 +272,26 @@ rejected('cycle',{
     name:symlink(name,'cycle.svg'),
     name.rsplit('/',1)[0]+'/cycle.svg':symlink(name.rsplit('/',1)[0]+'/cycle.svg',name.rsplit('/',1)[1]),
 })
+
+# Exercise the same payload guard on clean, relative, and absolute export metadata.
+for attribute, rejected_export in (
+    (b'', False), (b'inkscape:export-filename="drawing.png"', False),
+    (b'inkscape:export-filename="/' + b'/'.join((b'home', b'fixture-author', b'file.png')) + b'"', True),
+    (b"inkscape:export-filename = '/" + b'/'.join((b'home', b'fixture-author', b'file.png')) + b"'", True),
+):
+    data = b'<svg ' + attribute + b'><path d="M 1,2 L 3,4"/></svg>\n'
+    stream = io.BytesIO()
+    with tarfile.open(fileobj=stream, mode='w') as archive:
+        member = regular(name); member.size = len(data)
+        archive.addfile(member, io.BytesIO(data))
+    stream.seek(0)
+    with tarfile.open(fileobj=stream, mode='r:') as archive:
+        try:
+            module.assert_no_absolute_svg_export_path(archive, archive.getmember(name))
+        except SystemExit as error:
+            assert rejected_export and 'absolute SVG export metadata is forbidden' in str(error)
+        else:
+            assert not rejected_export, 'absolute SVG export metadata accepted'
 PY
 
 for archive in "$fixture_root"/*.tar; do
@@ -233,8 +316,8 @@ python3 "$verifier" --verify-package \
     "$fixture_root/positive-profile.pkg.tar.zst" arch-linux-marble-profile
 
 expect_package_rejection() {
-    local label="$1" expected="$2" archive="$3" result
-    if result="$(python3 "$verifier" --verify-package "$archive" arch-linux-marble-profile 2>&1)"; then
+    local label="$1" expected="$2" archive="$3" package="${4:-arch-linux-marble-profile}" result
+    if result="$(python3 "$verifier" --verify-package "$archive" "$package" 2>&1)"; then
         printf 'package checks failed: negative fixture accepted: %s\n' "$label" >&2
         return 1
     fi
@@ -260,6 +343,10 @@ expect_package_rejection link 'unsafe symlink target' \
     "$fixture_root/wrong-link.pkg.tar.zst"
 expect_package_rejection compression 'not a Zstandard frame' \
     "$fixture_root/not-zstd.pkg.tar.zst"
+for index in 0 1 2 3; do
+    expect_package_rejection "colloid-export-${index}" 'absolute SVG export metadata is forbidden' \
+        "$fixture_root/wrong-export-${index}.pkg.tar.zst" arch-linux-colloid-icons
+done
 
 if [ -n "${PACKAGE_ARTIFACT_DIR:-}" ]; then
     shopt -s nullglob

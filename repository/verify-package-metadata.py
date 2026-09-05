@@ -483,6 +483,11 @@ def member_sha256(archive: tarfile.TarFile, member: tarfile.TarInfo) -> str:
     return digest.hexdigest()
 
 
+def assert_no_absolute_svg_export_path(archive: tarfile.TarFile, member: tarfile.TarInfo) -> None:
+    if re.search(rb"\binkscape:export-filename\s*=\s*['\"]/", read_member(archive, member)):
+        fail(f"absolute SVG export metadata is forbidden: {member.name}")
+
+
 def resolve_internal_regular_member(
     members: dict[str, tarfile.TarInfo], name: str, *, maximum_links: int = 16
 ) -> tarfile.TarInfo:
@@ -576,6 +581,8 @@ def verify_package_tar(archive: tarfile.TarFile, package: str) -> None:
             fail(f"archive mode differs for {name}: {stat.S_IMODE(member.mode):04o}")
         if not package_path_allowed(package, name, member.isdir()):
             fail(f"{package}: unexpected package path: {name}")
+        if package == "arch-linux-colloid-icons" and member.isfile() and name.endswith(".svg"):
+            assert_no_absolute_svg_export_path(archive, member)
         members[name] = member
 
     required = set(PACKAGE_METADATA_PATHS) | PACKAGE_REQUIRED_PATHS[package]
