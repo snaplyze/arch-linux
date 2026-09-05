@@ -931,17 +931,172 @@ wait_for_frame_ledger_event() {
 # directly under Bash errexit, with real owned children returning zero and nonzero statuses.
 for child_status in (0, 3):
     with tempfile.TemporaryDirectory(prefix='arch-linux-recorder-exit-', dir=os.environ.get('RUNNER_TEMP')) as work:
-        program = 'set -Eeuo pipefail\nevidence=$1\nframe_recorder_phase=firstboot\nframe_recorder_segment=boot\n'
-        for name in ('die', 'finish_frame_recorder'):
+        program = 'set -Eeuo pipefail\nevidence=$1\nframe_recorder_phase=firstboot\nframe_recorder_segment=boot\nframe_recorder_start_time=1\n'
+        for name in ('die', 'record_frame_recorder_exit', 'finish_frame_recorder'):
             program += name + '() {\n' + function(run, name) + '}\n'
         program += '(exit "$2") &\nframe_recorder_pid=$!\nfinish_frame_recorder firstboot boot\n'
         result = subprocess.run(['/usr/bin/bash', '-c', program, 'recorder-exit-fixture', work, str(child_status)],
             capture_output=True, timeout=3, env={'PATH':'/usr/bin:/bin', 'LC_ALL':'C'})
         recorded = (Path(work) / 'firstboot-boot-frame-recorder.exit').read_text()
-        if recorded != f'phase=firstboot\nexit_status={child_status}\n' or result.stdout or \
+        if not re.fullmatch(r'phase=firstboot segment=boot recorder_pid=[1-9][0-9]* recorder_start=1 '
+                            rf'exit_status={child_status}\n', recorded) or result.stdout or \
                 result.returncode != (0 if child_status == 0 else 1) or \
                 result.stderr != (b'' if child_status == 0 else b'QEMU_HOST_FAIL: framebuffer recorder failed: firstboot/boot: 3\n'):
             raise SystemExit('static check failed: recorder exit status was not preserved')
+
+# A dead recorder is joined by the actual cleanup path, which must retain its status without
+# changing the original host failure. Run only an owned exit-7 child; no QEMU or installer.
+for existing in (False, True, 'malformed'):
+    with tempfile.TemporaryDirectory(prefix='arch-linux-recorder-cleanup-', dir=os.environ.get('RUNNER_TEMP')) as work:
+        root = Path(work); evidence_dir = root / 'evidence'; evidence_dir.mkdir(mode=0o700)
+        receipt = evidence_dir / 'firstboot-boot-frame-recorder.exit'
+        program = '''set -Eeuo pipefail
+run_root=$1; evidence=$1/evidence; run_id=recorder-cleanup-fixture; current_phase=firstboot
+run_storage_finalized=true; runtime_password=''; runtime_dir=''
+serial_bridge_input_fd=''; serial_bridge_pid=''; qemu_pid=''; qemu_start_time=''
+frame_recorder_phase=firstboot; frame_recorder_segment=boot; frame_recorder_start_time=1
+stop_repository_server() { :; }
+process_is_exact_frame_recorder() { return 1; }
+find_run_qemu_processes() { :; }
+enforce_evidence_budget() { :; }
+build_result() { printf '%s:%s\\n' "$1" "$2" >"$run_root/fixture-result"; }
+'''
+        for name in ('record_frame_recorder_exit', 'cleanup'):
+            program += name + '() {\n' + function(run, name) + '}\n'
+        program += '(exit 7) &\nframe_recorder_pid=$!\n'
+        if existing:
+            program += ('record_frame_recorder_exit firstboot boot "$frame_recorder_pid" 1 7\n'
+                        'cp -- "$evidence/firstboot-boot-frame-recorder.exit" "$run_root/first-receipt"\n')
+            if existing == 'malformed':
+                program += 'printf "malformed exit_status=0\\n" >"$evidence/firstboot-boot-frame-recorder.exit"\n'
+        program += 'set +e\n(exit 9)\ncleanup\n'
+        result = subprocess.run(['/usr/bin/bash', '-c', program, 'recorder-cleanup-fixture', work],
+            capture_output=True, timeout=3, env={'PATH':'/usr/bin:/bin', 'LC_ALL':'C'})
+        recorded = receipt.read_text()
+        wanted_stderr = b'FAIL run_id=recorder-cleanup-fixture phase=firstboot exit_status=9\n'
+        if existing == 'malformed':
+            wanted_stderr = b'QEMU_HOST_FAIL: cannot preserve recorder exit diagnostics\n' + wanted_stderr
+        if result.returncode != 9 or result.stdout or \
+                result.stderr != wanted_stderr or \
+                (root / 'fixture-result').read_text() != 'FAIL:9\n' or \
+                (existing is True and recorded != (root / 'first-receipt').read_text()) or \
+                (existing == 'malformed' and recorded != 'malformed exit_status=0\n') or \
+                (not existing and not re.fullmatch(
+                    r'phase=firstboot segment=boot recorder_pid=[1-9][0-9]* recorder_start=1 exit_status=7\n', recorded)):
+            raise SystemExit('static check failed: cleanup lost recorder status or original failure')
+        program = ('set -Eeuo pipefail\nrun_root=$1; evidence=$1/evidence\n'
+                   'remove_secret_bearing_evidence() { :; }\n'
+                   'compact_run_evidence() {\n' + function(run, 'compact_run_evidence') + '}\n'
+                   'compact_run_evidence\n')
+        result = subprocess.run(['/usr/bin/bash', '-c', program, 'recorder-compact-fixture', work],
+            capture_output=True, timeout=3, env={'PATH':'/usr/bin:/bin', 'LC_ALL':'C'})
+        import gzip
+        compact = gzip.decompress((evidence_dir / 'scenario.log.gz').read_bytes()).decode()
+        if result.returncode or result.stdout or result.stderr or compact.splitlines().count(recorded.strip()) != 1:
+            raise SystemExit('static check failed: compaction lost bound recorder diagnostics')
+
+# Diagnostics never create a path from an unsafe phase, segment, PID/start, status or link.
+with tempfile.TemporaryDirectory(prefix='arch-linux-recorder-receipt-', dir=os.environ.get('RUNNER_TEMP')) as work:
+    root = Path(work); evidence_dir = root / 'evidence'; evidence_dir.mkdir(mode=0o700)
+    program = ('set -Eeuo pipefail\nevidence=$1; shift\nrecord_frame_recorder_exit() {\n' +
+               function(run, 'record_frame_recorder_exit') + '}\nrecord_frame_recorder_exit "$@"\n')
+    for field, invalid in ((0, '../escape'), (0, ''), (1, '../escape'), (2, '1/../../escape'),
+                           (2, '0'), (2, '1'*11), (3, '-1'), (3, '1/escape'), (3, '1'*21),
+                           (4, '256'), (4, '-1'), (4, '01')):
+        values = ['firstboot', 'boot', '1', '1', '7']; values[field] = invalid
+        result = subprocess.run(['/usr/bin/bash', '-c', program, 'recorder-receipt-fixture', str(evidence_dir), *values],
+            capture_output=True, timeout=3, env={'PATH':'/usr/bin:/bin', 'LC_ALL':'C'})
+        if result.returncode != 1 or result.stdout or result.stderr or list(evidence_dir.iterdir()):
+            raise SystemExit('static check failed: unsafe recorder diagnostics identity accepted')
+    sentinel = root / 'sentinel'; sentinel.write_bytes(b'unchanged'); sentinel.chmod(0o600)
+    receipt = evidence_dir / 'firstboot-boot-frame-recorder.exit'; receipt.symlink_to(sentinel)
+    result = subprocess.run(['/usr/bin/bash', '-c', program, 'recorder-receipt-fixture',
+        str(evidence_dir), 'firstboot', 'boot', '1', '1', '7'], capture_output=True, timeout=3,
+        env={'PATH':'/usr/bin:/bin', 'LC_ALL':'C'})
+    if result.returncode != 1 or sentinel.read_bytes() != b'unchanged':
+        raise SystemExit('static check failed: linked recorder receipt accepted')
+    receipt.unlink()
+    valid_receipt = 'phase=firstboot segment=boot recorder_pid=2 recorder_start=3 exit_status=7\n'
+    for contents, cleanup, wanted in (
+        (valid_receipt, 'false', 1), (valid_receipt, 'true', 0),
+        (valid_receipt.replace('pid=2', 'pid=1'), 'true', 1),
+        (valid_receipt.replace('start=3', 'start=4'), 'true', 1),
+        (valid_receipt.replace('exit_status=7', 'exit_status=0'), 'true', 1),
+        (valid_receipt.replace('firstboot', 'postreboot'), 'true', 1),
+        (valid_receipt + '\n', 'true', 1), ('malformed\n', 'true', 1),
+    ):
+        receipt.write_text(contents); receipt.chmod(0o600)
+        before = receipt.stat()
+        result = subprocess.run(['/usr/bin/bash', '-c', program, 'recorder-receipt-fixture',
+            str(evidence_dir), 'firstboot', 'boot', '2', '3', '7', cleanup], capture_output=True, timeout=3,
+            env={'PATH':'/usr/bin:/bin', 'LC_ALL':'C'})
+        after = receipt.stat()
+        if result.returncode != wanted or result.stdout or result.stderr or receipt.read_text() != contents or \
+                (before.st_ino, before.st_mtime_ns, before.st_ctime_ns) != \
+                (after.st_ino, after.st_mtime_ns, after.st_ctime_ns):
+            raise SystemExit('static check failed: existing recorder receipt accepted incorrectly or overwritten')
+
+# Execute the real recorder loop with deterministic clocks and no VM/QMP. The unchanged exact
+# 500ms boundary is accepted; +1ns must fail before another frame, sample or control ACK.
+import types
+for gap in (500_000_000, 500_000_001):
+    scope = {'__name__':'recorder_timing_fixture', '__file__':str(helper_path)}
+    exec(compile(helper, scope['__file__'], 'exec'), scope)
+    with tempfile.TemporaryDirectory(prefix='arch-linux-recorder-timing-', dir=os.environ.get('RUNNER_TEMP')) as work:
+        root = Path(work) / 'run'; root.mkdir(mode=0o700); (root / 'evidence').mkdir(mode=0o700)
+        state = {'now':1_000_000_000, 'frames':0, 'status':0, 'controls':0, 'closed':False}
+        records = []
+        def advance(amount):
+            state['now'] += amount
+        def sleep(_):
+            state['now'] = 1_000_000_000 + gap
+        def exact_qemu(*_):
+            if state['frames'] == 1:
+                advance(5_000_000)
+            return True
+        class FakeQMP:
+            def __init__(self, *_):
+                self.identity='1:2'; self.pid=1; self.peer_uid=os.getuid()
+            def status(self):
+                state['status'] += 1
+                return 'prelaunch' if state['status'] <= 2 else 'running'
+            def frame(self, _):
+                state['frames'] += 1; advance(10_000_000)
+                return (1, 1, b'\0\0\0', 'a'*64, b'P6\n1 1\n255\n\0\0\0')
+            def close(self):
+                state['closed'] = True
+        def store_raw(*_):
+            advance(20_000_000)
+            return 'frame.ppm.gz', 'b'*64, 0
+        def append_json(_, value, first=False):
+            records.append(value)
+            if value['e'] == 'sample':
+                advance(30_000_000)
+        def read_controls(*_):
+            state['controls'] += 1; advance(40_000_000)
+            return 0, ([] if state['controls'] == 1 else [('stop-boot', 'c'*16)])
+        scope.update(time=types.SimpleNamespace(monotonic_ns=lambda:state['now'], sleep=sleep),
+            exact_qemu=exact_qemu, process_start=lambda _: '1', QMP=FakeQMP,
+            store_raw=store_raw, append_json=append_json, read_controls=read_controls)
+        args = types.SimpleNamespace(run_root=str(root), qmp_socket='/unused', qemu_pid=1,
+            qemu_start='1', phase='firstboot', segment='boot')
+        error = None
+        try:
+            scope['record_command'](args)
+        except scope['EvidenceError'] as caught:
+            error = str(caught)
+        if not state['closed']:
+            raise SystemExit('static check failed: recorder timing fixture did not close QMP')
+        if gap == 500_000_000:
+            if error or state['frames'] != 2 or records[-1]['e'] != 'terminal' or \
+                    records[-1]['reason'] != 'requested-stop':
+                raise SystemExit('static check failed: exact 500ms recorder boundary rejected')
+        else:
+            expected = 'gapNs=500000001'
+            if error != expected or state['frames'] != 1 or \
+                    sum(r['e'] == 'sample' for r in records) != 1 or \
+                    any(r['e'] in ('control', 'terminal') for r in records):
+                raise SystemExit('static check failed: over-limit recorder gap diagnostics/boundary differ')
 FRAMEBUFFER_PY
 
 printf 'static checks passed\n'
