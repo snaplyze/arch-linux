@@ -520,6 +520,7 @@ python3 - "$repo_root" <<'FRAMEBUFFER_PY'
 from pathlib import Path
 import ast
 import re
+import subprocess
 import sys
 
 root = Path(sys.argv[1])
@@ -838,7 +839,7 @@ for index, mutation in enumerate(static_mutations, 1):
     raise SystemExit(f"static check failed: filesystem self-test mutation {index} was accepted")
 
 for literal in (
-    "[ -s /proc/fb ]",
+    "[ -r /proc/fb ]",
     "/sys/class/graphics/fb0/name",
     "/sys/class/vtconsole/vtcon*",
     "kernel_console=tty0",
@@ -846,6 +847,39 @@ for literal in (
 ):
     if literal not in guest:
         raise SystemExit(f"static check failed: guest framebuffer prerequisite absent: {literal}")
+
+# procfs reports st_size=0 even when /proc/fb has rows. Execute the actual read/parse/count
+# block against a readable zero-size procfs pipe, rather than a regular-file fixture.
+proc_start = guest.index("    [ -r /proc/fb ]\n")
+proc_end = guest.index("    [ -e /sys/class/graphics/fb0 ]\n", proc_start)
+proc_block = guest[proc_start:proc_end]
+
+def framebuffer_stream_status(block, payload):
+    program = (
+        'set -Eeuo pipefail\nframebuffer_rows=0\n'
+        '[ -p /proc/self/fd/0 ]\n'
+        '[ "$(stat -Lc %s /proc/self/fd/0)" = 0 ]\n'
+        + block.replace('/proc/fb', '/proc/self/fd/0')
+    )
+    result = subprocess.run(
+        ['/usr/bin/bash', '-c', program], input=payload,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5,
+        env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C'},
+    )
+    if result.returncode not in (0, 1) or result.stdout or result.stderr:
+        raise SystemExit('static check failed: framebuffer stream fixture did not execute cleanly')
+    return result.returncode
+
+for payload in (b'0 virtio_gpudrmfb\n', b'0 simpledrm\n1 driver_1.2-+\n'):
+    if framebuffer_stream_status(proc_block, payload) != 0:
+        raise SystemExit('static check failed: readable zero-size framebuffer stream rejected')
+for payload in (b'', b'\n', b'x driver\n', b'-1 driver\n', b'0\n',
+                b'0 driver/name\n', b'0 driver extra\n', b'0 driver\n\n', b'0 driver'):
+    if framebuffer_stream_status(proc_block, payload) != 1:
+        raise SystemExit('static check failed: empty or malformed framebuffer stream accepted')
+legacy_block = proc_block.replace('[ -r /proc/fb ]', '[ -s /proc/fb ]', 1)
+if framebuffer_stream_status(legacy_block, b'0 virtio_gpudrmfb\n') != 1:
+    raise SystemExit('static check failed: legacy procfs size defect was not reproduced')
 FRAMEBUFFER_PY
 
 printf 'static checks passed\n'
