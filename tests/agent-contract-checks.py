@@ -53,6 +53,32 @@ for marker in canonical_checkout_markers:
     if marker not in agents_flat:
         raise SystemExit(f'agent contract check failed: canonical checkout rule differs: {marker!r}')
 
+remediation_markers = (
+    'When continuous remediation is explicitly authorized',
+    'Preserve the rejected freeze and its artifacts and evidence unchanged',
+    'new pull-request branch in the same canonical checkout',
+    'fresh tests, freeze, build, signing and VM evidence for the new identity',
+    'Never transfer a PASS to the corrected candidate or replace published bytes or tags',
+)
+
+
+def check_remediation_contract(document: str) -> None:
+    normalized = ' '.join(document.split())
+    for marker in remediation_markers:
+        if marker not in normalized:
+            raise ValueError(f'remediation boundary is missing: {marker}')
+
+
+for document in (agents, release_process):
+    check_remediation_contract(document)
+    normalized = ' '.join(document.split())
+    for marker in remediation_markers:
+        try:
+            check_remediation_contract(normalized.replace(marker, '', 1))
+        except ValueError:
+            continue
+        raise SystemExit('agent contract check failed: missing remediation boundary was accepted')
+
 for document, markers, label in (
     (release_process, (
         'same canonical checkout',

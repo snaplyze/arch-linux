@@ -303,6 +303,158 @@ grep -Fq 'deactivate_profile' "$repo_root/packages/arch-linux-marble-profile/upd
 
 python3 "$repo_root/repository/verify-package-metadata.py"
 
+python3 - "$repo_root" <<'VM_IDENTITY_PY'
+from pathlib import Path
+import ast
+import re
+import subprocess
+import sys
+
+root = Path(sys.argv[1])
+host = (root / "tests/vm/run.sh").read_text()
+guests = [(root / path).read_text() for path in ("tests/vm/guest/bootstrap.sh", "tests/vm/guest/verify.sh")]
+routes = (
+    ("minimal-ext4-systemdboot", "minimal", "M", "MIN"),
+    ("stock-gnome-ext4-systemdboot", "stock", "S", "STK"),
+    ("stock-gnome-btrfs-systemdboot", "btrfs", "B", "BTR"),
+    ("stock-gnome-btrfs-grub", "grub", "G", "GRB"),
+    ("stock-gnome-btrfs-luks2-plymouth-systemdboot", "luks", "L", "LUK"),
+    ("stock-gnome-btrfs-luks2-plymouth-grub", "luksgrub", "G", "GRB"),
+    ("marble-gnome-btrfs-luks2-plymouth-systemdboot", "marble", "A", "MAR"),
+)
+stock = routes[5][0]
+
+def require(condition, message):
+    if not condition:
+        raise SystemExit(f"static check failed: VM identity: {message}")
+
+def bash(program, *args):
+    return subprocess.run(["bash", "--noprofile", "--norc", "-c", "set -euo pipefail\n" + program,
+                           "identity-fixture", *args], capture_output=True, text=True, timeout=5,
+                          env={"PATH": "/usr/bin:/usr/sbin", "LANG": "C", "LC_ALL": "C"})
+
+# Execute only the actual scenario/identity assignments, never main, QEMU or guest setup.
+start = host.index('    case "${scenario_id}" in\n', host.index("main() {"))
+end = host.index("\n    esac\n    shift", start) + len("\n    esac")
+case = host[start:end]
+start = host.index('    if [ "${run_prefix}" = minimal ]; then\n', end)
+end = host.index('    [[ "${run_id}" =~', start)
+identity = host[start:end]
+run_id_assignment = [line for line in host.splitlines() if line.startswith('    run_id="${run_prefix}-')]
+require(len(run_id_assignment) == 1, "host run-id assignment closure")
+generator = ('scenario_id=$1\nusage(){ return 2; }\n'
+             'date(){ printf %s 20260905T000000Z; }\n'
+             'openssl(){ case "$*" in "rand -hex 6") printf %s 0123456789ab ;; '
+             '"rand -hex 4") printf %s 01234567 ;; *) return 2 ;; esac; }\n'
+             + case + '\n' + run_id_assignment[0] + '\n' + identity
+             + '\nprintf "%s\\n" "$target_serial" "$target_model" "$run_id"\n')
+
+def guest_guards(text, scenario, bootstrap):
+    matches = re.findall(r'^\s*' + re.escape(scenario) + r'\)\n(.*?)^\s*;;', text, re.M | re.S)
+    require(len(matches) == 1, f"guest scenario closure: {scenario}")
+    needles = ("IDENTITY[TARGET_SERIAL]", "IDENTITY[TARGET_MODEL]", "IDENTITY[RUN_ID]") if bootstrap else (
+        "expected_serial", "expected_model", "run_id")
+    guards = [line.strip() for line in matches[0].splitlines()
+              if line.strip().startswith("[[") and any(needle in line for needle in needles)]
+    require(len(guards) == 3, f"guest identity guard closure: {scenario}")
+    return "\n".join(guards)
+
+def guest_accepts(guards, serial, model, run_id):
+    result = bash('fail(){ return 1; }\n'
+                  'declare -A IDENTITY=([TARGET_SERIAL]="$1" [TARGET_MODEL]="$2" [RUN_ID]="$3")\n'
+                  'expected_serial=$1; expected_model=$2; run_id=$3\n' + guards, serial, model, run_id)
+    require(result.returncode in (0, 1) and not result.stdout and not result.stderr, "guest guard execution")
+    return result.returncode == 0
+
+# Exercise the actual finalizer identity function, with synthetic non-secret identity rows only.
+acceptance = (root / "repository/acceptance-manifest.py").read_text()
+parsed = ast.parse(acceptance)
+scenarios_node = next(node for node in parsed.body if isinstance(node, ast.Assign)
+                      and any(isinstance(t, ast.Name) and t.id == "SCENARIOS" for t in node.targets))
+final_scenarios = ast.literal_eval(scenarios_node.value)
+validator = next(node for node in parsed.body if isinstance(node, ast.FunctionDef)
+                 and node.name == "validate_identity_record")
+def rejected(message):
+    raise ValueError(message)
+namespace = {"SCENARIOS": final_scenarios, "re": re, "fail": rejected}
+exec("from __future__ import annotations\n" + ast.get_source_segment(acceptance, validator), namespace)
+
+def final_accepts(scenario, serial, model, run_id, recorded_run_id=None):
+    digest = "a" * 64
+    result = dict(sourceCommit="b" * 40, sourceTree="c" * 40, harnessSha256=digest,
+                  isoSha256=digest, targetSerial=serial)
+    expected = dict.fromkeys(("repositorySnapshotSha256", "buildMetadataSha256",
+                             "unsignedManifestSha256", "releaseSha256sumsSha256"), digest)
+    repository_rows = (
+        ("repository_public_key_sha256", "publicKeySha256"),
+        ("repository_primary_fingerprint", "primaryFingerprint"),
+        ("repository_signing_fingerprint", "signingFingerprint"),
+        ("repository_package_set_sha256", "packageSetSha256"),
+        ("repository_manifest_sha256", "manifestSha256"),
+        ("repository_manifest_signature_sha256", "manifestSignatureSha256"),
+        ("repository_database_sha256", "databaseSha256"),
+        ("repository_database_signature_sha256", "databaseSignatureSha256"),
+        ("repository_files_sha256", "filesSha256"),
+        ("repository_files_signature_sha256", "filesSignatureSha256"),
+    )
+    contract = dict.fromkeys((key for _, key in repository_rows), digest)
+    contract.update(installerSha256=digest, objects=[])
+    rows = [("scenario", scenario), ("input_mode", "staged"), ("release_version", "1.0.0"),
+            ("run_id", recorded_run_id or run_id), ("source_commit", result["sourceCommit"]),
+            ("source_tree", result["sourceTree"]), ("installer_sha256", digest),
+            ("bootstrap_sha256", digest), ("harness_sha256", digest), ("iso_sha256", digest),
+            ("snapshot_sha256", digest), ("build_metadata_sha256", digest),
+            ("unsigned_manifest_sha256", digest), ("target_serial", serial),
+            ("target_vendor", "SNAPLYZE"), ("target_model", model)]
+    rows += [(name, contract[key]) for name, key in repository_rows]
+    rows.append(("release_sha256sums_sha256", digest))
+    if scenario == final_scenarios[2]:
+        rows.append(("repository_server_port", "12345"))
+    raw = "".join(f"{name}={value}\n" for name, value in rows).encode()
+    try:
+        namespace["validate_identity_record"](raw, result, scenario, run_id, "1.0.0", expected, contract, digest)
+    except ValueError:
+        return False
+    return True
+
+guest_negatives = final_negatives = legacy_regressions = 0
+for scenario, prefix, letter, model_prefix in routes:
+    result = bash(generator, scenario)
+    require(result.returncode == 0 and not result.stderr, f"host generator: {scenario}")
+    actual = tuple(result.stdout.splitlines())
+    expected = (f"ALI100{letter}0123456789AB", f"ALI_{model_prefix}_01234567", f"{prefix}-20260905T000000Z-01234567")
+    require(actual == expected, f"host identity: {scenario}")
+    serial, model, run_id = actual
+    mutations = [(f"ALI100{x}0123456789AB", model, run_id) for x in "MSBGLAR" if x != letter]
+    mutations += [(serial, f"ALI_{x}_01234567", run_id)
+                  for x in ("MIN", "STK", "BTR", "GRB", "LUK", "MAR", "LGR") if x != model_prefix]
+    mutations += [(serial, model, f"{foreign}-20260905T000000Z-01234567")
+                  for _, foreign, _, _ in routes if foreign != prefix]
+    mutations += [(bad, model, run_id) for bad in (serial[:-1], serial + "A", serial[:-1] + "g", serial + "\n")]
+    mutations += [(serial, bad, run_id) for bad in (model[:-1], model + "A", model[:-1] + "g", model + "\n")]
+    mutations += [(serial, model, run_id[:-1]), (serial, model, run_id[:-1] + "G")]
+    for index, text in enumerate(guests):
+        guards = guest_guards(text, scenario, index == 0)
+        require(guest_accepts(guards, *actual), f"host/guest {index} mismatch: {scenario}")
+        if scenario == stock:
+            old_guards = guards.replace("ALI100G", "ALI100R").replace("ALI_GRB_", "ALI_LGR_")
+            require(old_guards != guards and not guest_accepts(old_guards, *actual), "legacy Stock regression")
+            legacy_regressions += 1
+        for mutation in mutations:
+            require(not guest_accepts(guards, *mutation), f"guest {index} accepted foreign/malformed identity: {scenario}")
+            guest_negatives += 1
+    if scenario in final_scenarios:
+        require(final_accepts(scenario, *actual), f"host/finalizer mismatch: {scenario}")
+        for changed_serial, changed_model, changed_run in mutations:
+            require(not final_accepts(scenario, changed_serial, changed_model, run_id, changed_run),
+                    f"finalizer accepted foreign/malformed identity: {scenario}")
+            final_negatives += 1
+require(tuple(final_scenarios) == tuple(routes[i][0] for i in (0, 5, 6)), "final scenario closure")
+require(legacy_regressions == 2, "legacy Stock negative coverage")
+print(f"VM identity checks passed: routes=7 finalizer=3 guest_negatives={guest_negatives} "
+      f"finalizer_negatives={final_negatives} legacy_regressions={legacy_regressions}; QEMU=NOT_RUN")
+VM_IDENTITY_PY
+
 # FRAME_FILESYSTEM_SELFTEST_BEGIN
 frame_selftest_roots=()
 cleanup_frame_selftests() {

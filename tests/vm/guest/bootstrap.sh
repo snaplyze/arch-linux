@@ -232,8 +232,8 @@ main() {
     stock-gnome-btrfs-luks2-plymouth-grub)
         marker_prefix='LUKSGRUB'
         [[ "${IDENTITY[RUN_ID]}" =~ ^luksgrub-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}$ ]] || fail 'run identity is invalid'
-        [[ "${IDENTITY[TARGET_SERIAL]}" =~ ^ALI100R[A-F0-9]{12}$ ]] || fail 'target serial is invalid'
-        [[ "${IDENTITY[TARGET_MODEL]}" =~ ^ALI_LGR_[A-F0-9]{8}$ ]] || fail 'target model is invalid'
+        [[ "${IDENTITY[TARGET_SERIAL]}" =~ ^ALI100G[A-F0-9]{12}$ ]] || fail 'target serial is invalid'
+        [[ "${IDENTITY[TARGET_MODEL]}" =~ ^ALI_GRB_[A-F0-9]{8}$ ]] || fail 'target model is invalid'
         ;;
     marble-gnome-btrfs-luks2-plymouth-systemdboot)
         marker_prefix='MARBLE'

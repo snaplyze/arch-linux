@@ -11,15 +11,23 @@ sibling clones or copied source repositories. Generated build, signing, VM and e
 outside the source tree. Ephemeral CI, package-build, signing, test and VM isolation remains
 mandatory and does not become development source.
 
-Freeze one exact tree and run:
+Validate the clean source candidate before freezing its exact identity:
 
 ```bash
 bash tests/source-tests.sh
 git diff --check
 ```
 
-Record the tree identity, input hashes and exact statuses. A source failure stops acceptance. Results
-from an earlier tree are invalid.
+Record the tree identity, input hashes and exact statuses, then freeze only after all required
+source gates pass. A source failure stops acceptance of that candidate. Results from an earlier
+tree are invalid for a corrected candidate.
+
+When continuous remediation is explicitly authorized, a proven defect discovered after freeze
+rejects that candidate rather than ending development. Preserve the rejected freeze and its
+artifacts and evidence unchanged. Apply the minimal correction and regression through a new
+pull-request branch in the same canonical checkout, then obtain fresh tests, freeze, build, signing
+and VM evidence for the new identity. Never transfer a PASS to the corrected candidate or replace
+published bytes or tags. This is a new acceptance attempt, not a retry of a product failure.
 
 ## 2. One canonical Arch build
 
@@ -102,7 +110,8 @@ one exact independently verified `arch-linux-repository-${VERSION}.tar.zst` for 
 3. Marble, Btrfs, LUKS2 and systemd-boot with the separate Marble GDM opt-in and Stock fallback.
 
 Each scenario must exercise the real ISO, installer and produced repository. Product failure is not
-retried. One infrastructure retry is allowed only with a recorded concrete cause.
+retried on unchanged inputs; use the authorized correction and new-identity acceptance route above.
+One infrastructure retry is allowed only with a recorded concrete cause.
 
 For every installed `firstboot` and `postreboot`, launch QEMU paused with `-S`, bind the direct
 framebuffer recorder to the exact QEMU PID/start identity and QMP peer, require its `READY` ledger
