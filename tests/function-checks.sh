@@ -952,25 +952,65 @@ unset ARCH_LINUX_QEMU_ACCEPTANCE ARCH_LINUX_QEMU_REPOSITORY_CONTRACT
     done
 )
 (
-    eval "$(sed -n '/^pacman_key_cleanup_diagnostics_are_valid() {/,/^}/p' \
+    eval "$(sed -n '/^wait_for_desktop_initialization() {/,/^}/p' \
         "${repo_root}/tests/vm/guest/verify.sh")"
-    diagnostics_fixture="$(mktemp)"
-    printf '%s\n' \
-        'gpg: Note: third-party key signatures using the SHA1 algorithm are rejected' \
-        'gpg: (use option "--allow-weak-key-signatures" to override)' \
-        'gpg: marginals needed: 3  completes needed: 1  trust model: pgp' \
-        'gpg: depth: 0  valid:   1  signed:   5  trust: 0-, 0q, 0n, 0m, 0f, 1u' \
-        'gpg: depth: 1  valid:   5  signed:  88  trust: 0-, 0q, 0n, 5m, 0f, 0u' \
-        'gpg: depth: 2  valid:  77  signed:  18  trust: 77-, 0q, 0n, 0m, 0f, 0u' \
-        'gpg: next trustdb check due at 2026-10-21' >"${diagnostics_fixture}"
-    pacman_key_cleanup_diagnostics_are_valid "${diagnostics_fixture}"
-    printf '%s\n' 'gpg: unexpected diagnostic' >>"${diagnostics_fixture}"
-    if pacman_key_cleanup_diagnostics_are_valid "${diagnostics_fixture}"; then
-        echo 'function check failed: Marble cleanup accepted unexpected GnuPG stderr' >&2
-        rm -f -- "${diagnostics_fixture}"
+    initialization_fixture="$(mktemp -d)"
+    trap 'rm -rf -- "${initialization_fixture}"' EXIT
+    autostart="${initialization_fixture}/initialize.desktop"
+    wait_for_desktop_initialization "${autostart}"
+    : >"${autostart}"
+    initialization_waits=0
+    sleep() {
+        initialization_waits=$((initialization_waits + 1))
+        [ "${initialization_waits}" -lt 2 ] || rm -- "${autostart}"
+    }
+    wait_for_desktop_initialization "${autostart}"
+    [ "${initialization_waits}" -eq 2 ]
+    : >"${autostart}"
+    sleep() { SECONDS=$((SECONDS + 301)); }
+    if wait_for_desktop_initialization "${autostart}"; then
+        echo 'function check failed: incomplete desktop initialization accepted' >&2
         exit 1
     fi
-    rm -f -- "${diagnostics_fixture}"
+    [ -f "${autostart}" ] # The observer must not remove or execute a pending initializer.
+    rm -- "${autostart}"
+    ln -s missing-initializer "${autostart}"
+    if wait_for_desktop_initialization "${autostart}"; then
+        echo 'function check failed: linked desktop initializer accepted' >&2
+        exit 1
+    fi
+)
+(
+    eval "$(sed -n '/^verify_dual_boot_phase() {/,/^}/p' \
+        "${repo_root}/tests/vm/guest/verify.sh")"
+    scenario=minimal-dualboot-ext4-systemdboot phase=neighbor run_id=fixture
+    neighbor_hostname=ali-neighbor
+    find_target() { printf '/dev/sda'; }
+    mounted_source_device() { printf '/dev/sda2'; }
+    partition_name() { printf '%s%s' "$1" "$2"; }
+    hostname() { return 127; } # Not installed by the base-only neighboring system.
+    cat() {
+        case "$1" in
+        /proc/sys/kernel/hostname) printf '%s' "${neighbor_hostname}" ;;
+        /neighbor-preserved.txt) printf '%s' "${run_id}" ;;
+        /proc/sys/kernel/random/boot_id) printf '11111111-1111-1111-1111-111111111111' ;;
+        *) return 1 ;;
+        esac
+    }
+    systemctl() { return 0; }
+    getent() { return 0; }
+    bootctl() { [ "$1" = is-installed ]; }
+    verify_dual_boot_phase >/dev/null
+    neighbor_probe="$(declare -f verify_dual_boot_phase find_target mounted_source_device \
+        partition_name hostname cat systemctl getent bootctl)"
+    if /usr/bin/bash -c 'set -e
+        eval "$1"
+        scenario=minimal-dualboot-ext4-systemdboot phase=neighbor run_id=fixture
+        neighbor_hostname=wrong-system
+        verify_dual_boot_phase' neighbor-probe "${neighbor_probe}" >/dev/null; then
+        echo 'function check failed: wrong neighboring system accepted' >&2
+        exit 1
+    fi
 )
 (
     eval "$(sed -n '/^restart_gdm_after_profile_transition() {/,/^}/p' \

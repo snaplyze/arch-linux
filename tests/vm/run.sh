@@ -231,9 +231,9 @@ compact_run_evidence() {
     : >"${summary}" || return 1
     while IFS= read -r -d '' candidate; do
         case "${candidate}" in
-        *.ppm) continue ;;
+        *.ppm | *.request.json | *.start.json | *.status.json) continue ;;
         esac
-        grep -aEh '(_QEMU_(READY|INSTALLER_EXIT|INSTALL_COMPLETE|NEIGHBOR_PRESERVED|GUEST_PASS|GUEST_FAIL)|QEMU_HOST_FAIL|QEMU_DIAGNOSTIC_WARNING:|SCREENSHOT_WARNING:|exit_status=|qemu-img|signed repository checks passed|release asset checks passed)' \
+        grep -aEh '^[[:space:]]*([A-Z]+_QEMU_(READY|INSTALLER_EXIT|INSTALL_COMPLETE|NEIGHBOR_PRESERVED|GUEST_PASS|GUEST_FAIL)|QEMU_HOST_FAIL|QEMU_DIAGNOSTIC_WARNING:|SCREENSHOT_WARNING:|exit_status=|qemu-img|signed repository checks passed|release asset checks passed)' \
             "${candidate}" 2>/dev/null || true
     done < <(find "${evidence}" -maxdepth 1 -type f -print0 | LC_ALL=C sort -z) |
         awk 'NR <= 2000 { print substr($0, 1, 4096) }' >>"${summary}" || return 1
