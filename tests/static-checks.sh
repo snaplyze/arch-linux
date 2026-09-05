@@ -614,6 +614,25 @@ if framebuffer_stream_status(legacy_block, b'0 virtio_gpudrmfb\n') != 1:
 
 # Execute only the actual optional capture wrapper, not QEMU or the installation path.
 run = (root / "tests/vm/run.sh").read_text(encoding="utf-8")
+
+# Execute the actual disposable CA command with the longest supported run prefix.
+# Keep the unique run ID, without overflowing X.509's common-name length limit.
+ca_start = run.index('    openssl req -x509', run.index('start_marble_repository_runtime() {'))
+ca_end = run.index('    openssl req -new -newkey', ca_start)
+longest_prefix = max(re.findall(r"run_prefix='([^']+)'", run), key=len)
+ca_run_id = longest_prefix + '-20260905T000000Z-00000000'
+with tempfile.TemporaryDirectory(prefix='arch-linux-vm-ca-check-') as temporary:
+    program = ('set -euo pipefail\numask 077\nrun_id=$1\nevidence=$2\n'
+               'repository_ca_private_key=$2/key\nrepository_ca_file=$2/ca.crt\n'
+               + run[ca_start:ca_end])
+    result = subprocess.run(['bash', '--noprofile', '--norc', '-c', program,
+                             'ca-fixture', ca_run_id, temporary], capture_output=True, timeout=30)
+    if result.returncode:
+        raise SystemExit('static check failed: disposable CA rejects a supported run ID')
+    subject = subprocess.check_output(['openssl', 'x509', '-in', temporary + '/ca.crt',
+                                       '-noout', '-subject'], text=True)
+    if ca_run_id not in subject:
+        raise SystemExit('static check failed: disposable CA lost its unique run ID')
 capture = re.search(r'(?ms)^capture_screen\(\) \{\n.*?^\}\n', run)
 if capture is None:
     raise SystemExit('static check failed: diagnostic capture wrapper is absent')

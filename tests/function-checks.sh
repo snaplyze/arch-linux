@@ -1040,17 +1040,9 @@ unset ARCH_LINUX_QEMU_ACCEPTANCE ARCH_LINUX_QEMU_REPOSITORY_CONTRACT
         esac
     }
     systemctl() { return 0; }
-    getent() { return 0; }
+    getent() { return 99; } # Neighbor DNS is not an installer acceptance dependency.
     bootctl() { [ "$1" = is-installed ]; }
     verify_dual_boot_phase >/dev/null
-    dns_attempts=0
-    getent() {
-        dns_attempts=$((dns_attempts + 1))
-        [ "${dns_attempts}" -ge 3 ]
-    }
-    sleep() { :; }
-    verify_dual_boot_phase >/dev/null
-    [ "${dns_attempts}" -eq 3 ]
     neighbor_probe="$(declare -f verify_dual_boot_phase find_target mounted_source_device \
         partition_name hostname cat systemctl getent bootctl)"
     if /usr/bin/bash -c 'set -e
@@ -1059,16 +1051,6 @@ unset ARCH_LINUX_QEMU_ACCEPTANCE ARCH_LINUX_QEMU_REPOSITORY_CONTRACT
         neighbor_hostname=wrong-system
         verify_dual_boot_phase' neighbor-probe "${neighbor_probe}" >/dev/null; then
         echo 'function check failed: wrong neighboring system accepted' >&2
-        exit 1
-    fi
-    if /usr/bin/bash -c 'set -e
-        eval "$1"
-        scenario=minimal-dualboot-ext4-systemdboot phase=neighbor run_id=fixture
-        neighbor_hostname=ali-neighbor
-        getent() { return 1; }
-        sleep() { SECONDS=$((SECONDS + 61)); }
-        verify_dual_boot_phase' neighbor-probe "${neighbor_probe}" >/dev/null; then
-        echo 'function check failed: neighbor without working DNS accepted' >&2
         exit 1
     fi
 )

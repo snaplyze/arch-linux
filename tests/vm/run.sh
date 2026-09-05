@@ -994,7 +994,7 @@ start_marble_repository_runtime() {
     repository_ca_file="${run_root}/repository-ca.crt"
     repository_server_certificate="${run_root}/repository-server.crt"
     openssl req -x509 -new -newkey rsa:3072 -nodes -sha256 -days 2 \
-        -subj "/CN=arch-linux disposable VM CA ${run_id}" \
+        -subj "/CN=arch-linux VM ${run_id}" \
         -keyout "${repository_ca_private_key}" -out "${repository_ca_file}" \
         >"${evidence}/repository-ca-openssl.stdout" 2>"${evidence}/repository-ca-openssl.stderr"
     openssl req -new -newkey rsa:3072 -nodes -sha256 \
