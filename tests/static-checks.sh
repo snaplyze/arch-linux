@@ -145,6 +145,36 @@ done
 ! grep -Fq 'snapshot_url' "$pages_workflow" || fail 'Pages accepts an arbitrary snapshot URL'
 ! grep -Fq '/releases/download/' "$pages_workflow" || fail 'Pages uses unauthenticated draft download URLs'
 
+python3 - "$pages_workflow" <<'PAGES_MODES_PY'
+import copy, json, pathlib, re, subprocess, sys
+workflow = pathlib.Path(sys.argv[1]).read_text()
+expression = re.search(r"jq -e --argjson id.*?--arg kind.*?'\n(.*?)\n          ' \"\$\{release_json\}\"", workflow, re.S)
+if expression is None:
+    raise SystemExit('static check failed: Pages metadata verification is missing')
+def accepts(kind, count, change=None):
+    tag = '1.0.0' if kind == 'release' else 'packages-20260905.1'
+    value = {'id': 1, 'tag_name': tag, 'name': tag, 'draft': True, 'prerelease': False,
+             'assets': [{'id': n+1, 'name': f'asset-{n}', 'size': 1, 'state': 'uploaded',
+                         'digest': 'sha256:'+'a'*64} for n in range(count)]}
+    if change:
+        change(value)
+    result = subprocess.run(['jq', '-e', '--argjson', 'id', '1', '--arg', 'tag', tag,
+                             '--arg', 'kind', kind, expression.group(1)],
+                            input=json.dumps(value), text=True, capture_output=True, check=False)
+    return result.returncode == 0
+assert accepts('release', 18) and not accepts('release', 14)
+assert accepts('packages', 14) and not accepts('packages', 18)
+for kind, count in (('release', 18), ('packages', 14)):
+    assert not accepts(kind, count, lambda x: x.update(tag_name='foreign'))
+    assert not accepts(kind, count, lambda x: x.update(draft=False))
+    assert not accepts(kind, count, lambda x: x['assets'][0].update(digest=None))
+    assert not accepts(kind, count, lambda x: x['assets'].append(copy.deepcopy(x['assets'][0])))
+assert 'verification_mode=--phase-a' in workflow and 'verification_mode=--finalized' in workflow
+assert 'git diff --quiet "refs/tags/${RELEASE_VERSION}^{}" HEAD -- install.sh arch-linux-installer.sh' in workflow
+assert '"refs/tags/${PACKAGE_TAG}^{}"' in workflow and '"${verification_mode}"' in workflow
+print('Pages release/package-only metadata checks passed; DEPLOY=NOT_RUN')
+PAGES_MODES_PY
+
 for literal in "'schema':2" sourceCommit sourceTree installerSha256 packageSetSha256 \
     unsignedManifestSha256; do
     grep -Fq -- "$literal" "$repo_root/repository/build-packages.sh" ||
@@ -225,7 +255,7 @@ grep -Fq -- \
     'REPOSITORY_CHECKS_RESULT schema=1 namespace_fixtures=%s scenarios=10 signer=passed release_closures=14+18 deferred=%s' \
     "$repo_root/tests/repository-checks.sh" ||
     fail 'repository release-host result marker is not the normative schema-1/full/10/signer/no-deferral contract'
-for literal in 'payloadIsoSha256' 'recorderIdentities' 'challenge_measurements_are_valid' \
+for literal in 'payloadIsoSha256' \
     'maintenance/accepted-arch-iso.json' 'inspect_binary_secret_markers'; do
     grep -RqsF -- "$literal" "$repo_root/repository/acceptance-manifest.py" \
         "$repo_root/repository/seal-offline-signing-code.py" ||
@@ -321,6 +351,8 @@ routes = (
     ("stock-gnome-btrfs-luks2-plymouth-systemdboot", "luks", "L", "LUK"),
     ("stock-gnome-btrfs-luks2-plymouth-grub", "luksgrub", "G", "GRB"),
     ("marble-gnome-btrfs-luks2-plymouth-systemdboot", "marble", "A", "MAR"),
+    ("marble-gnome-btrfs-luks2-plymouth-systemdboot-stock-gdm", "marblestock", "A", "MAR"),
+    ("minimal-dualboot-ext4-systemdboot", "dualboot", "M", "MIN"),
 )
 stock = routes[5][0]
 
@@ -337,7 +369,10 @@ def bash(program, *args):
 start = host.index('    case "${scenario_id}" in\n', host.index("main() {"))
 end = host.index("\n    esac\n    shift", start) + len("\n    esac")
 case = host[start:end]
-start = host.index('    if [ "${run_prefix}" = minimal ]; then\n', end)
+mode_start = host.index('    case "${input_mode}:${scenario_id}" in\n', end)
+mode_end = host.index('\n    esac', mode_start) + len('\n    esac')
+mode_case = host[mode_start:mode_end]
+start = host.index('    if [ "${run_prefix}" = minimal ]', end)
 end = host.index('    [[ "${run_id}" =~', start)
 identity = host[start:end]
 run_id_assignment = [line for line in host.splitlines() if line.startswith('    run_id="${run_prefix}-')]
@@ -419,6 +454,11 @@ def final_accepts(scenario, serial, model, run_id, recorded_run_id=None):
 
 guest_negatives = final_negatives = legacy_regressions = 0
 for scenario, prefix, letter, model_prefix in routes:
+    for input_mode in ('staged', 'public', 'invalid'):
+        mode_result = bash('input_mode=$1; scenario_id=$2; die(){ return 1; }\n' + mode_case,
+                           input_mode, scenario)
+        accepted = input_mode == 'staged' or (input_mode == 'public' and scenario == routes[6][0])
+        require((mode_result.returncode == 0) == accepted, f'mode routing: {input_mode}/{scenario}')
     result = bash(generator, scenario)
     require(result.returncode == 0 and not result.stderr, f"host generator: {scenario}")
     actual = tuple(result.stdout.splitlines())
@@ -451,40 +491,43 @@ for scenario, prefix, letter, model_prefix in routes:
             final_negatives += 1
 require(tuple(final_scenarios) == tuple(routes[i][0] for i in (0, 5, 6)), "final scenario closure")
 require(legacy_regressions == 2, "legacy Stock negative coverage")
-print(f"VM identity checks passed: routes=7 finalizer=3 guest_negatives={guest_negatives} "
+print(f"VM identity checks passed: routes={len(routes)} finalizer=3 guest_negatives={guest_negatives} "
       f"finalizer_negatives={final_negatives} legacy_regressions={legacy_regressions}; QEMU=NOT_RUN")
 VM_IDENTITY_PY
 
-# FRAME_FILESYSTEM_SELFTEST_BEGIN
-frame_selftest_roots=()
-cleanup_frame_selftests() {
-    local root
-    for root in "${frame_selftest_roots[@]}"; do
-        if [ -e "$root" ] || [ -L "$root" ]; then
-            find "$root" -xdev -depth -delete
-        fi
-    done
-}
-frame_selftest() {
-    local label="$1" parent="$2" magic="$3" root actual
-    [ -d "$parent" ] && [ ! -L "$parent" ] || fail "$label self-test parent is unsafe"
-    actual="$(stat --file-system --format=%t -- "$parent")"
-    [ "$actual" = "$magic" ] || fail "$label self-test filesystem differs: $actual"
-    root="$(mktemp -d -- "$parent/.arch-linux-frame-${label}.XXXXXXXX")"
-    frame_selftest_roots+=("$root")
-    chmod 0700 -- "$root"
-    actual="$(stat --file-system --format=%t -- "$root")"
-    [ "$actual" = "$magic" ] || fail "$label temporary filesystem differs: $actual"
-    [ "$(stat --format=%a -- "$root")" = 700 ] || fail "$label temporary mode differs"
-    TMPDIR="$root" PYTHONDONTWRITEBYTECODE=1 python3 -B \
-        "$repo_root/tests/vm/frame-evidence.py" --self-test
-    rmdir -- "$root" || fail "$label self-test left temporary residue"
-}
-trap cleanup_frame_selftests EXIT
-frame_selftest ext4 "$(dirname -- "$repo_root")" ef53
-frame_selftest tmpfs /dev/shm 1021994
-trap - EXIT
-# FRAME_FILESYSTEM_SELFTEST_END
+python3 - "$repo_root/tests/vm/guest/bootstrap.sh" <<'VM_CONFIG_PY'
+import pathlib, re, subprocess, sys, tempfile
+source = pathlib.Path(sys.argv[1]).read_text()
+function = re.search(r'^write_config\(\) \{\n.*?^\}', source, re.M | re.S).group()
+with tempfile.TemporaryDirectory(prefix='arch-linux-vm-config-') as temporary:
+    config = pathlib.Path(temporary)/'installer.conf'
+    base = 'marble-gnome-btrfs-luks2-plymouth-systemdboot'
+    for scenario, expected in ((base, 'marble-experimental'), (base+'-stock-gdm', 'stock'),
+                               ('minimal-dualboot-ext4-systemdboot', 'stock')):
+        program = ('set -euo pipefail\ndeclare -A IDENTITY=([SCENARIO]="$1" [HOSTNAME]=test '
+                   '[USERNAME]=vmtest [MICROCODE]=none)\n'
+                   'partition_name(){ printf "%s%s" "$1" "$2"; }\nfail(){ return 1; }\n'
+                   'partition_identity(){ printf "%064d" 1; }\n'
+                   + function + '\nwrite_config "$2" /dev/sdz ' + 'a'*64)
+        subprocess.run(['bash', '-c', program, 'fixture', scenario, str(config)], check=True)
+        values = dict(line.split('=', 1) for line in config.read_text().splitlines())
+        assert len(values) == 43
+        assert values['ARCH_LINUX_GNOME_THEME_PROFILE'] == ('stock' if scenario.startswith('minimal') else 'marble')
+        assert values['ARCH_LINUX_GDM_THEME_PROFILE'] == expected
+        if scenario.startswith('minimal'):
+            assert values['ARCH_LINUX_DUAL_BOOT_ENABLED'] == 'true'
+            assert values['ARCH_LINUX_ROOT_PARTITION'] == '/dev/sdz3'
+            assert values['ARCH_LINUX_BOOT_PARTITION'] == '/dev/sdz1'
+            assert values['ARCH_LINUX_ROOT_PARTITION_IDENTITY'] == '0'*63+'1'
+            assert values['ARCH_LINUX_BOOT_PARTITION_IDENTITY'] == '0'*63+'1'
+        else:
+            assert values['ARCH_LINUX_ENCRYPTION_ENABLED'] == 'true'
+            assert values['ARCH_LINUX_DUAL_BOOT_ENABLED'] == 'false'
+            assert values['ARCH_LINUX_ROOT_PARTITION'] == '/dev/sdz2'
+print('Marble separate GDM configuration checks passed; QEMU=NOT_RUN')
+VM_CONFIG_PY
+
+PYTHONDONTWRITEBYTECODE=1 python3 -B "$repo_root/tests/vm/frame-evidence.py" --self-test
 
 bash "$repo_root/repository/assert-public-key.sh" \
     "$repo_root/repository/trust/arch-linux.gpg" \
@@ -516,427 +559,15 @@ if 'attribution only' not in notice.lower() or 'GPL-3.0' not in notice:
     raise SystemExit('static check failed: legal attribution is not isolated in NOTICE.md')
 PY
 
-python3 - "$repo_root" <<'FRAMEBUFFER_PY'
+python3 - "$repo_root" <<'VM_GUEST_PY'
 from pathlib import Path
-import ast
-import json
-import os
 import re
 import subprocess
 import sys
 import tempfile
 
 root = Path(sys.argv[1])
-run_path = root / "tests/vm/run.sh"
-guest_path = root / "tests/vm/guest/verify.sh"
-helper_path = root / "tests/vm/frame-evidence.py"
-readme_path = root / "tests/vm/README.md"
-static_path = root / "tests/static-checks.sh"
-run = run_path.read_text(encoding="utf-8")
-guest = guest_path.read_text(encoding="utf-8")
-helper = helper_path.read_text(encoding="utf-8")
-readme = readme_path.read_text(encoding="utf-8")
-static = static_path.read_text(encoding="utf-8")
-
-def function(text, name):
-    match = re.search(rf"(?ms)^{re.escape(name)}\(\) \{{\n(.*?)^\}}$", text)
-    if match is None:
-        raise SystemExit(f"static check failed: missing function {name}")
-    return match.group(1)
-
-def ordered(text, values, label):
-    position = -1
-    for value in values:
-        current = text.find(value, position + 1)
-        if current < 0:
-            raise ValueError(f"{label}: missing or misordered {value!r}")
-        position = current
-
-def contract(run_text, helper_text=helper, static_text=static):
-    for literal in (
-        "-device 'virtio-vga,id=display0'",
-        '-qmp "unix:${runtime_dir}/qmp-recorder.sock,server=on,wait=off"',
-        '-qmp "unix:${runtime_dir}/qmp-capture.sock,server=on,wait=off"',
-        "tests/vm/frame-evidence.py",
-        '--run-root "${run_root}"',
-        "frame_recorder_event shutdown-armed",
-        "frame-evidence.py\" seal",
-        "manual-review-template.json",
-        "build_result PENDING_VISUAL_REVIEW 0 -",
-        "frame evidence failed:",
-    ):
-        if literal not in run_text:
-            raise ValueError(f"framebuffer contract literal missing: {literal}")
-    if "build_result PASS 0 -" in run_text or "hmp_request key ctrl-alt-f1" in run_text:
-        raise ValueError("automated visual PASS or forced VT switch remains")
-    launch = function(run_text, "launch_qemu")
-    ordered(
-        launch,
-        ('else\n        command+=(\n            -S', 'start_frame_recorder "${phase}" boot'),
-        "pause/recorder",
-    )
-    identity_output = '>"${evidence}/${phase}-qemu.identity"'
-    identity_guard = re.search(r'if \[ "\$\{install_phase\}" = false \]; then\n(.*?)\n    fi', launch, re.S)
-    if identity_guard is None or launch.count(identity_output) != 1 or \
-            identity_output not in identity_guard.group(1):
-        raise ValueError("install QEMU may retain an identity file")
-    start = function(run_text, "start_frame_recorder")
-    ordered(
-        start,
-        ('frame_recorder_ready=', '[ -s "${frame_recorder_ready}" ]', 'hmp_request cont -',
-         'frame_recorder_event cont-sent'),
-        "READY/cont",
-    )
-    transition = function(run_text, "schedule_transition")
-    ordered(
-        transition,
-        ('stop_boot_frame_recorder "${phase}"', 'start_frame_recorder "${phase}" shutdown',
-         'frame_recorder_event shutdown-armed', 'request="$(jq'),
-        "shutdown arm",
-    )
-    exit_function = function(run_text, "wait_qemu_exit")
-    ordered(
-        exit_function,
-        ('wait "${qemu_pid}"', 'finish_frame_recorder "${frame_recorder_phase}" shutdown'),
-        "PID exit/recorder join",
-    )
-    challenge = function(run_text, "capture_minimal_tty_challenge")
-    ordered(
-        challenge,
-        ('capture_frame "${phase}-tty-before"', 'frame_recorder_event challenge-before',
-         'hmp_request type-no-enter',
-         'capture_frame "${phase}-tty" challenge-before "${before}"',
-         'frame_recorder_event challenge-after', 'hmp_request key ctrl-u',
-         'capture_frame "${phase}-tty-cleared" challenge-after "${after}" "${before}"',
-         'frame_recorder_event challenge-cleared', 'qga_verify "${phase}"'),
-        "challenge chronology",
-    )
-    minimal = re.search(
-        r'elif \[ "\$\{scenario_id\}" = minimal-ext4-systemdboot \]; then\n(.*?)\n    else',
-        run_text,
-        re.S,
-    )
-    if minimal is None:
-        raise ValueError("Minimal acceptance block is missing")
-    body = minimal.group(1)
-    ordered(body, ('qga_verify firstboot', 'capture_minimal_tty_challenge firstboot'), "firstboot order")
-    ordered(body, ('qga_verify postreboot', 'capture_minimal_tty_challenge postreboot'), "postreboot order")
-    ordered(
-        body,
-        ('capture_minimal_tty_challenge firstboot', 'stop_boot_frame_recorder firstboot',
-         'qga_verify update firstboot-update'),
-        "firstboot challenge validation/update order",
-    )
-    stock_identity_branch = (
-        'elif [ "${run_prefix}" = grub ] || [ "${run_prefix}" = luksgrub ]; then'
-    )
-    if stock_identity_branch not in run_text or "ALI100G" not in run_text or "ALI_GRB_" not in run_text:
-        raise ValueError("Stock LUKS+GRUB disk identity differs from the final acceptance contract")
-    ordered(
-        function(run_text, "main"),
-        ('"${qemu_img}" check -- "${run_root}/target.qcow2" >"${evidence}/final-qemu-img-check.txt"',
-         'final_qemu_matches="$(find_run_qemu_processes',
-         '[ -z "${final_qemu_matches}" ]', 'verify_frozen_source_unchanged',
-         'remove_heavy_run_inputs\n    "${python_bin}" -I "${script_dir}/frame-evidence.py" seal',
-         'finalize_run_storage', 'build_result PENDING_VISUAL_REVIEW 0 -'),
-        "qemu-img/process/source recheck/heavy removal/seal/compaction/result order",
-    )
-    recheck = function(run_text, "verify_frozen_source_unchanged")
-    for literal in (
-        'status --porcelain=v1 --untracked-files=all', "rev-parse HEAD", "rev-parse 'HEAD^{tree}'",
-        'arch-linux-installer.sh', 'harness.sha256', 'sha256sum --strict --check',
-    ):
-        if literal not in recheck:
-            raise ValueError(f"pre-seal source recheck is incomplete: {literal}")
-    for literal in (
-        'query-status', 'prelaunch', 'gzip.compress', 'recorder gap',
-        'manual-review-template.json', 'manual-review-receipt.json',
-        'frame-evidence-manifest.json', 'PENDING_VISUAL_REVIEW',
-        'QMP_TIMEOUT_SECONDS = MAX_GAP_MS / 1000',
-        'REPOSITORY_OBJECT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9+._-]*$")',
-        'manifest/ledger sample count', 'verify_current_source', 'file_binding', 'os.pread',
-        '"target.qcow2", "payload.iso", "OVMF_VARS.fd", "payload", "repository"',
-        'access = os.O_RDWR if retain else os.O_WRONLY',
-        'access | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW',
-        'value == (linked.st_dev, linked.st_ino, linked.st_size)', 'replace(staged, b"verdict")',
-        'os.close(fd)\n    reject(file_binding, staged, fd, binding)',
-    ):
-        if literal not in helper_text:
-            raise ValueError(f"frame helper contract literal missing: {literal}")
-    if any(value in helper_text for value in ('export-frame', 'validate-ledger', 'contact-sheet-map')):
-        raise ValueError("retired generic frame helper interface remains")
-    if any(value in readme for value in ("rawArtifacts", ".tiles", "contact-sheet tile")):
-        raise ValueError("retired frame manifest model remains in the VM README")
-    for literal in ("fileHashes", "pendingResultSha256", "result.json", ".notes = \"\"",
-                    "length == 5 and all(.[]; . == true)"):
-        if literal not in readme:
-            raise ValueError(f"VM README manual-review binding is incomplete: {literal}")
-    static_prefix = static_text.split("python3 - \"$repo_root\" <<'FRAMEBUFFER_PY'", 1)[0]
-    begin_fs = "# FRAME_FILESYSTEM_SELFTEST_BEGIN\n"
-    end_fs = "# FRAME_FILESYSTEM_SELFTEST_END\n"
-    if static_prefix.count(begin_fs) != 1 or static_prefix.count(end_fs) != 1:
-        raise ValueError("dual-filesystem self-test markers differ")
-    filesystem_gate = static_prefix.split(begin_fs, 1)[1].split(end_fs, 1)[0]
-    for literal in (
-        'actual="$(stat --file-system --format=%t -- "$parent")"',
-        'actual="$(stat --file-system --format=%t -- "$root")"',
-        'TMPDIR="$root" PYTHONDONTWRITEBYTECODE=1 python3 -B',
-        'frame_selftest ext4 "$(dirname -- "$repo_root")" ef53',
-        'frame_selftest tmpfs /dev/shm 1021994',
-        'trap cleanup_frame_selftests EXIT', 'trap - EXIT',
-    ):
-        if filesystem_gate.count(literal) != 1:
-            raise ValueError(f"dual-filesystem self-test gate differs: {literal}")
-    parsed = ast.parse(helper_text, filename=str(helper_path))
-    commands = {
-        node.args[0].value
-        for node in ast.walk(parsed)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "add_parser"
-        and node.args
-        and isinstance(node.args[0], ast.Constant)
-        and isinstance(node.args[0].value, str)
-    }
-    if commands != {"record", "capture", "seal", "finalize-review"}:
-        raise ValueError(f"frame helper command surface differs: {sorted(commands)}")
-    ordered(
-        helper_text,
-        ('fd = write_once(pending, encoded, retain=True)', 'binding = file_binding(pending, fd)',
-         'remove_tree(raw)', 'file_binding(pending, fd, binding)', 'os.rename(pending, output)',
-         'file_binding(output, fd, binding)', 'finally:\n        os.close(fd)'),
-        "retained verdict descriptor lifecycle",
-    )
-    begin_marker = "# FRAME_EVIDENCE_SELFTEST_BEGIN\n"
-    end_marker = "# FRAME_EVIDENCE_SELFTEST_END\n"
-    if helper_text.count(begin_marker) != 1 or helper_text.count(end_marker) != 1:
-        raise ValueError("frame helper self-test markers differ")
-    begin = helper_text.index(begin_marker)
-    end_start = helper_text.index(end_marker)
-    end = end_start + len(end_marker)
-    if not begin < end_start:
-        raise ValueError("frame helper self-test marker order differs")
-    begin_line = helper_text[:begin].count("\n") + 1
-    end_line = helper_text[:end_start].count("\n") + 1
-    marked = [
-        node for node in parsed.body
-        if getattr(node, "lineno", 0) > begin_line and getattr(node, "end_lineno", 0) < end_line
-    ]
-    marked_names = [node.name for node in marked if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))]
-    if marked_names != ["_selftest_fail", "_selftest_run"] or len(marked) != 2:
-        raise ValueError("frame helper self-test boundary contains runtime code")
-    outside_refs = [
-        node.id for node in ast.walk(parsed)
-        if isinstance(node, ast.Name) and node.id in set(marked_names)
-        and not begin_line < node.lineno < end_line
-    ]
-    calls = [
-        node for node in ast.walk(parsed)
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "_selftest_run"
-    ]
-    dispatches = [
-        node for node in ast.walk(parsed)
-        if isinstance(node, ast.If) and ast.get_source_segment(helper_text, node.test) == "args.self_test"
-        and any(isinstance(item, ast.Expr) and isinstance(item.value, ast.Call)
-                and isinstance(item.value.func, ast.Name) and item.value.func.id == "_selftest_run"
-                for item in node.body)
-    ]
-    if outside_refs != ["_selftest_run"] or len(calls) != 1 or len(dispatches) != 1 or \
-            'demand(args.command is None, "--self-test cannot be combined with a command")' not in helper_text:
-        raise ValueError("frame helper self-test dispatch differs")
-    helper_lines = helper_text.splitlines()
-    total_bytes = len(helper_text.encode("utf-8"))
-    selftest_bytes = len(helper_text[begin:end].encode("utf-8"))
-    runtime_bytes = total_bytes - selftest_bytes
-    if runtime_bytes > 65536 or selftest_bytes > 16384 or total_bytes > 81920 or \
-            len(helper_lines) > 1500 or max(map(len, helper_lines), default=0) > 120:
-        raise ValueError("frame helper exceeds its narrow readable size boundary")
-
-try:
-    contract(run)
-except ValueError as error:
-    raise SystemExit(f"static check failed: {error}") from error
-
-# Ctrl-U may restore the exact baseline. Only the typed challenge must differ from both
-# adjacent frames; chronological ledger occurrences, not three unique hashes, prove the cycle.
-restore_ns = {"__name__": "frame_restoration_fixture", "__file__": str(helper_path)}
-exec(compile(helper, str(helper_path), "exec"), restore_ns)
-acceptance_path = root / "repository/acceptance-manifest.py"
-acceptance_text = acceptance_path.read_text(encoding="utf-8")
-acceptance_ast = ast.parse(acceptance_text)
-measurement_functions = [node for node in acceptance_ast.body if isinstance(node, ast.FunctionDef)
-                         and node.name in {"exact_int", "challenge_measurements_are_valid"}]
-release_conditions = [node.test for node in ast.walk(acceptance_ast) if isinstance(node, ast.If)
-                      and any(isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
-                              and call.func.id == "challenge_measurements_are_valid"
-                              for call in ast.walk(node.test))]
-if len(measurement_functions) != 2 or len(release_conditions) != 1:
-    raise SystemExit("static check failed: actual release challenge guard was not located")
-release_ns = {}
-exec(compile(ast.Module(body=measurement_functions, type_ignores=[]), str(acceptance_path), "exec"), release_ns)
-release_guard = compile(ast.Expression(body=release_conditions[0]), str(acceptance_path), "eval")
-
-def restore_frame(count):
-    return restore_ns["parse_ppm_data"](
-        b"P6\n64 64\n255\n" + b"\xff" * count * 3 + b"\0" * (4096 - count) * 3)
-
-def restoration_pair(clear_count):
-    values = {}
-    for phase, count in (("firstboot", 256), ("postreboot", 512)):
-        before, after, cleared = (restore_frame(number) for number in (0, count, clear_count))
-        values[phase] = {"challenge": f"ali-{phase}-aaaaaaaa", "before": {"sha256": before[3]},
-            "after": {"sha256": after[3]}, "cleared": {"sha256": cleared[3]},
-            "changedPixels": restore_ns["require_delta"](before, after),
-            "clearChangedPixels": restore_ns["require_delta"](after, cleared),
-            "restoredPixels": restore_ns["changed_pixels"](before, cleared),
-            "input": "hmp-no-enter", "clearInput": "ctrl-u"}
-    return values
-
-def release_challenge_rejects(item, phase):
-    release_ns.update(item=item, phase=phase, suffix="aaaaaaaa", pixel_count=4096,
-        geometries={(64, 64)}, selected_geometry=(64, 64),
-        values=[item[name]["sha256"] for name in ("before", "after", "cleared")],
-        metrics=[item[name] for name in ("changedPixels", "clearChangedPixels", "restoredPixels")])
-    return eval(release_guard, release_ns)
-
-def check_restoration(values, rejected=False, checker=restore_ns["check_challenge_pair"]):
-    try:
-        checker(values, "minimal-20260901T000000Z-aaaaaaaa")
-    except restore_ns["EvidenceError"]:
-        if rejected:
-            return
-        raise
-    if rejected:
-        raise SystemExit("static check failed: invalid challenge relation was accepted")
-
-for clear_count in (0, 32):
-    positive = restoration_pair(clear_count)
-    check_restoration(positive)
-    if any(release_challenge_rejects(item, phase) for phase, item in positive.items()):
-        raise SystemExit("static check failed: exact/partial restoration rejected by release guard")
-    for phase in ("firstboot", "postreboot"):
-        for field, value in (("before", positive[phase]["after"]), ("cleared", positive[phase]["after"]),
-                             ("changedPixels", 0), ("clearChangedPixels", 0), ("changedPixels", True),
-                             ("clearChangedPixels", True), ("restoredPixels", True), ("restoredPixels", -1),
-                             ("restoredPixels", positive[phase]["changedPixels"])):
-            negative = json.loads(json.dumps(positive))
-            negative[phase][field] = value
-            check_restoration(negative, True)
-            if not release_challenge_rejects(negative[phase], phase):
-                raise SystemExit("static check failed: release accepted absent delta or non-restoration")
-    replay = json.loads(json.dumps(positive))
-    replay["postreboot"]["after"] = replay["firstboot"]["after"]
-    check_restoration(replay, True)
-
-# Reintroduce only each old predicate in RAM: both must reject the exact-restore positive,
-# demonstrating this regression actually reaches both previously inconsistent consumers.
-old_helper = helper.replace("hashes.count(hashes[1]) < 2", "len(set(hashes)) == 3", 1)
-old_acceptance = acceptance_text.replace("values.count(values[1]) != 1", "len(set(values)) != 3", 1)
-if old_helper == helper or old_acceptance == acceptance_text:
-    raise SystemExit("static check failed: restoration regression mutation was not applied")
-old_checker = next(node for node in ast.parse(old_helper).body
-                   if isinstance(node, ast.FunctionDef) and node.name == "check_challenge_pair")
-old_ns = dict(restore_ns)
-exec(compile(ast.Module(body=[old_checker], type_ignores=[]), str(helper_path), "exec"), old_ns)
-check_restoration(restoration_pair(0), True, old_ns["check_challenge_pair"])
-old_guard = next(node.test for node in ast.walk(ast.parse(old_acceptance))
-                 if isinstance(node, ast.If) and "len(set(values)) != 3" in ast.unparse(node.test))
-for phase, item in restoration_pair(0).items():
-    release_challenge_rejects(item, phase)
-    if not eval(compile(ast.Expression(body=old_guard), str(acceptance_path), "eval"), release_ns):
-        raise SystemExit("static check failed: old release predicate did not reject exact restoration")
-
-# Keep the native partial-restoration self-test unchanged. Execute that same complete
-# seal/review/finalize fixture once more with only its erased-frame pixels made exact.
-exact_fixture = helper.replace('(\"clear\", 32)', '(\"clear\", 0)', 1)
-if exact_fixture == helper:
-    raise SystemExit("static check failed: exact-restoration full fixture was not applied")
-exec(compile(exact_fixture, str(helper_path), "exec"), restore_ns)
-restore_ns["_selftest_run"]()
-
-mutations = (
-    run.replace("            -S\n", "", 1),
-    run.replace("-device 'virtio-vga,id=display0'", "-device virtio-vga", 1),
-    run.replace("frame_recorder_event shutdown-armed", ": # removed shutdown arm", 1),
-    run.replace('start_frame_recorder "${phase}" shutdown', ': # removed shutdown recorder', 1),
-    run.replace('start_frame_recorder "${phase}" boot', 'start_frame_recorder "${phase}"', 1),
-    run.replace("build_result PENDING_VISUAL_REVIEW 0 -", "build_result PASS 0 -", 1),
-    run.replace('if [ "${install_phase}" = false ]; then', 'if [ "${install_phase}" = true ]; then', 1),
-    run.replace(
-        '    "${qemu_img}" check -- "${run_root}/target.qcow2" >"${evidence}/final-qemu-img-check.txt"',
-        ': # final qemu-img removed',
-        1,
-    ),
-    run.replace('[ -z "${final_qemu_matches}" ] || die', 'true || die', 1),
-    run.replace("verify_frozen_source_unchanged\n    remove_heavy_run_inputs", "remove_heavy_run_inputs", 1),
-    run.replace(
-        'remove_heavy_run_inputs\n    "${python_bin}" -I "${script_dir}/frame-evidence.py" seal',
-        '"${python_bin}" -I "${script_dir}/frame-evidence.py" seal',
-        1,
-    ),
-    run.replace(
-        "qga_verify firstboot firstboot-verify\n        first_boot_id=\"${last_boot_id}\"\n        capture_minimal_tty_challenge firstboot",
-        "capture_minimal_tty_challenge firstboot\n        qga_verify firstboot firstboot-verify\n        first_boot_id=\"${last_boot_id}\"",
-        1,
-    ),
-)
-for index, mutation in enumerate(mutations, 1):
-    try:
-        contract(mutation)
-    except ValueError:
-        continue
-    raise SystemExit(f"static check failed: framebuffer mutation {index} was accepted")
-
-helper_mutation = helper.replace("parser = argparse.ArgumentParser()", "parser = _selftest_fail", 1)
-try:
-    contract(run, helper_mutation)
-except ValueError:
-    pass
-else:
-    raise SystemExit("static check failed: runtime reference to a marked self-test symbol was accepted")
-
-helper_mutations = (
-    helper.replace('access = os.O_RDWR if retain else os.O_WRONLY', 'access = os.O_WRONLY', 1),
-    helper.replace('access | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW',
-                   'access | os.O_CREAT | os.O_EXCL', 1),
-    helper.replace('data = os.pread(', 'data = os.read(', 1),
-    helper.replace('fd = write_once(pending, encoded, retain=True)', 'fd = write_once(pending, encoded)', 1),
-    helper.replace('value == (linked.st_dev, linked.st_ino, linked.st_size)', 'True', 1),
-    helper.replace('        print(json.dumps(value, sort_keys=True))\n    finally:\n        os.close(fd)',
-                   '        print(json.dumps(value, sort_keys=True))\n    except BaseException:\n        os.close(fd)', 1),
-    helper.replace('file_binding(output, fd, binding)', 'file_binding(pending, fd, binding)', 1),
-    helper.replace('replace(staged, b"verdict")', 'replace(staged, b"changed")', 1),
-    helper.replace('os.close(fd)\n    reject(file_binding, staged, fd, binding)',
-                   'os.close(fd)\n    pass', 1),
-)
-for index, mutation in enumerate(helper_mutations, 1):
-    try:
-        contract(run, mutation)
-    except ValueError:
-        continue
-    raise SystemExit(f"static check failed: retained-FD helper mutation {index} was accepted")
-
-static_mutations = (
-    static.replace('frame_selftest ext4 "$(dirname -- "$repo_root")" ef53',
-                   ': # removed ext4 self-test', 1),
-    static.replace('frame_selftest tmpfs /dev/shm 1021994', ': # removed tmpfs self-test', 1),
-    static.replace('frame_selftest ext4 "$(dirname -- "$repo_root")" ef53',
-                   'frame_selftest ext4 "$(dirname -- "$repo_root")" ef52', 1),
-    static.replace('frame_selftest tmpfs /dev/shm 1021994',
-                   'frame_selftest tmpfs /dev/shm 1021995', 1),
-    static.replace('actual="$(stat --file-system --format=%t -- "$parent")"',
-                   'actual="$magic"', 1),
-    static.replace('actual="$(stat --file-system --format=%t -- "$root")"',
-                   'actual="$magic"', 1),
-    static.replace('TMPDIR="$root" PYTHONDONTWRITEBYTECODE=1 python3 -B',
-                   'TMPDIR=/tmp PYTHONDONTWRITEBYTECODE=1 python3 -B', 1),
-)
-for index, mutation in enumerate(static_mutations, 1):
-    try:
-        contract(run, helper, mutation)
-    except ValueError:
-        continue
-    raise SystemExit(f"static check failed: filesystem self-test mutation {index} was accepted")
+guest = (root / "tests/vm/guest/verify.sh").read_text(encoding="utf-8")
 
 for literal in (
     "[ -r /proc/fb ]",
@@ -981,219 +612,80 @@ legacy_block = proc_block.replace('[ -r /proc/fb ]', '[ -s /proc/fb ]', 1)
 if framebuffer_stream_status(legacy_block, b'0 virtio_gpudrmfb\n') != 1:
     raise SystemExit('static check failed: legacy procfs size defect was not reproduced')
 
-# Deterministically publish an ACK at the liveness probe, after the actual waiter's empty
-# ledger poll. This is a scheduling fixture, not a QEMU or visual-acceptance substitute.
-waiter = function(run, 'wait_for_frame_ledger_event')
-death_branch = re.search(r'(?ms)^        if ! process_is_exact_frame_recorder .*?^        fi\n', waiter)
-if death_branch is None:
-    raise SystemExit('static check failed: recorder stop-ACK race handling is absent')
-legacy_waiter = waiter.replace(death_branch.group(),
-    '        process_is_exact_frame_recorder "${frame_recorder_pid}" "${frame_recorder_start_time}" || return 1\n', 1)
-nonce = 'a' * 16
-for label, event, emitted, emitted_nonce, qemu, expected in (
-    ('ack-then-exit', 'stop-boot', 'stop-boot', nonce, 'alive', 0),
-    ('wrong-nonce', 'stop-boot', 'stop-boot', 'b' * 16, 'alive', 1),
-    ('missing-ack', 'stop-boot', None, nonce, 'alive', 1),
-    ('wrong-event', 'stop-boot', 'challenge-cleared', nonce, 'alive', 1),
-    ('dead-qemu', 'stop-boot', 'stop-boot', nonce, 'dead', 1),
-    ('late-dead-qemu', 'stop-boot', 'stop-boot', nonce, 'late-dead', 1),
-    ('nonstop-death', 'challenge-cleared', 'challenge-cleared', nonce, 'alive', 1),
-):
-    record = '' if emitted is None else json.dumps(
-        {'e':'control', 'name':emitted, 'nonce':emitted_nonce}, separators=(',', ':'))
-    for version, body in (('current', waiter), ('legacy', legacy_waiter)):
-        with tempfile.TemporaryDirectory(prefix='arch-linux-stop-ack-', dir=os.environ.get('RUNNER_TEMP')) as work:
-            ledger = Path(work) / 'ledger'; ledger.write_bytes(b'')
-            program = '''set -Eeuo pipefail
-frame_recorder_ledger=$1; event=$2; nonce=$3; record=$4; qemu=$5
-qemu_pid=1; qemu_start_time=1; frame_recorder_pid=2; frame_recorder_start_time=1; probes=0
-process_is_exact_qemu() {
-    probes=$((probes + 1))
-    [ "$qemu" != dead ] && { [ "$qemu" != late-dead ] || [ "$probes" -eq 1 ]; }
-}
-process_is_exact_frame_recorder() {
-    printf '%s\\n' "$record" >>"$frame_recorder_ledger"
-    return 1
-}
-wait_for_frame_ledger_event() {
-''' + body + '}\nwait_for_frame_ledger_event "$event" "$nonce"\n'
-            result = subprocess.run(['/usr/bin/bash', '-c', program, 'stop-ack-fixture',
-                str(ledger), event, nonce, record, qemu], capture_output=True, timeout=3,
-                env={'PATH':'/usr/bin:/bin', 'LC_ALL':'C'})
-            wanted = expected if version == 'current' else 1
-            if result.returncode != wanted or result.stdout or result.stderr:
-                raise SystemExit(f'static check failed: stop-ACK fixture {label}/{version}')
-
-# The final ledger reread is not sufficient for PASS: execute the unmodified join/exit guard
-# directly under Bash errexit, with real owned children returning zero and nonzero statuses.
-for child_status in (0, 3):
-    with tempfile.TemporaryDirectory(prefix='arch-linux-recorder-exit-', dir=os.environ.get('RUNNER_TEMP')) as work:
-        program = 'set -Eeuo pipefail\nevidence=$1\nframe_recorder_phase=firstboot\nframe_recorder_segment=boot\nframe_recorder_start_time=1\n'
-        for name in ('die', 'record_frame_recorder_exit', 'finish_frame_recorder'):
-            program += name + '() {\n' + function(run, name) + '}\n'
-        program += '(exit "$2") &\nframe_recorder_pid=$!\nfinish_frame_recorder firstboot boot\n'
-        result = subprocess.run(['/usr/bin/bash', '-c', program, 'recorder-exit-fixture', work, str(child_status)],
-            capture_output=True, timeout=3, env={'PATH':'/usr/bin:/bin', 'LC_ALL':'C'})
-        recorded = (Path(work) / 'firstboot-boot-frame-recorder.exit').read_text()
-        if not re.fullmatch(r'phase=firstboot segment=boot recorder_pid=[1-9][0-9]* recorder_start=1 '
-                            rf'exit_status={child_status}\n', recorded) or result.stdout or \
-                result.returncode != (0 if child_status == 0 else 1) or \
-                result.stderr != (b'' if child_status == 0 else b'QEMU_HOST_FAIL: framebuffer recorder failed: firstboot/boot: 3\n'):
-            raise SystemExit('static check failed: recorder exit status was not preserved')
-
-# A dead recorder is joined by the actual cleanup path, which must retain its status without
-# changing the original host failure. Run only an owned exit-7 child; no QEMU or installer.
-for existing in (False, True, 'malformed'):
-    with tempfile.TemporaryDirectory(prefix='arch-linux-recorder-cleanup-', dir=os.environ.get('RUNNER_TEMP')) as work:
-        root = Path(work); evidence_dir = root / 'evidence'; evidence_dir.mkdir(mode=0o700)
-        receipt = evidence_dir / 'firstboot-boot-frame-recorder.exit'
-        program = '''set -Eeuo pipefail
-run_root=$1; evidence=$1/evidence; run_id=recorder-cleanup-fixture; current_phase=firstboot
-run_storage_finalized=true; runtime_password=''; runtime_dir=''
-serial_bridge_input_fd=''; serial_bridge_pid=''; qemu_pid=''; qemu_start_time=''
-frame_recorder_phase=firstboot; frame_recorder_segment=boot; frame_recorder_start_time=1
-stop_repository_server() { :; }
-process_is_exact_frame_recorder() { return 1; }
-find_run_qemu_processes() { :; }
-enforce_evidence_budget() { :; }
-build_result() { printf '%s:%s\\n' "$1" "$2" >"$run_root/fixture-result"; }
+# Execute only the actual optional capture wrapper, not QEMU or the installation path.
+run = (root / "tests/vm/run.sh").read_text(encoding="utf-8")
+capture = re.search(r'(?ms)^capture_screen\(\) \{\n.*?^\}\n', run)
+if capture is None:
+    raise SystemExit('static check failed: diagnostic capture wrapper is absent')
+program = 'set -Eeuo pipefail\n' + capture.group() + '''
+python_bin="$1" script_dir="$2" run_root="$3" evidence="$3"
+qmp_socket="$3/qmp.sock" qemu_pid="$$" qemu_start_time=0
+capture_screen optional-fixture
+printf 'CAPTURE_CONTINUED\\n'
+"$4"
 '''
-        for name in ('record_frame_recorder_exit', 'cleanup'):
-            program += name + '() {\n' + function(run, name) + '}\n'
-        program += '(exit 7) &\nframe_recorder_pid=$!\n'
-        if existing:
-            program += ('record_frame_recorder_exit firstboot boot "$frame_recorder_pid" 1 7\n'
-                        'cp -- "$evidence/firstboot-boot-frame-recorder.exit" "$run_root/first-receipt"\n')
-            if existing == 'malformed':
-                program += 'printf "malformed exit_status=0\\n" >"$evidence/firstboot-boot-frame-recorder.exit"\n'
-        program += 'set +e\n(exit 9)\ncleanup\n'
-        result = subprocess.run(['/usr/bin/bash', '-c', program, 'recorder-cleanup-fixture', work],
-            capture_output=True, timeout=3, env={'PATH':'/usr/bin:/bin', 'LC_ALL':'C'})
-        recorded = receipt.read_text()
-        wanted_stderr = b'FAIL run_id=recorder-cleanup-fixture phase=firstboot exit_status=9\n'
-        if existing == 'malformed':
-            wanted_stderr = b'QEMU_HOST_FAIL: cannot preserve recorder exit diagnostics\n' + wanted_stderr
-        if result.returncode != 9 or result.stdout or \
-                result.stderr != wanted_stderr or \
-                (root / 'fixture-result').read_text() != 'FAIL:9\n' or \
-                (existing is True and recorded != (root / 'first-receipt').read_text()) or \
-                (existing == 'malformed' and recorded != 'malformed exit_status=0\n') or \
-                (not existing and not re.fullmatch(
-                    r'phase=firstboot segment=boot recorder_pid=[1-9][0-9]* recorder_start=1 exit_status=7\n', recorded)):
-            raise SystemExit('static check failed: cleanup lost recorder status or original failure')
-        program = ('set -Eeuo pipefail\nrun_root=$1; evidence=$1/evidence\n'
-                   'remove_secret_bearing_evidence() { :; }\n'
-                   'compact_run_evidence() {\n' + function(run, 'compact_run_evidence') + '}\n'
-                   'compact_run_evidence\n')
-        result = subprocess.run(['/usr/bin/bash', '-c', program, 'recorder-compact-fixture', work],
-            capture_output=True, timeout=3, env={'PATH':'/usr/bin:/bin', 'LC_ALL':'C'})
-        import gzip
-        compact = gzip.decompress((evidence_dir / 'scenario.log.gz').read_bytes()).decode()
-        if result.returncode or result.stdout or result.stderr or compact.splitlines().count(recorded.strip()) != 1:
-            raise SystemExit('static check failed: compaction lost bound recorder diagnostics')
-
-# Diagnostics never create a path from an unsafe phase, segment, PID/start, status or link.
-with tempfile.TemporaryDirectory(prefix='arch-linux-recorder-receipt-', dir=os.environ.get('RUNNER_TEMP')) as work:
-    root = Path(work); evidence_dir = root / 'evidence'; evidence_dir.mkdir(mode=0o700)
-    program = ('set -Eeuo pipefail\nevidence=$1; shift\nrecord_frame_recorder_exit() {\n' +
-               function(run, 'record_frame_recorder_exit') + '}\nrecord_frame_recorder_exit "$@"\n')
-    for field, invalid in ((0, '../escape'), (0, ''), (1, '../escape'), (2, '1/../../escape'),
-                           (2, '0'), (2, '1'*11), (3, '-1'), (3, '1/escape'), (3, '1'*21),
-                           (4, '256'), (4, '-1'), (4, '01')):
-        values = ['firstboot', 'boot', '1', '1', '7']; values[field] = invalid
-        result = subprocess.run(['/usr/bin/bash', '-c', program, 'recorder-receipt-fixture', str(evidence_dir), *values],
-            capture_output=True, timeout=3, env={'PATH':'/usr/bin:/bin', 'LC_ALL':'C'})
-        if result.returncode != 1 or result.stdout or result.stderr or list(evidence_dir.iterdir()):
-            raise SystemExit('static check failed: unsafe recorder diagnostics identity accepted')
-    sentinel = root / 'sentinel'; sentinel.write_bytes(b'unchanged'); sentinel.chmod(0o600)
-    receipt = evidence_dir / 'firstboot-boot-frame-recorder.exit'; receipt.symlink_to(sentinel)
-    result = subprocess.run(['/usr/bin/bash', '-c', program, 'recorder-receipt-fixture',
-        str(evidence_dir), 'firstboot', 'boot', '1', '1', '7'], capture_output=True, timeout=3,
-        env={'PATH':'/usr/bin:/bin', 'LC_ALL':'C'})
-    if result.returncode != 1 or sentinel.read_bytes() != b'unchanged':
-        raise SystemExit('static check failed: linked recorder receipt accepted')
-    receipt.unlink()
-    valid_receipt = 'phase=firstboot segment=boot recorder_pid=2 recorder_start=3 exit_status=7\n'
-    for contents, cleanup, wanted in (
-        (valid_receipt, 'false', 1), (valid_receipt, 'true', 0),
-        (valid_receipt.replace('pid=2', 'pid=1'), 'true', 1),
-        (valid_receipt.replace('start=3', 'start=4'), 'true', 1),
-        (valid_receipt.replace('exit_status=7', 'exit_status=0'), 'true', 1),
-        (valid_receipt.replace('firstboot', 'postreboot'), 'true', 1),
-        (valid_receipt + '\n', 'true', 1), ('malformed\n', 'true', 1),
+with tempfile.TemporaryDirectory(prefix='arch-linux-capture-check-') as temporary:
+    for helper, following, expected_status, warning in (
+        ('/usr/bin/true', '/usr/bin/true', 0, False),
+        ('/usr/bin/false', '/usr/bin/true', 0, True),
+        ('/usr/bin/false', '/usr/bin/false', 1, True),
     ):
-        receipt.write_text(contents); receipt.chmod(0o600)
-        before = receipt.stat()
-        result = subprocess.run(['/usr/bin/bash', '-c', program, 'recorder-receipt-fixture',
-            str(evidence_dir), 'firstboot', 'boot', '2', '3', '7', cleanup], capture_output=True, timeout=3,
-            env={'PATH':'/usr/bin:/bin', 'LC_ALL':'C'})
-        after = receipt.stat()
-        if result.returncode != wanted or result.stdout or result.stderr or receipt.read_text() != contents or \
-                (before.st_ino, before.st_mtime_ns, before.st_ctime_ns) != \
-                (after.st_ino, after.st_mtime_ns, after.st_ctime_ns):
-            raise SystemExit('static check failed: existing recorder receipt accepted incorrectly or overwritten')
+        result = subprocess.run(
+            ['/usr/bin/bash', '-c', program, 'capture-fixture', helper,
+             str(root / 'tests/vm'), temporary, following],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5,
+            env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C'},
+        )
+        expected_error = (b'SCREENSHOT_WARNING: optional capture unavailable: optional-fixture\n'
+                          if warning else b'')
+        if (result.returncode != expected_status or result.stdout != b'CAPTURE_CONTINUED\n'
+                or result.stderr != expected_error):
+            raise SystemExit('static check failed: optional capture masks a functional failure or blocks progress')
 
-# Execute the real recorder loop with deterministic clocks and no VM/QMP. The unchanged exact
-# 500ms boundary is accepted; +1ns must fail before another frame, sample or control ACK.
-import types
-for gap in (500_000_000, 500_000_001):
-    scope = {'__name__':'recorder_timing_fixture', '__file__':str(helper_path)}
-    exec(compile(helper, scope['__file__'], 'exec'), scope)
-    with tempfile.TemporaryDirectory(prefix='arch-linux-recorder-timing-', dir=os.environ.get('RUNNER_TEMP')) as work:
-        root = Path(work) / 'run'; root.mkdir(mode=0o700); (root / 'evidence').mkdir(mode=0o700)
-        state = {'now':1_000_000_000, 'frames':0, 'status':0, 'controls':0, 'closed':False}
-        records = []
-        def advance(amount):
-            state['now'] += amount
-        def sleep(_):
-            state['now'] = 1_000_000_000 + gap
-        def exact_qemu(*_):
-            if state['frames'] == 1:
-                advance(5_000_000)
-            return True
-        class FakeQMP:
-            def __init__(self, *_):
-                self.identity='1:2'; self.pid=1; self.peer_uid=os.getuid()
-            def status(self):
-                state['status'] += 1
-                return 'prelaunch' if state['status'] <= 2 else 'running'
-            def frame(self, _):
-                state['frames'] += 1; advance(10_000_000)
-                return (1, 1, b'\0\0\0', 'a'*64, b'P6\n1 1\n255\n\0\0\0')
-            def close(self):
-                state['closed'] = True
-        def store_raw(*_):
-            advance(20_000_000)
-            return 'frame.ppm.gz', 'b'*64, 0
-        def append_json(_, value, first=False):
-            records.append(value)
-            if value['e'] == 'sample':
-                advance(30_000_000)
-        def read_controls(*_):
-            state['controls'] += 1; advance(40_000_000)
-            return 0, ([] if state['controls'] == 1 else [('stop-boot', 'c'*16)])
-        scope.update(time=types.SimpleNamespace(monotonic_ns=lambda:state['now'], sleep=sleep),
-            exact_qemu=exact_qemu, process_start=lambda _: '1', QMP=FakeQMP,
-            store_raw=store_raw, append_json=append_json, read_controls=read_controls)
-        args = types.SimpleNamespace(run_root=str(root), qmp_socket='/unused', qemu_pid=1,
-            qemu_start='1', phase='firstboot', segment='boot')
-        error = None
-        try:
-            scope['record_command'](args)
-        except scope['EvidenceError'] as caught:
-            error = str(caught)
-        if not state['closed']:
-            raise SystemExit('static check failed: recorder timing fixture did not close QMP')
-        if gap == 500_000_000:
-            if error or state['frames'] != 2 or records[-1]['e'] != 'terminal' or \
-                    records[-1]['reason'] != 'requested-stop':
-                raise SystemExit('static check failed: exact 500ms recorder boundary rejected')
-        else:
-            expected = 'gapNs=500000001'
-            if error != expected or state['frames'] != 1 or \
-                    sum(r['e'] == 'sample' for r in records) != 1 or \
-                    any(r['e'] in ('control', 'terminal') for r in records):
-                raise SystemExit('static check failed: over-limit recorder gap diagnostics/boundary differ')
-FRAMEBUFFER_PY
+# A successful guest command may emit harmless GPG/pacman diagnostics. Check the actual
+# wrapper: stderr alone is advisory, but an error or missing functional marker still fails.
+verify = re.search(r'(?ms)^qga_verify\(\) \{\n.*?^\}\n', run)
+if verify is None:
+    raise SystemExit('static check failed: guest verification wrapper is absent')
+import base64
+import json
+globals_used = '''target_serial target_model run_id scenario_id repository_primary_fingerprint
+repository_signing_fingerprint release_version pages_url snapshot_sha256 source_commit source_tree
+installer_sha256 repository_package_set_sha256 build_metadata_sha256 unsigned_manifest_sha256
+repository_public_key_sha256'''.split()
+program = 'set -Eeuo pipefail\n' + verify.group() + '\n' + '\n'.join(
+    name + '=fixture' for name in globals_used) + '''
+script_dir="$1" evidence="$2" response="$3" input_mode=staged marker_prefix=MINIMAL
+die() { exit 2; }
+qga_call() {
+    if [[ "$1" = *guest-exec-status* ]]; then printf '%s\\n' "$response";
+    else printf '%s\\n' '{"return":{"pid":1}}'; fi
+}
+qga_verify firstboot fixture
+printf 'VERIFY_CONTINUED\\n'
+'''
+marker = ('MINIMAL_QEMU_GUEST_PASS run_id=fixture scenario=fixture phase=firstboot '
+          'boot_id=00000000-0000-0000-0000-000000000001 target=fixture\n')
+with tempfile.TemporaryDirectory(prefix='arch-linux-guest-status-check-') as temporary:
+    for exit_code, output, diagnostics, truncated, accepted in (
+        (0, marker, '', False, True),
+        (0, marker, 'gpg: checking the trustdb\n', False, True),
+        (1, marker, 'failure\n', False, False),
+        (0, '', '', False, False),
+        (0, marker, '', True, False),
+    ):
+        response = json.dumps({'return': {'exited': True, 'exitcode': exit_code,
+            'out-data': base64.b64encode(output.encode()).decode(),
+            'err-data': base64.b64encode(diagnostics.encode()).decode(),
+            'out-truncated': truncated}})
+        result = subprocess.run(['/usr/bin/bash', '-c', program, 'guest-status-fixture',
+            str(root / 'tests/vm'), temporary, response], capture_output=True, timeout=10,
+            env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C'})
+        if result.returncode != (0 if accepted else 2) or result.stdout != (
+                b'VERIFY_CONTINUED\n' if accepted else b''):
+            raise SystemExit('static check failed: guest status handling changed functional outcome')
+
+print('guest framebuffer and diagnostic handling checks passed; QEMU=NOT_RUN')
+VM_GUEST_PY
 
 printf 'static checks passed\n'

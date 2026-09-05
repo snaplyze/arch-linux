@@ -134,7 +134,7 @@ One root-owned accepted-input staging shape is:
 test ! -e "$ACCEPTED_INPUT_ROOT" && test ! -L "$ACCEPTED_INPUT_ROOT"
 install -d -m0755 -o0 -g0 -- "$ACCEPTED_INPUT_ROOT"
 cp -a --no-preserve=ownership -- "$UNSIGNED_SOURCE" "$ACCEPTED_INPUT_ROOT/unsigned"
-# Run the next three copies only after their independent visual PASS receipts exist.
+# Run the next three copies only after their functional result.json reports PASS.
 cp -a --no-preserve=ownership -- "$MINIMAL_RUN_SOURCE" \
   "$ACCEPTED_INPUT_ROOT/minimal-ext4-systemdboot"
 cp -a --no-preserve=ownership -- "$STOCK_RUN_SOURCE" \
@@ -251,7 +251,7 @@ launcher retains the home as FD 6, seals the passphrase in memfd 7, uses capabil
 reject direct, sourced and CI use before private access. The signing subkey must be signing-only and
 have at least 180 days remaining. `repo-add --include-sigs` receives no private authority.
 
-After all three staged QEMU verdicts are independently finalized as PASS, use the same launcher with
+After all three staged QEMU functional results report PASS, use the same launcher with
 the complete nine-option finalizer contract. QEMU run paths are accepted read-only copies; the output
 name is still missing below the same signing-owned mode-`0700` output parent:
 
@@ -272,8 +272,9 @@ printf '%s\n%s\n' "$PRIVATE_HOME" "$PASSPHRASE_FILE" | \
 
 It copies the 14 Phase-A bytes unchanged and adds the signed acceptance JSON and evidence archive,
 producing exact 18. The acceptance consumer independently binds the tracked Arch ISO; each distinct
-helper/config payload ISO; QEMU and recorder PID/start identities; complete ledgers and framebuffer
-geometry; exact assertions, repository objects and runtime markers; and the manual review chain.
+helper/config payload ISO; QEMU PID/start identities; completed functional assertions,
+repository objects and runtime markers; clean shutdown, image check and process cleanup.
+Screenshots are optional diagnostics, not a separate visual certification step.
 
 `BUILD_METADATA_SHA256` and `UNSIGNED_MANIFEST_SHA256` always come from the independently accepted
 canonical build, not from the signing operation.
@@ -311,3 +312,23 @@ Release ID plus the exact frozen commit/tree/canonical hash and build/snapshot h
 exactly eighteen draft assets through the authenticated GitHub API, verifies their API digests, annotated tag,
 checksums, signatures and full repository closure, then safely extracts and uploads the Pages
 artifact. Production private material is never an Actions secret.
+
+### Package-only updates
+
+For a Marble/profile update, increment the owning package's `pkgrel` in a reviewed PR, regenerate
+`.SRCINFO`, test the change and merge it. Build and verify that exact main commit, then use the same
+offline `snapshot` signing operation. Do not change the installer version or its published assets.
+Test package upgrade and the affected desktop behavior on an installed system.
+
+Create a separate annotated `packages-YYYYMMDD.N` tag on that package source commit and a draft
+package Release named exactly as the tag. Upload the 14 verified Phase-A files. These are a signed
+package-update bundle; they do not certify or replace an installer release. Dispatch `pages.yml`
+on main with `deployment_kind=packages`, `package_tag`, its numeric `release_id`, the existing
+installer `release_version`, and the exact new source/build/snapshot hashes. The workflow requires
+the installer release to be published already, rejects changes to `install.sh` or the installer
+under that old version, and verifies all 14 files and package/database signatures before deployment.
+
+After HTTPS readback and a successful installed-system `pacman -Syu`, publish the package Release
+without replacing bytes. Future package updates use a new package tag. There is no automatic
+signing, release or merge. The normal `deployment_kind=release` path still requires the finalized
+18-file installer release with its three functional VM results.

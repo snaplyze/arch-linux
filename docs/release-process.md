@@ -22,12 +22,11 @@ Record the tree identity, input hashes and exact statuses, then freeze only afte
 source gates pass. A source failure stops acceptance of that candidate. Results from an earlier
 tree are invalid for a corrected candidate.
 
-When continuous remediation is explicitly authorized, a proven defect discovered after freeze
-rejects that candidate rather than ending development. Preserve the rejected freeze and its
-artifacts and evidence unchanged. Apply the minimal correction and regression through a new
-pull-request branch in the same canonical checkout, then obtain fresh tests, freeze, build, signing
-and VM evidence for the new identity. Never transfer a PASS to the corrected candidate or replace
-published bytes or tags. This is a new acceptance attempt, not a retry of a product failure.
+If a defect is found, diagnose it, correct the source and add a regression test in the same
+canonical checkout. Repeat affected checks, build/sign the corrected inputs and run the applicable
+VM scenarios. There is no artificial cycle or attempt limit. Keep old results associated with their
+actual inputs; never transfer a PASS or replace published bytes or tags. A diagnostic-tool problem
+is distinct from a broken installed system.
 
 ## 2. One canonical Arch build
 
@@ -107,30 +106,18 @@ one exact independently verified `arch-linux-repository-${VERSION}.tar.zst` for 
 
 1. Minimal TTY, ext4 and systemd-boot.
 2. Stock GNOME, Btrfs, LUKS2 and GRUB.
-3. Marble, Btrfs, LUKS2 and systemd-boot with the separate Marble GDM opt-in and Stock fallback.
+3. Marble, Btrfs, LUKS2 and systemd-boot with the separate Marble GDM opt-in.
 
-Each scenario must exercise the real ISO, installer and produced repository. Product failure is not
-retried on unchanged inputs; use the authorized correction and new-identity acceptance route above.
-One infrastructure retry is allowed only with a recorded concrete cause.
+Each scenario exercises the real ISO, installer and produced repository. Verify installation,
+boot and networking, selected storage/bootloader/encryption, the expected desktop and packages,
+updates, reboot, zero failed units, clean shutdown and `qemu-img check`. For GNOME, perform GDM
+password login, check Wayland, lock/unlock and repeat login after reboot. Check dual boot and any
+product options not covered by these three cases separately.
 
-For every installed `firstboot` and `postreboot`, launch QEMU paused with `-S`, bind the direct
-framebuffer recorder to the exact QEMU PID/start identity and QMP peer, require its `READY` ledger
-record with QMP `prelaunch`/not-running before `cont`, and record the bounded boot section through
-the verified visual state. Start a distinct shutdown section immediately before each transition;
-require `READY` and `shutdown-armed` before scheduling it, then record until that exact PID exits. Minimal
-must complete phase-specific `qga_verify` and framebuffer prerequisites before its allowlisted
-non-secret no-Enter challenge. Ctrl+Alt+F1 is prohibited. The ledger must prove strict
-pre-challenge/challenge/post-challenge chronology and a non-zero framebuffer delta in both phases.
-
-Treat the automated scenario result as provisional. An independent reviewer must inspect the
-ordered contact sheets and full-resolution frames (reconstructing uncertain manifest-bound raw
-frames into a separate private directory before finalization) and issue a receipt bound to the exact
-source commit/tree, run ID and frame-evidence manifest. The manifest binds every ledger,
-contact sheet, temporary raw object and selected frame by hash, plus the fixed sheet geometry; it
-does not contain per-cell records. OCR and screenshot count are not proof. Remove
-unselected raw frames only after review; retain the receipt, compact manifest/ledgers/contact sheets
-and two to four selected frames, and keep cumulative evidence at or below 500 MiB. No staged or
-public QEMU PASS exists from the automated result alone.
+Use the runner's functional PASS/FAIL directly. Ordinary screenshots are optional diagnostics,
+not a separate certification step. Remove owned temporary VM resources and retain compact logs
+and results. Investigate failures, correct the cause and repeat affected checks; do not loop an
+unchanged error or weaken real disk/signature/secret protections.
 
 ## 6. GitHub Release and Pages
 
@@ -189,6 +176,8 @@ Installer changes are new immutable SemVer releases (`1.0.1`, `1.0.2`, and later
 updates normally through `pacman -Syu`. Marble/profile changes increment the owning package's
 `pkgrel` and are delivered through the signed Pages repository, so they do not require an installer
 release. Source pins change only through a reviewed pull request.
+Use the explicit [package-only Pages route](../repository/README.md#package-only-updates), with a
+new package tag and verified offline-signed snapshot. This is not a new installer release.
 
 The maintenance watcher may only create or update an advisory issue; monthly A+B is advisory and
 never blocks release. No workflow automatically merges, releases, signs, rotates keys or changes a

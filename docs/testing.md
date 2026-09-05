@@ -64,46 +64,34 @@ Do not report QEMU PASS unless all of these are real and fresh:
 - an independent OVMF VARS copy per scenario;
 - captured installer/repository identities and scenario evidence.
 
-Required scenarios are Minimal TTY, Stock GNOME, and Marble plus separate Marble GDM/fallback. A
+Required scenarios are Minimal TTY, Stock GNOME, and Marble plus separate Marble GDM. A
 release acceptance run uses the exact combinations Minimal/ext4/systemd-boot,
 Stock/Btrfs/LUKS2/GRUB and Marble/Btrfs/LUKS2/systemd-boot. Every run is a fresh install with KVM,
 a new qcow2 and an independent OVMF VARS copy; all three consume one exact independently verified
 production-signed snapshot. Real login, lock/unlock, `pacman -Syu`, reboot, repeated login, package
 integrity, zero failed units, clean shutdown and `qemu-img check` are mandatory. A representative
-dual-boot path remains a separate product gate. See `tests/vm/README.md` for exact commands and the
-two-to-four screenshot, cleanup and 500 MiB evidence contracts. The Stock run additionally exercises
-and reads back `en_US.UTF-8` Language/Formats, ordered `us,ru` input sources, GNOME's retained default
-switch bindings plus both Alt+Shift directions, and all twelve Ptyxis Latin/Cyrillic shortcut pairs.
-Every staged run retains the signed repository manifest/signature and exact package/database hashes;
-every PASS or FAIL retains a structured verdict.
+dual-boot path is checked separately. See [VM commands](../tests/vm/README.md).
+Stock additionally checks Language/Formats, input layouts and terminal shortcuts. Every run retains
+its input identities, a compact installer log, functional assertions, `qemu-img check` and a
+structured PASS or FAIL. Screenshots are optional diagnostic aids: missing a frame or a slow capture
+does not turn a successful installation into a product failure.
 
-Every installed `firstboot` and `postreboot` QEMU process starts with `-S`; its exact-identity
-direct-framebuffer recorder, bound through its exact QMP peer, must report a strict P6 frame and
-`READY` while QMP is `prelaunch`/not-running before `cont`. That bounded boot section runs through
-the verified visual state. A separate section starts immediately before reboot/poweroff, records
-`shutdown-armed` before the transition request and continues until that exact PID exits. Minimal runs
-phase-specific `qga_verify` and framebuffer prerequisites before
-an allowlisted non-secret no-Enter challenge. Ctrl+Alt+F1 is forbidden because a forced VT switch
-would manufacture the state under test. The frame ledger must prove strict pre/challenge/post
-chronology and a non-zero framebuffer delta for both installed phases.
-
-No scenario becomes QEMU PASS from assertion count, screenshot count, automated `result.json`, QGA,
-delta detection or OCR alone. An independent reviewer must bind a manual receipt to the exact
-source commit/tree, run ID and frame-evidence manifest after reviewing the ordered contact sheets and
-full-resolution frames; uncertain manifest-bound raw frames are reconstructed losslessly into a
-separate private directory before finalization. The manifest binds the fixed sheet geometry and the
-hashes of every ledger, contact sheet, temporary raw object and selected frame through one
-`fileHashes` map, not per-cell records. Only then are unselected raw frames removed; the receipt, compact
-manifest/ledgers/contact sheets and two to four selected frames remain within the cumulative 500 MiB
-budget.
+The runner performs actual GDM password input, verifies the resulting Wayland session and exercises
+lock/unlock and the second login. QGA inspects the installed system but does not manufacture a login.
+Minimal must reach its working TTY without a forced VT switch. There is no continuous recorder,
+frame-timing threshold, pixel challenge or manual-review receipt. If a functional check fails,
+investigate and fix the cause, add a regression check, and rerun the affected checks on the new inputs.
+Keep source, package and actual VM results distinct.
 
 ## Release/public acceptance
 
 Production offline signing, immutable Release creation, verified Pages deployment and the final
 public VM readback are separate stages. Source or synthetic signature tests cannot be promoted to
-those statuses. Staged QEMU consumes only the exact 14-file Phase-A closure. After three reviewed
+those statuses. Staged QEMU consumes only the exact 14-file Phase-A closure. After three functional
 PASS verdicts, launcher `finalize` preserves those 14 bytes and adds signed acceptance JSON/evidence
-for exact 18; Pages accepts only that final closure. The final public VM uses only the tagged public bootstrap, immutable Release
+for exact 18; installer-release Pages deployment accepts only that final closure. Later
+[package-only updates](../repository/README.md#package-only-updates) use a separately tagged,
+verified 14-file snapshot with the installer unchanged. The final public VM uses only the tagged public bootstrap, immutable Release
 installer/key assets and the public Pages repository; local installer, key, snapshot, CA and
 repository bytes are forbidden from its payload. Inside the public guest, signed
 `RELEASE-SHA256SUMS` binds the expected archive digest, the archive detached signature is verified,

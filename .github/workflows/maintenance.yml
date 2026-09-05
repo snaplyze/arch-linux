@@ -1,19 +1,46 @@
-name: Monthly advisory maintenance
+name: Advisory maintenance
 
 on:
   schedule:
     - cron: '17 4 1 * *'
+    - cron: '41 5 * * *'
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: maintenance-advisory
+  cancel-in-progress: false
 
 defaults:
   run:
     shell: bash
 
 jobs:
+  key-monitor:
+    name: Public signing key lifetime advisory
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out public trust
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Inspect public expiry without signing authority
+        run: python3 maintenance/check-key-lifetime.py --report "${RUNNER_TEMP}/key-report.json"
+
+      - name: Upload public lifetime report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4.6.2
+        with:
+          name: maintenance-key-report
+          path: ${{ runner.temp }}/key-report.json
+          if-no-files-found: error
+          retention-days: 7
+
   source-monitor:
+    if: github.event.schedule != '41 5 * * *'
     name: External source advisory
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -47,6 +74,7 @@ jobs:
           retention-days: 30
 
   reproducibility:
+    if: github.event.schedule != '41 5 * * *'
     name: Advisory build ${{ matrix.name }}
     strategy:
       fail-fast: false
@@ -96,7 +124,7 @@ jobs:
     permissions:
       contents: read
       issues: write
-    needs: [source-monitor, reproducibility]
+    needs: [key-monitor, source-monitor, reproducibility]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -106,12 +134,14 @@ jobs:
           persist-credentials: false
 
       - name: Install comparison dependency
+        if: github.event.schedule != '41 5 * * *'
         run: |
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends libarchive-tools
 
       - name: Download source report
+        if: github.event.schedule != '41 5 * * *'
         id: source-report
         continue-on-error: true
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v5.0.0
@@ -120,6 +150,7 @@ jobs:
           path: ${{ runner.temp }}/source-report
 
       - name: Download build A
+        if: github.event.schedule != '41 5 * * *'
         id: build-a
         continue-on-error: true
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v5.0.0
@@ -128,6 +159,7 @@ jobs:
           path: ${{ runner.temp }}/repro-a
 
       - name: Download build B
+        if: github.event.schedule != '41 5 * * *'
         id: build-b
         continue-on-error: true
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v5.0.0
@@ -136,6 +168,7 @@ jobs:
           path: ${{ runner.temp }}/repro-b
 
       - name: Compare independent builds
+        if: github.event.schedule != '41 5 * * *'
         id: compare
         continue-on-error: true
         run: |
@@ -143,7 +176,14 @@ jobs:
           bash repository/compare-package-builds.sh \
             "${RUNNER_TEMP}/repro-a" "${RUNNER_TEMP}/repro-b"
 
-      - name: Create fallback report when monitoring failed
+      - name: Download public lifetime report
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v5.0.0
+        with:
+          name: maintenance-key-report
+          path: ${{ runner.temp }}/key-report
+
+      - name: Create fallback reports when monitoring failed
         run: |
           set -euo pipefail
           report="${RUNNER_TEMP}/source-report/sources-report.json"
@@ -151,15 +191,27 @@ jobs:
             mkdir -p -- "$(dirname -- "${report}")"
             printf '%s\n' '{"automaticChanges":false,"findings":[{"accepted":"available report","detected":"ERROR: source monitor failed","id":"maintenance:source-monitor","impact":"Manual infrastructure review required."}],"mode":"network","schema":1,"status":"advisory"}' >"${report}"
           fi
+          key_report="${RUNNER_TEMP}/key-report/key-report.json"
+          if [ ! -s "${key_report}" ]; then
+            mkdir -p -- "$(dirname -- "${key_report}")"
+            printf '%s\n' '{"schema":1,"status":"error","automaticChanges":false}' >"${key_report}"
+          fi
 
       - name: Update the single advisory issue
         env:
           GITHUB_TOKEN: ${{ github.token }}
           REPRO_STATUS: ${{ steps.compare.outcome == 'success' && 'match' || 'error' }}
           ISO_STATUS: ${{ needs.source-monitor.outputs.iso_status || 'error' }}
+          KEY_ONLY: ${{ github.event.schedule == '41 5 * * *' }}
         run: |
           set -euo pipefail
+          if [ "${KEY_ONLY}" = true ]; then
+            python3 maintenance/update-advisory-issue.py --key-only \
+              --key-report "${RUNNER_TEMP}/key-report/key-report.json"
+            exit 0
+          fi
           python3 maintenance/update-advisory-issue.py \
+            --key-report "${RUNNER_TEMP}/key-report/key-report.json" \
             --report "${RUNNER_TEMP}/source-report/sources-report.json" \
             --reproducibility "${REPRO_STATUS}" \
             --iso-status "${ISO_STATUS}"

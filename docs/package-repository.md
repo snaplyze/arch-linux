@@ -108,3 +108,8 @@ identities. It reads back exactly eighteen finalized uploaded assets through the
 annotated tag, API digests, archive checksum and signatures, safely extracts the snapshot, and
 re-verifies every package/database object before uploading the Pages artifact. Actions contains no
 private signing key.
+
+For package-only updates, use the `packages` deployment mode described in
+[repository tooling](../repository/README.md#package-only-updates). It accepts a separately tagged,
+signed 14-file package-update bundle for an existing installer version. A Marble profile `pkgrel`
+update therefore does not require a new installer release or replacement of old installer assets.
