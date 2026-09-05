@@ -35,6 +35,32 @@ file, unsafe archive member or manifest mismatch. Pacman uses
 No stage may weaken trust to make a failing release pass. Fingerprint, key, hash and pin changes are
 manual, reviewed source changes.
 
+## Expiry renewal and installed systems
+
+Expiration does not destroy the private key. Before the existing signing subkey expires, its expiry
+can be extended using the existing offline certification primary. This is a manual maintenance
+operation, not a GitHub signing job and not automatic key rotation.
+
+1. Verify the existing recovery set offline. Do not move private material into source, CI or a VM.
+2. Extend the existing signing subkey's expiry using that primary; do not generate a replacement
+   subkey for an ordinary renewal. Export only the refreshed public certificate for distribution.
+3. Independently check the unchanged primary/signing fingerprints, the later expiry and absence of
+   private packets. Update the tracked public certificate and its reviewed checksum references,
+   increment `arch-linux-keyring`'s `pkgrel`, regenerate `.SRCINFO`, and review the change in a PR.
+4. Build, test and sign the updated keyring and repository. Publish the signed package update before
+   the old certificate expires. The keyring package's upgrade hook populates pacman's keyring and
+   updates its trust database; users receive the refreshed certificate through `pacman -Syu`.
+
+Systems updated during that overlap do not need manual key import or a new installation. A machine
+left offline past expiry may reject the repository before it can download the new keyring package.
+Do not disable signature checks on that machine. Use independently authenticated refreshed public
+trust and an explicitly documented manual recovery procedure instead. An old release bootstrap also
+pins its original certificate bytes; use a newer reviewed installer release for new installations
+after that original trust input expires. Existing installed systems use the delivered keyring.
+
+The keyring regression suite exercises the existing same-subkey renewal and real upgrade hook with
+ephemeral test keys. That is not authorization to renew the production key automatically.
+
 ## Rotation or compromise
 
 A planned signing-subkey transition needs an overlap period in which the currently trusted release

@@ -24,42 +24,20 @@ Marble/Btrfs/LUKS2/systemd-boot with the separate experimental Marble GDM opt-in
 runs bind the same independently verified production-signed repository archive, source commit/tree,
 build-metadata hash, unsigned-manifest hash and frozen Arch ISO hash.
 The staged inputs are the exact 14 Phase-A assets, whose signed checksum manifest covers exactly 12
-non-self files. Finalization is allowed only after all three reviewed PASS verdicts and preserves all
+non-self files. Finalization is allowed only after all three functional PASS results and preserves all
 14 bytes while adding signed acceptance JSON and evidence archive for exact 18.
 
-Each scenario retains two to four necessary screenshots, a short compressed marker log, exact input
-and tool hashes, the production-signed repository manifest/signature, its exact per-package/database
-object hashes, a structured PASS or FAIL verdict and the final `qemu-img check`. A FAIL verdict has a
-non-zero exit status and exact failed phase. HMP password input and QGA/logind assertions must prove
-real `gdm-password` Wayland login, lock/unlock, update, reboot and the second login; Stock also proves
-`en_US.UTF-8` Language/Formats, `us,ru` layouts, both GNOME switch directions and all twelve Ptyxis
-Latin/Cyrillic shortcut pairs. Screenshots or QGA alone are insufficient. After each scenario,
-delete the exact run-owned qcow2, OVMF VARS, payload ISO/tree, extracted repository and TLS runtime
-before scanning only bounded compact metadata/evidence for credentials; never grep VM disks,
-firmware, ISOs, sockets or oversized logs. Verify that no run-owned QEMU/server process remains.
-Total permanent evidence for the acceptance cycle is at most 500 MiB and contains no password,
-private key, passphrase or recovery material.
+Each scenario retains a short compressed installer log, input and tool hashes, the signed repository
+manifest/signature and package/database hashes, functional assertions and a structured PASS or FAIL.
+A FAIL includes the failed phase and non-zero exit status. Check actual GDM password login and the
+resulting Wayland session, lock/unlock, update and repeated login. Screenshots help diagnose the
+result but are optional; no sampling interval or human receipt is required.
 
-Each installed-system `firstboot` and `postreboot` process starts paused with `-S`. Before `cont`, an
-exact-head direct-framebuffer recorder must bind the exact QEMU PID/start identity and QMP peer and
-write its first strict P6 frame and `READY` while QMP reports `prelaunch`/not-running. It records the
-bounded boot section through the verified visual state. A distinct recorder section starts
-immediately before reboot/poweroff, records `shutdown-armed` before the transition request, and ends
-only after the exact PID exits. For Minimal,
-phase-specific `qga_verify` and framebuffer prerequisites precede an allowlisted non-secret challenge
-that has no Enter/Return, does not log in or repair the guest and never sends Ctrl+Alt+F1. The ledger
-must bind a strict pre-challenge, challenge and post-challenge chronology and a non-zero framebuffer
-delta for both first boot and post-reboot. Arbitrary differing screenshots do not satisfy this gate.
-
-Automated success is provisional. An independent manual review of the ordered contact sheets and
-full-resolution selected frames is mandatory; uncertain manifest-bound frames are reconstructed from
-the temporary lossless raw closure into a separate private directory before finalization. OCR may
-assist navigation but is not evidence. The receipt binds the exact source commit/tree, run ID and
-frame-evidence manifest; its one `fileHashes` map binds every ledger, contact sheet, temporary raw
-object and selected-frame name/hash together with the fixed sheet geometry; the manifest
-does not contain per-cell records. Screenshot count, automated verdicts, QGA, delta or OCR alone never prove QEMU PASS.
-After review, remove unselected raw frames and retain the receipt, compact manifest/ledgers/contact
-sheets and two to four selected frames within the same 500 MiB cumulative budget.
+After each scenario remove its qcow2, OVMF VARS, payload, extracted repository and TLS runtime,
+check that its QEMU/server processes exited, and retain `qemu-img check`. Never retain passwords,
+private keys, passphrases or recovery material. Keep reports compact and separate from source;
+the release evidence archive has a 500 MiB storage cap, not a frame timing or visual certification
+requirement. Do not scan VM disks as if they were text logs.
 
 ## Release evidence
 

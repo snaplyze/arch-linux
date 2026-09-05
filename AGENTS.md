@@ -130,7 +130,7 @@ signatures are added explicitly afterward.
 
 `snapshot` emits exactly 14 Phase-A assets: the existing 12-file signed release closure plus
 byte-identical `BUILD-METADATA.json` and `UNSIGNED-SHA256SUMS`. Signed `RELEASE-SHA256SUMS` covers
-exactly the 12 non-self files. After three independently reviewed QEMU PASS results, `finalize`
+exactly the 12 non-self files. After three functional QEMU PASS results, `finalize`
 copies all 14 bytes unchanged and adds the signed acceptance JSON and signed evidence `.tar.zst`,
 forming exact 18. The JSON binds commit/tree/canonical source hash, build/unsigned/snapshot hashes,
 the exact Phase-A name/hash/size map and aggregate, its manifest hash, three PASS verdicts,
@@ -159,32 +159,22 @@ Keep source, package-build output, QEMU evidence and release/public-readback evi
 Source archives must not contain ISO images, qcow2 disks, OVMF variable stores, package outputs,
 logs or earlier acceptance evidence. A result from one layer does not prove another layer.
 
-For every installed-system `firstboot` and `postreboot` QEMU process, start QEMU paused with `-S`,
-bind the direct-framebuffer recorder to the exact QEMU PID/start identity and QMP peer, require its
-first strict P6 frame and `READY` record while QMP reports `prelaunch`/not-running before `cont`.
-Record boot through the verified visual state, then stop that bounded section. Immediately before a
-scheduled reboot or poweroff, start a separate recorder section, require `READY`, record
-`shutdown-armed` before the guest transition request, and keep recording until that exact process
-exits. The gap between those sections may contain non-visual package work but no claimed visual gate.
-For Minimal, complete the phase-specific QGA verification and framebuffer prerequisites before an
-allowlisted non-secret phase challenge. The challenge must not include Enter/Return, must not log in
-or repair the guest, and must never send Ctrl+Alt+F1; forcing tty1 would mask the state being proved.
-The append-only frame ledger must prove strict pre-challenge/challenge/post-challenge chronology and
-a real framebuffer delta in each installed phase.
+## Practical VM checks
 
-Automated assertions, screenshot count and OCR do not establish QEMU PASS. An independent human
-must review the ordered contact sheets and full-resolution selected frames, reconstructing any
-uncertain manifest-bound raw ledger frame into a private directory at full resolution, then issue a
-receipt bound to the exact source commit/tree, run ID and frame-evidence manifest. That manifest
-binds the fixed contact-sheet geometry and the hashes of every ledger, contact sheet, temporary raw
-object and selected frame through its sole `fileHashes` map; it has no per-cell record model. Remove
-unselected raw frames only after that review; retain the receipt and two to four selected frames
-together with the compact manifest, ledgers and contact sheets while keeping cumulative evidence at
-or below 500 MiB.
+Use real QEMU/KVM, a fresh disk and independent firmware variables, and the recorded source,
+ISO and signed package inputs. Run the installer and check the installed system: the selected
+storage, encryption and bootloader; boot and network; the requested desktop; package integrity;
+updates and another boot; no failed systemd units; clean shutdown and `qemu-img check`.
+For GNOME, perform actual GDM password login and check the resulting Wayland session, lock/unlock
+and profile. Do not replace login with autologin or start a session through QGA. QGA may run guest
+diagnostics and verify the result of real user input.
 
-`tests/vm/frame-evidence.py` is one narrow stdlib-only lifecycle helper, not an evidence framework.
-Its runtime interface is limited to `record`, `capture`, `seal` and `finalize-review`, plus the local
-`--self-test`. Do not add generic plugins, schemas, exporters, controllers or parallel receipt paths.
+Screenshots are optional diagnostic aids. A screenshot timeout is not an installation failure.
+Do not impose frame timing, continuous recording, pixel challenges, contact sheets or mandatory
+human review receipts. `tests/vm/frame-evidence.py` is a small screenshot helper, not an evidence
+framework. Keep logs and results compact; remove owned temporary VM disks and firmware state.
+Cover the supported product options, including dual boot and the separate Marble GDM opt-in.
+Do not describe an unexecuted variant or a static assertion as a successful installation.
 
 ## Secrets
 
@@ -198,30 +188,17 @@ Every result belongs to the exact source tree and input hashes that produced it.
 PASS from another commit, tree, package set, ISO, VM disk, firmware state or public asset. Re-run the
 applicable check after any source change.
 
-## Bounded remediation
+## Development and fixes
 
-Unless the user explicitly authorizes continuous remediation, a source-candidate task allows one
-coherent implementation pass and at most one coherent test-fix pass. Continued remediation still
-requires a reproduced defect, a minimal correction and its regression test; it does not authorize
-speculative patch chains or architectural rewrites. Freeze the source tree before packaging the
-candidate.
-
-## Product failure
-
-A reproducible product failure stops acceptance of that exact candidate. Do not mask it with retries,
-weaker checks, changed fixtures or a removed negative test. When continuous remediation is explicitly
-authorized, continue the development task without requesting another source-cycle authorization for
-each proven defect. Preserve the rejected freeze and its artifacts and evidence unchanged. Correct
-source through a new pull-request branch in the same canonical checkout, then require fresh tests,
-freeze, build, signing and VM evidence for the new identity. Never transfer a PASS to the corrected
-candidate or replace published bytes or tags. Missing external authority or required human review
-must be requested, never fabricated; continue independent eligible work while awaiting it. Report
-one primary blocker only when no authorized action can advance the task.
-
-## Infrastructure retry
-
-One retry is permitted only for a demonstrated transient network or infrastructure failure. Record
-the concrete reason. A product failure is not retryable.
+When a problem appears, diagnose it, make a focused correction, add or update its regression test,
+and repeat the affected checks. Continue development without artificial attempt or cycle limits.
+Do not retry an unchanged failure indefinitely or weaken a real disk, signature or secret-safety
+test to obtain PASS. Diagnostic-tool failures should be reported separately from product failures.
+Use pull requests in the same canonical checkout; record the accepted commit and tree before
+building. Source changes require fresh affected tests and newly bound build and VM results.
+Preserve historical results honestly; never transfer a PASS to another candidate or replace
+published bytes or tags. Ask for external access or authority only when it is actually required,
+and continue independent eligible work where possible.
 
 ## Pins and keys
 

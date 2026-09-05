@@ -31,6 +31,13 @@ minimal-ext4-systemdboot)
     [[ "${expected_model}" =~ ^ALI_MIN_[A-F0-9]{8}$ ]]
     [[ "${run_id}" =~ ^minimal-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}$ ]]
     ;;
+minimal-dualboot-ext4-systemdboot)
+    marker_prefix='MINIMAL'
+    case "${phase}" in firstboot | update | postreboot | neighbor-select | neighbor) ;; *) exit 2 ;; esac
+    [[ "${expected_serial}" =~ ^ALI100M[A-F0-9]{12}$ ]]
+    [[ "${expected_model}" =~ ^ALI_MIN_[A-F0-9]{8}$ ]]
+    [[ "${run_id}" =~ ^dualboot-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}$ ]]
+    ;;
 stock-gnome-ext4-systemdboot)
     marker_prefix='STOCK'
     case "${phase}" in prelogin | firstlogin | lock | unlock | update | postreboot-prelogin | secondlogin) ;; *) exit 2 ;; esac
@@ -78,6 +85,19 @@ marble-gnome-btrfs-luks2-plymouth-systemdboot)
     [[ "${expected_serial}" =~ ^ALI100A[A-F0-9]{12}$ ]]
     [[ "${expected_model}" =~ ^ALI_MAR_[A-F0-9]{8}$ ]]
     [[ "${run_id}" =~ ^marble-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}$ ]]
+    ;;
+marble-gnome-btrfs-luks2-plymouth-systemdboot-stock-gdm)
+    marker_prefix='MARBLE'
+    case "${phase}" in
+    prelogin | firstlogin | lock | unlock | update | postreboot-prelogin | secondlogin | \
+        incompatible-fixture | incompatible-prelogin | incompatible-login | restore-marble | \
+        restored-prelogin | restored-login | remove-marble | removed-prelogin | removed-login | \
+        reinstall-marble | reinstalled-prelogin | reinstalled-login) ;;
+    *) exit 2 ;;
+    esac
+    [[ "${expected_serial}" =~ ^ALI100A[A-F0-9]{12}$ ]]
+    [[ "${expected_model}" =~ ^ALI_MAR_[A-F0-9]{8}$ ]]
+    [[ "${run_id}" =~ ^marblestock-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}$ ]]
     ;;
 *) exit 2 ;;
 esac
@@ -127,7 +147,8 @@ is_btrfs_stock() {
     case "${scenario}" in
     stock-gnome-btrfs-systemdboot | stock-gnome-btrfs-grub | \
         stock-gnome-btrfs-luks2-plymouth-systemdboot | stock-gnome-btrfs-luks2-plymouth-grub | \
-        marble-gnome-btrfs-luks2-plymouth-systemdboot) return 0 ;;
+        marble-gnome-btrfs-luks2-plymouth-systemdboot | \
+        marble-gnome-btrfs-luks2-plymouth-systemdboot-stock-gdm) return 0 ;;
     *) return 1 ;;
     esac
 }
@@ -135,7 +156,8 @@ is_btrfs_stock() {
 is_luks_stock() {
     case "${scenario}" in
     stock-gnome-btrfs-luks2-plymouth-systemdboot | stock-gnome-btrfs-luks2-plymouth-grub | \
-        marble-gnome-btrfs-luks2-plymouth-systemdboot) return 0 ;;
+        marble-gnome-btrfs-luks2-plymouth-systemdboot | \
+        marble-gnome-btrfs-luks2-plymouth-systemdboot-stock-gdm) return 0 ;;
     *) return 1 ;;
     esac
 }
@@ -966,14 +988,20 @@ verify_stock_session() {
         "${root_contract}" "${bootloader_contract}" "${user_session}" "${username}" "${uid}"
 }
 
+marble_gdm_enabled() {
+    [ "${scenario}" != marble-gnome-btrfs-luks2-plymouth-systemdboot-stock-gdm ]
+}
+
 marble_project_packages() {
     printf '%s\n' \
         arch-linux-keyring \
         arch-linux-marble-shell \
         arch-linux-colloid-gtk3 \
         arch-linux-colloid-icons \
-        arch-linux-marble-profile \
-        arch-linux-marble-gdm
+        arch-linux-marble-profile
+    if marble_gdm_enabled; then
+        printf '%s\n' arch-linux-marble-gdm
+    fi
 }
 
 verify_public_repository_contract() {
@@ -1247,16 +1275,24 @@ verify_marble_packages() {
         /usr/share/arch-linux-marble/shell/50.0.0/Marble-blue-dark ]
     [ -f /usr/share/themes/Colloid-Dark/gtk-3.0/gtk.css ]
     [ -f /usr/share/icons/Colloid-Dark/index.theme ]
-    [ -z "$(find /usr/share/arch-linux-marble /usr/share/arch-linux-marble-gdm \
+    [ -z "$(find /usr/share/arch-linux-marble \
         -type f -path '*/gtk-4.0/*' -print -quit)" ]
+    if marble_gdm_enabled; then
+        [ -z "$(find /usr/share/arch-linux-marble-gdm -type f -path '*/gtk-4.0/*' -print -quit)" ]
+    else
+        if pacman -Q arch-linux-marble-gdm >/dev/null 2>&1; then return 1; fi
+        [ ! -e /usr/share/arch-linux-marble-gdm ]
+    fi
     printf 'MARBLE_QEMU_PROJECT_QKK run_id=%s phase=%s\n%s\n' "${run_id}" "${phase}" "${qkk}"
 }
 
 verify_vendor_integrity() {
     local qkk
     qkk="$(verify_package_qkk_zero gnome-shell gdm)"
-    sha256sum --check --strict \
-        /usr/share/arch-linux-marble-gdm/known-gnome-50.sha256 >/dev/null
+    if marble_gdm_enabled; then
+        sha256sum --check --strict \
+            /usr/share/arch-linux-marble-gdm/known-gnome-50.sha256 >/dev/null
+    fi
     [ "$(pacman -Qo /usr/share/gnome-shell/gnome-shell-theme.gresource | awk '{ print $5 }')" = gnome-shell ]
     [ "$(pacman -Qo /usr/share/dconf/profile/gdm | awk '{ print $5 }')" = gdm ]
     printf 'MARBLE_QEMU_VENDOR_QKK run_id=%s phase=%s\n%s\n' "${run_id}" "${phase}" "${qkk}"
@@ -1351,7 +1387,11 @@ verify_marble_storage_profile() {
     grep -qx 'ARCH_LINUX_BOOTSPLASH_ENABLED=true' "${config}"
     grep -qx 'ARCH_LINUX_DESKTOP_ENABLED=true' "${config}"
     grep -qx 'ARCH_LINUX_GNOME_THEME_PROFILE=marble' "${config}"
-    grep -qx 'ARCH_LINUX_GDM_THEME_PROFILE=marble-experimental' "${config}"
+    if marble_gdm_enabled; then
+        grep -qx 'ARCH_LINUX_GDM_THEME_PROFILE=marble-experimental' "${config}"
+    else
+        grep -qx 'ARCH_LINUX_GDM_THEME_PROFILE=stock' "${config}"
+    fi
     grep -qx 'ARCH_LINUX_SHELL_ENHANCEMENT_ENABLED=false' "${config}"
     verify_btrfs_contract
 }
@@ -1369,7 +1409,11 @@ verify_marble_greeter() {
     active)
         verify_marble_packages
         verify_vendor_integrity
-        verify_marble_gdm_process active "${greeter_session}"
+        if marble_gdm_enabled; then
+            verify_marble_gdm_process active "${greeter_session}"
+        else
+            verify_stock_gdm_process_without_project "${greeter_session}"
+        fi
         ;;
     fallback)
         verify_marble_packages
@@ -1431,8 +1475,10 @@ verify_marble_user_session() {
             "'prefer-dark'" ]
         [ "$(run_in_user_session "${uid}" gsettings get org.gnome.shell.extensions.user-theme name)" = \
             "'ArchLinux-Marble-Blue-Filled-Dark'" ]
-        [ "$(/usr/lib/arch-linux-marble-gdm/update-compatibility --status)" = \
-            "$([ "${expected}" = fallback ] && printf stock || printf active)" ]
+        if marble_gdm_enabled; then
+            [ "$(/usr/lib/arch-linux-marble-gdm/update-compatibility --status)" = \
+                "$([ "${expected}" = fallback ] && printf stock || printf active)" ]
+        fi
     else
         expected_extensions="$(printf '%s\n' \
             appindicatorsupport@rgcjonas.gmail.com blur-my-shell@aunetx caffeine@patapon.info \
@@ -1542,7 +1588,7 @@ run_lock_phase() {
         [ "$(session_property "${session_id}" Type)" = wayland ]
         [ "$(wait_for_gnome_shell "${uid}")" = "${shell_pid}" ]
         [ "$(tr -d '\n' </proc/sys/kernel/random/boot_id)" = "${boot_id}" ]
-        if [ "${scenario}" = marble-gnome-btrfs-luks2-plymouth-systemdboot ]; then
+        if [[ "${scenario}" = marble-gnome-* ]]; then
             verify_marble_user_session marble
         else
             verify_stock_session
@@ -1608,7 +1654,9 @@ run_marble_phase() {
         fi
         verify_marble_packages
         verify_vendor_integrity
-        [ "$(/usr/lib/arch-linux-marble-gdm/update-compatibility --status)" = active ]
+        if marble_gdm_enabled; then
+            [ "$(/usr/lib/arch-linux-marble-gdm/update-compatibility --status)" = active ]
+        fi
         emit_marble_action_pass pacman-syu-hooks-active-qkk-clean
         ;;
     incompatible-fixture)
@@ -1657,11 +1705,39 @@ run_marble_phase() {
     esac
 }
 
-if [ "${scenario}" = minimal-ext4-systemdboot ]; then
+verify_dual_boot_phase() {
+    local target root_device expected_root boot_id
+    [ "${scenario}" = minimal-dualboot-ext4-systemdboot ]
+    target="$(find_target)"
+    root_device="$(mounted_source_device /)"
+    if [ "${phase}" = neighbor-select ]; then
+        expected_root="$(partition_name "${target}" 3)"
+        [ "${root_device}" = "${expected_root}" ]
+        grep -qx 'ARCH_LINUX_DUAL_BOOT_ENABLED=true' "/home/${username}/installer.conf"
+        [ -f /boot/loader/entries/neighbor.conf ]
+        bootctl set-oneshot neighbor.conf
+    else
+        expected_root="$(partition_name "${target}" 2)"
+        [ "${root_device}" = "${expected_root}" ]
+        [ "$(hostname)" = ali-neighbor ]
+        [ "$(cat /neighbor-preserved.txt)" = "${run_id}" ]
+        systemctl is-active --quiet systemd-networkd systemd-resolved qemu-guest-agent
+        getent ahostsv4 archlinux.org >/dev/null
+        [ -z "$(systemctl --failed --no-legend --plain)" ]
+        bootctl is-installed
+    fi
+    boot_id="$(cat /proc/sys/kernel/random/boot_id)"
+    printf 'MINIMAL_QEMU_GUEST_PASS run_id=%s scenario=%s phase=%s boot_id=%s target=%s neighbor=preserved\n' \
+        "${run_id}" "${scenario}" "${phase}" "${boot_id}" "${target}"
+}
+
+if [ "${phase}" = neighbor-select ] || [ "${phase}" = neighbor ]; then
+    verify_dual_boot_phase
+elif [[ "${scenario}" = minimal-* ]]; then
     verify_minimal
 elif [ "${phase}" = lock ] || [ "${phase}" = unlock ]; then
     run_lock_phase
-elif [ "${scenario}" = marble-gnome-btrfs-luks2-plymouth-systemdboot ]; then
+elif [[ "${scenario}" = marble-gnome-* ]]; then
     run_marble_phase
 elif [ "${phase}" = prelogin ] || [ "${phase}" = postreboot-prelogin ]; then
     verify_stock_greeter

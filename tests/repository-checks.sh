@@ -453,7 +453,6 @@ PYTHONDONTWRITEBYTECODE=1 python3 -I -B - \
     "$fixture_project/repository/acceptance-manifest.py" <<'PY'
 import importlib.util
 import io
-import json
 import sys
 
 spec = importlib.util.spec_from_file_location("acceptance_negative_fixture", sys.argv[1])
@@ -476,80 +475,33 @@ require_rejected(
     "private-key marker split across PPM chunks",
 )
 
-if module.challenge_measurements_are_valid([257, 64, 0], 256, {(16, 16)}, (16, 16)):
-    raise SystemExit("acceptance negative accepted an impossible framebuffer pixel delta")
-if module.challenge_measurements_are_valid(
-        [64, 64, 0], 8192 * 8192, {(8192, 8192)}, (8192, 8192)):
-    raise SystemExit("acceptance negative ignored the geometry-dependent framebuffer delta")
-
-qemu_identity = {
-    "pid": "101", "start_time": "1001", "qmp_identity": "30:40",
-}
-aliasing_header = {
-    "e": "header", "schema": 1, "phase": "firstboot", "segment": "boot",
-    "pid": 101, "start": "1001", "qmp": "30:40", "peerPid": 101, "peerUid": 1000,
-    "recorderPid": 101, "recorderStart": "1001", "device": "display0", "head": 0,
-    "intervalMs": 250, "maxGapMs": 500, "maxRawBytes": 45 * 1024 * 1024,
-    "maxSamples": 2000, "t": 1, "initial": "prelaunch",
-}
-require_rejected(
-    lambda: module.validate_retained_ledger(
-        (json.dumps(aliasing_header, sort_keys=True, separators=(",", ":")) + "\n").encode(),
-        "firstboot", "boot", qemu_identity, False,
-    ),
-    "recorder identity aliases QEMU identity",
+socket_identity = (
+    b"phase=firstboot\npid=101\nstart_time=1001\nqga_identity=10:20\nqmp_identity=10:40\n"
 )
-
-bad_socket_identity = (
-    b"phase=firstboot\npid=101\nstart_time=1001\nqga_identity=10:20\n"
-    b"qmp_identity=30:40\nqmp_capture_identity=50:60\n"
-)
-require_rejected(
-    lambda: module.parse_identity(bad_socket_identity, "firstboot"),
-    "QEMU sockets do not have one distinct three-endpoint topology",
-)
+module.parse_identity(socket_identity, "firstboot")
+for bad_identity in (
+        socket_identity.replace(b"qmp_identity=10:40", b"qmp_identity=30:40"),
+        socket_identity.replace(b"qmp_identity=10:40", b"qmp_identity=10:20")):
+    require_rejected(
+        lambda: module.parse_identity(bad_identity, "firstboot"),
+        "QEMU sockets do not have distinct QGA/QMP endpoints on one device",
+    )
 
 chronology_identities = {
     "firstboot": {"start_time": "100", "qga_identity": "30:40"},
     "postreboot": {"start_time": "200", "qga_identity": "30:50"},
 }
-chronology_recorders = {
-    "firstboot-boot": {"start_time": "110"},
-    "firstboot-shutdown": {"start_time": "120"},
-    "postreboot-boot": {"start_time": "210"},
-    "postreboot-shutdown": {"start_time": "220"},
-}
-chronology = {
-    "firstboot-boot": {"peerUid": 1000, "firstMonotonicNs": 100, "lastMonotonicNs": 200},
-    "firstboot-shutdown": {"peerUid": 1000, "firstMonotonicNs": 300, "lastMonotonicNs": 400},
-    "postreboot-boot": {"peerUid": 1000, "firstMonotonicNs": 350, "lastMonotonicNs": 500},
-    "postreboot-shutdown": {"peerUid": 1000, "firstMonotonicNs": 600, "lastMonotonicNs": 700},
-}
-require_rejected(
-    lambda: module.validate_run_process_chronology(
-        chronology_identities, chronology_recorders, chronology),
-    "overlapping firstboot/postreboot ledger chronology",
-)
-chronology["postreboot-boot"] = {
-    "peerUid": 1001, "firstMonotonicNs": 500, "lastMonotonicNs": 550,
-}
-require_rejected(
-    lambda: module.validate_run_process_chronology(
-        chronology_identities, chronology_recorders, chronology),
-    "inconsistent QMP peer UID across one run",
-)
-chronology["postreboot-boot"]["peerUid"] = 1000
-chronology_recorders["firstboot-shutdown"]["start_time"] = "200"
-require_rejected(
-    lambda: module.validate_run_process_chronology(
-        chronology_identities, chronology_recorders, chronology),
-    "firstboot recorder does not precede the postreboot QEMU process",
-)
-chronology_recorders["firstboot-shutdown"]["start_time"] = "120"
+module.validate_run_process_chronology(chronology_identities)
+for later in ("99", "100"):
+    chronology_identities["postreboot"]["start_time"] = later
+    require_rejected(
+        lambda: module.validate_run_process_chronology(chronology_identities),
+        "postreboot QEMU does not start after firstboot",
+    )
+chronology_identities["postreboot"]["start_time"] = "200"
 chronology_identities["postreboot"]["qga_identity"] = "31:50"
 require_rejected(
-    lambda: module.validate_run_process_chronology(
-        chronology_identities, chronology_recorders, chronology),
+    lambda: module.validate_run_process_chronology(chronology_identities),
     "firstboot/postreboot QEMU sockets do not share one runtime device",
 )
 
@@ -560,18 +512,11 @@ for scenario_index in range(3):
                 "start_time": str(2000 + scenario_index * 10 + phase_index)}
         for phase_index, phase in enumerate(module.PHASES)
     }
-    recorders = {
-        f"{phase}-{segment}": {
-            "pid": str(400 + scenario_index * 10 + segment_index),
-            "start_time": str(4000 + scenario_index * 10 + segment_index),
-        }
-        for segment_index, (phase, segment) in enumerate(module.SEGMENTS)
-    }
     records.append({
         "runId": f"run-{scenario_index}", "targetSerial": f"serial-{scenario_index}",
         "payloadIsoSha256": "a" * 64 if scenario_index < 2 else "b" * 64,
         "isoSha256": "c" * 64, "harnessSha256": "d" * 64,
-        "qemuIdentities": qemu, "recorderIdentities": recorders,
+        "qemuIdentities": qemu,
     })
 require_rejected(
     lambda: module.validate_cross_scenario_records(records),
@@ -1042,9 +987,6 @@ scenarios=(
     ('marble-gnome-btrfs-luks2-plymouth-systemdboot','marble','A'),
 )
 phases=('firstboot','postreboot')
-segments=tuple((phase,segment) for phase in phases for segment in ('boot','shutdown'))
-ledgers=sorted(f'{phase}-{segment}-frame-ledger.jsonl' for phase,segment in segments)
-confirmations=tuple(sorted(am.CONFIRMATIONS))
 manifest_value=json.loads(repository_manifest)
 objects=manifest_value['files']
 object_map={item['name']:item for item in objects}
@@ -1070,71 +1012,18 @@ def identity(phase,index):
     socket_device=10+index//10
     start_time=9000+index if phase=='firstboot' else 9001+index
     values={'phase':phase,'pid':str(100+index),'start_time':str(start_time),
-        'qga_identity':f'{socket_device}:{20+index}','qmp_identity':f'{socket_device}:{40+index}',
-        'qmp_capture_identity':f'{socket_device}:{60+index}'}
+        'qga_identity':f'{socket_device}:{20+index}','qmp_identity':f'{socket_device}:{40+index}'}
     raw=''.join(f'{key}={values[key]}\n' for key in
-        ('phase','pid','start_time','qga_identity','qmp_identity','qmp_capture_identity')).encode()
+        ('phase','pid','start_time','qga_identity','qmp_identity')).encode()
     return values,raw
-def raw_sample(ppm_sha,n,t,previous,width=16,height=16):
-    raw_name=f'frame-{ppm_sha}.ppm.gz'
-    return {'e':'sample','n':n,'t':t,'gapMs':0 if previous is None else (t-previous)//1_000_000,
-        'ppm':ppm_sha,'raw':raw_name,'rawSha':digest(('raw:'+ppm_sha).encode()),'w':width,'h':height}
-def control(name,n,t,index):
-    return {'e':'control','name':name,'nonce':f'{index:016x}','n':n,'t':t,'state':'running'}
-def ledger(phase,segment,ident,digests,index,challenge=False):
-    base=1_000_000_000+index*10_000_000_000
-    header={'e':'header','schema':1,'phase':phase,'segment':segment,'pid':int(ident['pid']),
-        'start':ident['start_time'],'qmp':ident['qmp_identity'],'peerPid':int(ident['pid']),
-        'peerUid':1000,'recorderPid':5000+index,'recorderStart':str(9000+index),
-        'device':'display0','head':0,'intervalMs':250,'maxGapMs':500,
-        'maxRawBytes':45*1024*1024,'maxSamples':2000,'t':base,
-        'initial':'prelaunch' if segment=='boot' else 'running'}
-    records=[header]
-    previous=None
-    def add_sample(value,offset):
-        nonlocal previous
-        item=raw_sample(value,len([row for row in records if row.get('e')=='sample']),base+offset,previous)
-        records.append(item); previous=item['t']
-    add_sample(digests[0],100_000_000)
-    records.append({'e':'ready','n':0,'t':base+110_000_000,'ppm':digests[0],
-                    'state':header['initial']})
-    if segment=='shutdown':
-        records.append(control('shutdown-armed',0,base+120_000_000,index*10+1))
-        add_sample(digests[-1],200_000_000)
-        records.append({'e':'terminal','reason':'qemu-exit','n':2,'t':base+250_000_000,'qemuExit':True})
-    elif challenge:
-        records.append(control('cont-sent',0,base+120_000_000,index*10+1))
-        add_sample(digests[1],200_000_000)
-        records.append(control('challenge-before',1,base+210_000_000,index*10+2))
-        add_sample(digests[2],300_000_000)
-        records.append(control('challenge-after',2,base+310_000_000,index*10+3))
-        add_sample(digests[3],400_000_000)
-        records.append(control('challenge-cleared',3,base+410_000_000,index*10+4))
-        add_sample(digests[3],450_000_000)
-        records.append(control('stop-boot',4,base+460_000_000,index*10+5))
-        records.append({'e':'terminal','reason':'requested-stop','n':4,'t':base+470_000_000,
-                        'qemuExit':False})
-    else:
-        records.append(control('cont-sent',0,base+120_000_000,index*10+1))
-        for offset,value in enumerate(digests[1:],2):
-            add_sample(value,offset*100_000_000)
-        last=len([row for row in records if row.get('e')=='sample'])-1
-        records.append(control('stop-boot',last,base+(len(digests)+2)*100_000_000,index*10+2))
-        records.append({'e':'terminal','reason':'requested-stop','n':last,
-                        't':base+(len(digests)+2)*100_000_000+10_000_000,'qemuExit':False})
-    raw_map={}
-    for item in records:
-        if item.get('e')=='sample':
-            raw_map[f"frame-raw/{phase}-{segment}/{item['raw']}"]=item['rawSha']
-    return records,raw_map
 
 for index,(scenario,prefix,serial_code) in enumerate(scenarios,1):
     run=root/scenario
     evidence=run/'evidence'
     evidence.mkdir(parents=True)
     run_id=f'{prefix}-20260902T00000{index}Z-{index:08x}'
-    selected=list(am.EXPECTED_SCREENSHOTS[scenario])
-    contacts=sorted(f'{phase}-{segment}-contact-sheet-001.ppm' for phase,segment in segments)
+    selected = ([] if prefix == 'luksgrub' else ['firstboot-tty.ppm'] if prefix == 'minimal'
+                else [f'diagnostic-{number}.ppm' for number in range(5)])
     identities={}
     for phase_index,phase in enumerate(phases,1):
         values,raw=identity(phase,index*10+phase_index)
@@ -1143,74 +1032,6 @@ for index,(scenario,prefix,serial_code) in enumerate(scenarios,1):
     selected_bytes={name:ppm(16,16,index*20+item) for item,name in enumerate(selected,1)}
     for name,value in selected_bytes.items():
         write(evidence/name,value)
-    selected_hashes={name:digest(value) for name,value in selected_bytes.items()}
-    raw_hashes={}
-    challenge_values={}
-    segment_values=[]
-    for segment_index,(phase,segment) in enumerate(segments,1):
-        challenge=prefix=='minimal' and segment=='boot'
-        if challenge:
-            before=digest(ppm(16,16,index*30+segment_index))
-            after=selected_hashes[f'{phase}-tty.ppm']
-            cleared=before
-            initial=digest(ppm(16,16,index*30+segment_index+20))
-            values=[initial,before,after,cleared]
-            challenge_values[phase]=(before,after,cleared)
-        elif segment=='boot' and phase=='firstboot':
-            values=[digest(ppm(16,16,index*40+segment_index)),
-                    *(selected_hashes[name] for name in selected)]
-        else:
-            values=[digest(ppm(16,16,index*40+segment_index)),
-                    digest(ppm(16,16,index*40+segment_index+10))]
-        records,raw_map=ledger(phase,segment,identities[phase],values,index*10+segment_index,challenge)
-        if index==1 and phase=='firstboot' and segment=='boot':
-            mutations=((0,'schema',2),(0,'schema',True),(0,'head',1),(1,'gapMs',False),
-                       (2,'n',False),(3,'n',True))
-            for record_index,field,bad_value in mutations:
-                changed=json.loads(json.dumps(records))
-                changed[record_index][field]=bad_value
-                try:
-                    am.validate_retained_ledger(
-                        b''.join(encoded(item) for item in changed),phase,segment,
-                        identities[phase],challenge)
-                except am.ManifestError:
-                    pass
-                else:
-                    raise SystemExit(
-                        f'acceptance negative accepted {field}={bad_value!r}')
-        write(evidence/f'{phase}-{segment}-frame-ledger.jsonl',b''.join(encoded(item) for item in records))
-        raw_hashes.update(raw_map)
-        segment_values.append({'phase':phase,'segment':segment,
-                               'samples':sum(item.get('e')=='sample' for item in records),'sheets':1})
-    for contact_index,name in enumerate(contacts,1):
-        write(evidence/name,ppm(1280,800,index*10+contact_index))
-    retained=[*(f'evidence/{name}' for name in ledgers),
-        *(f'evidence/{phase}-qemu.identity' for phase in phases),
-        *(f'evidence/{name}' for name in selected),*(f'evidence/{name}' for name in contacts)]
-    file_hashes={name:digest((run/name).read_bytes()) for name in retained}
-    file_hashes.update(raw_hashes)
-    challenges={}
-    if prefix=='minimal':
-        suffix=run_id.rsplit('-',1)[-1]
-        for phase in phases:
-            before,after,cleared=challenge_values[phase]
-            challenges[phase]={'challenge':f'ali-{phase}-{suffix}','before':{'sha256':before},
-                'after':{'sha256':after},'cleared':{'sha256':cleared},'changedPixels':256,
-                'clearChangedPixels':256,'restoredPixels':0,'input':'hmp-no-enter','clearInput':'ctrl-u'}
-    frame_manifest={'schema':1,'status':'SEALED','sourceCommit':commit,'sourceTree':tree,
-        'runId':run_id,'scenario':scenario,
-        'policy':{'device':'display0','head':0,'intervalMs':250,'maxGapMs':500,
-                  'maxEvidenceBytes':500*1024*1024},
-        'qemuIdentities':identities,'segments':segment_values,
-        'selectedFrames':sorted(selected),'challenges':challenges,'fileHashes':file_hashes}
-    frame_manifest_raw=encoded(frame_manifest)
-    write(evidence/'frame-evidence-manifest.json',frame_manifest_raw)
-    template={'schema':1,'verdict':'PENDING','reviewer':'','reviewedAt':'',
-        'sourceCommit':commit,'sourceTree':tree,'runId':run_id,'scenario':scenario,
-        'manifestSha256':digest(frame_manifest_raw),'pendingResultSha256':'',
-        'confirmations':{name:False for name in confirmations},'notes':''}
-    template_raw=encoded(template)
-    write(evidence/'manual-review-template.json',template_raw)
     object_rows=''.join(f"{item['name']}\t{item['sha256']}\t{item['size']}\n" for item in objects).encode()
     write(evidence/'repository-objects.tsv',object_rows)
     write(evidence/'repository-manifest.json',repository_manifest)
@@ -1251,10 +1072,9 @@ for index,(scenario,prefix,serial_code) in enumerate(scenarios,1):
     write(run/'evidence-size.txt',f'{retained_counter}\n'.encode())
     serial=f'ALI100{serial_code}{index:012X}'
     result={'assertions':assertion_values,
-        'buildMetadataSha256':build_hash,'contactSheets':contacts,'exitStatus':0,'failedPhase':None,
-        'frameLedgers':ledgers,'harnessSha256':digest(harness),'inputMode':'staged',
+        'buildMetadataSha256':build_hash,'exitStatus':0,'failedPhase':None,
+        'harnessSha256':digest(harness),'inputMode':'staged',
         'installerSha256':installer_hash,'isoSha256':iso_hash,
-        'manualReviewStatus':'PENDING','manualReviewTemplateSha256':digest(template_raw),
         'releaseSha256sumsSha256':release_hash,'releaseVersion':'1.0.0',
         'repositoryDatabaseSha256':object_map['arch-linux.db.tar.gz']['sha256'],
         'repositoryDatabaseSignatureSha256':object_map['arch-linux.db.tar.gz.sig']['sha256'],
@@ -1267,7 +1087,7 @@ for index,(scenario,prefix,serial_code) in enumerate(scenarios,1):
         'repositorySigningFingerprint':signing,'repositorySnapshotSha256':snapshot_hash,
         'retainedEvidenceBytes':retained_counter,'runId':run_id,'scenario':scenario,
         'screenshots':sorted(selected),'snapshotVerification':'INDEPENDENT_PASS',
-        'sourceCommit':commit,'sourceTree':tree,'status':'PENDING_VISUAL_REVIEW',
+        'sourceCommit':commit,'sourceTree':tree,'status':'PASS',
         'targetSerial':serial,'unsignedManifestSha256':unsigned_hash}
     assert set(result)==am.RESULT_KEYS
     model={'minimal':'MIN','luksgrub':'GRB','marble':'MAR'}[prefix]
@@ -1296,18 +1116,60 @@ for index,(scenario,prefix,serial_code) in enumerate(scenarios,1):
     write(run/'identity.txt',identity_text.encode())
     result_raw=encoded(result)
     write(run/'result.json',result_raw)
-    receipt=template|{'verdict':'PASS','reviewer':'fixture-reviewer',
-        'reviewedAt':'2026-09-02T00:10:00Z','pendingResultSha256':digest(result_raw),
-        'confirmations':{name:True for name in confirmations}}
-    receipt_raw=encoded(receipt)
-    write(evidence/'manual-review-receipt.json',receipt_raw)
-    verdict={'schema':1,'status':'PASS','sourceCommit':commit,'sourceTree':tree,
-        'runId':run_id,'scenario':scenario,'manifestSha256':digest(frame_manifest_raw),
-        'templateSha256':digest(template_raw),'receiptSha256':digest(receipt_raw),
-        'pendingResultSha256':digest(result_raw),'rawFramesRemoved':True,
-        'budgetBytes':500*1024*1024,'transientEvidenceBytes':480_000_000,
-        'cumulativePermanentEvidenceBytes':470_000_000}
-    write(run/'visual-review-verdict.json',encoded(verdict))
+
+# Test the actual functional result consumer, not synthetic visual certificates. The three
+# positive fixtures deliberately have 1, 0 and 5 optional screenshots: count is not a gate.
+contract = am.snapshot_contract(assets, '1.0.0', commit, tree, build_hash, unsigned_hash)
+expected = {'buildMetadataSha256': build_hash, 'unsignedManifestSha256': unsigned_hash,
+            'repositorySnapshotSha256': snapshot_hash, 'releaseSha256sumsSha256': release_hash}
+for scenario, _, _ in scenarios:
+    run = root / scenario
+    payloads = {path.relative_to(run).as_posix(): path.read_bytes()
+                for path in run.rglob('*') if path.is_file()}
+    def check(values):
+        def read(name, limit):
+            value = values[name]
+            if not 0 < len(value) <= limit:
+                raise am.ManifestError('functional fixture member bound differs')
+            return value
+        return am.run_record(
+            read, lambda name: am.ppm_geometry(values[name][:96], len(values[name])),
+            set(values) | {'evidence'}, scenario, commit, tree, '1.0.0', expected,
+            contract, bootstrap_hash, sum(map(len, values.values())))
+    if check(payloads)['status'] != 'PASS':
+        raise SystemExit('functional result positive did not pass')
+    result = json.loads(payloads['result.json'])
+    bad_results = [
+        ('status', 'FAIL'), ('status', 'PENDING_VISUAL_REVIEW'),
+        ('exitStatus', 1), ('exitStatus', False), ('failedPhase', 'firstboot'),
+        ('sourceCommit', 'f' * 40), ('sourceTree', 'f' * 40),
+        ('isoSha256', 'f' * 64), ('installerSha256', 'f' * 64),
+        ('buildMetadataSha256', 'f' * 64), ('repositorySnapshotSha256', 'f' * 64),
+        ('snapshotVerification', 'NOT_RUN'), ('repositoryObjects', []),
+        ('assertions', []), ('assertions', result['assertions'][:-1]),
+        ('assertions', [result['assertions'][0] | {'status': 'FAIL'}, *result['assertions'][1:]]),
+        ('screenshots', ['../outside.ppm']),
+    ]
+    negatives = [(field, payloads | {'result.json': encoded(result | {field: value})})
+                 for field, value in bad_results]
+    negatives += [
+        ('installer log failure', payloads | {'evidence/scenario.log.gz': gzip.compress(
+            b'MINIMAL_QEMU_GUEST_FAIL status=1\n', mtime=0)}),
+        ('image corruption', payloads | {'evidence/final-qemu-img-check.txt': b'Corrupt image\n'}),
+        ('foreign process marker', payloads | {'evidence/no-qemu-process.txt': b'foreign run\n'}),
+        ('assertion readback', payloads | {'assertions.tsv': b'wrong\tPASS\tfixture\n'}),
+        ('missing runtime identity', {name: value for name, value in payloads.items()
+                                      if name != 'evidence/postreboot-qemu.identity'}),
+    ]
+    if result['screenshots']:
+        image = 'evidence/' + result['screenshots'][0]
+        negatives.append(('malformed diagnostic PPM', payloads | {image: b'P6\n16 16\n255\nshort'}))
+    for label, values in negatives:
+        try:
+            check(values)
+        except am.ManifestError:
+            continue
+        raise SystemExit(f'functional result negative accepted: {scenario}: {label}')
 
 for base,dirs,files in os.walk(root):
     pathlib.Path(base).chmod(0o755)

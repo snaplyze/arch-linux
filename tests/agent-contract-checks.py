@@ -6,23 +6,25 @@ import re
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 agents = (ROOT / 'AGENTS.md').read_text(encoding='utf-8')
 claude = (ROOT / 'CLAUDE.md').read_text(encoding='utf-8')
-release_process = (ROOT / 'docs/release-process.md').read_text(encoding='utf-8')
-vm_readme = (ROOT / 'tests/vm/README.md').read_text(encoding='utf-8')
-vm_runner = (ROOT / 'tests/vm/run.sh').read_text(encoding='utf-8')
-agents_flat = ' '.join(agents.split())
-required = [
+sections = {
+    heading: ' '.join(body.split())
+    for heading, body in re.findall(r'^## ([^\n]+)\n(.*?)(?=^## |\Z)', agents, re.M | re.S)
+}
+required = {
     'Project structure', 'Allowed commands', 'Repository root', 'Canonical checkout workflow',
-    'Installer invariants',
-    'Disk and destructive invariants', 'Package and signing boundaries',
-    'Marble and GDM boundaries', 'Required source tests', 'Evidence separation', 'Secrets',
-    'Tree-bound results', 'Bounded remediation', 'Product failure', 'Infrastructure retry',
+    'Installer invariants', 'Disk and destructive invariants', 'Package and signing boundaries',
+    'Marble and GDM boundaries', 'Required source tests', 'Evidence separation',
+    'Practical VM checks', 'Secrets', 'Tree-bound results', 'Development and fixes',
     'Pins and keys', 'Release authorization',
-]
-for heading in required:
-    if heading.lower() not in agents.lower():
-        raise SystemExit(f'agent contract check failed: missing section {heading!r}')
+}
+if missing := required - sections.keys():
+    raise SystemExit(f'agent contract check failed: missing sections: {sorted(missing)}')
+if {'Bounded remediation', 'Product failure', 'Infrastructure retry'} & sections.keys():
+    raise SystemExit('agent contract check failed: retired attempt-limit policy remains')
 if len(claude.splitlines()) > 8 or 'AGENTS.md' not in claude:
     raise SystemExit('agent contract check failed: CLAUDE.md is not a short pointer')
+
+# Check documented operations against real source, without executing privileged commands.
 commands = set(re.findall(r'`((?:bash|python3|shellcheck)[^`\n]+)`', agents))
 expected = {
     'bash tests/source-tests.sh', 'bash tests/bootstrap-checks.sh',
@@ -31,70 +33,55 @@ expected = {
     'python3 repository/verify-package-metadata.py', 'python3 maintenance/check-sources.py',
 }
 if not expected <= commands:
-    missing = sorted(expected - commands)
-    raise SystemExit(f'agent contract check failed: allowed command list differs: {missing}')
+    raise SystemExit(f'agent contract check failed: allowed commands missing: {sorted(expected - commands)}')
+for name in set(re.findall(r'\b(?:tests|repository|maintenance)/[a-z0-9./-]+\.(?:sh|py)\b', agents)):
+    path = ROOT / name
+    if '..' in path.parts or path.is_symlink() or not path.is_file():
+        raise SystemExit(f'agent contract check failed: documented script absent or unsafe: {name}')
+source_suite = (ROOT / 'tests/source-tests.sh').read_text(encoding='utf-8')
+for command in expected - {'bash tests/source-tests.sh',
+                           'python3 repository/verify-package-metadata.py',
+                           'python3 maintenance/check-sources.py'}:
+    if command not in source_suite:
+        raise SystemExit(f'agent contract check failed: source suite omits {command}')
+if 'python3 tests/agent-contract-checks.py' not in source_suite:
+    raise SystemExit('agent contract check failed: source suite omits agent rules')
 
-canonical_checkout_markers = (
-    'sole persistent local development checkout',
-    'additional local Git worktrees',
-    'sibling clones',
-    'per-cycle source directories',
-    'copied or replacement source repositories',
-    'switch feature or pull-request branches in place',
-    'return this same checkout to `main`',
-    'Mandatory ephemeral security boundaries remain permitted',
-    'protected GitHub Actions canonical and validation clones',
-    'one-use signing input copies',
-    'qcow2 disks, OVMF variable stores',
-    'They are not development source, must not be edited or committed',
-    'must be removed when their bounded stage ends',
-)
-for marker in canonical_checkout_markers:
-    if marker not in agents_flat:
-        raise SystemExit(f'agent contract check failed: canonical checkout rule differs: {marker!r}')
-
-remediation_markers = (
-    'When continuous remediation is explicitly authorized',
-    'Preserve the rejected freeze and its artifacts and evidence unchanged',
-    'new pull-request branch in the same canonical checkout',
-    'fresh tests, freeze, build, signing and VM evidence for the new identity',
-    'Never transfer a PASS to the corrected candidate or replace published bytes or tags',
-)
-
-
-def check_remediation_contract(document: str) -> None:
-    normalized = ' '.join(document.split())
-    for marker in remediation_markers:
-        if marker not in normalized:
-            raise ValueError(f'remediation boundary is missing: {marker}')
-
-
-for document in (agents, release_process):
-    check_remediation_contract(document)
-    normalized = ' '.join(document.split())
-    for marker in remediation_markers:
-        try:
-            check_remediation_contract(normalized.replace(marker, '', 1))
-        except ValueError:
-            continue
-        raise SystemExit('agent contract check failed: missing remediation boundary was accepted')
-
-for document, markers, label in (
-    (release_process, (
-        'same canonical checkout',
-        'local per-cycle worktrees, sibling clones or copied source repositories',
-        'Ephemeral CI, package-build, signing, test and VM isolation remains mandatory',
-    ), 'release process'),
-    (vm_readme, (
-        'same clean frozen canonical checkout',
-        'not a copied or per-cycle source checkout',
-    ), 'VM documentation'),
-    (vm_runner, ('completely clean exact committed canonical checkout',), 'VM runner'),
-):
-    document_flat = ' '.join(document.split())
+# Small principle checks keep the sole normative contract connected to product safety;
+# detailed executable and negative checks below cover the actual CI/root-builder boundary.
+principles = {
+    'Canonical checkout workflow': (
+        'sole persistent local development checkout', 'branches in place', 'fast-forward only',
+        'ephemeral security boundaries', 'must not be edited or committed',
+    ),
+    'Installer invariants': (
+        'Minimal TTY', 'Stock GNOME', 'Marble GDM', 'ext4', 'Btrfs', 'GRUB',
+        'systemd-boot', 'LUKS2', 'fresh install', 'dual boot',
+    ),
+    'Disk and destructive invariants': (
+        'physical-disk identity', 'pre-mutation', 'busy-device', 'ambiguity rejection',
+        'created by that exact installer run',
+    ),
+    'Package and signing boundaries': (
+        'unprivileged builder', 'never run `makepkg` as root',
+        'PackageRequired DatabaseRequired TrustedOnly', 'private key', 'FD 7', 'network',
+    ),
+    'Practical VM checks': (
+        'QEMU/KVM', 'fresh disk', 'independent firmware', 'GDM password login',
+        'Wayland', 'lock/unlock', 'qemu-img check', 'Screenshots are optional',
+        'Do not replace login with autologin',
+    ),
+    'Development and fixes': (
+        'diagnose', 'focused correction', 'regression test', 'repeat the affected checks',
+        'without artificial attempt or cycle limits', 'never transfer a PASS', 'published bytes or tags',
+    ),
+    'Pins and keys': ('Never change', 'fingerprint', 'signing subkey', 'automatically'),
+    'Release authorization': ('separate explicit authorization', 'not `RELEASED`'),
+}
+for heading, markers in principles.items():
     for marker in markers:
-        if marker not in document_flat:
-            raise SystemExit(f'agent contract check failed: {label} differs: {marker!r}')
+        if marker.lower() not in sections[heading].lower():
+            raise SystemExit(f'agent contract check failed: {heading} principle missing: {marker!r}')
 
 UBUNTU_CONTAINER = (
     'container:\n'

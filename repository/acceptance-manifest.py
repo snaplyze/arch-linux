@@ -4,12 +4,10 @@
 from __future__ import annotations
 
 import argparse
-import datetime as dt
 import gzip
 import hashlib
 import io
 import json
-import math
 import os
 from pathlib import Path, PurePosixPath
 import re
@@ -24,7 +22,6 @@ HEX64 = re.compile(r"[a-f0-9]{64}\Z")
 VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+\Z")
 RUN_ID = re.compile(r"[a-z0-9-]+-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}\Z")
 SAFE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9+._-]*\Z")
-CONTACT = re.compile(r"(?:firstboot|postreboot)-(?:boot|shutdown)-contact-sheet-[0-9]{3}\.ppm\Z")
 MAX_EVIDENCE = 500 * 1024 * 1024
 MAX_OBJECTS = 20_000
 MAX_FILE = 64 * 1024 * 1024
@@ -37,55 +34,21 @@ SCENARIOS = (
 )
 PREFIXES = {SCENARIOS[0]: "minimal", SCENARIOS[1]: "luksgrub", SCENARIOS[2]: "marble"}
 PHASES = ("firstboot", "postreboot")
-SEGMENTS = tuple((phase, segment) for phase in PHASES for segment in ("boot", "shutdown"))
-LEDGERS = {f"{phase}-{segment}-frame-ledger.jsonl" for phase, segment in SEGMENTS}
-IDENTITIES = {f"{phase}-qemu.identity" for phase in PHASES}
 RUN_FILES = {
     "OVMF_VARS.final.sha256", "OVMF_VARS.initial.sha256", "assertions.tsv",
     "evidence-size.txt", "harness.sha256", "identity.txt", "payload.iso.sha256",
-    "qemu-version.txt", "result.json", "runtime-inputs.sha256", "visual-review-verdict.json",
+    "qemu-version.txt", "result.json", "runtime-inputs.sha256",
 }
 EVIDENCE_FIXED = {
     "scenario.log.gz", "final-qemu-img-check.txt", "no-qemu-process.txt",
     "repository-manifest.json", "repository-manifest.json.sig", "repository-objects.tsv",
-    "firstboot-qemu.identity", "postreboot-qemu.identity", "frame-evidence-manifest.json",
-    "manual-review-template.json", "manual-review-receipt.json", "preseal-harness-check.txt",
+    "firstboot-qemu.identity", "postreboot-qemu.identity", "preseal-harness-check.txt",
 }
-HEADER_KEYS = set(
-    "e schema phase segment pid start qmp peerPid peerUid recorderPid recorderStart device head "
-    "intervalMs maxGapMs maxRawBytes maxSamples t initial".split()
-)
-READY_KEYS = set(
-    "e n t ppm state".split()
-)
-SAMPLE_KEYS = {"e", "n", "t", "gapMs", "ppm", "raw", "rawSha", "w", "h"}
-CONTROL_KEYS = {"e", "name", "nonce", "n", "t", "state"}
-TERMINAL_KEYS = {"e", "reason", "n", "t", "qemuExit"}
-CHALLENGE_KEYS = set(
-    "challenge before after cleared changedPixels clearChangedPixels restoredPixels input clearInput".split()
-)
-FRAME_POLICY = {
-    "device": "display0", "head": 0, "intervalMs": 250, "maxGapMs": 500,
-    "maxEvidenceBytes": MAX_EVIDENCE,
-}
-MAX_RAW_SEGMENT = 45 * 1024 * 1024
-MAX_SAMPLES = 2000
 HARNESS_FILES = (
     "tests/vm/run.sh", "tests/vm/frame-evidence.py", "tests/vm/qga-client.py",
     "tests/vm/https-server.py", "tests/vm/prepare-marble-repository.sh",
     "tests/vm/guest/bootstrap.sh", "tests/vm/guest/verify.sh",
 )
-EXPECTED_SCREENSHOTS = {
-    SCENARIOS[0]: ("firstboot-tty.ppm", "postreboot-tty.ppm"),
-    SCENARIOS[1]: (
-        "firstboot-desktop.ppm", "firstboot-gdm-password.ppm", "firstboot-lock.ppm",
-        "firstboot-plymouth-luks.ppm",
-    ),
-    SCENARIOS[2]: (
-        "firstboot-desktop.ppm", "firstboot-gdm-password.ppm", "firstboot-gdm.ppm",
-        "firstboot-plymouth-luks.ppm",
-    ),
-}
 EXPECTED_ASSERTIONS = {
     SCENARIOS[0]: (
         "accepted-official-arch-iso", "actual-installer-executes", "install-completes",
@@ -115,6 +78,7 @@ EXPECTED_ASSERTIONS = {
         "gdm-process-scoped-overlays", "user-shell-overlay-isolation", "vendor-paths-clean",
         "project-packages-qkk-clean", "lock-password-unlock", "update-hooks-safe",
         "reboot-plymouth-gdm-reactivation", "second-gdm-login-wayland",
+        "gdm-stock-fallback-and-restore", "marble-package-removal-stock", "marble-package-reinstall",
         "clean-poweroff-image-health-hygiene",
     ),
 }
@@ -127,14 +91,9 @@ BUILD_METADATA_KEYS = {
     "schema", "sourceCommit", "sourceTree", "installerSha256", "packageSetSha256",
     "sourceDateEpoch", "unsignedManifestSha256", "packages",
 }
-CONFIRMATIONS = {
-    "orderedContactSheetsReviewed", "uncertainFramesReviewedAtFullResolution",
-    "expectedBootLoginDesktopShutdownStatesVisible", "exactTTYChallengesVisibleOrNotApplicable",
-    "noBlockingFirmwareKernelSystemdShutdownOrCommandText",
-}
 RESULT_KEYS = set(
-    "assertions buildMetadataSha256 contactSheets exitStatus failedPhase frameLedgers harnessSha256 "
-    "inputMode installerSha256 isoSha256 manualReviewStatus manualReviewTemplateSha256 "
+    "assertions buildMetadataSha256 exitStatus failedPhase harnessSha256 "
+    "inputMode installerSha256 isoSha256 "
     "releaseSha256sumsSha256 releaseVersion repositoryDatabaseSha256 "
     "repositoryDatabaseSignatureSha256 repositoryFilesSha256 repositoryFilesSignatureSha256 "
     "repositoryManifestSha256 repositoryManifestSignatureSha256 repositoryObjects "
@@ -143,19 +102,6 @@ RESULT_KEYS = set(
     "screenshots snapshotVerification sourceCommit sourceTree status targetSerial "
     "unsignedManifestSha256".split()
 )
-FRAME_MANIFEST_KEYS = {
-    "schema", "status", "sourceCommit", "sourceTree", "runId", "scenario", "policy",
-    "qemuIdentities", "segments", "selectedFrames", "challenges", "fileHashes",
-}
-REVIEW_KEYS = {
-    "schema", "verdict", "reviewer", "reviewedAt", "sourceCommit", "sourceTree", "runId",
-    "scenario", "manifestSha256", "pendingResultSha256", "confirmations", "notes",
-}
-VERDICT_KEYS = {
-    "schema", "status", "sourceCommit", "sourceTree", "runId", "scenario", "manifestSha256",
-    "templateSha256", "receiptSha256", "pendingResultSha256", "rawFramesRemoved", "budgetBytes",
-    "transientEvidenceBytes", "cumulativePermanentEvidenceBytes",
-}
 MANIFEST_KEYS = {
     "schema", "status", "releaseVersion", "sourceCommit", "sourceTree", "sourceTreeSha256",
     "buildMetadataSha256", "unsignedManifestSha256", "repositorySnapshotSha256",
@@ -526,24 +472,6 @@ def accepted_iso_sha256() -> str:
     return digest
 
 
-def review_time_is_valid(value: object, run_id: str) -> bool:
-    if not isinstance(value, str) or re.fullmatch(
-            r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z", value) is None:
-        return False
-    run_match = re.search(r"-([0-9]{8}T[0-9]{6}Z)-[a-f0-9]{8}\Z", run_id)
-    if run_match is None:
-        return False
-    try:
-        reviewed = dt.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
-        started = dt.datetime.strptime(run_match.group(1), "%Y%m%dT%H%M%SZ").replace(
-            tzinfo=dt.timezone.utc,
-        )
-        frozen = dt.datetime.fromtimestamp(source_epoch(), tz=dt.timezone.utc)
-    except (ValueError, OverflowError, OSError):
-        return False
-    return frozen <= started <= reviewed <= dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=5)
-
-
 def tree_map(root: Path, public_modes: bool = True) -> tuple[dict[str, dict[str, object]], int]:
     root_meta = root.lstat()
     if not stat.S_ISDIR(root_meta.st_mode) or stat.S_ISLNK(root_meta.st_mode):
@@ -691,22 +619,15 @@ def archive_readback(path: Path) -> tuple[
 
 def expected_run_names(read: Callable[[str, int], bytes], scenario: str) -> tuple[set[str], dict[str, object]]:
     result = canonical_json_bytes(read("result.json", MAX_JSON), "QEMU result")
-    screenshots, contacts, ledgers = result.get("screenshots"), result.get("contactSheets"), result.get("frameLedgers")
-    if (not isinstance(screenshots, list) or not 2 <= len(screenshots) <= 4 or
-            screenshots != sorted(set(screenshots)) or
+    screenshots = result.get("screenshots")
+    if (not isinstance(screenshots, list) or
             not all(isinstance(name, str) and SAFE_NAME.fullmatch(name) and name.endswith(".ppm")
-                    and "-contact-sheet-" not in name for name in screenshots)):
-        fail("QEMU selected screenshot closure differs")
-    if (not isinstance(contacts, list) or contacts != sorted(set(contacts)) or
-            not all(isinstance(name, str) and CONTACT.fullmatch(name) for name in contacts)):
-        fail("QEMU contact-sheet closure differs")
-    if ledgers != sorted(LEDGERS):
-        fail("QEMU frame-ledger closure differs")
+                    for name in screenshots) or screenshots != sorted(set(screenshots))):
+        fail("QEMU diagnostic screenshot closure differs")
     top = set(RUN_FILES)
     if scenario == SCENARIOS[2]:
         top.add("repository-runtime.sha256")
-    names = top | {f"evidence/{name}" for name in EVIDENCE_FIXED | LEDGERS |
-                   set(screenshots) | set(contacts)}
+    names = top | {f"evidence/{name}" for name in EVIDENCE_FIXED | set(screenshots)}
     return names, result
 
 
@@ -723,185 +644,18 @@ def parse_identity(raw: bytes, phase: str) -> dict[str, str]:
         if key in values:
             fail("QEMU identity field repeats")
         values[key] = value
-    expected = {"phase", "pid", "start_time", "qga_identity", "qmp_identity", "qmp_capture_identity"}
+    expected = {"phase", "pid", "start_time", "qga_identity", "qmp_identity"}
     socket = re.compile(r"[1-9][0-9]*:[1-9][0-9]*\Z")
     socket_values = tuple(values.get(key, "") for key in
-                          ("qga_identity", "qmp_identity", "qmp_capture_identity"))
+                          ("qga_identity", "qmp_identity"))
     socket_devices = {value.split(":", 1)[0] for value in socket_values if socket.fullmatch(value)}
     if (set(values) != expected or values.get("phase") != phase or not values["pid"].isdigit() or
             int(values["pid"]) <= 1 or not values["start_time"].isdigit() or
             int(values["start_time"]) <= 0 or
             not all(socket.fullmatch(value) for value in socket_values) or
-            len(set(socket_values)) != 3 or len(socket_devices) != 1):
+            len(set(socket_values)) != 2 or len(socket_devices) != 1):
         fail("QEMU process/socket identity differs")
     return values
-
-
-def load_ledger(raw: bytes) -> list[dict[str, object]]:
-    if not 0 < len(raw) <= 4 * 1024 * 1024 or not raw.endswith(b"\n"):
-        fail("frame ledger size or terminator differs")
-    records: list[dict[str, object]] = []
-    for line in raw.splitlines(keepends=True):
-        if not 1 < len(line) <= 4097 or not line.endswith(b"\n"):
-            fail("frame ledger line bound differs")
-        try:
-            value = json.loads(line)
-        except (UnicodeDecodeError, json.JSONDecodeError) as error:
-            fail(f"frame ledger JSON is invalid: {error}")
-        if (not isinstance(value, dict) or
-                line != (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()):
-            fail("frame ledger record is not one canonical object")
-        records.append(value)
-    if not 0 < len(records) <= MAX_SAMPLES + 32:
-        fail("frame ledger record count differs")
-    return records
-
-
-def ledger_event_time(records: list[dict[str, object]], name: str) -> int:
-    found = [item.get("t") for item in records if item.get("e") == "control" and item.get("name") == name]
-    if len(found) != 1 or not exact_int(found[0], 1):
-        fail("frame ledger control event differs")
-    return int(found[0])
-
-
-def ledger_sampled(records: list[dict[str, object]], digest: str,
-                   after: str | None = None, before: str | None = None) -> bool:
-    low = ledger_event_time(records, after) if after else None
-    high = ledger_event_time(records, before) if before else None
-    return any(
-        item.get("e") == "sample" and item.get("ppm") == digest and
-        (low is None or int(item.get("t", -1)) > low) and
-        (high is None or int(item.get("t", high + 1)) <= high)
-        for item in records
-    )
-
-
-def challenge_measurements_are_valid(metrics: list[object], pixel_count: int,
-                                     geometries: set[tuple[int, int]],
-                                     selected_geometry: tuple[int, int]) -> bool:
-    minimum = max(64, pixel_count // 20_000)
-    return (
-        exact_int(metrics[0], minimum) and exact_int(metrics[1], minimum) and exact_int(metrics[2]) and
-        int(metrics[2]) < int(metrics[0]) and
-        int(metrics[0]) <= pixel_count and int(metrics[1]) <= pixel_count and
-        int(metrics[2]) <= pixel_count and geometries == {selected_geometry}
-    )
-
-
-def validate_retained_ledger(raw: bytes, phase: str, segment: str, identity: dict[str, str],
-                             challenge: bool) -> tuple[
-                                 list[dict[str, object]], dict[str, str], tuple[str, str],
-                                 dict[str, int]]:
-    records = load_ledger(raw)
-    header = records[0]
-    exact_keys(header, HEADER_KEYS, "frame ledger header")
-    initial = "prelaunch" if segment == "boot" else "running"
-    if (header.get("e") != "header" or type(header.get("schema")) is not int or
-            header.get("schema") != 1 or
-            (header.get("phase"), header.get("segment")) != (phase, segment) or
-            header.get("device") != "display0" or type(header.get("head")) is not int or
-            header.get("head") != 0 or
-            header.get("initial") != initial or
-            header.get("pid") != int(identity["pid"]) or header.get("start") != identity["start_time"] or
-            header.get("qmp") != identity["qmp_identity"] or header.get("peerPid") != int(identity["pid"]) or
-            not exact_int(header.get("peerUid")) or not exact_int(header.get("recorderPid"), 2) or
-            not isinstance(header.get("recorderStart"), str) or not str(header["recorderStart"]).isdigit() or
-            int(str(header["recorderStart"])) <= 0 or header.get("recorderPid") == int(identity["pid"]) or
-            (header.get("intervalMs"), header.get("maxGapMs"), header.get("maxRawBytes"),
-             header.get("maxSamples")) != (250, 500, MAX_RAW_SEGMENT, MAX_SAMPLES) or
-            not exact_int(header.get("t"), 1)):
-        fail("frame ledger header identity or policy differs")
-    recorder_identity = (str(header["recorderPid"]), str(header["recorderStart"]))
-    if (int(recorder_identity[1]) < int(identity["start_time"]) or
-            recorder_identity == (identity["pid"], identity["start_time"])):
-        fail("frame recorder identity aliases its QEMU process")
-    previous_record = int(header["t"])
-    previous_sample: int | None = None
-    samples: list[dict[str, object]] = []
-    controls: list[dict[str, object]] = []
-    raw_map: dict[str, str] = {}
-    frame_map: dict[str, tuple[str, int, int]] = {}
-    nonces: set[str] = set()
-    ready_seen = False
-    terminal: dict[str, object] | None = None
-    for record in records[1:]:
-        timestamp = record.get("t")
-        if not exact_int(timestamp, previous_record):
-            fail("frame ledger timestamp rolls back")
-        previous_record = int(timestamp)
-        event = record.get("e")
-        if event == "sample":
-            exact_keys(record, SAMPLE_KEYS, "frame ledger sample")
-            if type(record.get("n")) is not int or record.get("n") != len(samples):
-                fail("frame ledger sample sequence differs")
-            delta = 0 if previous_sample is None else int(timestamp) - previous_sample
-            ppm, raw_name, raw_sha = record.get("ppm"), record.get("raw"), record.get("rawSha")
-            if (not exact_int(record.get("gapMs")) or
-                    record.get("gapMs") != delta // 1_000_000 or delta > 500_000_000 or
-                    not isinstance(ppm, str) or HEX64.fullmatch(ppm) is None or
-                    raw_name != f"frame-{ppm}.ppm.gz" or
-                    not isinstance(raw_sha, str) or HEX64.fullmatch(raw_sha) is None or
-                    not exact_int(record.get("w"), 1) or not exact_int(record.get("h"), 1) or
-                    int(record["w"]) > 8192 or int(record["h"]) > 8192):
-                fail("frame ledger sample metadata differs")
-            raw_path = f"frame-raw/{phase}-{segment}/{raw_name}"
-            if raw_path in raw_map and raw_map[raw_path] != raw_sha:
-                fail("frame ledger raw-object digest conflicts")
-            raw_map[raw_path] = raw_sha
-            frame_binding = (raw_sha, int(record["w"]), int(record["h"]))
-            if ppm in frame_map and frame_map[ppm] != frame_binding:
-                fail("frame ledger PPM/raw/geometry binding conflicts")
-            frame_map[ppm] = frame_binding
-            samples.append(record)
-            previous_sample = int(timestamp)
-        elif event == "ready":
-            exact_keys(record, READY_KEYS, "frame ledger READY")
-            if (ready_seen or len(samples) != 1 or not exact_int(record.get("n")) or
-                    record.get("n") != 0 or
-                    record.get("ppm") != samples[0]["ppm"] or record.get("state") != initial):
-                fail("frame ledger READY state differs")
-            ready_seen = True
-        elif event == "control":
-            exact_keys(record, CONTROL_KEYS, "frame ledger control")
-            nonce = record.get("nonce")
-            if (not ready_seen or record.get("name") not in {
-                    "cont-sent", "shutdown-armed", "stop-boot", "challenge-before",
-                    "challenge-after", "challenge-cleared"} or
-                    not isinstance(nonce, str) or re.fullmatch(r"[a-f0-9]{16}", nonce) is None or
-                    nonce in nonces or not exact_int(record.get("n")) or
-                    record.get("n") != len(samples) - 1 or
-                    record.get("state") != "running"):
-                fail("frame ledger control state differs")
-            nonces.add(nonce)
-            controls.append(record)
-        elif event == "terminal":
-            exact_keys(record, TERMINAL_KEYS, "frame ledger terminal")
-            if terminal is not None or type(record.get("n")) is not int or type(record.get("qemuExit")) is not bool:
-                fail("frame ledger terminal record differs")
-            terminal = record
-        else:
-            fail("frame ledger event is not allowlisted")
-    if (not ready_seen or terminal is None or terminal is not records[-1] or
-            not 0 < len(samples) <= MAX_SAMPLES or previous_sample is None or
-            int(terminal["t"]) - previous_sample > 500_000_000):
-        fail("frame ledger READY/sample/terminal closure differs")
-    control_names = [str(item["name"]) for item in controls]
-    if segment == "boot":
-        middle = ["challenge-before", "challenge-after", "challenge-cleared"] if challenge else []
-        if (control_names != ["cont-sent", *middle, "stop-boot"] or
-                terminal.get("n") != samples[-1]["n"] or terminal.get("reason") != "requested-stop" or
-                terminal.get("qemuExit") is not False or
-                not ledger_sampled(records, str(samples[-1]["ppm"]), "cont-sent")):
-            fail("frame ledger boot chronology differs")
-    elif (control_names != ["shutdown-armed"] or terminal.get("n") != len(samples) or
-          terminal.get("reason") != "qemu-exit" or terminal.get("qemuExit") is not True or
-          not ledger_sampled(records, str(samples[-1]["ppm"]), "shutdown-armed")):
-        fail("frame ledger shutdown chronology differs")
-    return records, raw_map, recorder_identity, {
-        "peerUid": int(header["peerUid"]),
-        "firstMonotonicNs": int(header["t"]),
-        "lastMonotonicNs": int(terminal["t"]),
-    }
 
 
 def validate_repository_objects(result: dict[str, object], read: Callable[[str, int], bytes],
@@ -1053,7 +807,7 @@ def validate_runtime_markers(read: Callable[[str, int], bytes], result: dict[str
     markers = {SCENARIOS[0]: "MINIMAL", SCENARIOS[1]: "LUKSGRUB", SCENARIOS[2]: "MARBLE"}
     if (len(log.encode()) > MAX_TEXT or f"{markers[scenario]}_QEMU_INSTALLER_EXIT status=0" not in log or
             f"{markers[scenario]}_QEMU_INSTALL_COMPLETE" not in log or
-            re.search(r"QEMU_HOST_FAIL|_QEMU_GUEST_FAIL|frame evidence failed:|exit_status=[1-9]", log)):
+            re.search(r"QEMU_HOST_FAIL|_QEMU_GUEST_FAIL|exit_status=[1-9]", log)):
         fail("QEMU compact scenario log lacks success or contains failure")
     if scenario == SCENARIOS[2]:
         expected_suffixes = (
@@ -1078,44 +832,14 @@ def validate_runtime_markers(read: Callable[[str, int], bytes], result: dict[str
     }
 
 
-def validate_run_process_chronology(identities: dict[str, dict[str, str]],
-                                    recorder_identities: dict[str, dict[str, str]],
-                                    ledger_metadata: dict[str, dict[str, int]]) -> None:
-    expected = {f"{phase}-{segment}" for phase, segment in SEGMENTS}
-    if set(ledger_metadata) != expected or set(recorder_identities) != expected:
-        fail("frame-ledger process/timeline closure differs")
-    first_qemu = int(identities["firstboot"]["start_time"])
-    post_qemu = int(identities["postreboot"]["start_time"])
-    process_starts = (
-        first_qemu,
-        int(recorder_identities["firstboot-boot"]["start_time"]),
-        int(recorder_identities["firstboot-shutdown"]["start_time"]),
-        post_qemu,
-        int(recorder_identities["postreboot-boot"]["start_time"]),
-        int(recorder_identities["postreboot-shutdown"]["start_time"]),
-    )
-    if (first_qemu >= post_qemu or
-            not process_starts[0] <= process_starts[1] <= process_starts[2] < process_starts[3] or
-            not process_starts[3] <= process_starts[4] <= process_starts[5]):
+def validate_run_process_chronology(identities: dict[str, dict[str, str]]) -> None:
+    if int(identities["firstboot"]["start_time"]) >= int(identities["postreboot"]["start_time"]):
         fail("firstboot/postreboot QEMU process chronology differs")
-    socket_devices = {
-        identity["qga_identity"].split(":", 1)[0] for identity in identities.values()
-    }
-    if len(socket_devices) != 1:
+    if len({identity["qga_identity"].split(":", 1)[0] for identity in identities.values()}) != 1:
         fail("firstboot/postreboot QEMU socket device differs")
-    peer_uids = {metadata["peerUid"] for metadata in ledger_metadata.values()}
-    if len(peer_uids) != 1:
-        fail("frame-ledger QMP peer UID differs within one accepted run")
-    previous_end: int | None = None
-    for phase, segment in SEGMENTS:
-        metadata = ledger_metadata[f"{phase}-{segment}"]
-        first, last = metadata["firstMonotonicNs"], metadata["lastMonotonicNs"]
-        if first <= 0 or last <= first or (previous_end is not None and first <= previous_end):
-            fail("frame-ledger cross-segment chronology differs")
-        previous_end = last
 
 
-def run_record(read: Callable[[str, int], bytes], hash_of: Callable[[str], str],
+def run_record(read: Callable[[str, int], bytes],
                geometry_of: Callable[[str], tuple[int, int]], names: set[str], scenario: str,
                commit: str, tree: str, version: str, expected: dict[str, str],
                contract: dict[str, object], bootstrap_sha256: str, stored_bytes: int) -> dict[str, object]:
@@ -1123,34 +847,19 @@ def run_record(read: Callable[[str, int], bytes], hash_of: Callable[[str], str],
     if names != expected_names | {"evidence"}:
         fail("QEMU retained evidence closure differs")
     result_raw = read("result.json", MAX_JSON)
-    verdict_raw = read("visual-review-verdict.json", MAX_JSON)
-    manifest_raw = read("evidence/frame-evidence-manifest.json", MAX_JSON)
-    template_raw = read("evidence/manual-review-template.json", MAX_JSON)
-    receipt_raw = read("evidence/manual-review-receipt.json", MAX_JSON)
-    verdict = canonical_json_bytes(verdict_raw, "QEMU visual verdict")
-    manifest = canonical_json_bytes(manifest_raw, "frame-evidence manifest")
-    template = canonical_json_bytes(template_raw, "manual-review template")
-    receipt = canonical_json_bytes(receipt_raw, "manual-review receipt")
     exact_keys(result, RESULT_KEYS, "QEMU result")
-    exact_keys(verdict, VERDICT_KEYS, "QEMU visual verdict")
-    exact_keys(manifest, FRAME_MANIFEST_KEYS, "frame-evidence manifest")
-    exact_keys(template, REVIEW_KEYS, "manual-review template")
-    exact_keys(receipt, REVIEW_KEYS, "manual-review receipt")
     identity = (commit, tree, scenario)
     if tuple(result.get(key) for key in ("sourceCommit", "sourceTree", "scenario")) != identity:
         fail("QEMU result source/scenario identity differs")
     run_id = result.get("runId")
     if not isinstance(run_id, str) or RUN_ID.fullmatch(run_id) is None or not run_id.startswith(PREFIXES[scenario] + "-"):
         fail("QEMU run ID differs")
-    for value in (verdict, manifest, template, receipt):
-        if tuple(value.get(key) for key in ("sourceCommit", "sourceTree", "scenario", "runId")) != (*identity, run_id):
-            fail("QEMU evidence identity differs")
-    if (result.get("status") != "PENDING_VISUAL_REVIEW" or
+    if (result.get("status") != "PASS" or
             type(result.get("exitStatus")) is not int or result.get("exitStatus") != 0 or
-            result.get("failedPhase") is not None or result.get("manualReviewStatus") != "PENDING" or
+            result.get("failedPhase") is not None or
             result.get("inputMode") != "staged" or result.get("snapshotVerification") != "INDEPENDENT_PASS" or
             result.get("releaseVersion") != version):
-        fail("QEMU pending staged-result state differs")
+        fail("QEMU staged-result state differs")
     sha_fields = (
         "buildMetadataSha256", "harnessSha256", "installerSha256", "isoSha256",
         "releaseSha256sumsSha256", "repositoryDatabaseSha256",
@@ -1178,16 +887,6 @@ def run_record(read: Callable[[str, int], bytes], hash_of: Callable[[str], str],
     }
     if any(result.get(field) != value for field, value in repository_bindings.items()):
         fail("QEMU result differs from the Phase-A repository contract")
-    if (type(verdict.get("schema")) is not int or verdict.get("schema") != 1 or
-            verdict.get("status") != "PASS" or
-            verdict.get("rawFramesRemoved") is not True or verdict.get("budgetBytes") != MAX_EVIDENCE):
-        fail("QEMU visual verdict is not final PASS")
-    for field in ("transientEvidenceBytes", "cumulativePermanentEvidenceBytes"):
-        if type(verdict.get(field)) is not int or not 0 <= verdict[field] <= MAX_EVIDENCE:
-            fail("QEMU historical evidence counter is invalid")
-    if (verdict["cumulativePermanentEvidenceBytes"] < stored_bytes or
-            verdict["transientEvidenceBytes"] <= verdict["cumulativePermanentEvidenceBytes"]):
-        fail("QEMU evidence counter chronology differs")
     reported = result.get("retainedEvidenceBytes")
     try:
         size_record = int(read("evidence-size.txt", 64).decode("ascii").strip())
@@ -1195,153 +894,11 @@ def run_record(read: Callable[[str, int], bytes], hash_of: Callable[[str], str],
         fail(f"QEMU evidence-size record differs: {error}")
     if type(reported) is not int or not 0 <= reported <= MAX_EVIDENCE or size_record != reported:
         fail("QEMU retained evidence counter differs")
-    bindings = (
-        verdict.get("manifestSha256") == sha256_bytes(manifest_raw),
-        verdict.get("templateSha256") == sha256_bytes(template_raw),
-        verdict.get("receiptSha256") == sha256_bytes(receipt_raw),
-        verdict.get("pendingResultSha256") == sha256_bytes(result_raw),
-        template.get("manifestSha256") == sha256_bytes(manifest_raw),
-        receipt.get("manifestSha256") == sha256_bytes(manifest_raw),
-        receipt.get("pendingResultSha256") == sha256_bytes(result_raw),
-        result.get("manualReviewTemplateSha256") == sha256_bytes(template_raw),
-    )
-    if not all(bindings):
-        fail("QEMU result/review/verdict binding differs")
-    mutable = {"verdict", "reviewer", "reviewedAt", "pendingResultSha256", "confirmations", "notes"}
-    if any(receipt[key] != template[key] for key in REVIEW_KEYS - mutable):
-        fail("manual-review receipt identity differs")
-    if (type(template.get("schema")) is not int or template.get("schema") != 1 or
-            type(receipt.get("schema")) is not int or receipt.get("schema") != 1):
-        fail("manual-review schema differs")
-    if ((template.get("verdict"), template.get("reviewer"), template.get("reviewedAt"),
-         template.get("pendingResultSha256"), template.get("notes")) != ("PENDING", "", "", "", "") or
-            template.get("confirmations") != {name: False for name in CONFIRMATIONS}):
-        fail("manual-review template defaults differ")
-    reviewer, confirmations = receipt.get("reviewer"), receipt.get("confirmations")
-    if (receipt.get("verdict") != "PASS" or not isinstance(reviewer, str) or
-            re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._@+-]{0,63}", reviewer) is None or
-            not review_time_is_valid(receipt.get("reviewedAt"), run_id) or
-            receipt.get("notes") != "" or
-            not isinstance(confirmations, dict) or set(confirmations) != CONFIRMATIONS or
-            not all(value is True for value in confirmations.values())):
-        fail("manual-review receipt is not an exact PASS")
-    policy = manifest.get("policy")
-    if (type(manifest.get("schema")) is not int or manifest.get("schema") != 1 or
-            manifest.get("status") != "SEALED" or
-            not isinstance(policy, dict) or policy != FRAME_POLICY or
-            type(policy.get("head")) is not int):
-        fail("frame-evidence manifest state or policy differs")
     identities = {phase: parse_identity(read(f"evidence/{phase}-qemu.identity", 4096), phase)
                   for phase in PHASES}
-    if manifest.get("qemuIdentities") != identities:
-        fail("frame-evidence QEMU identity binding differs")
-    if (manifest.get("selectedFrames") != result.get("screenshots") or
-            tuple(result.get("screenshots", [])) != EXPECTED_SCREENSHOTS[scenario]):
-        fail("frame-evidence selected-frame binding differs")
-    segments = manifest.get("segments")
-    if not isinstance(segments, list) or len(segments) != 4:
-        fail("frame-evidence segment closure differs")
-    contacts: set[str] = set()
-    raw_hashes: dict[str, str] = {}
-    ledger_records: dict[tuple[str, str], list[dict[str, object]]] = {}
-    recorder_identities: dict[str, dict[str, str]] = {}
-    ledger_metadata: dict[str, dict[str, int]] = {}
-    seen_recorder_identities: set[tuple[str, str]] = set()
-    for pair, item in zip(SEGMENTS, segments, strict=True):
-        exact_keys(item, {"phase", "segment", "samples", "sheets"}, "frame-evidence segment")
-        samples, sheets = item.get("samples"), item.get("sheets")
-        if ((item.get("phase"), item.get("segment")) != pair or type(samples) is not int or
-                not 1 <= samples <= 2000 or type(sheets) is not int or
-                sheets != (samples + 99) // 100):
-            fail("frame-evidence segment order/count differs")
-        contacts.update(f"{pair[0]}-{pair[1]}-contact-sheet-{index:03d}.ppm"
-                        for index in range(1, sheets + 1))
-        ledger_name = f"evidence/{pair[0]}-{pair[1]}-frame-ledger.jsonl"
-        records, ledger_raw_hashes, recorder_identity, retained_metadata = validate_retained_ledger(
-            read(ledger_name, 4 * 1024 * 1024), pair[0], pair[1], identities[pair[0]],
-            scenario == SCENARIOS[0] and pair[1] == "boot",
-        )
-        if recorder_identity in seen_recorder_identities:
-            fail("frame recorder identity repeats within one accepted run")
-        seen_recorder_identities.add(recorder_identity)
-        recorder_identities[f"{pair[0]}-{pair[1]}"] = {
-            "pid": recorder_identity[0], "start_time": recorder_identity[1],
-        }
-        ledger_metadata[f"{pair[0]}-{pair[1]}"] = retained_metadata
-        ledger_records[pair] = records
-        sample_records = [record for record in records if isinstance(record, dict) and record.get("e") == "sample"]
-        if len(sample_records) != samples:
-            fail("frame-evidence ledger sample count differs")
-        for relative, raw_sha in ledger_raw_hashes.items():
-            if relative in raw_hashes and raw_hashes[relative] != raw_sha:
-                fail("frame ledger raw-object digest conflicts")
-            raw_hashes[relative] = raw_sha
-    validate_run_process_chronology(identities, recorder_identities, ledger_metadata)
-    if contacts != set(result.get("contactSheets", [])):
-        fail("frame-evidence contact-sheet binding differs")
-    for name in result.get("contactSheets", []):
-        if geometry_of(f"evidence/{name}") != (1280, 800):
-            fail("frame-evidence contact-sheet geometry differs")
-    for name in result.get("screenshots", []):
-        geometry = geometry_of(f"evidence/{name}")
-        phase = name.split("-", 1)[0]
-        selected_hash = hash_of(f"evidence/{name}")
-        matching_samples = [
-            item for item in ledger_records[(phase, "boot")]
-            if item.get("e") == "sample" and item.get("ppm") == selected_hash
-        ]
-        if (not matching_samples or not ledger_sampled(
-                ledger_records[(phase, "boot")], selected_hash) or
-                any((item.get("w"), item.get("h")) != geometry for item in matching_samples)):
-            fail("selected framebuffer is not sampled in its bound boot ledger")
-    challenges = manifest.get("challenges")
-    if scenario == SCENARIOS[0]:
-        if not isinstance(challenges, dict) or set(challenges) != set(PHASES):
-            fail("Minimal framebuffer challenge closure differs")
-        after_hashes: list[str] = []
-        suffix = run_id.rsplit("-", 1)[-1]
-        for phase in PHASES:
-            item = challenges[phase]
-            exact_keys(item, CHALLENGE_KEYS, "Minimal framebuffer challenge")
-            values: list[str] = []
-            for name in ("before", "after", "cleared"):
-                wrapped = item.get(name)
-                exact_keys(wrapped, {"sha256"}, "Minimal framebuffer challenge digest")
-                value = wrapped.get("sha256")
-                if not isinstance(value, str) or HEX64.fullmatch(value) is None:
-                    fail("Minimal framebuffer challenge digest differs")
-                values.append(value)
-            records = ledger_records[(phase, "boot")]
-            metrics = [item.get(name) for name in ("changedPixels", "clearChangedPixels", "restoredPixels")]
-            geometries = {
-                (int(record["w"]), int(record["h"]))
-                for record in records
-                if record.get("e") == "sample" and record.get("ppm") in values
-            }
-            selected_geometry = geometry_of(f"evidence/{phase}-tty.ppm")
-            pixel_count = selected_geometry[0] * selected_geometry[1]
-            if (item.get("challenge") != f"ali-{phase}-{suffix}" or values.count(values[1]) != 1 or
-                    not challenge_measurements_are_valid(
-                        metrics, pixel_count, geometries, selected_geometry) or
-                    item.get("input") != "hmp-no-enter" or item.get("clearInput") != "ctrl-u"):
-                fail("Minimal framebuffer challenge semantics differ")
-            if (not ledger_sampled(records, values[0], "cont-sent", "challenge-before") or
-                    not ledger_sampled(records, values[1], "challenge-before", "challenge-after") or
-                    ledger_sampled(records, values[1], before="challenge-before") or
-                    not ledger_sampled(records, values[2], "challenge-after", "challenge-cleared") or
-                    hash_of(f"evidence/{phase}-tty.ppm") != values[1]):
-                fail("Minimal framebuffer challenge/ledger binding differs")
-            after_hashes.append(values[1])
-        if after_hashes[0] == after_hashes[1]:
-            fail("Minimal framebuffer challenges repeat across boots")
-    elif challenges != {}:
-        fail("non-Minimal framebuffer evidence retains a challenge")
-    file_hashes = manifest.get("fileHashes")
-    retained_bound = {f"evidence/{name}" for name in LEDGERS | IDENTITIES |
-                      set(result.get("screenshots", [])) | set(result.get("contactSheets", []))}
-    expected_hashes = {name: hash_of(name) for name in retained_bound} | raw_hashes
-    if file_hashes != expected_hashes:
-        fail("frame-evidence fileHashes closure/readback differs")
+    validate_run_process_chronology(identities)
+    for name in result["screenshots"]:
+        geometry_of(f"evidence/{name}")  # Optional diagnostics still obey safe strict-P6 structure.
     assertions = result.get("assertions")
     if not isinstance(assertions, list) or len(assertions) != len(EXPECTED_ASSERTIONS[scenario]):
         fail("QEMU assertion closure differs")
@@ -1368,10 +925,9 @@ def run_record(read: Callable[[str, int], bytes], hash_of: Callable[[str], str],
         if result.get(field) != value:
             fail(f"QEMU result differs for {field}")
     return {"status": "PASS", "runId": run_id, "resultSha256": sha256_bytes(result_raw),
-            "verdictSha256": sha256_bytes(verdict_raw), "retainedEvidenceBytes": stored_bytes,
+            "retainedEvidenceBytes": stored_bytes,
             "isoSha256": result["isoSha256"], "harnessSha256": result["harnessSha256"],
             "targetSerial": result["targetSerial"], "qemuIdentities": identities,
-            "recorderIdentities": recorder_identities, "ledgerTimeline": ledger_metadata,
             **marker_values}
 
 
@@ -1403,11 +959,9 @@ def directory_run(root: Path, scenario: str, commit: str, tree: str, version: st
         path = root.joinpath(*PurePosixPath(name).parts)
         safe_file(path, limit)
         return path.read_bytes()
-    def hash_of(name: str) -> str:
-        return sha256(root.joinpath(*PurePosixPath(name).parts))
     def geometry_of(name: str) -> tuple[int, int]:
         return file_ppm_geometry(root.joinpath(*PurePosixPath(name).parts))
-    return run_record(read, hash_of, geometry_of, files | directories, scenario, commit, tree,
+    return run_record(read, geometry_of, files | directories, scenario, commit, tree,
                       version, expected, contract, bootstrap_sha256, stored)
 
 
@@ -1432,20 +986,12 @@ def archive_runs(contents: dict[str, bytes], geometries: dict[str, tuple[int, in
             if raw is None or len(raw) > limit:
                 fail("required acceptance archive member is absent or oversized")
             return raw
-        def hash_of(name: str, *, _prefix: str = prefix) -> str:
-            record = mapping.get(_prefix + name)
-            if not isinstance(record, dict) or record.get("type") != "file":
-                fail("required acceptance archive digest is unavailable")
-            digest = record.get("sha256")
-            if not isinstance(digest, str):
-                fail("required acceptance archive digest is malformed")
-            return digest
         def geometry_of(name: str, *, _prefix: str = prefix) -> tuple[int, int]:
             value = geometries.get(_prefix + name)
             if value is None:
                 fail("required acceptance PPM geometry is unavailable")
             return value
-        qemu[scenario] = run_record(read, hash_of, geometry_of, names | {"evidence"}, scenario,
+        qemu[scenario] = run_record(read, geometry_of, names | {"evidence"}, scenario,
                                     commit, tree, version, expected, contract,
                                     bootstrap_sha256, stored)
     directories = {name for name, item in mapping.items() if item["type"] == "directory"}
@@ -1472,13 +1018,6 @@ def validate_cross_scenario_records(records: list[dict[str, object]]) -> None:
             pair = (identity["pid"], identity["start_time"])
             if pair in process_identities:
                 fail("QEMU process identity repeats across accepted boots")
-            process_identities.add(pair)
-        recorder_identities = record["recorderIdentities"]
-        for segment in (f"{phase}-{kind}" for phase, kind in SEGMENTS):
-            identity = recorder_identities[segment]
-            pair = (identity["pid"], identity["start_time"])
-            if pair in process_identities:
-                fail("QEMU or recorder process identity repeats across acceptance evidence")
             process_identities.add(pair)
 
 
