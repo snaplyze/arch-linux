@@ -735,7 +735,66 @@ if (keyboard is None or keyboard.group().index('wait_for_desktop_initialization'
         keyboard.group().index('gsettings get')):
     raise SystemExit('static check failed: graphical settings read before initialization completes')
 
-print('guest framebuffer, startup and diagnostic handling checks passed; QEMU=NOT_RUN')
+# Execute the same lock/unlock helper with only its host path and guest APIs replaced.
+# No live-ISO bootstrap directory is present in these installed-system fixtures.
+lock = re.search(r'(?ms)^run_lock_phase\(\) \{\n.*?^\}\n', guest)
+if lock is None or '/run/arch-linux-qemu/lock-session-' in lock.group():
+    raise SystemExit('static check failed: installed lock state depends on live ISO bootstrap')
+for fault in ('none', 'existing', 'symlink', 'mode', 'session', 'shell', 'malformed'):
+    with tempfile.TemporaryDirectory(prefix='arch-linux-lock-check-') as temporary:
+        helper = lock.group().replace('/run/arch-linux-qemu-lock-',
+                                      '${lock_fixture}/arch-linux-qemu-lock-')
+        program = 'set -Eeuo pipefail\n' + helper + '''
+lock_fixture="$1" fault="$2" run_id=fixture username=vmtest marker_prefix=STOCK
+scenario=stock-gnome-ext4-systemdboot phase=lock test_session=c2 test_shell=4242
+state_path="${lock_fixture}/arch-linux-qemu-lock-fixture.state"
+wait_for_user_session() { printf '%s' "${test_session}"; }
+wait_for_gnome_shell() { [ "$1" = 1000 ]; printf '%s' "${test_shell}"; }
+id() { [ "$*" = '-u vmtest' ]; printf '1000'; }
+stat() { command stat "$@" | sed 's/^[0-9]*:/0:/'; }
+session_property() {
+    [ "$1" = c2 ]
+    case "$2" in
+    Service) printf 'gdm-password' ;;
+    Type) printf 'wayland' ;;
+    LockedHint) cat "${lock_fixture}/locked" ;;
+    *) return 1 ;;
+    esac
+}
+loginctl() {
+    [ "$*" = 'lock-session c2' ]
+    printf 'yes' >"${lock_fixture}/locked"
+}
+verify_stock_session() { : >"${lock_fixture}/profile-checked"; }
+case "$fault" in
+existing) printf 'preserve' >"${state_path}" ;;
+symlink) ln -s missing "${state_path}" ;;
+esac
+run_lock_phase
+[ "$(command stat -c '%a:%h' "${state_path}")" = '600:1' ]
+[ "$(wc -l <"${state_path}")" -eq 4 ]
+case "$fault" in
+mode) chmod 0666 "${state_path}" ;;
+session) test_session=c3 ;;
+shell) test_shell=5252 ;;
+malformed) printf 'bad-state' >"${state_path}" ;;
+esac
+phase=unlock
+printf 'no' >"${lock_fixture}/locked"
+run_lock_phase
+[ ! -e "${state_path}" ] && [ -f "${lock_fixture}/profile-checked" ]
+'''
+        result = subprocess.run(['/usr/bin/bash', '-c', program, 'lock-fixture',
+                                 temporary, fault], capture_output=True, timeout=5)
+        if (result.returncode == 0) != (fault == 'none'):
+            raise SystemExit(f'static check failed: lock/unlock state regression: {fault}')
+        state = Path(temporary) / 'arch-linux-qemu-lock-fixture.state'
+        if fault == 'existing' and state.read_text() != 'preserve':
+            raise SystemExit('static check failed: foreign lock state overwritten')
+        if fault == 'symlink' and (not state.is_symlink() or (Path(temporary) / 'missing').exists()):
+            raise SystemExit('static check failed: linked lock state followed')
+
+print('guest framebuffer, startup, lock and diagnostic handling checks passed; QEMU=NOT_RUN')
 VM_GUEST_PY
 
 printf 'static checks passed\n'

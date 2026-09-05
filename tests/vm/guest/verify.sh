@@ -1498,7 +1498,8 @@ emit_marble_action_pass() {
 }
 
 run_lock_phase() {
-    local state_file="/run/arch-linux-qemu/lock-session-${run_id}" session_id shell_pid uid boot_id deadline
+    # /run exists in the installed OS; the live ISO's bootstrap directory does not.
+    local state_file="/run/arch-linux-qemu-lock-${run_id}.state" session_id shell_pid uid boot_id deadline
     local -a state=()
     case "${phase}" in
     lock)
@@ -1509,9 +1510,9 @@ run_lock_phase() {
         uid="$(id -u "${username}")"
         shell_pid="$(wait_for_gnome_shell "${uid}")"
         boot_id="$(tr -d '\n' </proc/sys/kernel/random/boot_id)"
-        printf 'session=%s\nuid=%s\nshell_pid=%s\nboot_id=%s\n' \
-            "${session_id}" "${uid}" "${shell_pid}" "${boot_id}" >"${state_file}"
-        chmod 0600 -- "${state_file}"
+        (umask 077; set -o noclobber
+            printf 'session=%s\nuid=%s\nshell_pid=%s\nboot_id=%s\n' \
+                "${session_id}" "${uid}" "${shell_pid}" "${boot_id}" >"${state_file}")
         loginctl lock-session "${session_id}"
         deadline=$((SECONDS + 120))
         while [ "${SECONDS}" -lt "${deadline}" ] &&
@@ -1556,7 +1557,7 @@ run_lock_phase() {
 }
 
 run_marble_phase() {
-    local session_id deadline expected_profile
+    local expected_profile
     case "${phase}" in
     prelogin)
         verify_marble_greeter active
@@ -1579,23 +1580,6 @@ run_marble_phase() {
         ;;
     removed-login)
         verify_marble_user_session stock
-        ;;
-    lock)
-        session_id="$(wait_for_user_session)"
-        loginctl lock-session "${session_id}"
-        deadline=$((SECONDS + 120))
-        while [ "${SECONDS}" -lt "${deadline}" ] &&
-            [ "$(session_property "${session_id}" LockedHint)" != yes ]; do sleep 1; done
-        [ "$(session_property "${session_id}" LockedHint)" = yes ]
-        emit_marble_action_pass locked
-        ;;
-    unlock)
-        session_id="$(wait_for_user_session)"
-        deadline=$((SECONDS + 120))
-        while [ "${SECONDS}" -lt "${deadline}" ] &&
-            [ "$(session_property "${session_id}" LockedHint)" != no ]; do sleep 1; done
-        [ "$(session_property "${session_id}" LockedHint)" = no ]
-        verify_marble_user_session marble
         ;;
     update)
         if [ "${input_mode}" = public ]; then
