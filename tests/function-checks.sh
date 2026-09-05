@@ -981,6 +981,48 @@ unset ARCH_LINUX_QEMU_ACCEPTANCE ARCH_LINUX_QEMU_REPOSITORY_CONTRACT
     fi
 )
 (
+    # Prepare only a temporary filesystem: every disk/system operation is stubbed.
+    eval "$(sed -n '/^prepare_dual_boot_neighbor() {/,/^}/p' \
+        "${repo_root}/tests/vm/guest/bootstrap.sh")"
+    work_root="$(mktemp -d)"
+    trap 'command rm -rf -- "${work_root}"' EXIT
+    umask 077
+    declare -A IDENTITY=([SCENARIO]=minimal-dualboot-ext4-systemdboot
+        [TARGET_SERIAL]=fixture [RUN_ID]=fixture)
+    trim_value() { command sed 's/^[[:space:]]*//; s/[[:space:]]*$//'; }
+    partition_name() { printf '%s%s' "$1" "$2"; }
+    lsblk() {
+        case "$2" in
+        SERIAL) printf fixture ;;
+        VENDOR) printf SNAPLYZE ;;
+        MOUNTPOINTS) ;;
+        TYPE) printf disk ;;
+        *) return 1 ;;
+        esac
+    }
+    sgdisk() { :; }
+    partprobe() { :; }
+    udevadm() { :; }
+    mkfs.fat() { :; }
+    mkfs.ext4() { :; }
+    mount() { :; }
+    umount() { :; }
+    systemctl() { :; }
+    systemd-machine-id-setup() { :; }
+    genfstab() { printf '# fixture\n'; }
+    arch-chroot() { :; }
+    blkid() { printf fixture-uuid; }
+    rmdir() { :; } # Keep the simulated mounted files for inspection.
+    pacstrap() {
+        command mkdir -p -- "$2/etc" "$2/boot"
+        printf kernel >"$2/boot/vmlinuz-linux"
+        printf initramfs >"$2/boot/initramfs-linux.img"
+    }
+    prepare_dual_boot_neighbor /dev/fixture
+    [ "$(stat -c %a -- "${work_root}/neighbor/etc/systemd/network/20-wired.network")" = 644 ]
+    command grep -qx 'DHCP=yes' "${work_root}/neighbor/etc/systemd/network/20-wired.network"
+)
+(
     eval "$(sed -n '/^verify_dual_boot_phase() {/,/^}/p' \
         "${repo_root}/tests/vm/guest/verify.sh")"
     scenario=minimal-dualboot-ext4-systemdboot phase=neighbor run_id=fixture
@@ -1001,6 +1043,14 @@ unset ARCH_LINUX_QEMU_ACCEPTANCE ARCH_LINUX_QEMU_REPOSITORY_CONTRACT
     getent() { return 0; }
     bootctl() { [ "$1" = is-installed ]; }
     verify_dual_boot_phase >/dev/null
+    dns_attempts=0
+    getent() {
+        dns_attempts=$((dns_attempts + 1))
+        [ "${dns_attempts}" -ge 3 ]
+    }
+    sleep() { :; }
+    verify_dual_boot_phase >/dev/null
+    [ "${dns_attempts}" -eq 3 ]
     neighbor_probe="$(declare -f verify_dual_boot_phase find_target mounted_source_device \
         partition_name hostname cat systemctl getent bootctl)"
     if /usr/bin/bash -c 'set -e
@@ -1011,6 +1061,27 @@ unset ARCH_LINUX_QEMU_ACCEPTANCE ARCH_LINUX_QEMU_REPOSITORY_CONTRACT
         echo 'function check failed: wrong neighboring system accepted' >&2
         exit 1
     fi
+    if /usr/bin/bash -c 'set -e
+        eval "$1"
+        scenario=minimal-dualboot-ext4-systemdboot phase=neighbor run_id=fixture
+        neighbor_hostname=ali-neighbor
+        getent() { return 1; }
+        sleep() { SECONDS=$((SECONDS + 61)); }
+        verify_dual_boot_phase' neighbor-probe "${neighbor_probe}" >/dev/null; then
+        echo 'function check failed: neighbor without working DNS accepted' >&2
+        exit 1
+    fi
+)
+(
+    eval "$(sed -n '/^remove_heavy_run_inputs() {/,/^}/p' "${repo_root}/tests/vm/run.sh")"
+    run_root="$(mktemp -d)"
+    trap 'command rm -rf -- "${run_root}"' EXIT
+    remove_exact_run_tree() { [ "$1" = "${run_root}/payload" ] || [ "$1" = "${run_root}/repository" ]; }
+    printf public-serial >"${run_root}/repository-ca.srl"
+    printf retained-result >"${run_root}/result.json"
+    remove_heavy_run_inputs
+    [ ! -e "${run_root}/repository-ca.srl" ]
+    [ -f "${run_root}/result.json" ]
 )
 (
     eval "$(sed -n '/^restart_gdm_after_profile_transition() {/,/^}/p' \

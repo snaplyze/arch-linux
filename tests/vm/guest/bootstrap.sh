@@ -109,6 +109,8 @@ prepare_dual_boot_neighbor() {
     install -d -- "${root_mount}/etc/systemd/network"
     printf '[Match]\nName=en* eth*\n[Network]\nDHCP=yes\n' \
         >"${root_mount}/etc/systemd/network/20-wired.network"
+    # networkd reads public configuration as systemd-network, not root.
+    chmod 0644 -- "${root_mount}/etc/systemd/network/20-wired.network"
     ln -sf /run/systemd/resolve/stub-resolv.conf "${root_mount}/etc/resolv.conf"
     systemctl --root="${root_mount}" enable systemd-networkd systemd-resolved qemu-guest-agent
     systemd-machine-id-setup --root="${root_mount}"

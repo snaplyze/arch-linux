@@ -1644,7 +1644,7 @@ run_marble_phase() {
 }
 
 verify_dual_boot_phase() {
-    local target root_device expected_root boot_id
+    local target root_device expected_root boot_id deadline
     [ "${scenario}" = minimal-dualboot-ext4-systemdboot ]
     target="$(find_target)"
     root_device="$(mounted_source_device /)"
@@ -1660,7 +1660,11 @@ verify_dual_boot_phase() {
         [ "$(cat /proc/sys/kernel/hostname)" = ali-neighbor ]
         [ "$(cat /neighbor-preserved.txt)" = "${run_id}" ]
         systemctl is-active --quiet systemd-networkd systemd-resolved qemu-guest-agent
-        getent ahostsv4 archlinux.org >/dev/null
+        deadline=$((SECONDS + 60))
+        until getent ahostsv4 archlinux.org >/dev/null; do
+            [ "${SECONDS}" -lt "${deadline}" ] || return 1
+            sleep 1
+        done
         [ -z "$(systemctl --failed --no-legend --plain)" ]
         bootctl is-installed
     fi

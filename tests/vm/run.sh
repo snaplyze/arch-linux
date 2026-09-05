@@ -257,6 +257,7 @@ remove_heavy_run_inputs() {
         "${run_root}/target.qcow2" "${run_root}/target.qcow2.sha256" \
         "${run_root}/OVMF_VARS.fd" "${run_root}/payload.iso" \
         "${run_root}/repository-ca.crt" "${run_root}/repository-server.crt" \
+        "${run_root}/repository-ca.srl" \
         "${run_root}/repository.contract" "${run_root}/public.contract" || return 1
     remove_exact_run_tree "${run_root}/payload" || return 1
     remove_exact_run_tree "${run_root}/repository" || return 1
