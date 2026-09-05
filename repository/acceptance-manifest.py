@@ -1320,7 +1320,7 @@ def run_record(read: Callable[[str, int], bytes], hash_of: Callable[[str], str],
             }
             selected_geometry = geometry_of(f"evidence/{phase}-tty.ppm")
             pixel_count = selected_geometry[0] * selected_geometry[1]
-            if (item.get("challenge") != f"ali-{phase}-{suffix}" or len(set(values)) != 3 or
+            if (item.get("challenge") != f"ali-{phase}-{suffix}" or values.count(values[1]) != 1 or
                     not challenge_measurements_are_valid(
                         metrics, pixel_count, geometries, selected_geometry) or
                     item.get("input") != "hmp-no-enter" or item.get("clearInput") != "ctrl-u"):

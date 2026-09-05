@@ -757,6 +757,103 @@ try:
 except ValueError as error:
     raise SystemExit(f"static check failed: {error}") from error
 
+# Ctrl-U may restore the exact baseline. Only the typed challenge must differ from both
+# adjacent frames; chronological ledger occurrences, not three unique hashes, prove the cycle.
+restore_ns = {"__name__": "frame_restoration_fixture", "__file__": str(helper_path)}
+exec(compile(helper, str(helper_path), "exec"), restore_ns)
+acceptance_path = root / "repository/acceptance-manifest.py"
+acceptance_text = acceptance_path.read_text(encoding="utf-8")
+acceptance_ast = ast.parse(acceptance_text)
+measurement_functions = [node for node in acceptance_ast.body if isinstance(node, ast.FunctionDef)
+                         and node.name in {"exact_int", "challenge_measurements_are_valid"}]
+release_conditions = [node.test for node in ast.walk(acceptance_ast) if isinstance(node, ast.If)
+                      and any(isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+                              and call.func.id == "challenge_measurements_are_valid"
+                              for call in ast.walk(node.test))]
+if len(measurement_functions) != 2 or len(release_conditions) != 1:
+    raise SystemExit("static check failed: actual release challenge guard was not located")
+release_ns = {}
+exec(compile(ast.Module(body=measurement_functions, type_ignores=[]), str(acceptance_path), "exec"), release_ns)
+release_guard = compile(ast.Expression(body=release_conditions[0]), str(acceptance_path), "eval")
+
+def restore_frame(count):
+    return restore_ns["parse_ppm_data"](
+        b"P6\n64 64\n255\n" + b"\xff" * count * 3 + b"\0" * (4096 - count) * 3)
+
+def restoration_pair(clear_count):
+    values = {}
+    for phase, count in (("firstboot", 256), ("postreboot", 512)):
+        before, after, cleared = (restore_frame(number) for number in (0, count, clear_count))
+        values[phase] = {"challenge": f"ali-{phase}-aaaaaaaa", "before": {"sha256": before[3]},
+            "after": {"sha256": after[3]}, "cleared": {"sha256": cleared[3]},
+            "changedPixels": restore_ns["require_delta"](before, after),
+            "clearChangedPixels": restore_ns["require_delta"](after, cleared),
+            "restoredPixels": restore_ns["changed_pixels"](before, cleared),
+            "input": "hmp-no-enter", "clearInput": "ctrl-u"}
+    return values
+
+def release_challenge_rejects(item, phase):
+    release_ns.update(item=item, phase=phase, suffix="aaaaaaaa", pixel_count=4096,
+        geometries={(64, 64)}, selected_geometry=(64, 64),
+        values=[item[name]["sha256"] for name in ("before", "after", "cleared")],
+        metrics=[item[name] for name in ("changedPixels", "clearChangedPixels", "restoredPixels")])
+    return eval(release_guard, release_ns)
+
+def check_restoration(values, rejected=False, checker=restore_ns["check_challenge_pair"]):
+    try:
+        checker(values, "minimal-20260901T000000Z-aaaaaaaa")
+    except restore_ns["EvidenceError"]:
+        if rejected:
+            return
+        raise
+    if rejected:
+        raise SystemExit("static check failed: invalid challenge relation was accepted")
+
+for clear_count in (0, 32):
+    positive = restoration_pair(clear_count)
+    check_restoration(positive)
+    if any(release_challenge_rejects(item, phase) for phase, item in positive.items()):
+        raise SystemExit("static check failed: exact/partial restoration rejected by release guard")
+    for phase in ("firstboot", "postreboot"):
+        for field, value in (("before", positive[phase]["after"]), ("cleared", positive[phase]["after"]),
+                             ("changedPixels", 0), ("clearChangedPixels", 0), ("changedPixels", True),
+                             ("clearChangedPixels", True), ("restoredPixels", True), ("restoredPixels", -1),
+                             ("restoredPixels", positive[phase]["changedPixels"])):
+            negative = json.loads(json.dumps(positive))
+            negative[phase][field] = value
+            check_restoration(negative, True)
+            if not release_challenge_rejects(negative[phase], phase):
+                raise SystemExit("static check failed: release accepted absent delta or non-restoration")
+    replay = json.loads(json.dumps(positive))
+    replay["postreboot"]["after"] = replay["firstboot"]["after"]
+    check_restoration(replay, True)
+
+# Reintroduce only each old predicate in RAM: both must reject the exact-restore positive,
+# demonstrating this regression actually reaches both previously inconsistent consumers.
+old_helper = helper.replace("hashes.count(hashes[1]) < 2", "len(set(hashes)) == 3", 1)
+old_acceptance = acceptance_text.replace("values.count(values[1]) != 1", "len(set(values)) != 3", 1)
+if old_helper == helper or old_acceptance == acceptance_text:
+    raise SystemExit("static check failed: restoration regression mutation was not applied")
+old_checker = next(node for node in ast.parse(old_helper).body
+                   if isinstance(node, ast.FunctionDef) and node.name == "check_challenge_pair")
+old_ns = dict(restore_ns)
+exec(compile(ast.Module(body=[old_checker], type_ignores=[]), str(helper_path), "exec"), old_ns)
+check_restoration(restoration_pair(0), True, old_ns["check_challenge_pair"])
+old_guard = next(node.test for node in ast.walk(ast.parse(old_acceptance))
+                 if isinstance(node, ast.If) and "len(set(values)) != 3" in ast.unparse(node.test))
+for phase, item in restoration_pair(0).items():
+    release_challenge_rejects(item, phase)
+    if not eval(compile(ast.Expression(body=old_guard), str(acceptance_path), "eval"), release_ns):
+        raise SystemExit("static check failed: old release predicate did not reject exact restoration")
+
+# Keep the native partial-restoration self-test unchanged. Execute that same complete
+# seal/review/finalize fixture once more with only its erased-frame pixels made exact.
+exact_fixture = helper.replace('(\"clear\", 32)', '(\"clear\", 0)', 1)
+if exact_fixture == helper:
+    raise SystemExit("static check failed: exact-restoration full fixture was not applied")
+exec(compile(exact_fixture, str(helper_path), "exec"), restore_ns)
+restore_ns["_selftest_run"]()
+
 mutations = (
     run.replace("            -S\n", "", 1),
     run.replace("-device 'virtio-vga,id=display0'", "-device virtio-vga", 1),

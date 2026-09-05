@@ -699,7 +699,7 @@ def check_challenge_pair(challenges, run_id):
         metrics = [item.get(name) for name in ("changedPixels", "clearChangedPixels", "restoredPixels")]
         demand(all(exact_int(value, 1) for value in metrics[:2]) and exact_int(metrics[2]),
                f"{phase} challenge metrics differ")
-        demand(metrics[2] < metrics[0] and len(set(hashes)) == 3, f"{phase} challenge delta")
+        demand(metrics[2] < metrics[0] and hashes.count(hashes[1]) < 2, f"{phase} challenge delta")
         demand(item.get("input") == "hmp-no-enter" and item.get("clearInput") == "ctrl-u",
                f"{phase} challenge input")
         after.append(hashes[1])
