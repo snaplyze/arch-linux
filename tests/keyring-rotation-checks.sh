@@ -890,7 +890,8 @@ fi
 privileged_process_containment_acceptance() (
     local process_probe_root detached_pid_file detached_marker worker_pid ack_pid='' process_status=0
     local detached_pid='' actual_pgid='' attempt scope_root='' scope_pid_file scope_marker scope_output
-    local child_scope cleanup_ok=true scope_user="alscope${BASHPID}" scope_uid=59998
+    local child_scope cleanup_ok=true scope_user="alscope${BASHPID}" scope_uid=59998 scope_gid
+    local scope_identity_file scope_expected_identity scope_expected_cgroup scope_status
     local scope_user_created=false
 
     cleanup_process_containment_probe() {
@@ -1068,9 +1069,12 @@ privileged_process_containment_acceptance() (
         --shell /usr/bin/nologin -- "$scope_user" >/dev/null 2>&1 ||
         fail 'could not create AUR scope fixture account'
     scope_user_created=true
+    [ "$(id -u -- "$scope_user")" = "$scope_uid" ] || fail 'AUR scope fixture UID differs'
+    scope_gid="$(id -g -- "$scope_user")"
+    [[ "$scope_gid" =~ ^[1-9][0-9]*$ ]] || fail 'invalid AUR scope fixture GID'
     scope_root="$(mktemp -d /tmp/arch-linux-aur-scope.XXXXXXXX)"
     case "${scope_root}" in /tmp/arch-linux-aur-scope.*) ;; *) fail 'unsafe AUR scope root' ;; esac
-    chown "$scope_uid:$(id -g -- "$scope_user")" -- "${scope_root}"
+    chown "$scope_uid:$scope_gid" -- "${scope_root}"
     chmod 0700 -- "${scope_root}"
     scope_pid_file="${scope_root}/detached.pid"
     scope_marker="${scope_root}/detached.marker"
@@ -1094,24 +1098,52 @@ privileged_process_containment_acceptance() (
     if aur_builder_uid_has_live_process "${AUR_ACTIVE_BUILDER_UID}"; then
         fail 'AUR fixture UID already has a live process'
     fi
+    # This is a generic cgroup fixture, not a login or a chroot session. A direct runuser on the
+    # live host opens PAM/logind and can migrate the fixture into a session cgroup. Production
+    # uses arch-chroot with a separate PID namespace and a target-only UID absent from that host.
+    # Drop numeric credentials without PAM here; independently prove both a successful foreground
+    # command and the detached child's exact credentials/cgroup before accepting any rejection.
+    scope_expected_cgroup="${PROCESS_CGROUP_DIR#/sys/fs/cgroup}/aur-build-${BASHPID}-$((AUR_BUILD_SEQUENCE + 1))"
+    scope_expected_identity="$(printf 'Uid: %s %s %s %s\nGid: %s %s %s %s\nGroups:\n0::%s\n' \
+        "$scope_uid" "$scope_uid" "$scope_uid" "$scope_uid" \
+        "$scope_gid" "$scope_gid" "$scope_gid" "$scope_gid" "$scope_expected_cgroup")"
+    aur_builder_scope_run "${scope_output}" \
+        setpriv --reuid "$scope_uid" --regid "$scope_gid" --clear-groups -- bash -c '
+            awk '\''/^(Uid|Gid|Groups):/ { $1=$1; print }'\'' /proc/self/status
+            cat /proc/self/cgroup
+        ' || fail 'AUR credential/cgroup foreground control failed'
+    [ "$(<"${scope_output}")" = "$scope_expected_identity" ] ||
+        fail 'AUR foreground control credentials or cgroup differ'
+
+    scope_identity_file="${scope_root}/detached.identity"
+    scope_expected_cgroup="${PROCESS_CGROUP_DIR#/sys/fs/cgroup}/aur-build-${BASHPID}-$((AUR_BUILD_SEQUENCE + 1))"
+    scope_expected_identity="$(printf 'Uid: %s %s %s %s\nGid: %s %s %s %s\nGroups:\n0::%s\n' \
+        "$scope_uid" "$scope_uid" "$scope_uid" "$scope_uid" \
+        "$scope_gid" "$scope_gid" "$scope_gid" "$scope_gid" "$scope_expected_cgroup")"
     set +e
-    aur_builder_scope_run "${scope_output}" runuser -u "$scope_user" -- bash -c '
+    aur_builder_scope_run "${scope_output}" \
+        setpriv --reuid "$scope_uid" --regid "$scope_gid" --clear-groups -- bash -c '
         setsid bash -c '\''
+            awk "/^(Uid|Gid|Groups):/ { \$1=\$1; print }" /proc/self/status >"$3" || exit 125
+            cat /proc/self/cgroup >>"$3" || exit 125
             printf "%s\n" "$BASHPID" >"$1"
             trap "" TERM
             sleep 30
             printf "%s\n" escaped >"$2"
-        '\'' bash "$1" "$2" &
+        '\'' bash "$1" "$2" "$3" &
         for ((attempt = 0; attempt < 100; attempt++)); do
             [ -s "$1" ] && exit 0
             sleep 0.01
         done
         exit 125
-    ' bash "${scope_pid_file}" "${scope_marker}"
+    ' bash "${scope_pid_file}" "${scope_marker}" "${scope_identity_file}"
     scope_status=$?
     set -e
     assert_real_rejection_status "$scope_status" \
         'AUR child-cgroup runner detached descendant'
+    [ -f "${scope_identity_file}" ] && [ ! -L "${scope_identity_file}" ] &&
+        [ "$(<"${scope_identity_file}")" = "$scope_expected_identity" ] ||
+        fail 'AUR detached child credentials or cgroup differ'
     [ -s "${scope_pid_file}" ] || fail 'AUR detached fixture did not record its PID'
     IFS= read -r detached_pid <"${scope_pid_file}"
     [[ "${detached_pid}" =~ ^[0-9]+$ ]] || fail 'invalid AUR detached PID evidence'
