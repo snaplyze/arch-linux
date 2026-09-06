@@ -89,6 +89,56 @@ tag (peeled for annotated tags), not an unrelated default-branch HEAD. A configu
 endpoint is checked separately, so newer releases still produce an advisory. Missing tags and
 network errors remain visible; none of these checks changes the accepted inputs.
 
+### Reviewed extension update: Just Perfection 37
+
+The unreleased installer source pins Just Perfection 37 after the 2026-09-06 review of
+[upstream tag 37.0](https://gitlab.gnome.org/jrahmatzadeh/just-perfection/-/tree/37.0)
+at `ae48fd2d75a5747bbda1bdb2b039e9a3384ddf4c` and AUR commit
+`f84ccdef0316a572471c282763b52dd5901e87b6`. The installer and `maintenance/sources.json`
+bind the same AUR archive, committed metadata and hardened PKGBUILD hashes. The source test
+uses byte-exact public AUR fixtures, runs the installer's actual hardening block without
+executing PKGBUILD, and rejects stale version-36 identities and changed dependency metadata.
+
+Version 37 fixes pending timer/signal cleanup and translations, retains GNOME 45–50 support
+and adds GNOME 51 metadata. The settings schema, manager, entrypoint, stylesheet and build
+script bytes are unchanged from 36; the dependency closure remains `git` and `gnome-shell`.
+The exact released commit is accepted, not a later development HEAD with download statistics.
+
+Both versions were built by a disposable unprivileged makepkg user in clean Arch containers
+using image `archlinux:base-devel@sha256:714acd1eef9ae997d95691b1c5220ada0076185b77857c1813f02de0fa83cf7b`.
+Regenerated metadata, package contents and the existing AUR archive verifier passed.
+The reviewed version-37 package SHA-256 was
+`286bb78f8fc1fc05b1f1338c90b965673b40563098a9ec4db0bd2bdb21f8a23e`.
+This focused AUR build is not a new canonical project-package release build.
+
+Fresh Stock `luksgrub-20260906T101759Z-8fd2f0d5` and Marble
+`marble-20260906T101800Z-3808e87e` runs passed runtime compatibility on GNOME Shell `1:50.4-1`
+and GDM `50.3-1`. Each first installed unchanged signed 1.0.0, then upgraded the hash-verified
+local AUR package from 36 to 37 before the first user login, without a trust-policy override.
+Real GDM password login, Wayland, lock/unlock, `pacman -Syu`, reboot/relogin, package integrity,
+zero failed units, clean shutdown and `qemu-img check` passed. Marble additionally passed
+fallback, restoration, removal and reinstall with fresh password logins. D-Bus checks found
+Just Perfection 37 and Blur 72 active, system-installed and error-free in four Stock and eight
+Marble phases. Both runs removed their temporary disks and firmware state.
+
+These results bind released product/harness commit `94d8e9e72fefc38e790942763c615801d49eff97`,
+tree `aae94e9c5eb8b381570cb51e141bf5c0b9ff3c57`, the September ISO and signed snapshot above,
+and the separate one-use compatibility operator SHA-256
+`5384ee252c40df8ced19adfa8a315b55e0dc04b0012e331c63a4cccc52a4a5ea`.
+Their verdict is `COMPATIBILITY_PASS`, `releaseAcceptance=false`: not a fresh-install PASS
+for a modified installer or a new release. No production key or signed-release verifier changed.
+
+Blur stays at [released v72](https://github.com/aunetx/blur-my-shell/releases/tag/v72),
+commit `444df605b34529dfab7be77d0f434bf54a6dd4cc`; its AUR input is unchanged. The detected
+development HEAD contains unreleased popup/shader/pipeline changes, not a released v73.
+Keep that advisory visible until a separately reviewed update is justified.
+
+Published 1.0.0 bootstrap, assets, tag and Pages remain unchanged. The new installer pin is
+unreleased and requires the next installer release to reach release-pinned fresh installs.
+These extensions are AUR packages, not project Pages packages: this change does not deliver
+Just Perfection 37 to existing systems through `pacman -Syu`. Project Marble/profile and public
+keyring packages retain their separate signed Pages/pacman update path.
+
 ## A+B reproducibility
 
 Two independent clean Arch builds are compared monthly as advisory evidence:

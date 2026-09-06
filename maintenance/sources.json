@@ -80,10 +80,10 @@
     },
     {
       "name": "gnome-shell-extension-just-perfection-desktop",
-      "commit": "57e67cabe41c94858bd7f3cbe2c80eacc491b7cc",
-      "treeSha256": "8b238aa4db622d608810b62d64c74b7b87beea3c44b8aebd1a59d91d5c58f2e0",
-      "srcinfoSha256": "9bbd8b52402236f642dcd926dc5a20e137b1d36a474f369ac53bf1ad560f383d",
-      "pkgbuildSha256": "9f0fe0d3c9088b49c67ee1638218aff9ebddbd01f91c976b89139775be47578f"
+      "commit": "f84ccdef0316a572471c282763b52dd5901e87b6",
+      "treeSha256": "c810cb87747cab8a17a99ac5e84f2365189f57ca315231357ee0c7e84768e01f",
+      "srcinfoSha256": "c857d483ee3286c9e6f1eaa8c43b7075d2a4a526ef6f1c1b580b55245400a597",
+      "pkgbuildSha256": "46ab547c6609a84a843b66a0de6b36c7eeb882127de72394ab6a8a760a1975b4"
     },
     {
       "name": "paru",
@@ -184,7 +184,7 @@
     {
       "id": "aur-upstream:just-perfection",
       "git": "https://gitlab.gnome.org/jrahmatzadeh/just-perfection.git",
-      "acceptedCommit": "818aa98baa1d6dbec7b44b70d9074d95d516a499",
+      "acceptedCommit": "ae48fd2d75a5747bbda1bdb2b039e9a3384ddf4c",
       "impact": "Focused source/package review and the relevant Stock/Marble scenario."
     },
     {
