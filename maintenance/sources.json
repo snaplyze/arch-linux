@@ -158,8 +158,8 @@
     {
       "id": "upstream:colloid-icons",
       "git": "https://github.com/vinceliuice/Colloid-icon-theme.git",
-      "acceptedCommit": "fa07485895a2443f7cfbceefe9dcdde798a05215",
-      "acceptedArchiveSha256": "27be4c8bf046bdfcac592b691b42abd38fda3dccb2659a46b77ecb7c7dc5eee7",
+      "acceptedCommit": "ceac6608ecd0e40025cbc2ebbd32bf0e0f4ebc6a",
+      "acceptedArchiveSha256": "3f731f9f13b1c1403893561ff92adec7b3ab07c5495f55c78c111b07a10a296e",
       "impact": "Reproducible six-package validation and Marble real-QEMU."
     },
     {
@@ -210,8 +210,8 @@
     },
     {
       "package": "arch-linux-colloid-icons",
-      "source": "arch-linux-colloid-icons-fa07485895a2443f7cfbceefe9dcdde798a05215.tar.gz::https://github.com/vinceliuice/Colloid-icon-theme/archive/fa07485895a2443f7cfbceefe9dcdde798a05215.tar.gz",
-      "sha256": "27be4c8bf046bdfcac592b691b42abd38fda3dccb2659a46b77ecb7c7dc5eee7"
+      "source": "arch-linux-colloid-icons-ceac6608ecd0e40025cbc2ebbd32bf0e0f4ebc6a.tar.gz::https://github.com/vinceliuice/Colloid-icon-theme/archive/ceac6608ecd0e40025cbc2ebbd32bf0e0f4ebc6a.tar.gz",
+      "sha256": "3f731f9f13b1c1403893561ff92adec7b3ab07c5495f55c78c111b07a10a296e"
     },
     {
       "package": "arch-linux-marble-gdm",
