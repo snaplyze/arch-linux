@@ -47,6 +47,8 @@ evidence=''
 assertions_file=''
 source_commit=''
 source_tree=''
+harness_commit=''
+harness_tree=''
 installer_sha256=''
 harness_sha256=''
 target_serial=''
@@ -290,13 +292,36 @@ finalize_run_storage() {
     run_storage_finalized='true'
 }
 
+bind_vm_source_identities() {
+    harness_commit="$(git -C "${repository_root}" rev-parse HEAD)"
+    harness_tree="$(git -C "${repository_root}" rev-parse 'HEAD^{tree}')"
+    source_commit="${harness_commit}"
+    source_tree="${harness_tree}"
+    if [ "${input_mode}" = public ]; then
+        # Public acceptance tests immutable release bytes, even after a test-only fix.
+        [ "$(git -C "${repository_root}" cat-file -t "refs/tags/${release_version}")" = tag ] ||
+            die 'public acceptance requires an annotated release tag' || return 1
+        source_commit="$(git -C "${repository_root}" rev-parse "refs/tags/${release_version}^{commit}")"
+        source_tree="$(git -C "${repository_root}" rev-parse "refs/tags/${release_version}^{tree}")"
+        git -C "${repository_root}" merge-base --is-ancestor "${source_commit}" "${harness_commit}" ||
+            die 'released source is not an ancestor of the test checkout' || return 1
+        git -C "${repository_root}" diff --quiet "${source_commit}" "${harness_commit}" -- \
+            install.sh arch-linux-installer.sh packages repository maintenance ||
+            die 'public test checkout changes release product inputs' || return 1
+    fi
+}
+
 verify_frozen_source_unchanged() {
     [ "$(git -C "${repository_root}" status --porcelain=v1 --untracked-files=all)" = '' ] ||
         die 'source drifted during the VM run'
-    [ "$(git -C "${repository_root}" rev-parse HEAD)" = "${source_commit}" ] ||
+    [ "$(git -C "${repository_root}" rev-parse HEAD)" = "${harness_commit}" ] ||
         die 'source commit drifted during the VM run'
-    [ "$(git -C "${repository_root}" rev-parse 'HEAD^{tree}')" = "${source_tree}" ] ||
+    [ "$(git -C "${repository_root}" rev-parse 'HEAD^{tree}')" = "${harness_tree}" ] ||
         die 'source tree drifted during the VM run'
+    if [ "${input_mode}" = public ]; then
+        [ "$(git -C "${repository_root}" rev-parse "refs/tags/${release_version}^{commit}")" = \
+            "${source_commit}" ] || die 'release tag drifted during the VM run'
+    fi
     [ "$(sha256sum --binary -- "${repository_root}/arch-linux-installer.sh" | awk '{ print $1 }')" = \
         "${installer_sha256}" ] || die 'installer bytes drifted during the VM run'
     [ "$(stat -Lc '%u:%a:%h' -- "${run_root}/harness.sha256")" = "$(id -u):600:1" ] ||
@@ -1539,6 +1564,8 @@ bind_frozen_inputs() {
     expected="$(printf '%s\n' \
         "source_commit=${source_commit}" \
         "source_tree=${source_tree}" \
+        "harness_commit=${harness_commit}" \
+        "harness_tree=${harness_tree}" \
         "installer_sha256=${installer_sha256}" \
         "bootstrap_sha256=${bootstrap_sha256}" \
         "iso_sha256=${iso_sha256}" \
@@ -1717,8 +1744,7 @@ main() {
             die "runtime source is not tracked: ${member}"
     done
 
-    source_commit="$(git -C "${repository_root}" rev-parse HEAD)"
-    source_tree="$(git -C "${repository_root}" rev-parse 'HEAD^{tree}')"
+    bind_vm_source_identities
     installer_sha256="$(sha256sum --binary -- "${repository_root}/arch-linux-installer.sh" | awk '{ print $1 }')"
     bootstrap_sha256="$(sha256sum --binary -- "${repository_root}/install.sh" | awk '{ print $1 }')"
     run_id="${run_prefix}-$(date -u +%Y%m%dT%H%M%SZ)-$(openssl rand -hex 4)"
@@ -1767,6 +1793,11 @@ main() {
         sha256sum -- "${harness_files[@]}"
     ) >"${run_root}/harness.sha256"
     harness_sha256="$(sha256sum --binary -- "${run_root}/harness.sha256" | awk '{ print $1 }')"
+    if [ "${input_mode}" = public ]; then
+        printf 'harness_commit=%s\nharness_tree=%s\nrelease_commit=%s\nrelease_tree=%s\n' \
+            "${harness_commit}" "${harness_tree}" "${source_commit}" "${source_tree}" \
+            >"${run_root}/harness-source.txt"
+    fi
     if [ "${input_mode}" = staged ]; then
         verify_staged_release_input
         prepare_signed_repository_input

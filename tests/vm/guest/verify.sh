@@ -972,6 +972,14 @@ marble_project_packages() {
     fi
 }
 
+public_repository_policy_scope_valid() {
+    local repository_file="$1" pacman_conf="$2"
+    [ -f "${repository_file}" ] && [ -f "${pacman_conf}" ] || return 1
+    # Arch's official repositories use DatabaseOptional. The project override is strict.
+    ! grep -Eq 'TrustAll|PackageOptional|DatabaseOptional' "${repository_file}" &&
+        ! grep -Eq 'https://10\.0\.2\.2:' "${repository_file}" "${pacman_conf}"
+}
+
 verify_public_repository_contract() {
     local expected_repository expected_include metadata primary signing package info
     local repository_file='/etc/pacman.d/arch-linux-marble-repository.conf'
@@ -990,10 +998,7 @@ verify_public_repository_contract() {
     [ "$(awk '/^# BEGIN arch-linux Marble profile repository$/ { print; getline; print; getline; print; exit }' \
         /etc/pacman.conf)" = "${expected_include}" ]
     [ "$(grep -Fxc 'Include = /etc/pacman.d/arch-linux-marble-repository.conf' /etc/pacman.conf)" -eq 1 ]
-    if grep -Eq 'TrustAll|PackageOptional|DatabaseOptional|https://10\.0\.2\.2:' \
-        "${repository_file}" /etc/pacman.conf; then
-        return 1
-    fi
+    public_repository_policy_scope_valid "${repository_file}" /etc/pacman.conf
     [ ! -e /etc/ca-certificates/trust-source/anchors/arch-linux-qemu-acceptance.crt ]
     [ -f /var/lib/pacman/sync/arch-linux.db ] && [ ! -L /var/lib/pacman/sync/arch-linux.db ]
 

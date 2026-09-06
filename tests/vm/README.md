@@ -65,6 +65,14 @@ After the Release and Pages deployment have passed independent readback, run the
 scenario. The payload contains harness identity and public URLs, not local installer, key, snapshot,
 CA or repository bytes:
 
+Public mode resolves product identity from the annotated release tag, not from the current test
+checkout. A reviewed test-only fix may run from a later clean descendant, provided installer,
+bootstrap, packages, repository/trust and maintenance inputs are unchanged. The retained
+`harness-source.txt` records both commits/trees; `harness.sha256` records the actual test bytes.
+This does not transfer an old PASS to a new product or replace released assets. The project
+repository still requires database signatures even though official Arch repositories normally
+use their own `DatabaseOptional` policy.
+
 ```bash
 bash tests/vm/run.sh marble-gnome-btrfs-luks2-plymouth-systemdboot \
   --mode public \

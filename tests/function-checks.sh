@@ -75,6 +75,29 @@ rm -f -- "$size_fixture"
 [[ "$(aur_helper_command yay)" == "yay" ]]
 [[ "$(aur_helper_command none)" == "pacman" ]]
 
+(
+    eval "$(sed -n '/^public_repository_policy_scope_valid() {/,/^}/p' \
+        "${repo_root}/tests/vm/guest/verify.sh")"
+    project_config="${function_runtime_dir}/project-pacman.conf"
+    official_config="${function_runtime_dir}/official-pacman.conf"
+    printf 'SigLevel = Required DatabaseOptional\n' >"${official_config}"
+    printf 'SigLevel = PackageRequired DatabaseRequired TrustedOnly\n' >"${project_config}"
+    public_repository_policy_scope_valid "${project_config}" "${official_config}"
+    for forbidden in TrustAll PackageOptional DatabaseOptional; do
+        printf 'SigLevel = %s\n' "${forbidden}" >"${project_config}"
+        if public_repository_policy_scope_valid "${project_config}" "${official_config}"; then
+            echo 'function check failed: relaxed project policy accepted' >&2
+            exit 1
+        fi
+    done
+    printf 'SigLevel = PackageRequired DatabaseRequired TrustedOnly\n' >"${project_config}"
+    printf 'Server = https://10.0.2.2:1234/repo\n' >>"${official_config}"
+    if public_repository_policy_scope_valid "${project_config}" "${official_config}"; then
+        echo 'function check failed: public policy accepted a local staging URL' >&2
+        exit 1
+    fi
+)
+
 aur_package_output_path_is_safe \
     '/var/lib/arch-linux-aur-builder/src-gnome-shell-extension-dash-to-dock-1/gnome-shell-extension-dash-to-dock-1:106-1-any.pkg.tar.zst'
 aur_package_output_path_is_safe \
