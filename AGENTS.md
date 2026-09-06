@@ -179,6 +179,11 @@ preserved partition/EFI/file identities and real boot, not network/service healt
 availability of OS administration tools that the installer does not provision there.
 Do not describe an unexecuted variant or a static assertion as a successful installation.
 
+Public acceptance may use a later reviewed test checkout for an unchanged tagged release.
+Bind the released commit/tree separately from the actual harness commit/tree and hashes;
+require unchanged installer, bootstrap, package, repository/trust and maintenance inputs.
+Do not relabel old results, move the tag or replace assets to fix a diagnostic test.
+
 ## Secrets
 
 Private OpenPGP/SSH keys, tokens, passphrases, recovery phrases/shares, revocation material and local

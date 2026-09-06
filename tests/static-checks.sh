@@ -214,6 +214,49 @@ with tempfile.TemporaryDirectory(prefix='pages-source-') as raw:
 print('Pages release/package-only metadata checks passed; DEPLOY=NOT_RUN')
 PAGES_MODES_PY
 
+python3 - "$repo_root/tests/vm/run.sh" <<'PUBLIC_SOURCE_PY'
+from pathlib import Path
+import os, re, subprocess, sys, tempfile
+text = Path(sys.argv[1]).read_text()
+function = re.search(r'^bind_vm_source_identities\(\) \{\n.*?^\}', text, re.S | re.M)
+assert function is not None
+with tempfile.TemporaryDirectory(prefix='public-source-') as raw:
+    root = Path(raw)
+    def git(*args):
+        return subprocess.check_output(['git', '-C', raw, *args], text=True, stderr=subprocess.DEVNULL).strip()
+    git('init', '-b', 'main')
+    git('config', 'user.name', 'Fixture')
+    git('config', 'user.email', 'fixture@example.invalid')
+    (root / 'arch-linux-installer.sh').write_text('original\n')
+    git('add', '.')
+    git('commit', '-m', 'release')
+    release = git('rev-parse', 'HEAD')
+    script = 'set -euo pipefail\ndie() { return 1; }\n' + function.group(0) + \
+             '\nbind_vm_source_identities\nprintf "%s:%s" "$source_commit" "$harness_commit"\n'
+    def run(mode='public'):
+        return subprocess.run(['bash', '-c', script], capture_output=True, text=True,
+                              env=dict(os.environ, repository_root=raw, input_mode=mode,
+                                       release_version='1.0.0'), check=False)
+    assert run('staged').stdout == release + ':' + release
+    assert run().returncode != 0  # no release tag
+    git('tag', '-a', '1.0.0', '-m', 'frozen')
+    assert run().stdout == release + ':' + release
+    (root / 'tests').mkdir()
+    (root / 'tests' / 'check.txt').write_text('diagnostic fix\n')
+    git('add', '.')
+    git('commit', '-m', 'test-only fix')
+    harness = git('rev-parse', 'HEAD')
+    assert run().stdout == release + ':' + harness
+    (root / 'arch-linux-installer.sh').write_text('changed product\n')
+    git('add', '.')
+    git('commit', '-m', 'product change')
+    assert run().returncode != 0
+    git('tag', '-d', '1.0.0')
+    git('tag', '1.0.0', release)
+    assert run().returncode != 0  # lightweight tag
+print('Public release/test-source separation checks passed; QEMU=NOT_RUN')
+PUBLIC_SOURCE_PY
+
 for literal in "'schema':2" sourceCommit sourceTree installerSha256 packageSetSha256 \
     unsignedManifestSha256; do
     grep -Fq -- "$literal" "$repo_root/repository/build-packages.sh" ||
