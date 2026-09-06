@@ -13,7 +13,12 @@ package build and independent verification of the production-signed release asse
 
 `run.sh` creates a new qcow2 disk and copies independent OVMF VARS for every run. It refuses reused
 run paths and binds all runs in one output root to one exact source/tree, ISO, production-signed
-snapshot, build metadata and unsigned manifest. Use the same values for the three staged commands:
+snapshot, build metadata and unsigned manifest. Commands sharing an output root must run
+sequentially: the final retention measurement includes that entire root. For concurrent scenarios,
+give each one its own generated output root, keeping all accepted source/ISO/package hashes equal;
+otherwise another live VM disk would be counted as retained evidence. These are disposable VM
+data directories, not additional development checkouts.
+Use the same values for the three sequential staged commands:
 
 ```bash
 common=(

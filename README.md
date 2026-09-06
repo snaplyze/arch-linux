@@ -69,9 +69,11 @@ rotation procedure.
 
 ## Development verification
 
-`main` may contain reviewed changes that are not yet released. The release-pinned bootstrap
-selects `1.0.1`; use it only once that release is published. A source merge alone does not
-publish an installer or update Pages. Existing `1.0.0` assets and its tag are preserved.
+Release [1.0.1](https://github.com/snaplyze/arch-linux/releases/tag/1.0.1) and its signed Pages
+packages are published and verified. Fresh public installation and the actual installer/package
+update paths passed. See the [release verification summary](docs/release-process.md#released-101).
+`main` may later contain unreleased changes; a source merge alone does not publish an installer
+or update Pages. Existing `1.0.0` assets and its tag are preserved.
 See the [reviewed updates and delivery boundaries](docs/maintenance.md#external-source-inputs).
 
 The normative source command is:
