@@ -11,15 +11,29 @@ sources=ROOT/'maintenance/sources.json'
 def digest(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 before={path:digest(path) for path in (state,sources)}
 subprocess.run([sys.executable,str(ROOT/'maintenance/check-sources.py')],check=True,stdout=subprocess.DEVNULL)
-unchanged=subprocess.run([sys.executable,str(checker),'--metadata',str(fixtures/'unchanged.json')],check=True,text=True,stdout=subprocess.PIPE).stdout
-if 'Arch ISO detector: unchanged' not in unchanged: raise SystemExit('maintenance check failed: unchanged fixture differs')
-new=subprocess.run([sys.executable,str(checker),'--metadata',str(fixtures/'new.json')],check=True,text=True,stdout=subprocess.PIPE).stdout
-if 'CHANGE DETECTED' not in new or 'automatic_trust_update=forbidden' not in new: raise SystemExit('maintenance check failed: new fixture differs')
-for name in ('duplicate.json','malformed.json'):
-    result=subprocess.run([sys.executable,str(checker),'--metadata',str(fixtures/name)],text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-    if result.returncode==0: raise SystemExit(f'maintenance check failed: negative fixture accepted: {name}')
-result=subprocess.run([sys.executable,str(checker),'--metadata',str(fixtures/'source-mismatch.json'),'--source-url','https://example.invalid/api/v1/releng/releases/'],text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-if result.returncode==0: raise SystemExit('maintenance check failed: non-authoritative source accepted')
+iso = runpy.run_path(str(checker))
+iso['parse_accepted_state'](state.read_bytes())  # Validate the actual, advancing accepted baseline.
+# Detector fixtures keep their own historical baseline, independent of later accepted ISOs.
+baseline = iso['parse_official_metadata']((fixtures/'unchanged.json').read_bytes(), iso['OFFICIAL_METADATA_SOURCE'])
+with tempfile.TemporaryDirectory(prefix='maintenance-iso-fixture-') as temporary:
+    fixture_state = pathlib.Path(temporary)/'accepted.json'
+    fixture_state.write_text(json.dumps({
+        'schema': 1, 'source': baseline.source, 'version': baseline.version,
+        'releaseDate': baseline.release_date, 'isoName': baseline.iso_name,
+        'isoUrl': baseline.iso_url, 'sha256': baseline.sha256,
+    }))
+    def check_iso(name, *extra):
+        return subprocess.run([sys.executable, str(checker), '--state', str(fixture_state),
+                               '--metadata', str(fixtures/name), *extra],
+                              text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    unchanged = check_iso('unchanged.json')
+    assert unchanged.returncode == 0 and 'Arch ISO detector: unchanged' in unchanged.stdout
+    new = check_iso('new.json')
+    assert new.returncode == 0 and 'CHANGE DETECTED' in new.stdout and 'automatic_trust_update=forbidden' in new.stdout
+    for name in ('duplicate.json', 'malformed.json'):
+        assert check_iso(name).returncode != 0, f'negative fixture accepted: {name}'
+    assert check_iso('source-mismatch.json', '--source-url',
+                     'https://example.invalid/api/v1/releng/releases/').returncode != 0
 after={path:digest(path) for path in (state,sources)}
 if before!=after: raise SystemExit('maintenance check failed: advisory checks changed accepted state')
 
@@ -60,6 +74,68 @@ body, clean = combine(drift_body, healthy, None)
 assert not clean and 'Unresolved package drift.' in body
 assert combine(body, {'status': 'error'}, None)[1] is False
 assert combine('', healthy, None)[1] is False  # Unknown monthly state is not fabricated as PASS.
+
+# Exercise actual issue updates at the HTTP boundary, including lost-response recovery.
+with tempfile.TemporaryDirectory(prefix='maintenance-key-notice-') as temporary:
+    report_path = pathlib.Path(temporary)/'key.json'
+    remote = {'body': drift_body, 'comments': [], 'lose_post_response': False}
+    calls = []
+    def fake_request(method, url, token, payload=None):
+        assert token == 'fixture-only'
+        calls.append((method, url))
+        if method == 'GET' and '/comments?' in url:
+            page = int(url.rsplit('page=', 1)[1])
+            return remote['comments'][(page-1)*100:page*100]
+        if method == 'GET':
+            return [{'number': 24, 'title': advisory['TITLE'], 'body': remote['body']}]
+        if method == 'POST' and url.endswith('/comments'):
+            remote['comments'].append({'user': {'login': 'github-actions[bot]'}, **payload})
+            if remote['lose_post_response']:
+                remote['lose_post_response'] = False
+                raise OSError('fixture: POST succeeded but response was lost')
+            return {}
+        if method == 'PATCH':
+            assert 'state' not in payload  # Unresolved monthly findings must stay open.
+            remote['body'] = payload['body']
+            return {}
+        raise AssertionError((method, url))
+    def update_key(report):
+        report_path.write_text(json.dumps(report))
+        with mock.patch.dict(advisory['main'].__globals__, {'request': fake_request}), \
+             mock.patch.dict(os.environ, {'GITHUB_TOKEN': 'fixture-only', 'GITHUB_REPOSITORY': 'example/test'}), \
+             mock.patch.object(sys, 'argv', ['updater', '--key-only', '--key-report', str(report_path)]):
+            advisory['main']()
+    update_key(healthy)
+    assert not remote['comments']
+    update_key(due)
+    assert len(remote['comments']) == 1 and '2027-08-24' in remote['comments'][-1]['body']
+    calls.clear()
+    update_key(due | {'remainingDays': 179})
+    assert len(remote['comments']) == 1 and all(method == 'GET' for method, _ in calls)
+    update_key(healthy)
+    assert len(remote['comments']) == 2 and 'Unresolved package drift.' in remote['body']
+    update_key({'status': 'error', 'automaticChanges': False})
+    assert len(remote['comments']) == 3
+    urgent = due | {'status': 'urgent'}
+    remote['lose_post_response'] = True
+    try:
+        update_key(urgent)
+    except OSError:
+        pass
+    else:
+        raise AssertionError('lost POST response was hidden')
+    assert len(remote['comments']) == 4 and '- Status: `error`' in remote['body']
+    remote['comments'][:0] = [{'user': {'login': 'someone'}, 'body': 'ordinary comment'}]*100
+    calls.clear()
+    update_key(urgent)
+    assert len(remote['comments']) == 104 and '- Status: `urgent`' in remote['body']
+    assert any('page=2' in url for _, url in calls)
+    assert not any(method == 'POST' for method, _ in calls)
+    # A notice-shaped user comment cannot suppress the workflow's notification.
+    remote['comments'][-1]['user']['login'] = 'someone'
+    remote['body'] = drift_body
+    update_key(urgent)
+    assert len(remote['comments']) == 105
 
 # Actual monitor functions: preserve version granularity and resolve exact tags.
 monitor = runpy.run_path(str(ROOT/'maintenance/check-sources.py'))

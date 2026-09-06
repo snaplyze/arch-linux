@@ -14,6 +14,14 @@ Warnings begin 210 days before expiry; manual renewal is due at 180 days, with u
 warnings at 90/30 days. Repeated unchanged warnings do not generate issue updates. Production
 signing still requires at least 180 days remaining.
 
+On an existing issue, a changed key warning (or recovery from a warning) also posts one comment:
+the [GitHub comment endpoint triggers notifications](https://docs.github.com/en/rest/issues/comments#create-an-issue-comment).
+Editing the issue description alone is not used as the notification mechanism. The updater checks
+its latest bot notice before posting, including after a lost response, and preserves monthly
+findings. Initial healthy checks and unchanged daily reports stay quiet. Subscribe to the advisory
+issue and configure your GitHub notification delivery preferences; this does not override a muted
+account or guarantee email delivery.
+
 The current signing subkey expires on **2027-08-24 at 11:42:46 UTC**; the renewal cycle begins
 **2027-02-25**. These dates are read from the public certificate, not silently updated trust pins.
 GitHub never renews a key or handles private material. Follow the
@@ -35,6 +43,26 @@ python3 maintenance/check-arch-iso.py
 
 Updating accepted ISO state is a separate human-reviewed task. At minimum, a new ISO requires fresh
 Minimal TTY and Stock GNOME QEMU acceptance before the committed state changes.
+
+The September 2026 baseline was reviewed with official ISO `2026.09.01` and installed GDM
+`50.3-1`, GNOME Shell `1:50.4-1`, Linux `7.2.3.arch1-2` and Ptyxis `50.1-1`. Fresh Minimal,
+Stock Btrfs/LUKS2/GRUB and Marble Btrfs/LUKS2/systemd-boot with opt-in Marble GDM passed.
+The graphical runs included real password login, Wayland, lock/unlock, update and repeat login;
+Marble also passed fallback and package removal/reinstallation. All runs shut down cleanly,
+passed `qemu-img check` and removed their owned runtime.
+
+These are compatibility results for unchanged released product and harness commit
+`94d8e9e72fefc38e790942763c615801d49eff97`, tree
+`aae94e9c5eb8b381570cb51e141bf5c0b9ff3c57`, not a new release or a PASS for later product changes:
+
+- Minimal: `minimal-20260906T085524Z-3f5be618`.
+- Stock: `luksgrub-20260906T085525Z-77f65b3a`.
+- Marble: `marble-20260906T090802Z-576b0797`.
+
+The ISO SHA-256 is recorded in `maintenance/accepted-arch-iso.json`; its detached signature was
+verified against official Arch public trust. The existing signed repository snapshot SHA-256 was
+`d3e7dd50ffaeb7d8538a5eab32fe4a5e27ff3e4d9f0dfaa071aadff2e278c619` for all three runs.
+No installer/package pin, production certificate or published 1.0.0 asset changed for this review.
 
 ## External source inputs
 
