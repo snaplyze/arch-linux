@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -89,6 +90,41 @@ def combined_body(previous: str, key: dict[str, Any], monthly: str | None,
     return monthly.rstrip() + "\n" + "\n".join(lines) + "\n", monthly_clean and healthy
 
 
+def notify_key_transition(repository: str, token: str, number: int, previous: str,
+                          body: str, key: dict[str, Any]) -> None:
+    """Use the notification-producing comment endpoint, without daily repeats."""
+    old = previous.partition(KEY_HEADING)[2]
+    current = body.partition(KEY_HEADING)[2]
+    if old == current:
+        return
+    if key.get("status") == "healthy" and key.get("automaticChanges") is False:
+        if not old or old.startswith("- Status: `healthy`\n"):
+            return
+    # remainingDays is intentionally absent from the rendered section. Check the latest
+    # bot notice before POST so a lost POST response/body PATCH can be retried quietly.
+    marker = "<!-- arch-linux-key-notice:" + hashlib.sha256(current.encode()).hexdigest() + " -->"
+    endpoint = f"{API}/repos/{repository}/issues/{number}/comments"
+    latest = None
+    page = 1
+    while True:
+        comments = request("GET", f"{endpoint}?per_page=100&page={page}", token)
+        for comment in comments:
+            if comment.get("user", {}).get("login") != "github-actions[bot]":
+                continue
+            match = re.match(r"<!-- arch-linux-key-notice:[a-f0-9]{64} -->", comment.get("body") or "")
+            if match:
+                latest = match.group(0)
+        if len(comments) < 100:
+            break
+        page += 1
+    if latest != marker:
+        request("POST", endpoint, token, {"body": (
+            marker + "\nPublic signing-key status changed.\n" + KEY_HEADING + current
+            + f"\n[Manual renewal and recovery](https://github.com/{repository}/blob/main/docs/"
+              "trust-model.md#expiry-renewal-and-installed-systems).\n"
+        )})
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--report")
@@ -139,6 +175,7 @@ def main() -> None:
     payload = {"title": TITLE, "body": body}
     if matches:
         if body != previous:
+            notify_key_transition(repository, token, int(matches[0]["number"]), previous, body, key)
             request("PATCH", f"{API}/repos/{repository}/issues/{int(matches[0]['number'])}", token, payload)
             print(f"updated issue #{matches[0]['number']}")
         else:

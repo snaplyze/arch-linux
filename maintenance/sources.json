@@ -12,7 +12,7 @@
     {
       "id": "arch:gdm",
       "source": "https://archlinux.org/packages/extra/x86_64/gdm/json/",
-      "acceptedVersion": "50.2",
+      "acceptedVersion": "50.3-1",
       "acceptedMajor": 50,
       "impact": "Stock + Marble real-QEMU before accepting an update."
     }

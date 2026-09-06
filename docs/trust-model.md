@@ -47,6 +47,7 @@ operation, not a GitHub signing job and not automatic key rotation.
 3. Independently check the unchanged primary/signing fingerprints, the later expiry and absence of
    private packets. Update the tracked public certificate and its reviewed checksum references,
    increment `arch-linux-keyring`'s `pkgrel`, regenerate `.SRCINFO`, and review the change in a PR.
+   Refresh the documented expiry/renewal dates from `maintenance/check-key-lifetime.py` as well.
 4. Build, test and sign the updated keyring and repository. Publish the signed package update before
    the old certificate expires. The keyring package's upgrade hook populates pacman's keyring and
    updates its trust database; users receive the refreshed certificate through `pacman -Syu`.
@@ -60,6 +61,52 @@ after that original trust input expires. Existing installed systems use the deli
 
 The keyring regression suite exercises the existing same-subkey renewal and real upgrade hook with
 ephemeral test keys. That is not authorization to renew the production key automatically.
+
+### Recovery after missing the update window
+
+This procedure is only for an existing installation whose already trusted primary and signing
+subkey have not changed, and where ordinary renewal was published but the local certificate expired.
+A revoked/compromised key or changed fingerprint needs the separate incident/rotation procedure,
+not these commands. Check the system clock first; never roll it back to bypass expiration.
+
+Obtain the refreshed **public-only** certificate and its SHA-256 through an independently
+authenticated maintainer channel. A certificate plus checksum from the same unverified download
+is not sufficient. Use a reviewed project checkout for its existing public-certificate verifier.
+Set `WORK_DIR` to a private directory outside source containing `arch-linux-renewed.gpg`, and set
+`EXPECTED_PUBLIC_SHA256` to that authenticated checksum. No private key or passphrase is needed.
+
+From the reviewed checkout, verify before touching pacman's keyring:
+
+```bash
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+RECOVERY_PUBLIC_CERT="$WORK_DIR/arch-linux-renewed.gpg"
+printf '%s *%s\n' "$EXPECTED_PUBLIC_SHA256" "$RECOVERY_PUBLIC_CERT" | sha256sum --check --strict - &&
+bash -euc '
+  source "$1/repository/lib/common.sh"
+  repository_assert_public_certificate "$2" \
+    "$1/repository/trust/primary-fingerprint" \
+    "$1/repository/trust/signing-subkey-fingerprint" 0
+' recovery "$REPO_ROOT" "$RECOVERY_PUBLIC_CERT"
+```
+
+Stop if either check fails. The verifier requires the exact fingerprints, the permitted certificate
+shape, no private packets and a currently valid, non-revoked signing subkey. The original primary
+must already be locally trusted on this installed system; do not add new ownertrust or locally sign
+a new key as part of recovery. Import the authenticated renewal and perform a full update:
+
+```bash
+sudo pacman-key --list-keys 8C78098D1EAC609CBC73536FB7D2C17447B90CB2 &&
+sudo pacman-key --add "$RECOVERY_PUBLIC_CERT" &&
+sudo pacman-key --updatedb &&
+sudo pacman -Syu
+```
+
+If an operation fails, stop and investigate. Keep `PackageRequired DatabaseRequired TrustedOnly`;
+do not use a keyserver, `TrustAll`, disabled signature checks or an unsigned fallback. The full update
+delivers the reviewed `arch-linux-keyring` package and its normal upgrade hook. Confirm its installed
+version and the refreshed expiry with `pacman -Q arch-linux-keyring` and
+`sudo pacman-key --finger 8C78098D1EAC609CBC73536FB7D2C17447B90CB2`.
+See the [pacman-key manual](https://man.archlinux.org/man/pacman-key.8.en) for these operations.
 
 ## Rotation or compromise
 
