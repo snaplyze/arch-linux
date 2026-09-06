@@ -57,8 +57,10 @@ def body_for(report: dict[str, Any], reproducibility: str, iso_status: str) -> s
                 f"- **{finding.get('id', 'unknown')}**: accepted `{finding.get('accepted', '')}`, "
                 f"detected `{finding.get('detected', '')}` — {finding.get('impact', '')}"
             )
-        if reproducibility != "match":
-            lines.append("- **A+B**: independent canonical package builds differ or could not be compared.")
+        if reproducibility == "mismatch":
+            lines.append("- **A+B**: both unsigned builds verified, but their exact bytes/provenance differ.")
+        elif reproducibility != "match":
+            lines.append("- **A+B**: build/download/verification failed; reproducibility could not be determined.")
         if iso_status != "unchanged":
             lines.append("- **Arch ISO**: a new ISO or detector error requires manual review and fresh VM evidence.")
     lines += ["", "Manual review is required. Automatic remediation is forbidden."]

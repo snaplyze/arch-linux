@@ -55,6 +55,12 @@ python3 maintenance/check-sources.py --network --report "$ARTIFACT_DIR/source-ad
 Findings are informational. The workflow creates or updates one advisory issue and performs no
 commit, merge, release, signing, pin update, key rotation or remediation pull request.
 
+Arch versions recorded as full package versions retain epoch and pkgrel during comparison;
+legacy pkgver-only entries compare pkgver only. A tagged upstream is checked against its exact
+tag (peeled for annotated tags), not an unrelated default-branch HEAD. A configured latest-release
+endpoint is checked separately, so newer releases still produce an advisory. Missing tags and
+network errors remain visible; none of these checks changes the accepted inputs.
+
 ## A+B reproducibility
 
 Two independent clean Arch builds are compared monthly as advisory evidence:
@@ -66,3 +72,15 @@ repository/compare-package-builds.sh "$ARTIFACT_DIR/build-a" "$ARTIFACT_DIR/buil
 A mismatch updates the same advisory issue but does not block the normal release path. The required
 release build is one clean canonical Arch build.
 The daily key-only run does not rebuild packages or query every external source.
+
+The comparison returns 0 for exact match, 1 for a verified mismatch, and 2 for verification/usage
+errors. The issue distinguishes differing bytes from an unavailable comparison. No package member,
+including `.BUILDINFO` or `.MTREE`, is excluded to obtain a match.
+
+Both disposable Actions build containers use `WORK_DIR=/tmp/arch-linux-canonical-work`.
+makepkg records the actual build/start directories in `.BUILDINFO`; a random directory would
+otherwise cause different archives even with identical installed payloads. The directory must not
+exist and must be disjoint from source and output; the builder creates and owns it exclusively,
+then removes it on completion. Do not point WORK_DIR at existing data or run concurrent builds at
+that same path in a shared environment. Local builds without WORK_DIR retain isolated `mktemp`
+directories. Build environments can still drift independently; actual mismatches remain advisory.
