@@ -34,6 +34,12 @@ Previous compatibility runs are review evidence only; this release requires its 
 signed snapshot and fresh staged/public acceptance. Publication status comes from the verified
 GitHub Release, not from this source preparation note.
 
+The executor verifies its own process group and cgroup before acknowledging entry. A child that
+finishes before the parent can inspect `/proc` is accepted only after a successful Bash child wait,
+the exact protected acknowledgement and normal cgroup cleanup. Missing acknowledgement, non-child
+or failed waits, live wrong process groups and detached descendants still fail closed. The privileged
+regression deliberately completes one real executor before capture; it uses no speed threshold.
+
 Perform local review, source changes, tests, commits and release-host acceptance from the same
 canonical checkout. Switch pull-request branches in place; do not create local per-cycle worktrees,
 sibling clones or copied source repositories. Generated build, signing, VM and evidence data remains
