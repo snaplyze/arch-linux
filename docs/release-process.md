@@ -76,6 +76,12 @@ repository/verify-unsigned-build.sh "$ARTIFACT_DIR/unsigned"
 
 The monthly A+B comparison is advisory and is not a release gate.
 
+Fresh Arch containers initialize their disposable pacman trust database with
+`pacman-key --init` and `pacman-key --populate archlinux` before `pacman -Syu`.
+Otherwise an `archlinux-keyring` upgrade can report a failed scriptlet even when pacman exits
+successfully. This machine-local pacman key is not the project production signing key;
+it is destroyed with the container. Package/database signature policies are not relaxed.
+
 ## 3. Offline signing and repository assembly
 
 Move the downloaded and independently verified unsigned closure to the authorized offline signing

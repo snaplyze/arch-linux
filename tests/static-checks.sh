@@ -76,9 +76,27 @@ expected = {
 step_marker = "      - name: Install build dependencies"
 command = "          pacman -Syu --noconfirm --needed \\"
 
+def keyring_setup_valid(lines, expected_count):
+    upgrades = [index for index, line in enumerate(lines)
+                if line.startswith('          pacman -Syu ')]
+    return len(upgrades) == expected_count and all(
+        lines[index - 2:index] == ['          pacman-key --init',
+                                  '          pacman-key --populate archlinux']
+        for index in upgrades
+    )
+
 for raw_path in sys.argv[1:]:
     path = Path(raw_path)
     lines = path.read_text(encoding="utf-8").splitlines()
+    expected_setup_count = 2 if path.name == 'packages.yml' else 1
+    if not keyring_setup_valid(lines, expected_setup_count):
+        raise SystemExit(f'static check failed: pacman trust is not initialized before upgrade: {path.name}')
+    first_init = lines.index('          pacman-key --init')
+    missing_init = lines[:first_init] + lines[first_init + 1:]
+    reordered = lines.copy()
+    reordered[first_init:first_init + 2] = reversed(reordered[first_init:first_init + 2])
+    assert not keyring_setup_valid(missing_init, expected_setup_count)
+    assert not keyring_setup_valid(reordered, expected_setup_count)
     step_indexes = [index for index, line in enumerate(lines) if line == step_marker]
     if len(step_indexes) != 1:
         raise SystemExit(
