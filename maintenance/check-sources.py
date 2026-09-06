@@ -144,6 +144,39 @@ def fetch_json(url: str) -> Any:
     return json.loads(data.decode("utf-8"))
 
 
+def arch_version(data: dict[str, Any], accepted: str) -> str:
+    """Compare at the recorded granularity without silently dropping epoch/pkgrel."""
+    version = str(data["pkgver"])
+    if ":" in accepted or "-" in accepted:
+        epoch = int(data["epoch"])
+        if epoch or ":" in accepted:
+            version = f"{epoch}:{version}"
+        version += f"-{data['pkgrel']}"
+    return version
+
+
+def upstream_commit(item: dict[str, Any]) -> str:
+    tag = item.get("acceptedTag")
+    refs = [f"refs/tags/{tag}", f"refs/tags/{tag}^{{}}"] if tag else ["HEAD"]
+    result = subprocess.run(
+        ["git", "ls-remote", item["git"], *refs],
+        check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=45,
+    )
+    found: dict[str, str] = {}
+    for line in result.stdout.splitlines():
+        commit, ref = line.split()
+        # ls-remote patterns match suffixes too (HEAD can also match
+        # refs/remotes/origin/HEAD). Only the requested full ref is relevant.
+        if ref not in refs:
+            continue
+        if ref in found or not COMMIT.fullmatch(commit):
+            raise ValueError("unexpected or duplicate upstream ref")
+        found[ref] = commit
+    if refs[0] not in found:
+        raise ValueError("tracked upstream ref is missing")
+    return found.get(refs[-1], found[refs[0]])
+
+
 def network_findings(document: dict[str, Any]) -> list[dict[str, str]]:
     findings: list[dict[str, str]] = []
 
@@ -159,7 +192,7 @@ def network_findings(document: dict[str, Any]) -> list[dict[str, str]]:
     for item in document["archPackages"]:
         try:
             data = fetch_json(item["source"])
-            record(item["id"], item["acceptedVersion"], str(data["pkgver"]), item["impact"])
+            record(item["id"], item["acceptedVersion"], arch_version(data, item["acceptedVersion"]), item["impact"])
         except Exception as exc:  # advisory monitor reports infrastructure errors instead of mutating state
             findings.append({"id": item["id"], "accepted": item["acceptedVersion"], "detected": f"ERROR: {exc}", "impact": item["impact"]})
 
@@ -204,14 +237,18 @@ def network_findings(document: dict[str, Any]) -> list[dict[str, str]]:
         if not git_url or not accepted:
             continue
         try:
-            result = subprocess.run(
-                ["git", "ls-remote", git_url, "HEAD"],
-                check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=45,
-            )
-            detected = result.stdout.split()[0]
+            detected = upstream_commit(item)
             record(item["id"], accepted, detected, item["impact"])
         except Exception as exc:
             findings.append({"id": item["id"], "accepted": accepted, "detected": f"ERROR: {exc}", "impact": item["impact"]})
+        if item.get("acceptedTag") and item.get("source"):
+            try:
+                data = fetch_json(item["source"])
+                record(item["id"] + ":release", item["acceptedTag"],
+                       str(data["tag_name"]).removeprefix("v"), item["impact"])
+            except Exception as exc:
+                findings.append({"id": item["id"] + ":release", "accepted": item["acceptedTag"],
+                                 "detected": f"ERROR: {exc}", "impact": item["impact"]})
     return sorted(findings, key=lambda item: item["id"])
 
 

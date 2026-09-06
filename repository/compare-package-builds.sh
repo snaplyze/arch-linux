@@ -6,8 +6,11 @@ if [ "$#" -ne 2 ]; then
     printf 'Usage: %s BUILD_A BUILD_B\n' "$0" >&2
     exit 2
 fi
-"${script_dir}/verify-unsigned-build.sh" "$1"
-"${script_dir}/verify-unsigned-build.sh" "$2"
+if ! "${script_dir}/verify-unsigned-build.sh" "$1" ||
+    ! "${script_dir}/verify-unsigned-build.sh" "$2"; then
+    printf 'ADVISORY_ERROR: an unsigned build failed verification; no reproducibility verdict.\n' >&2
+    exit 2
+fi
 if ! cmp --silent -- "$1/UNSIGNED-SHA256SUMS" "$2/UNSIGNED-SHA256SUMS"; then
     printf 'ADVISORY_MISMATCH: package hashes differ between independent builds.\n' >&2
     diff -u -- "$1/UNSIGNED-SHA256SUMS" "$2/UNSIGNED-SHA256SUMS" || true

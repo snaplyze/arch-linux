@@ -11,6 +11,24 @@ usage() {
     printf 'Usage: %s OUTPUT_DIRECTORY\n' "$0" >&2
 }
 
+create_build_workspace() {
+    local output="$1" workspace parent
+    if [ -z "${WORK_DIR:-}" ]; then
+        mktemp -d "${RUNNER_TEMP:-/tmp}/arch-linux-build.XXXXXXXX"
+        return
+    fi
+    # A stable path inside each independent disposable build environment keeps
+    # makepkg's real builddir/startdir provenance reproducible. Never reuse it.
+    [ ! -e "$WORK_DIR" ] && [ ! -L "$WORK_DIR" ] ||
+        repository_die 'package build WORK_DIR already exists' || return
+    parent="$(realpath -e -- "$(dirname -- "$WORK_DIR")")" || return
+    workspace="$parent/$(basename -- "$WORK_DIR")"
+    repository_assert_paths_disjoint "$workspace" 'build workspace' "$repo_root" 'source tree' || return
+    repository_assert_paths_disjoint "$workspace" 'build workspace' "$output" 'unsigned output' || return
+    mkdir -m0700 -- "$workspace" || return
+    printf '%s\n' "$workspace"
+}
+
 prefetch_marble_asset() {
     local destination="$1" work="$2"
     local metadata="$work/marble-release.json" download="$work/Marble-shell-filled-50.zip"
@@ -63,7 +81,7 @@ main() {
         "${script_dir}/trust/signing-subkey-fingerprint"
     mapfile -t packages < <(repository_read_package_set "${script_dir}/package-set")
 
-    work="$(mktemp -d "${RUNNER_TEMP:-/tmp}/arch-linux-build.XXXXXXXX")"
+    work="$(create_build_workspace "$output")"
     printf -v cleanup_command 'rm -rf -- %q' "$work"
     # Eager capture is required because main locals do not survive EXIT.
     # shellcheck disable=SC2064
@@ -151,4 +169,6 @@ PY
     printf 'canonical unsigned package build completed: %s\n' "$output"
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" = "$0" ]]; then
+    main "$@"
+fi

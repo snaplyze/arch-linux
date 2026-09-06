@@ -244,6 +244,7 @@ jobs:
             HOME="${builder_home}" USER=package-builder LOGNAME=package-builder \
             LANG=C.UTF-8 LC_ALL=C PATH=/usr/local/bin:/usr/bin:/bin \
             RUNNER_TEMP=/tmp/arch-linux-build \
+            WORK_DIR=/tmp/arch-linux-canonical-work \
             bash "${canonical_source}/repository/build-packages.sh" \
             /tmp/arch-linux-build/canonical-unsigned
           check_canonical_source

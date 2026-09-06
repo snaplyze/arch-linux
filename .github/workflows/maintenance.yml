@@ -107,6 +107,7 @@ jobs:
             "/tmp/repro-${{ matrix.name }}"
           runuser -u "builder-${{ matrix.name }}" -- env \
             RUNNER_TEMP="/tmp/repro-${{ matrix.name }}" \
+            WORK_DIR=/tmp/arch-linux-canonical-work \
             bash "${GITHUB_WORKSPACE}/repository/build-packages.sh" \
             "/tmp/repro-${{ matrix.name }}/unsigned"
 
@@ -173,8 +174,16 @@ jobs:
         continue-on-error: true
         run: |
           set -euo pipefail
+          result=0
           bash repository/compare-package-builds.sh \
-            "${RUNNER_TEMP}/repro-a" "${RUNNER_TEMP}/repro-b"
+            "${RUNNER_TEMP}/repro-a" "${RUNNER_TEMP}/repro-b" || result=$?
+          case "$result" in
+            0) status=match ;;
+            1) status=mismatch ;;
+            *) status=error ;;
+          esac
+          printf 'status=%s\n' "$status" >>"${GITHUB_OUTPUT}"
+          exit "$result"
 
       - name: Download public lifetime report
         continue-on-error: true
@@ -200,7 +209,7 @@ jobs:
       - name: Update the single advisory issue
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          REPRO_STATUS: ${{ steps.compare.outcome == 'success' && 'match' || 'error' }}
+          REPRO_STATUS: ${{ steps.compare.outputs.status || 'error' }}
           ISO_STATUS: ${{ needs.source-monitor.outputs.iso_status || 'error' }}
           KEY_ONLY: ${{ github.event.schedule == '41 5 * * *' }}
         run: |
