@@ -60,6 +60,10 @@ defaults:
 jobs:
   verify:
     name: Verify signed snapshot
+    # GitHub requires push-level access to read unpublished release assets.
+    # Only this manual job receives it; API operations below are read-only.
+    permissions:
+      contents: write
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -92,7 +96,10 @@ jobs:
           [[ "${SOURCE_TREE}" =~ ^[a-f0-9]{40}$ ]]
           [[ "${SOURCE_TREE_SHA256}" =~ ^[a-f0-9]{64}$ ]]
           test "${GITHUB_REF}" = refs/heads/main
-          test "${GITHUB_SHA}" = "${SOURCE_COMMIT}"
+          [[ "${GITHUB_SHA}" =~ ^[a-f0-9]{40}$ ]]
+          # Deployment infrastructure may advance after the release is frozen.
+          # Verify the tagged ancestor itself, never relabel it as the workflow tree.
+          git merge-base --is-ancestor "${SOURCE_COMMIT}" "${GITHUB_SHA}"
           test "$(git rev-parse --verify 'HEAD^{commit}')" = "${SOURCE_COMMIT}"
           test "$(git rev-parse --verify 'HEAD^{tree}')" = "${SOURCE_TREE}"
           test -z "$(git status --porcelain=v1 --untracked-files=all)"

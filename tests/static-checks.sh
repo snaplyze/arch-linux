@@ -146,7 +146,7 @@ done
 ! grep -Fq '/releases/download/' "$pages_workflow" || fail 'Pages uses unauthenticated draft download URLs'
 
 python3 - "$pages_workflow" <<'PAGES_MODES_PY'
-import copy, json, pathlib, re, subprocess, sys
+import copy, json, os, pathlib, re, subprocess, sys, tempfile
 workflow = pathlib.Path(sys.argv[1]).read_text()
 expression = re.search(r"jq -e --argjson id.*?--arg kind.*?'\n(.*?)\n          ' \"\$\{release_json\}\"", workflow, re.S)
 if expression is None:
@@ -172,6 +172,45 @@ for kind, count in (('release', 18), ('packages', 14)):
 assert 'verification_mode=--phase-a' in workflow and 'verification_mode=--finalized' in workflow
 assert 'git diff --quiet "refs/tags/${RELEASE_VERSION}^{}" HEAD -- install.sh arch-linux-installer.sh' in workflow
 assert '"refs/tags/${PACKAGE_TAG}^{}"' in workflow and '"${verification_mode}"' in workflow
+verify_job = workflow.split('  verify:\n', 1)[1].split('\n  deploy:\n', 1)[0]
+deploy_job = workflow.split('\n  deploy:\n', 1)[1]
+assert '    permissions:\n      contents: write\n' in verify_job
+assert 'contents: write' not in deploy_job
+assert 'persist-credentials: false' in verify_job and 'ref: ${{ inputs.source_commit }}' in verify_job
+assert not re.search(r'gh (?:release|api[^\n]*(?:--method|-X)\s+(?:POST|PATCH|PUT|DELETE))', verify_job)
+# Exercise the actual workflow source/tag guard, including a later deployment commit.
+guard = re.search(r'      - name: Require exact source and annotated tag\n.*?        run: \|\n(.*?)\n      - name:', workflow, re.S)
+assert guard is not None
+script = '\n'.join(line[10:] for line in guard.group(1).splitlines())
+with tempfile.TemporaryDirectory(prefix='pages-source-') as raw:
+    fixture = pathlib.Path(raw)
+    def git(*args):
+        return subprocess.check_output(['git', '-C', raw, *args], text=True, stderr=subprocess.DEVNULL).strip()
+    git('init', '-b', 'main')
+    git('config', 'user.name', 'Fixture')
+    git('config', 'user.email', 'fixture@example.invalid')
+    git('commit', '--allow-empty', '-m', 'release')
+    source = git('rev-parse', 'HEAD')
+    tree = git('rev-parse', 'HEAD^{tree}')
+    git('tag', '-a', '1.0.0', '-m', 'frozen')
+    git('commit', '--allow-empty', '-m', 'deployment-only')
+    deployment = git('rev-parse', 'HEAD')
+    git('checkout', '--orphan', 'foreign')
+    git('commit', '--allow-empty', '-m', 'unrelated')
+    foreign = git('rev-parse', 'HEAD')
+    git('checkout', '--detach', source)
+    env = dict(os.environ, DEPLOYMENT_KIND='release', PACKAGE_TAG='', RELEASE_VERSION='1.0.0',
+               SOURCE_COMMIT=source, SOURCE_TREE=tree, SOURCE_TREE_SHA256='a'*64,
+               GITHUB_REF='refs/heads/main', GITHUB_SHA=deployment)
+    def source_accepts(**changes):
+        return subprocess.run(['bash', '-euo', 'pipefail', '-c', script], cwd=fixture,
+                              env=dict(env, **changes), capture_output=True, check=False).returncode == 0
+    assert source_accepts() and source_accepts(GITHUB_SHA=source)
+    assert not source_accepts(GITHUB_SHA=foreign)
+    assert not source_accepts(GITHUB_REF='refs/heads/foreign')
+    assert not source_accepts(SOURCE_COMMIT=deployment)
+    assert not source_accepts(SOURCE_TREE='0'*40)
+    assert not source_accepts(RELEASE_VERSION='1.0.1')
 print('Pages release/package-only metadata checks passed; DEPLOY=NOT_RUN')
 PAGES_MODES_PY
 

@@ -150,6 +150,15 @@ API readback and public-key-only verification before deploying Pages. Verify pac
 objects over public HTTPS, publish the Release without replacing any asset, then repeat
 unauthenticated asset and Pages readback.
 
+The manually dispatched verification job needs `contents: write` to read an unpublished draft
+(GitHub requires push-level access); its API operations only read and it cannot sign.
+The separate deployment job receives only Pages/OIDC permissions. The workflow runs from `main`,
+but checks out and verifies the exact tagged release source, which must be an ancestor of that
+workflow commit. This permits a reviewed deployment-only fix after source freeze without moving
+the release tag, rebuilding assets or transferring acceptance to a new tree. Record the deployment
+commit separately from the released source commit. Any product change requires new acceptance and
+a new release version; it must not replace existing release bytes.
+
 ## 7. Public final VM test
 
 Run one additional VM test against the public immutable Release and Pages URLs. This is public
