@@ -24,6 +24,11 @@ while IFS= read -r package; do
 done < repository/package-set
 ```
 
+The unreleased Colloid icon input is `20260829-1`; the GTK3 input and GDM-critical icon hashes
+are unchanged. See the [review and delivery boundary](maintenance.md#colloid-and-gum-review-september-2026).
+An unsigned build or a source merge is not a Pages update. A new signed snapshot must carry
+the higher package version before installed systems receive it through `pacman -Syu`.
+
 ## Canonical unsigned build
 
 Run once in a clean Arch environment as an unprivileged temporary builder:

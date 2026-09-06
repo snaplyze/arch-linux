@@ -69,6 +69,10 @@ rotation procedure.
 
 ## Development verification
 
+`main` may contain reviewed changes that are not yet released. The release-pinned bootstrap
+still uses published `1.0.0`; a source merge alone does not update that installer or Pages.
+See the [reviewed updates and delivery boundaries](docs/maintenance.md#external-source-inputs).
+
 The normative source command is:
 
 ```bash

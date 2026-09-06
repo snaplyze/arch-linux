@@ -3,6 +3,27 @@
 A source candidate is not a release. Production signing and publication require separate explicit
 authorization.
 
+## Release immutability
+
+Before preparing a newer release, read the repository setting:
+
+```bash
+gh api repos/snaplyze/arch-linux/immutable-releases
+```
+
+It must report `enabled: true` before publication. If disabled, obtain explicit authorization
+to enable **Settings → General → Releases → Enable release immutability**. This is a repository
+setting, not permission to sign or publish. GitHub applies it only to future releases, so attach
+and verify the complete asset set while the release is still a draft. After publication, verify
+the release API's `immutable: true` alongside its hashes and signatures. See
+[GitHub's setting documentation](https://docs.github.com/en/code-security/how-tos/secure-your-supply-chain/establish-provenance-and-integrity/prevent-release-changes).
+
+The original `1.0.0` API reports `immutable: false` in the 2026-09-06 readback. Its signed bytes
+and tag must nevertheless remain unchanged: do not delete/recreate the release or move the tag
+to retrofit this setting. The installer intentionally offers self-updates only from a release
+whose API reports `immutable: true`; preserve that check. Release-pinned bootstrap verification
+and platform-enforced release immutability are separate properties.
+
 ## 1. Source candidate
 
 Perform local review, source changes, tests, commits and release-host acceptance from the same
@@ -27,6 +48,13 @@ canonical checkout. Repeat affected checks, build/sign the corrected inputs and 
 VM scenarios. There is no artificial cycle or attempt limit. Keep old results associated with their
 actual inputs; never transfer a PASS or replace published bytes or tags. A diagnostic-tool problem
 is distinct from a broken installed system.
+
+Before the publication freeze, compare intended package filenames and hashes with published
+Pages objects. Any changed archive needs a higher `pkgver` or `pkgrel`, including changes caused
+only by regenerated build metadata. Unchanged dependency minimums do not waive this rule.
+Update the owning package metadata/tests and build the complete accepted closure again; do not
+overwrite existing filenames, splice older packages into a canonical build or relabel its provenance.
+An unsigned maintenance-review build is not automatically ready for publication.
 
 ## 2. One canonical Arch build
 

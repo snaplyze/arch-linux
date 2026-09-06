@@ -244,6 +244,32 @@ import sys
 spec=importlib.util.spec_from_file_location('package_verifier',sys.argv[1])
 module=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
+# The newly reviewed icon payload must not silently disappear from a later build.
+icon_package='arch-linux-colloid-icons'
+app_root='usr/share/icons/Colloid-Light/apps/scalable/'
+new_apps={app_root+name for name in (
+    'google-messages.svg', 'google-tasks.svg', 'kingom-hearts-1-5-2-5.svg',
+    'kingom-hearts-2-8.svg', 'kingom-hearts-3.svg', 'zcode.svg',
+)}
+hashes=module.expected_payload_hashes(icon_package)
+assert new_apps <= hashes.keys()
+assert module.expected_pkgver(icon_package) == '20260829-1'
+required=(set(module.PACKAGE_METADATA_PATHS) | module.PACKAGE_REQUIRED_PATHS[icon_package] |
+          set(module.EXPECTED_FILE_SOURCES[icon_package]) | hashes.keys())
+for absent in sorted(new_apps):
+    stream=io.BytesIO()
+    with tarfile.open(fileobj=stream, mode='w') as archive:
+        for path in sorted(required - {absent}):
+            member=tarfile.TarInfo(path); member.mode=0o644
+            archive.addfile(member, io.BytesIO())
+    stream.seek(0)
+    with tarfile.open(fileobj=stream, mode='r:') as archive:
+        try:
+            module.verify_package_tar(archive, icon_package)
+        except SystemExit as error:
+            assert f'required package path is absent: {absent}' in str(error)
+        else:
+            raise AssertionError(f'missing reviewed icon was accepted: {absent}')
 name='usr/share/icons/Colloid-Dark/status/symbolic/network-wireless-signal-excellent-symbolic.svg'
 target='usr/share/icons/Colloid-Dark/status/symbolic/nm-signal-100-symbolic.svg'
 

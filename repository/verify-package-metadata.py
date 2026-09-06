@@ -82,7 +82,7 @@ EXPECTED_SOURCE_ALIASES = {
         "arch-linux-colloid-gtk3-6c2dc65865628bda9fdc8157a30cd5eda6fd41f9.tar.gz"
     ],
     "arch-linux-colloid-icons": [
-        "arch-linux-colloid-icons-fa07485895a2443f7cfbceefe9dcdde798a05215.tar.gz"
+        "arch-linux-colloid-icons-ceac6608ecd0e40025cbc2ebbd32bf0e0f4ebc6a.tar.gz"
     ],
     "arch-linux-keyring": [
         "arch-linux.gpg",
@@ -408,6 +408,18 @@ def expected_payload_hashes(package: str) -> dict[str, str]:
             f"usr/share/icons/Colloid-Dark/{name}": digest
             for name, digest in parse_hash_manifest(gdm / "known-colloid-icons.sha256").items()
         }
+        # New application artwork in the reviewed 2026-08-29 input. Dark uses
+        # the existing Light/apps/scalable alias, so these regular files bind both.
+        additions = {
+            "google-messages.svg": "0de28a70c76baeea863b005a1c199dd550fde6e3782aa5ee69117ff0a71b1ec3",
+            "google-tasks.svg": "38b8878adbf7e42cceec6de9cfb6fd687d980533f0407bdca46d83fa38a1e1f1",
+            "kingom-hearts-1-5-2-5.svg": "0f5de361e9ae68232800c4f9a7d24d0084f750c23b8b2fc11f5bf3412174314d",
+            "kingom-hearts-2-8.svg": "13c1ea4b386ce86ab61b1af6d91cb3d263d9299c63297321d4f64595ec831ff8",
+            "kingom-hearts-3.svg": "3603fa4c592b8328cc3595a418a7755ff8ea171e4dfc23eec966836be995f04c",
+            "zcode.svg": "bdab7ababf45f4aea395e10a3c399a4fe1f83cbb6b43940badadd321d400564e",
+        }
+        hashes.update({f"usr/share/icons/Colloid-Light/apps/scalable/{name}": digest
+                       for name, digest in additions.items()})
         hashes["usr/share/licenses/arch-linux-colloid-icons/LICENSE"] = COLLOID_LICENSE_SHA256
         return hashes
     return {}

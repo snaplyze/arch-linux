@@ -139,6 +139,72 @@ These extensions are AUR packages, not project Pages packages: this change does 
 Just Perfection 37 to existing systems through `pacman -Syu`. Project Marble/profile and public
 keyring packages retain their separate signed Pages/pacman update path.
 
+### Colloid and Gum review, September 2026
+
+The Colloid icons source update uses upstream commit
+[`ceac6608ecd0e40025cbc2ebbd32bf0e0f4ebc6a`](https://github.com/vinceliuice/Colloid-icon-theme/commit/ceac6608ecd0e40025cbc2ebbd32bf0e0f4ebc6a)
+and package version `20260829-1`, not a replacement for the published `20260817-1` bytes.
+The complete upstream diff adds six application SVGs and fifteen relative aliases for
+Google Messages/Tasks, Shelly, Kingdom Hearts and Zcode; no existing file, installation
+script or license changes. The SVGs contain bounded embedded PNG artwork, no script or
+external resource reference. The existing cache exclusion, exact export-path cleanup,
+dangling-link rejection and GDM icon hash contract are retained. The verifier additionally
+requires all six new artwork hashes; regression fixtures reject each missing new icon.
+Minimum dependencies in Marble/profile and GDM remain valid and do not need to change.
+This does not waive the publication revision rule: any rebuilt archive with different
+bytes must receive a new filename/version, including metadata-only rebuild differences.
+
+The clean unprivileged Arch six-package build passed from commit
+`9ccc03f30119d1c60857fdbfcc6b6b5940332dae`, tree
+`a8284d9144511c476b394b598c694e3078d51d34`; regenerated `.SRCINFO` and independent
+host verification passed. The icon package SHA-256 was
+`bc5c00c0a5b5a260a27e54d64af6edabe3a810a3e76b0e9d94193ce705a13924`.
+Comparing both real icon packages found 29 added paths (including Dark status aliases),
+no removals and unchanged bytes/types/modes/owners/link targets for all existing payload.
+The new artwork's real hash verifier rejected a deliberately modified SVG.
+
+Fresh QEMU/KVM run `marble-20260906T115612Z-5356a635` produced `COMPATIBILITY_PASS`,
+`releaseAcceptance=false`. It first installed unchanged signed 1.0.0, then installed
+that separately verified unsigned local icon package with `pacman -U`, without changing
+pacman trust configuration. Real GDM password login, Wayland, lock/unlock, `pacman -Syu`,
+reboot/relogin, zero failed units, package integrity and Stock fallback passed. After
+removal and signed-repository reinstall, the reviewed local upgrade was repeated before
+another real login. Seven guest phases checked the six artwork hashes and actual GTK
+icon lookup; both upgrades triggered the normal cache/profile/GDM hooks. Clean shutdown,
+`qemu-img check` and removal of owned runtime passed.
+
+This result binds the existing September ISO and signed snapshot above, released
+product/harness commit `94d8e9e72fefc38e790942763c615801d49eff97`, tree
+`aae94e9c5eb8b381570cb51e141bf5c0b9ff3c57`, and one-use compatibility operator SHA-256
+`98ea49203e3453e5e7d25518c1915a67fc00e0e4b40ef8ee1d0f7f4db0ab45bc`.
+The package build identity is separate from the released installer and these later
+documentation changes. It is not a new signed snapshot, Gum2 test or installer release.
+
+Colloid GTK stays at `6c2dc65865628bda9fdc8157a30cd5eda6fd41f9`: the complete diff to
+[`fe11342f37f124f1b29d44cf33e9a06053f4bba2`](https://github.com/vinceliuice/Colloid-gtk-theme/commit/fe11342f37f124f1b29d44cf33e9a06053f4bba2)
+only changes Cinnamon styling and adds a standalone GTK4 switcher. Neither is packaged
+or invoked by our GTK3 recipe; GTK3 inputs, build scripts and license are unchanged.
+The switcher is not introduced into installed systems. GTK4/libadwaita stays Stock.
+
+Gum stays at `0.17.0` after review of [v2.0.0](https://github.com/charmbracelet/gum/releases/tag/v2.0.0).
+The new official x86-64 archive and Sigstore checksum bundle were verified. Real controlling-PTY
+comparisons of both binaries preserved prompt defaults, input, masking, selection, cancellation,
+multiline submission and spinner exit codes. However, v2's `style` and `join` now strip ANSI
+formatting when stdout is a pipe; the installer uses that output in command substitutions.
+The same real-PTY tests retained styling with 0.17.0 and lost it with 2.0.0. This is a reviewed
+no-update decision, not an installation failure or a new release gate. A later Gum upgrade must
+deliberately adapt these wrappers and test the changed installer in a VM; changing only the
+version/hash/size would not preserve the existing UI. Do not force colors globally into selected
+values or logs. No Gum 2.0 installer acceptance is claimed.
+
+Source acceptance and delivery are separate: updated icons need a newly built, verified and
+offline-signed package snapshot, followed by authorized Pages publication. Once published,
+normal `pacman -Syu` can deliver the newer icon package; an installer release is not required
+solely for the icon change. Never replace published 1.0.0 assets. Platform-enforced
+immutability for future releases is a separate [publication setting](release-process.md#release-immutability).
+Keep genuine upstream advisories visible even when review concludes that the accepted pin
+should not change.
+
 ## A+B reproducibility
 
 Two independent clean Arch builds are compared monthly as advisory evidence:

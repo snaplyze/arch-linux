@@ -75,6 +75,10 @@ sibling clones, per-cycle source directories, copied or replacement source repos
 whole-directory cutover for development. After a pull request is merged, return this same checkout
 to `main` and update it by fast-forward only.
 
+Use `umask 022` in the command that switches branches or checks out a commit. Preserve the
+tracked executable bits and normal source modes (`0644`/`0755`); do not recreate reviewed source
+files with group/other write permissions. This is local command scope, not a global host setting.
+
 Mandatory ephemeral security boundaries remain permitted: protected GitHub Actions canonical and
 validation clones, disposable package build directories and users, root-owned gate inputs, sealed
 signing bootstrap and one-use signing input copies, test fixtures, qcow2 disks, OVMF variable stores
