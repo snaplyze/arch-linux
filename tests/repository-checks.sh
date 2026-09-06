@@ -649,8 +649,8 @@ def write(path: pathlib.Path, include_files: bool) -> None:
         with gzip.GzipFile(filename='',mode='wb',fileobj=raw,mtime=0) as zipped:
             with tarfile.open(fileobj=zipped,mode='w',format=tarfile.USTAR_FORMAT) as stream:
                 for filename in filenames:
-                    package=filename.split('-1.0.0-1-any.pkg.tar.zst',1)[0]
-                    directory=f'{package}-1.0.0-1'
+                    package,version,revision,_arch=filename.rsplit('-',3)
+                    directory=f'{package}-{version}-{revision}'
                     info=tarfile.TarInfo(directory+'/')
                     info.type=tarfile.DIRTYPE; info.mode=0o755; info.uid=info.gid=0; info.mtime=0
                     stream.addfile(info)

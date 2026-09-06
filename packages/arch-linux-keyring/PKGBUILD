@@ -3,7 +3,7 @@
 
 pkgname=arch-linux-keyring
 pkgver=1.0.0
-pkgrel=1
+pkgrel=2
 pkgdesc='Public certificate refresh path for the signed arch-linux repository'
 arch=('any')
 url='https://github.com/snaplyze/arch-linux'

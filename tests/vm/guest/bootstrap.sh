@@ -291,7 +291,7 @@ main() {
         ;;
     *) fail 'input mode is invalid' ;;
     esac
-    [ "${IDENTITY[RELEASE_VERSION]}" = 1.0.0 ] || fail 'release version differs'
+    [ "${IDENTITY[RELEASE_VERSION]}" = 1.0.1 ] || fail 'release version differs'
     case "${IDENTITY[SCENARIO]}" in
     minimal-ext4-systemdboot)
         marker_prefix='MINIMAL'
@@ -380,12 +380,12 @@ main() {
     if [ "${IDENTITY[INPUT_MODE]}" = public ]; then
         expected_public_contract="$(printf '%s\n' \
             'schema=1' \
-            'bootstrap_url=https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.0/install.sh' \
-            'installer_url=https://github.com/snaplyze/arch-linux/releases/download/1.0.0/arch-linux-installer.sh' \
-            'public_key_url=https://github.com/snaplyze/arch-linux/releases/download/1.0.0/arch-linux.gpg' \
+            'bootstrap_url=https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.1/install.sh' \
+            'installer_url=https://github.com/snaplyze/arch-linux/releases/download/1.0.1/arch-linux-installer.sh' \
+            'public_key_url=https://github.com/snaplyze/arch-linux/releases/download/1.0.1/arch-linux.gpg' \
             "pages_url=https://snaplyze.github.io/arch-linux/repo/\$arch")"
         [ "$(cat -- "${payload_mount}/public.contract")" = "${expected_public_contract}" ] ||
-            fail 'public URL contract differs from release 1.0.0'
+            fail 'public URL contract differs from release 1.0.1'
     fi
 
     for block_path in /sys/class/block/*; do
@@ -421,7 +421,7 @@ main() {
         curl --proto '=https' --proto-redir '=https' --fail --location --silent --show-error \
             --connect-timeout 10 --max-time 120 --max-filesize 1048576 \
             --output "${public_bootstrap}" -- \
-            'https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.0/install.sh'
+            'https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.1/install.sh'
         [ -f "${public_bootstrap}" ] && [ ! -L "${public_bootstrap}" ] ||
             fail 'public bootstrap download is unsafe'
         [ "$(sha256sum --binary -- "${public_bootstrap}" | awk '{ print $1 }')" = \
@@ -430,7 +430,7 @@ main() {
         bootstrap_output="$(/usr/bin/env -i HOME=/root LANG=C LC_ALL=C PATH=/usr/bin:/usr/sbin \
             /usr/bin/bash --noprofile --norc "${public_bootstrap}" --verify-only)" ||
             fail 'public bootstrap verification failed'
-        [[ "${bootstrap_output}" =~ ^Verified\ Arch\ Linux\ Installer\ 1\.0\.0:\ sha256\ ([a-f0-9]{64})$ ]] ||
+        [[ "${bootstrap_output}" =~ ^Verified\ Arch\ Linux\ Installer\ 1\.0\.1:\ sha256\ ([a-f0-9]{64})$ ]] ||
             fail 'public bootstrap verification output is malformed'
         accepted_installer_sha="${BASH_REMATCH[1]}"
         [ "${accepted_installer_sha}" = "${IDENTITY[INSTALLER_SHA256]}" ] ||
@@ -438,13 +438,13 @@ main() {
         curl --proto '=https' --proto-redir '=https' --fail --location --silent --show-error \
             --connect-timeout 10 --max-time 120 --max-filesize 1048576 \
             --output "${public_installer}" -- \
-            'https://github.com/snaplyze/arch-linux/releases/download/1.0.0/arch-linux-installer.sh'
+            'https://github.com/snaplyze/arch-linux/releases/download/1.0.1/arch-linux-installer.sh'
         [ "$(sha256sum --binary -- "${public_installer}" | awk '{ print $1 }')" = \
             "${accepted_installer_sha}" ] || fail 'public Release installer differs from bootstrap verification'
         curl --proto '=https' --proto-redir '=https' --fail --location --silent --show-error \
             --connect-timeout 10 --max-time 120 --max-filesize 1048576 \
             --output "${public_key}" -- \
-            'https://github.com/snaplyze/arch-linux/releases/download/1.0.0/arch-linux.gpg'
+            'https://github.com/snaplyze/arch-linux/releases/download/1.0.1/arch-linux.gpg'
         [ "$(sha256sum --binary -- "${public_key}" | awk '{ print $1 }')" = \
             "${IDENTITY[PUBLIC_KEY_SHA256]}" ] || fail 'public Release key differs from frozen trust'
         install -o 0 -g 0 -m 0700 -- "${public_installer}" "${work_root}/arch-linux-installer.sh"

@@ -1,7 +1,7 @@
 pkgbase = arch-linux-keyring
 	pkgdesc = Public certificate refresh path for the signed arch-linux repository
 	pkgver = 1.0.0
-	pkgrel = 1
+	pkgrel = 2
 	url = https://github.com/snaplyze/arch-linux
 	install = arch-linux-keyring.install
 	arch = any

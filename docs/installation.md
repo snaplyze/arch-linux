@@ -8,7 +8,7 @@ installer. Record each candidate disk's model, serial and capacity with `lsblk` 
 resolved device deliberately.
 
 Use the single release-pinned bootstrap command in the [README](../README.md). It downloads
-`install.sh` from the immutable `1.0.0` tag, never from `main`, and the bootstrap then downloads and
+`install.sh` from the immutable `1.0.1` tag, never from `main`, and the bootstrap then downloads and
 verifies the release installer, checksum, detached signature, public certificate and both
 fingerprint files. The verified installer starts as root from an exact root-owned mode-`0700`
 single-link file inside its private root-owned mode-`0700` working directory. Every ancestor is
@@ -19,7 +19,7 @@ For a non-destructive public-release or QEMU readback, run the same immutable bo
 verification-only mode:
 
 ```bash
-curl -fsS https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.0/install.sh | bash -s -- --verify-only
+curl -fsS https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.1/install.sh | bash -s -- --verify-only
 ```
 
 This mode completes the HTTPS download, checksum, certificate/fingerprint, secret-packet,

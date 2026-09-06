@@ -13,8 +13,8 @@ TRUST_DIR="${ROOT_DIR}/repository/trust"
 EXPECTED_CERTIFICATE_SHA256='2d80a88fb033a6c138399b391cd4347f4461b60d1294d22af166f589b12c7c67'
 EXPECTED_PRIMARY='8C78098D1EAC609CBC73536FB7D2C17447B90CB2'
 EXPECTED_SIGNER='0AA6F2237FB9674623B6E824428D56A84F558F7C'
-EXPECTED_README_COMMAND="curl -fsS https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.0/install.sh | bash"
-EXPECTED_VERIFY_COMMAND="curl -fsS https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.0/install.sh | bash -s -- --verify-only"
+EXPECTED_README_COMMAND="curl -fsS https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.1/install.sh | bash"
+EXPECTED_VERIFY_COMMAND="curl -fsS https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.1/install.sh | bash -s -- --verify-only"
 
 test_root="$(mktemp -d -- /tmp/arch-linux-bootstrap-checks.XXXXXXXXXX)"
 chmod 0700 -- "$test_root"
@@ -56,10 +56,10 @@ bash -n "$BOOTSTRAP" || fail 'install.sh syntax'
 # shellcheck disable=SC1090,SC1091
 source "$BOOTSTRAP"
 
-[ "$BOOTSTRAP_VERSION" = '1.0.0' ] || fail 'bootstrap version drifted'
+[ "$BOOTSTRAP_VERSION" = '1.0.1' ] || fail 'bootstrap version drifted'
 [ "$BOOTSTRAP_RELEASE_URL" = \
-    'https://github.com/snaplyze/arch-linux/releases/download/1.0.0' ] || \
-    fail 'release URL is not immutable 1.0.0'
+    'https://github.com/snaplyze/arch-linux/releases/download/1.0.1' ] || \
+    fail 'release URL is not immutable 1.0.1'
 [ "$BOOTSTRAP_CERTIFICATE_SHA256" = "$EXPECTED_CERTIFICATE_SHA256" ] || \
     fail 'embedded certificate digest drifted'
 [ "$BOOTSTRAP_PRIMARY_FINGERPRINT" = "$EXPECTED_PRIMARY" ] || \
@@ -198,7 +198,7 @@ if [ "$root_mock_available" = 'true' ]; then
 
     BOOTSTRAP_WORK_DIR="$(mktemp -d -- /tmp/arch-linux-installer-download.XXXXXXXXXX)"
     chmod 0700 -- "$BOOTSTRAP_WORK_DIR"
-    printf '%s\n' '#!/usr/bin/env bash' "readonly VERSION='1.0.0'" \
+    printf '%s\n' '#!/usr/bin/env bash' "readonly VERSION='1.0.1'" \
         >"$BOOTSTRAP_WORK_DIR/arch-linux-installer.sh"
     test_installer_digest="$(sha256sum --binary -- \
         "$BOOTSTRAP_WORK_DIR/arch-linux-installer.sh" | awk '{ print $1 }')"
@@ -249,7 +249,7 @@ if [ "$root_mock_available" = 'true' ]; then
         fail 'root mock snapshot seal failed'
     bootstrap_cleanup_work_dir || fail 'root mock download cleanup failed'
     bootstrap_complete verify-only "$root_mock_identity" >"$test_root/root-verify-only.stdout"
-    grep -qxF -- "Verified Arch Linux Installer 1.0.0: sha256 ${test_installer_digest}" \
+    grep -qxF -- "Verified Arch Linux Installer 1.0.1: sha256 ${test_installer_digest}" \
         "$test_root/root-verify-only.stdout" || fail 'root mock verify-only output drifted'
     [ -z "$BOOTSTRAP_LAUNCH_DIR" ] || fail 'root mock retained root staging state'
 fi
@@ -273,7 +273,7 @@ BOOTSTRAP_ACCEPTED_INSTALLER_SHA256="$fixture_digest"
 bootstrap_complete verify-only 'fixture-identity' >"$test_root/verify-only.stdout"
 [ "$cleanup_called" = 'true' ] || fail 'verify-only did not request root staging cleanup'
 [ "$launch_called" = 'false' ] || fail 'verify-only launched the installer'
-grep -qxF -- "Verified Arch Linux Installer 1.0.0: sha256 ${fixture_digest}" \
+grep -qxF -- "Verified Arch Linux Installer 1.0.1: sha256 ${fixture_digest}" \
     "$test_root/verify-only.stdout" || fail 'verify-only success output drifted'
 
 cleanup_called='false'

@@ -91,7 +91,7 @@ network errors remain visible; none of these checks changes the accepted inputs.
 
 ### Reviewed extension update: Just Perfection 37
 
-The unreleased installer source pins Just Perfection 37 after the 2026-09-06 review of
+The 1.0.1 installer source pins Just Perfection 37 after the 2026-09-06 review of
 [upstream tag 37.0](https://gitlab.gnome.org/jrahmatzadeh/just-perfection/-/tree/37.0)
 at `ae48fd2d75a5747bbda1bdb2b039e9a3384ddf4c` and AUR commit
 `f84ccdef0316a572471c282763b52dd5901e87b6`. The installer and `maintenance/sources.json`
@@ -133,8 +133,8 @@ commit `444df605b34529dfab7be77d0f434bf54a6dd4cc`; its AUR input is unchanged. T
 development HEAD contains unreleased popup/shader/pipeline changes, not a released v73.
 Keep that advisory visible until a separately reviewed update is justified.
 
-Published 1.0.0 bootstrap, assets, tag and Pages remain unchanged. The new installer pin is
-unreleased and requires the next installer release to reach release-pinned fresh installs.
+This review did not change the published 1.0.0 bootstrap, assets, tag or Pages. The new installer
+pin reaches release-pinned fresh installs through the separately verified 1.0.1 installer release.
 These extensions are AUR packages, not project Pages packages: this change does not deliver
 Just Perfection 37 to existing systems through `pacman -Syu`. Project Marble/profile and public
 keyring packages retain their separate signed Pages/pacman update path.

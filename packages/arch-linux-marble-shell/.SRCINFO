@@ -1,7 +1,7 @@
 pkgbase = arch-linux-marble-shell
 	pkgdesc = Reviewed Marble blue filled dark GNOME Shell theme for the arch-linux profile
 	pkgver = 50.0.0
-	pkgrel = 1
+	pkgrel = 2
 	url = https://github.com/imarkoff/Marble-shell-theme
 	arch = any
 	license = GPL-3.0-only

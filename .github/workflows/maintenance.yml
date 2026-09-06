@@ -89,6 +89,9 @@ jobs:
       - name: Install build dependencies
         run: |
           set -euo pipefail
+          # Disposable pacman trust database, never the project production signing key.
+          pacman-key --init
+          pacman-key --populate archlinux
           pacman -Syu --noconfirm --needed \
             bash coreutils curl dconf git glib2 glib2-devel gnupg gsettings-desktop-schemas jq libarchive \
             python sassc unzip zstd

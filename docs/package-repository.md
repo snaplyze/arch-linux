@@ -24,7 +24,7 @@ while IFS= read -r package; do
 done < repository/package-set
 ```
 
-The unreleased Colloid icon input is `20260829-1`; the GTK3 input and GDM-critical icon hashes
+The Colloid icon input for 1.0.1 is `20260829-1`; the GTK3 input and GDM-critical icon hashes
 are unchanged. See the [review and delivery boundary](maintenance.md#colloid-and-gum-review-september-2026).
 An unsigned build or a source merge is not a Pages update. A new signed snapshot must carry
 the higher package version before installed systems receive it through `pacman -Syu`.
@@ -61,7 +61,7 @@ printf '%s\n%s\n' "$PRIVATE_HOME" "$PASSPHRASE_FILE" | \
   --unsigned "$ACCEPTED_UNSIGNED" \
   --installer "$SEALED_ROOT/arch-linux-installer.sh" \
   --output "$SNAPSHOT_OUTPUT" \
-  --release-version 1.0.0 \
+  --release-version 1.0.1 \
   --build-metadata-sha256 "$BUILD_METADATA_SHA256" \
   --unsigned-manifest-sha256 "$UNSIGNED_MANIFEST_SHA256"
 ```
@@ -79,12 +79,12 @@ canonical manifest, installer assets and a deterministic Pages snapshot.
 
 ```bash
 repository/verify-signed-repository.sh "$SNAPSHOT_OUTPUT/repository" \
-  --release-version 1.0.0 \
+  --release-version 1.0.1 \
   --source-commit "$SOURCE_COMMIT" --source-tree "$SOURCE_TREE" \
   --build-metadata-sha256 "$BUILD_METADATA_SHA256" \
   --unsigned-manifest-sha256 "$UNSIGNED_MANIFEST_SHA256"
 repository/verify-release-assets.sh "$SNAPSHOT_OUTPUT/assets" --phase-a \
-  --release-version 1.0.0 \
+  --release-version 1.0.1 \
   --source-commit "$SOURCE_COMMIT" --source-tree "$SOURCE_TREE" \
   --build-metadata-sha256 "$BUILD_METADATA_SHA256" \
   --unsigned-manifest-sha256 "$UNSIGNED_MANIFEST_SHA256"

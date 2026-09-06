@@ -1708,7 +1708,7 @@ main() {
     *) die 'mode/scenario is outside the release acceptance matrix' ;;
     esac
     [[ "${release_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die 'release version is malformed'
-    [ "${release_version}" = 1.0.0 ] || die 'this frozen acceptance harness is release-pinned to 1.0.0'
+    [ "${release_version}" = 1.0.1 ] || die 'this frozen acceptance harness is release-pinned to 1.0.1'
     for digest in "${snapshot_sha256}" "${build_metadata_sha256}" "${unsigned_manifest_sha256}"; do
         [[ "${digest}" =~ ^[a-f0-9]{64}$ ]] || die 'release input SHA-256 is malformed'
     done

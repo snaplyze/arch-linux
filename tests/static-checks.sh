@@ -76,9 +76,27 @@ expected = {
 step_marker = "      - name: Install build dependencies"
 command = "          pacman -Syu --noconfirm --needed \\"
 
+def keyring_setup_valid(lines, expected_count):
+    upgrades = [index for index, line in enumerate(lines)
+                if line.startswith('          pacman -Syu ')]
+    return len(upgrades) == expected_count and all(
+        lines[index - 2:index] == ['          pacman-key --init',
+                                  '          pacman-key --populate archlinux']
+        for index in upgrades
+    )
+
 for raw_path in sys.argv[1:]:
     path = Path(raw_path)
     lines = path.read_text(encoding="utf-8").splitlines()
+    expected_setup_count = 2 if path.name == 'packages.yml' else 1
+    if not keyring_setup_valid(lines, expected_setup_count):
+        raise SystemExit(f'static check failed: pacman trust is not initialized before upgrade: {path.name}')
+    first_init = lines.index('          pacman-key --init')
+    missing_init = lines[:first_init] + lines[first_init + 1:]
+    reordered = lines.copy()
+    reordered[first_init:first_init + 2] = reversed(reordered[first_init:first_init + 2])
+    assert not keyring_setup_valid(missing_init, expected_setup_count)
+    assert not keyring_setup_valid(reordered, expected_setup_count)
     step_indexes = [index for index, line in enumerate(lines) if line == step_marker]
     if len(step_indexes) != 1:
         raise SystemExit(
@@ -384,7 +402,7 @@ for relative in paths:
         raise SystemExit(f'static check failed: late-bound local remains in EXIT cleanup: {relative}')
 CLEANUP_PY
 
-grep -Fq "VERSION='1.0.0'" "$repo_root/arch-linux-installer.sh" || fail 'installer version differs'
+grep -Fq "VERSION='1.0.1'" "$repo_root/arch-linux-installer.sh" || fail 'installer version differs'
 for literal in \
     "SigLevel = PackageRequired DatabaseRequired TrustedOnly" \
     "ARCH_LINUX_GNOME_THEME_PROFILE" "stock" "marble" \
@@ -448,6 +466,24 @@ def bash(program, *args):
                           env={"PATH": "/usr/bin:/usr/sbin", "LANG": "C", "LC_ALL": "C"})
 
 # Execute only the actual scenario/identity assignments, never main, QEMU or guest setup.
+version = re.search(r"^readonly VERSION='([0-9]+\.[0-9]+\.[0-9]+)'$",
+                    (root / 'arch-linux-installer.sh').read_text(), re.M).group(1)
+require(version == '1.0.1', 'accepted release version')
+for text in (host, guests[1]):
+    guards = [line.strip() for line in text.splitlines()
+              if line.strip().startswith('[ "${release_version}" = ')]
+    require(len(guards) == 1, 'one exact release version guard')
+    for candidate in (version, '1.0.0', '1.0.2', 'main', '../1.0.1'):
+        checked = bash('release_version=$1\ndie(){ exit 1; }\n' + guards[0], candidate)
+        require((checked.returncode == 0) == (candidate == version),
+                f'release version guard accepted/rejected the wrong version: {candidate}')
+for asset in ('arch-linux-installer.sh', 'arch-linux.gpg'):
+    require(f'https://github.com/snaplyze/arch-linux/releases/download/{version}/{asset}'
+            in guests[0], 'public guest release URL pin')
+require(f'https://raw.githubusercontent.com/snaplyze/arch-linux/{version}/install.sh'
+        in guests[0], 'public guest bootstrap URL pin')
+require(r'1\.0\.1:' in guests[0], 'public bootstrap output version pin')
+
 start = host.index('    case "${scenario_id}" in\n', host.index("main() {"))
 end = host.index("\n    esac\n    shift", start) + len("\n    esac")
 case = host[start:end]
