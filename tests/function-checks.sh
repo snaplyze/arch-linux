@@ -1026,33 +1026,41 @@ unset ARCH_LINUX_QEMU_ACCEPTANCE ARCH_LINUX_QEMU_REPOSITORY_CONTRACT
     eval "$(sed -n '/^verify_dual_boot_phase() {/,/^}/p' \
         "${repo_root}/tests/vm/guest/verify.sh")"
     scenario=minimal-dualboot-ext4-systemdboot phase=neighbor run_id=fixture
-    neighbor_hostname=ali-neighbor
+    neighbor_hostname=ali-neighbor neighbor_root=/dev/sda2 neighbor_marker=fixture
     find_target() { printf '/dev/sda'; }
-    mounted_source_device() { printf '/dev/sda2'; }
+    mounted_source_device() { printf '%s' "${neighbor_root}"; }
     partition_name() { printf '%s%s' "$1" "$2"; }
     hostname() { return 127; } # Not installed by the base-only neighboring system.
     cat() {
         case "$1" in
         /proc/sys/kernel/hostname) printf '%s' "${neighbor_hostname}" ;;
-        /neighbor-preserved.txt) printf '%s' "${run_id}" ;;
+        /neighbor-preserved.txt) printf '%s' "${neighbor_marker}" ;;
         /proc/sys/kernel/random/boot_id) printf '11111111-1111-1111-1111-111111111111' ;;
         *) return 1 ;;
         esac
     }
-    systemctl() { return 0; }
-    getent() { return 99; } # Neighbor DNS is not an installer acceptance dependency.
-    bootctl() { [ "$1" = is-installed ]; }
+    # The installer must not become responsible for administering the existing OS.
+    systemctl() { return 99; }
+    getent() { return 99; }
+    bootctl() { return 99; }
     verify_dual_boot_phase >/dev/null
     neighbor_probe="$(declare -f verify_dual_boot_phase find_target mounted_source_device \
         partition_name hostname cat systemctl getent bootctl)"
-    if /usr/bin/bash -c 'set -e
-        eval "$1"
-        scenario=minimal-dualboot-ext4-systemdboot phase=neighbor run_id=fixture
-        neighbor_hostname=wrong-system
-        verify_dual_boot_phase' neighbor-probe "${neighbor_probe}" >/dev/null; then
-        echo 'function check failed: wrong neighboring system accepted' >&2
-        exit 1
-    fi
+    for neighbor_mismatch in hostname root marker; do
+        if /usr/bin/bash -c 'set -e
+            eval "$1"
+            scenario=minimal-dualboot-ext4-systemdboot phase=neighbor run_id=fixture
+            neighbor_hostname=ali-neighbor neighbor_root=/dev/sda2 neighbor_marker=fixture
+            case "$2" in
+            hostname) neighbor_hostname=wrong-system ;;
+            root) neighbor_root=/dev/sda3 ;;
+            marker) neighbor_marker=wrong-run ;;
+            esac
+            verify_dual_boot_phase' neighbor-probe "${neighbor_probe}" "${neighbor_mismatch}" >/dev/null; then
+            echo "function check failed: wrong neighboring ${neighbor_mismatch} accepted" >&2
+            exit 1
+        fi
+    done
 )
 (
     eval "$(sed -n '/^remove_heavy_run_inputs() {/,/^}/p' "${repo_root}/tests/vm/run.sh")"
