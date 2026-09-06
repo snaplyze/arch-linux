@@ -2537,4 +2537,52 @@ ARCH_LINUX_DESKTOP_KEYBOARD_LAYOUT='us'
 ARCH_LINUX_DESKTOP_KEYBOARD_LAYOUT_SECOND='ru'
 needs_ptyxis_russian_shortcuts || { echo 'needs_ptyxis_russian_shortcuts: secondary ru layout did not match' >&2; exit 1; }
 
+# QEMU launch readiness must tolerate the real Bash fork -> exec transition, without accepting
+# a different PID/start identity, a dead child or a child that never executes the expected binary.
+# Use sleep as the fixture executable so source CI needs no QEMU/KVM or guest operating system.
+(
+    eval "$(sed -n '/^process_start_time() {/,/^}/p; /^process_is_exact_qemu() {/,/^}/p; /^wait_for_qemu_exec() {/,/^}/p' \
+        "${repo_root}/tests/vm/run.sh")"
+    qemu_bin="$(readlink -f -- "$(command -v sleep)")"
+    ready_fifo="${function_runtime_dir}/exec-ready"
+    release_fifo="${function_runtime_dir}/exec-release"
+    mkfifo -- "$ready_fifo" "$release_fifo"
+    fixture_pid=''
+    releaser_pid=''
+    trap 'if [ -n "$fixture_pid" ]; then kill -KILL "$fixture_pid" 2>/dev/null || true; wait "$fixture_pid" 2>/dev/null || true; fi; if [ -n "$releaser_pid" ]; then wait "$releaser_pid" 2>/dev/null || true; fi' EXIT
+    bash --noprofile --norc -c '
+        printf "ready\n" >"$1"
+        read -r token <"$2"
+        [ "$token" = exec ] || exit 1
+        exec "$3" 30
+    ' bash "$ready_fifo" "$release_fifo" "$qemu_bin" &
+    # This reads the immediately preceding background child, not an earlier subshell's $!.
+    # shellcheck disable=SC2031
+    fixture_pid=$!
+    read -r ready <"$ready_fifo"
+    [ "$ready" = ready ]
+    fixture_start="$(process_start_time "$fixture_pid")"
+    if process_is_exact_qemu "$fixture_pid" "$fixture_start" ||
+        wait_for_qemu_exec "$fixture_pid" "$fixture_start" 0 ||
+        wait_for_qemu_exec "$fixture_pid" "$((fixture_start + 1))" 1; then
+        echo 'function check failed: exec readiness accepted an incorrect process identity' >&2
+        exit 1
+    fi
+    ( sleep 0.2; printf 'exec\n' >"$release_fifo" ) &
+    # shellcheck disable=SC2031
+    releaser_pid=$!
+    wait_for_qemu_exec "$fixture_pid" "$fixture_start" 5
+    process_is_exact_qemu "$fixture_pid" "$fixture_start"
+    wait "$releaser_pid"
+    releaser_pid=''
+    kill -TERM "$fixture_pid"
+    wait "$fixture_pid" 2>/dev/null || true
+    dead_pid="$fixture_pid"
+    fixture_pid=''
+    if wait_for_qemu_exec "$dead_pid" "$fixture_start" 1; then
+        echo 'function check failed: exec readiness accepted an exited child' >&2
+        exit 1
+    fi
+)
+
 echo "function checks passed"
