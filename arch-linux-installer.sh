@@ -6387,10 +6387,12 @@ process_init() {
 }
 
 process_enter_cgroup() {
-    # This function must be the first command in every executor subshell. No installer command may
-    # start until the parent has an exact cgroup membership acknowledgement for this BASHPID.
+    # This is the first command in every executor. Record acknowledgement only after proving both
+    # its own process group and exact cgroup membership, while the executor is necessarily alive.
+    local executor_pid="$BASHPID" actual_relative actual_pgid
+    actual_pgid="$(ps -o pgid= -p "$executor_pid" 2>/dev/null | tr -d '[:space:]')" || exit 125
+    [ "$actual_pgid" = "$executor_pid" ] || exit 125
     printf '%s\n' "$BASHPID" >"${PROCESS_CGROUP_DIR}/cgroup.procs" || exit 125
-    local actual_relative
     actual_relative="$(awk -F: '$1 == "0" && $2 == "" { print $3 }' "/proc/${BASHPID}/cgroup")" || exit 125
     [ "$actual_relative" = "$PROCESS_CGROUP_RELATIVE" ] || exit 125
     printf '%s\n' "$BASHPID" >"$PROCESS_CGROUP_ACK_TMP_FILE" || exit 125
@@ -6510,13 +6512,18 @@ process_capture() {
 
     PROCESS_ACTIVE_PID="$pid"
     actual_pgid="$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d '[:space:]')" || actual_pgid=''
-    PROCESS_ACTIVE_PGID="$actual_pgid"
+    PROCESS_ACTIVE_PGID=''
     set +m
-    if [ "$actual_pgid" != "$pid" ]; then
+    # Bash can reap a short executor before ps observes it. Its protected acknowledgement was
+    # written after the child-side PGID/cgroup checks above. Accept that completed state only for
+    # a successfully waited child that is no longer live; never invent a PGID or signal a reused PID.
+    if [ "$actual_pgid" != "$pid" ] &&
+        { [ -n "$actual_pgid" ] || kill -0 "$pid" 2>/dev/null || ! wait "$pid" 2>/dev/null; }; then
         process_reap_active true || true
         gum_fail "${process_name} did not start in its own process group"
         exit 1
     fi
+    if [ "$actual_pgid" = "$pid" ]; then PROCESS_ACTIVE_PGID="$actual_pgid"; fi
     for ((attempt = 0; attempt < 100; attempt++)); do
         if [ -f "$PROCESS_CGROUP_ACK_TMP_FILE" ]; then
             IFS= read -r ack_pid <"$PROCESS_CGROUP_ACK_TMP_FILE" || ack_pid=''

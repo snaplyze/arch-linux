@@ -892,13 +892,16 @@ privileged_process_containment_acceptance() (
     local detached_pid='' actual_pgid='' attempt scope_root='' scope_pid_file scope_marker scope_output
     local child_scope cleanup_ok=true scope_user="alscope${BASHPID}" scope_uid=59998 scope_gid
     local scope_identity_file scope_expected_identity scope_expected_cgroup scope_status
-    local scope_user_created=false
+    local scope_user_created=false worker_gate='' worker_gate_fd='' worker_gate_token=''
 
     cleanup_process_containment_probe() {
         # A failed assertion must not strand the exact worker or any descendant test cgroup. The
         # production teardown remains the subject under test; this trap is only a final emergency
         # boundary for the disposable acceptance environment.
         set +m
+        if [[ "${worker_gate_fd:-}" =~ ^[0-9]+$ ]]; then
+            exec {worker_gate_fd}>&- || cleanup_ok=false
+        fi
         if [[ "${worker_pid:-}" =~ ^[0-9]+$ ]] && kill -0 "${worker_pid}" 2>/dev/null; then
             actual_pgid="$(ps -o pgid= -p "${worker_pid}" 2>/dev/null | tr -d '[:space:]')"
             if [ "${actual_pgid}" = "${worker_pid}" ]; then
@@ -1004,9 +1007,30 @@ privileged_process_containment_acceptance() (
     gum_fail() { fail "$*"; }
     # shellcheck disable=SC2329
     log_proc() { :; }
+    # shellcheck disable=SC2329
+    gum_spin() { return 0; }
+    # shellcheck disable=SC2329
+    gum_proc() { [ "$2" = success ]; }
+
+    # A real cgroup-bound child is deliberately waited before capture: this is a completed-state
+    # regression, not a machine-speed assertion. The real PGID/cgroup entry and teardown remain active.
+    process_init 'Already completed executor fixture'
+    (
+        process_enter_cgroup
+        process_return 0
+    ) >"${PROCESS_LOG_TMP_FILE}" 2>&1 &
+    worker_pid=$!
+    wait "$worker_pid" || fail 'fast executor did not enter its own PGID and cgroup'
+    process_capture "$worker_pid" 'Already completed executor fixture'
+    [ -z "$PROCESS_CGROUP_DIR" ] && [ -z "$PROCESS_ACTIVE_PID" ] &&
+        [ -z "$PROCESS_ACTIVE_PGID" ] || fail 'completed executor retained containment state'
+    worker_pid=''
 
     detached_pid_file="${process_probe_root}/detached.pid"
     detached_marker="${process_probe_root}/detached.marker"
+    worker_gate="${process_probe_root}/worker-observed.fifo"
+    mkfifo -m0600 -- "$worker_gate"
+    exec {worker_gate_fd}<>"$worker_gate"
     process_init 'Detached executor fixture'
     (
         process_enter_cgroup
@@ -1021,10 +1045,15 @@ privileged_process_containment_acceptance() (
             sleep 0.01
         done
         [ -s "${detached_pid_file}" ] || exit 125
+        # Keep this negative fixture alive until the parent has inspected its real PGID. The
+        # detached-descendant rejection below, not a race against ps, is the subject of this case.
+        IFS= read -r -t 30 -u "$worker_gate_fd" worker_gate_token || exit 125
+        [ "$worker_gate_token" = observed ] || exit 125
         process_return 0
     ) >"${PROCESS_LOG_TMP_FILE}" 2>&1 &
     worker_pid=$!
-    actual_pgid="$(ps -o pgid= -p "${worker_pid}" | tr -d '[:space:]')"
+    actual_pgid="$(ps -o pgid= -p "${worker_pid}" | tr -d '[:space:]')" ||
+        fail 'executor fixture exited before parent PGID inspection'
     [ "${actual_pgid}" = "${worker_pid}" ] || fail 'executor fixture lacks its own process group'
     for ((attempt = 0; attempt < 100; attempt++)); do
         if [ -s "${PROCESS_CGROUP_ACK_TMP_FILE}" ]; then
@@ -1044,6 +1073,10 @@ privileged_process_containment_acceptance() (
     [[ "${detached_pid}" =~ ^[0-9]+$ ]] || fail 'invalid detached executor PID evidence'
     PROCESS_ACTIVE_PID="${worker_pid}"
     PROCESS_ACTIVE_PGID="${actual_pgid}"
+    printf 'observed\n' >&"$worker_gate_fd"
+    exec {worker_gate_fd}>&-
+    worker_gate_fd=''
+    unlink -- "$worker_gate"
     set +m
     if process_reap_active false; then process_status=0; else process_status=$?; fi
     [ "${process_status}" -eq 124 ] || fail 'detached executor was not reported as containment failure'

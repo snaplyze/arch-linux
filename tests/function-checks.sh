@@ -2382,6 +2382,86 @@ ARCH_LINUX_DESKTOP_KEYBOARD_VARIANT=''
 
 ARCH_LINUX_DESKTOP_KEYBOARD_LAYOUT_SECOND=''
 
+# A child may finish before the parent runs ps. Exercise actual Bash child/wait semantics without
+# a timing threshold or touching host cgroups. Missing acknowledgement, failed/non-child waits and
+# a present wrong PGID must still reject; completed children must not acquire a fabricated PGID.
+for capture_case in completed failed-child missing-ack wrong-pgid non-child; do
+    capture_output="${function_runtime_dir}/capture-${capture_case}.log"
+    trap - ERR
+    set +e
+    (
+        set -e
+        trap - ERR EXIT
+        PROCESS_LOG_TMP_FILE="${function_runtime_dir}/capture-process.log"
+        PROCESS_RET_TMP_FILE="${function_runtime_dir}/capture-process.ret"
+        PROCESS_CGROUP_ACK_TMP_FILE="${function_runtime_dir}/capture-process.ready"
+        : >"$PROCESS_LOG_TMP_FILE"
+        gum_fail() { printf '%s\n' "$*" >&2; }
+        gum_spin() { return 0; }
+        gum_proc() { [ "$2" = success ]; }
+        process_reap_active() {
+            [ -z "$PROCESS_ACTIVE_PGID" ] || {
+                echo 'capture retained an unverified process group' >&2
+                exit 125
+            }
+            wait "$PROCESS_ACTIVE_PID"
+        }
+        set -m
+        (
+            printf '%s\n' "$BASHPID" >"$PROCESS_CGROUP_ACK_TMP_FILE"
+            printf '0\n' >"$PROCESS_RET_TMP_FILE"
+            [ "$capture_case" != failed-child ] || exit 23
+        ) &
+        # shellcheck disable=SC2031 # This is the immediately preceding child, not the readonly-name probe.
+        capture_pid=$!
+        wait "$capture_pid" || [ "$capture_case" = failed-child ]
+        set +m
+        case "$capture_case" in
+            missing-ack) rm -- "$PROCESS_CGROUP_ACK_TMP_FILE" ;;
+            wrong-pgid) ps() { printf '999999999\n'; } ;;
+            non-child) capture_pid=999999999 ;;
+        esac
+        process_capture "$capture_pid" 'Completed executor regression'
+    ) >"$capture_output" 2>&1
+    capture_status=$?
+    set -e
+    trap 'failed_line "$LINENO"' ERR
+    if [ "$capture_case" = completed ]; then
+        [ "$capture_status" -eq 0 ] || { cat "$capture_output" >&2; exit 1; }
+    else
+        [ "$capture_status" -eq 1 ] || {
+            printf 'executor capture negative failed: %s status=%s\n' "$capture_case" "$capture_status" >&2
+            exit 1
+        }
+    fi
+done
+
+# Child-side PGID rejection precedes even the cgroup write or protected acknowledgement.
+for entry_case in wrong-pgid unavailable-pgid; do
+    trap - ERR
+    set +e
+    (
+        trap - ERR EXIT
+        PROCESS_CGROUP_DIR="${function_runtime_dir}/entry-${entry_case}"
+        mkdir -- "$PROCESS_CGROUP_DIR"
+        PROCESS_CGROUP_ACK_TMP_FILE="${PROCESS_CGROUP_DIR}/ack"
+        ps() {
+            [ "$entry_case" != unavailable-pgid ] || return 1
+            printf '0\n'
+        }
+        process_enter_cgroup
+    )
+    entry_status=$?
+    set -e
+    trap 'failed_line "$LINENO"' ERR
+    [ "$entry_status" -eq 125 ] &&
+        [ ! -e "${function_runtime_dir}/entry-${entry_case}/cgroup.procs" ] &&
+        [ ! -e "${function_runtime_dir}/entry-${entry_case}/ack" ] || {
+        echo 'executor entered/acknowledged a scope without its own PGID' >&2
+        exit 1
+    }
+done
+
 # Executor teardown allows only the existing bounded cgroup drain. A transient descendant may
 # exit naturally; a cgroup that is still populated after that bound is killed and remains a FAIL.
 (
