@@ -126,6 +126,18 @@ process_is_exact_qemu() {
         [ "$(readlink -f -- "/proc/${pid}/exe" 2>/dev/null || true)" = "${qemu_bin}" ]
 }
 
+wait_for_qemu_exec() {
+    local pid="$1" start_time="$2" deadline=$((SECONDS + $3))
+    # An asynchronous Bash child exists before execve replaces its executable. Its PID/start
+    # identity must remain unchanged throughout that transition; an exited or reused PID fails.
+    while [ "$(process_start_time "${pid}" 2>/dev/null || true)" = "${start_time}" ]; do
+        process_is_exact_qemu "${pid}" "${start_time}" && return 0
+        [ "${SECONDS}" -lt "${deadline}" ] || return 1
+        sleep 0.1
+    done
+    return 1
+}
+
 process_is_exact_repository_server() {
     local pid="$1" start_time="$2"
     [ "$(process_start_time "${pid}" 2>/dev/null || true)" = "${start_time}" ] &&
@@ -1144,8 +1156,25 @@ launch_qemu() {
     command+=( -D "${evidence}/${phase}-qemu-debug.log" )
     "${command[@]}" >"${evidence}/${phase}-qemu.stdout" 2>"${evidence}/${phase}-qemu.stderr" &
     qemu_pid=$!
-    qemu_start_time="$(process_start_time "${qemu_pid}")" || die "cannot bind QEMU process: ${phase}"
-    process_is_exact_qemu "${qemu_pid}" "${qemu_start_time}" || die "QEMU process identity differs: ${phase}"
+    if ! qemu_start_time="$(process_start_time "${qemu_pid}")" ||
+        ! wait_for_qemu_exec "${qemu_pid}" "${qemu_start_time}" 10; then
+        {
+            printf 'QEMU_HOST_FAIL: exec readiness failed: phase=%s pid=%s start=%s observed_exe=%s\n' \
+                "${phase}" "${qemu_pid}" "${qemu_start_time}" \
+                "$(readlink -f -- "/proc/${qemu_pid}/exe" 2>/dev/null || true)"
+            # Keep a bounded host-only launch diagnostic through normal evidence compaction.
+            tail -c 4096 -- "${evidence}/${phase}-qemu.stderr" |
+                sed 's/^/QEMU_HOST_FAIL: launch stderr: /'
+        } >"${evidence}/${phase}-qemu-launch-failure.txt"
+        # This is still our direct child, not yet an accepted QEMU. Recheck its exact start
+        # identity before stopping it so a delayed exec cannot escape the failed launch.
+        if [ -n "${qemu_start_time}" ] &&
+            [ "$(process_start_time "${qemu_pid}" 2>/dev/null || true)" = "${qemu_start_time}" ]; then
+            kill -KILL -- "${qemu_pid}" 2>/dev/null || true
+        fi
+        wait "${qemu_pid}" 2>/dev/null || true
+        die "QEMU executable did not become ready: ${phase}"
+    fi
     qemu_pids+=("${qemu_pid}")
     hmp_socket="${runtime_dir}/hmp.sock"
     qmp_socket="${runtime_dir}/qmp.sock"
