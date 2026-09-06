@@ -1659,11 +1659,8 @@ verify_dual_boot_phase() {
         [ "${root_device}" = "${expected_root}" ]
         [ "$(cat /proc/sys/kernel/hostname)" = ali-neighbor ]
         [ "$(cat /neighbor-preserved.txt)" = "${run_id}" ]
-        systemctl is-active --quiet systemd-networkd systemd-resolved qemu-guest-agent
-        # The installer must preserve and boot this existing OS, not configure its DNS.
-        # Network access is already checked in the newly installed target OS.
-        [ -z "$(systemctl --failed --no-legend --plain)" ]
-        bootctl is-installed
+        # Preserve and boot this existing OS; do not administer its services or network.
+        # The newly installed target retains its full network/service/bootloader checks.
     fi
     boot_id="$(cat /proc/sys/kernel/random/boot_id)"
     printf 'MINIMAL_QEMU_GUEST_PASS run_id=%s scenario=%s phase=%s boot_id=%s target=%s neighbor=preserved\n' \

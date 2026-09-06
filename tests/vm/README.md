@@ -46,8 +46,9 @@ The last case prepares a small neighboring Linux installation inside the disposa
 It reuses its EFI partition, selects partition 3 for the new Arch root, checks that the neighboring
 files and boot entry survive, and actually boots both systems. This is a Linux dual-boot test,
 not a claim to have installed or tested Windows. No host disk is prepared by this command.
-Network access is required in the newly installed OS. The neighboring OS's DNS configuration
-is outside the installer contract and is not a release gate.
+Network and service health are required in the newly installed OS. The pre-existing neighbor
+is checked for preservation and real boot, not its DNS, service health or administration tools;
+the installer does not provision those in that OS.
 
 The main staged Marble case additionally exercises GDM administrator-profile fallback and restore,
 then real pacman removal and reinstallation followed by password logins. The Stock-GDM Marble case

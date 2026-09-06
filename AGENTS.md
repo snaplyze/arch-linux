@@ -174,6 +174,9 @@ Do not impose frame timing, continuous recording, pixel challenges, contact shee
 human review receipts. `tests/vm/frame-evidence.py` is a small screenshot helper, not an evidence
 framework. Keep logs and results compact; remove owned temporary VM disks and firmware state.
 Cover the supported product options, including dual boot and the separate Marble GDM opt-in.
+For dual boot, check the newly installed OS normally. For the pre-existing neighbor, require
+preserved partition/EFI/file identities and real boot, not network/service health or the
+availability of OS administration tools that the installer does not provision there.
 Do not describe an unexecuted variant or a static assertion as a successful installation.
 
 ## Secrets
