@@ -76,6 +76,18 @@ rm -f -- "$size_fixture"
 [[ "$(aur_helper_command none)" == "pacman" ]]
 
 (
+    eval "$(sed -n '/^emit_installer_log() {/,/^}/p' "${repo_root}/tests/vm/guest/bootstrap.sh")"
+    early_log="${function_runtime_dir}/early-installer.log"
+    installer_status=23
+    [[ "$(emit_installer_log "${early_log}")" == QEMU_DIAGNOSTIC_WARNING:* ]]
+    [ "${installer_status}" -eq 23 ]
+    printf 'existing installer log\n' >"${early_log}"
+    [ "$(emit_installer_log "${early_log}")" = 'existing installer log' ]
+    ln -s "${early_log}" "${early_log}.link"
+    [[ "$(emit_installer_log "${early_log}.link")" == QEMU_DIAGNOSTIC_WARNING:* ]]
+)
+
+(
     eval "$(sed -n '/^public_repository_policy_scope_valid() {/,/^}/p' \
         "${repo_root}/tests/vm/guest/verify.sh")"
     project_config="${function_runtime_dir}/project-pacman.conf"

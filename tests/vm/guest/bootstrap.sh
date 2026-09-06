@@ -14,6 +14,14 @@ readonly work_root='/run/arch-linux-qemu'
 
 marker_prefix=''
 
+emit_installer_log() {
+    # Early download failures happen before installer.log exists. Preserve their status.
+    if [ -f "$1" ] && [ ! -L "$1" ]; then
+        cat -- "$1" && return 0
+    fi
+    printf 'QEMU_DIAGNOSTIC_WARNING: installer log unavailable; retaining installer exit status\n'
+}
+
 fail() {
     printf '%s_QEMU_FAIL: %s\n' "${marker_prefix:-UNKNOWN}" "$*" >&2
     systemctl poweroff --no-block >/dev/null 2>&1 || true
@@ -491,7 +499,7 @@ main() {
     wait "${log_tail_pid}" 2>/dev/null || true
     printf '%s_QEMU_INSTALL_LOG_FINAL_BEGIN run_id=%s scenario=%s\n' "${marker_prefix}" \
         "${IDENTITY[RUN_ID]}" "${IDENTITY[SCENARIO]}" >/dev/ttyS1
-    cat -- installer.log >/dev/ttyS1
+    emit_installer_log installer.log >/dev/ttyS1
     printf '%s_QEMU_INSTALL_LOG_FINAL_END run_id=%s scenario=%s\n' "${marker_prefix}" \
         "${IDENTITY[RUN_ID]}" "${IDENTITY[SCENARIO]}" >/dev/ttyS1
     printf '%s_QEMU_INSTALLER_EXIT status=%s\n' "${marker_prefix}" "${installer_status}"

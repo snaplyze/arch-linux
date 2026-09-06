@@ -108,6 +108,10 @@ lock/unlock, package update, reboot and second login. Stock also checks Language
 layouts, switching and terminal shortcuts. Minimal checks its installed multi-user system and TTY.
 QGA runs diagnostics; it does not log the user in or replace the installation.
 
+If the installer exits before creating its log (for example, a dependency download fails), the
+guest reports its actual exit status and powers off. Missing diagnostic logs must not hide that
+failure or leave the host waiting for an installation that has already stopped.
+
 `frame-evidence.py` captures ordinary diagnostic screenshots from the actual QEMU display. They
 are optional: capture errors are warnings, not OS failures. There is no continuous recorder, timing
 threshold, pixel challenge, contact sheet or separate manual receipt. Inspect screenshots when they
