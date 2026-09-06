@@ -1363,7 +1363,7 @@ aur_review_metadata() {
         printf '%s\n' 'a1733fcd3f774b768a701dc8fd1414934645f478 9ab94834886058a417fdd33fd1a3719583490e485392b7c2dbdcce2d6fc1e4ee e663abc1001af20b97068a3b5cee7d361e6c8625f9015081faa5956fcd51199e b40333107e29b2f866c6d78a29622a30c76c1bc9d3d06cf800c3e9be1dcb81de'
         ;;
     gnome-shell-extension-just-perfection-desktop)
-        printf '%s\n' '57e67cabe41c94858bd7f3cbe2c80eacc491b7cc 8b238aa4db622d608810b62d64c74b7b87beea3c44b8aebd1a59d91d5c58f2e0 9bbd8b52402236f642dcd926dc5a20e137b1d36a474f369ac53bf1ad560f383d 9f0fe0d3c9088b49c67ee1638218aff9ebddbd01f91c976b89139775be47578f'
+        printf '%s\n' 'f84ccdef0316a572471c282763b52dd5901e87b6 c810cb87747cab8a17a99ac5e84f2365189f57ca315231357ee0c7e84768e01f c857d483ee3286c9e6f1eaa8c43b7075d2a4a526ef6f1c1b580b55245400a597 46ab547c6609a84a843b66a0de6b36c7eeb882127de72394ab6a8a760a1975b4'
         ;;
     paru)
         printf '%s\n' '329be2113c590046cb29858c23d9b96a8d7bd586 bdd43155bc97eac5f0075b5eb6bb5aeea483fdeef429a144c6989558e49dfea8 e84755034a22e0ecff5638ee4e96c69a7697f7f6a3ed781f1eeb53742d45be34 514ced7c6bf3be8a3528a383ac4f30e16df696cacdea7d43b88b095d8375658d'
@@ -6003,7 +6003,7 @@ chroot_aur_install() {
                     ;;
                 gnome-shell-extension-just-perfection-desktop)
                     grep -Fq '\''#tag=$pkgver.0'\'' PKGBUILD
-                    sed -i '\''s|#tag=$pkgver.0|#commit=818aa98baa1d6dbec7b44b70d9074d95d516a499|'\'' PKGBUILD
+                    sed -i '\''s|#tag=$pkgver.0|#commit=ae48fd2d75a5747bbda1bdb2b039e9a3384ddf4c|'\'' PKGBUILD
                     ;;
                 gnome-shell-extension-clipboard-indicator)
                     grep -Fxq '\''  rm -f "$pkgdir/usr/share/glib-2.0/schemas/gschemas.compiled"'\'' PKGBUILD

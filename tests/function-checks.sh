@@ -175,6 +175,51 @@ done
 read -r _ _ _ clipboard_pkgbuild_sha_fixture \
     < <(aur_review_metadata gnome-shell-extension-clipboard-indicator)
 [[ "$clipboard_pkgbuild_sha_fixture" = 0d7981518298ae9389a7a63f3ec9918c9f66c8805a24cd20690c661c1ec64fa8 ]]
+
+# Exact public AUR metadata from f84ccdef0316a572471c282763b52dd5901e87b6.
+# Exercise the installer's actual quoted hardening block, not a duplicate patch recipe.
+# PKGBUILD is only data here: never source it or invoke makepkg in a source test.
+jp_package=gnome-shell-extension-just-perfection-desktop
+jp_fixture="$repo_root/tests/fixtures/aur/just-perfection-37"
+read -r jp_commit jp_archive_sha jp_srcinfo_sha jp_pkgbuild_sha < <(aur_review_metadata "$jp_package")
+[[ "$jp_commit" = f84ccdef0316a572471c282763b52dd5901e87b6 ]]
+[[ "$(sha256sum "$jp_fixture.SRCINFO" | awk '{print $1}')" = "$jp_srcinfo_sha" ]]
+jp_srcinfo="$(<"$jp_fixture.SRCINFO")"
+aur_srcinfo_identity_matches "$jp_package" "$jp_srcinfo"
+[[ "$(aur_srcinfo_dependencies "$jp_package" <<<"$jp_srcinfo")" = $'git\ngnome-shell' ]]
+[[ "$(aur_srcinfo_dependencies "$jp_package" <<<"$jp_srcinfo")" = "$(aur_reviewed_dependencies "$jp_package")" ]]
+mkdir "$function_runtime_dir/just-perfection"
+cp -- "$jp_fixture.PKGBUILD" "$function_runtime_dir/just-perfection/PKGBUILD"
+jp_actual_pkgbuild_sha=$(python3 - "$script" "$function_runtime_dir/just-perfection" "$jp_package" <<'PY'
+from pathlib import Path
+import shlex
+import subprocess
+import sys
+
+source = Path(sys.argv[1]).read_text()
+anchor = source.index('# Apply only reviewed deterministic hardening changes')
+start = source.index("bash -c '", anchor)
+lexer = shlex.shlex(source[start:], posix=True)
+lexer.whitespace_split = True
+command = [next(lexer) for _ in range(3)]
+assert command[:2] == ['bash', '-c']
+subprocess.run(command + ['fixture', sys.argv[2], sys.argv[3]], check=True)
+PY
+)
+aur_review_pkgbuild_matches "$jp_package" "$jp_actual_pkgbuild_sha"
+[[ "$jp_actual_pkgbuild_sha" = 46ab547c6609a84a843b66a0de6b36c7eeb882127de72394ab6a8a760a1975b4 ]]
+if aur_review_source_identity_matches "$jp_package" \
+    57e67cabe41c94858bd7f3cbe2c80eacc491b7cc "$jp_archive_sha" "$jp_srcinfo_sha" ||
+    aur_review_pkgbuild_matches "$jp_package" \
+    9f0fe0d3c9088b49c67ee1638218aff9ebddbd01f91c976b89139775be47578f; then
+    echo 'function check failed: stale Just Perfection 36 identity accepted' >&2
+    exit 1
+fi
+jp_changed_srcinfo_sha=$(printf '%s\n\tdepends = unreviewed\n' "$jp_srcinfo" | sha256sum | awk '{print $1}')
+if aur_review_source_identity_matches "$jp_package" "$jp_commit" "$jp_archive_sha" "$jp_changed_srcinfo_sha"; then
+    echo 'function check failed: changed Just Perfection dependency metadata accepted' >&2
+    exit 1
+fi
 if aur_review_metadata unreviewed-package >/dev/null; then
     echo 'function check failed: unreviewed AUR package accepted' >&2
     exit 1
