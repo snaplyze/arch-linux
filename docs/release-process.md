@@ -24,15 +24,50 @@ to retrofit this setting. The installer intentionally offers self-updates only f
 whose API reports `immutable: true`; preserve that check. Release-pinned bootstrap verification
 and platform-enforced release immutability are separate properties.
 
+## Released 1.0.1
+
+[Release 1.0.1](https://github.com/snaplyze/arch-linux/releases/tag/1.0.1) was published on
+2026-09-06 with `immutable: true`. Its annotated tag resolves to commit
+`bdb42154f55dac5c0d7cddfc2f0f57d493024354`, tree
+`bccfbbbdd0458909da8af3cddc75a21b671724bb`. Installer SHA-256 is
+`a9bb35e6799599c9f22d4171860928799c060de9d4a4450c9be379579ced3318`;
+repository snapshot SHA-256 is
+`c16921d6019d2d86c9c1e8098015a9d87b3fbf4cc7e9d3a0c8d20d316cf15e09`.
+
+The full clean-source and release-host checks passed. One
+[canonical package build](https://github.com/snaplyze/arch-linux/actions/runs/34038725132)
+and independent local verification preceded offline signing. Nine fresh staged QEMU/KVM
+scenarios covered Minimal, Stock, Marble, the separate GDM opt-in, storage/bootloader choices
+and Linux dual boot. All completed actual installed-system checks and owned-runtime cleanup;
+this does not claim every possible combination or Windows acceptance.
+
+All 18 draft and published assets passed hashes/signatures/version/tag readback. The
+[verified Pages deployment](https://github.com/snaplyze/arch-linux/actions/runs/34044910971)
+passed HTTPS readback of all 25 repository objects. Fresh public-only Marble/GDM run
+`marble-20260906T162218Z-f716125e` passed real LUKS boot, password login, Wayland,
+lock/unlock, update, reboot/relogin, package integrity, zero failed units and image cleanup.
+A separate fresh public VM passed signed old-to-new six-package delivery through normal
+`pacman -Syu` and the actual unmodified 1.0.0 installer's signed self-update, atomic replacement
+and restart into 1.0.1. It stopped at setup, without starting a second disk installation.
+
+The supplemental run used reviewed test-only harness commit
+`dff1a72ee5beee0e3a03e67d7999fac49f6ef948`, tree
+`b5959ceb86681c9b4dce6ad7f10d05ffd45ae095` (PR #34, QEMU exec-readiness correction),
+separately bound to the unchanged released product above. Its run ID is
+`marble-20260906T180030Z-7ff430e2`; the earlier failed supplemental attempts remain FAIL.
+
+Later test/documentation commits do not move this tag or change released bytes. Historical
+compatibility runs and failed diagnostic attempts remain separate from this release's evidence.
+
 ## 1. Source candidate
 
-The next installer release is `1.0.1`, carrying the reviewed Just Perfection 37 installer pin
+Release `1.0.1` carries the reviewed Just Perfection 37 installer pin
 and Colloid icons `20260829-1`. The other five packages use a new `pkgrel=2` for this canonical
 rebuild, so none reuses a published `pkgrel=1` archive name with different bytes. Public trust,
 the accepted ISO, the retained Gum/GTK inputs and all installation choices remain unchanged.
-Previous compatibility runs are review evidence only; this release requires its own frozen build,
-signed snapshot and fresh staged/public acceptance. Publication status comes from the verified
-GitHub Release, not from this source preparation note.
+Previous compatibility runs are review evidence only; the separate frozen build, signed snapshot
+and fresh staged/public acceptance for 1.0.1 are summarized above. A subsequent installer change
+requires a new version and its own affected checks, never replacement of these assets.
 
 The executor verifies its own process group and cgroup before acknowledging entry. A child that
 finishes before the parent can inspect `/proc` is accepted only after a successful Bash child wait,

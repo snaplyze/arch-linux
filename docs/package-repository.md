@@ -26,8 +26,11 @@ done < repository/package-set
 
 The Colloid icon input for 1.0.1 is `20260829-1`; the GTK3 input and GDM-critical icon hashes
 are unchanged. See the [review and delivery boundary](maintenance.md#colloid-and-gum-review-september-2026).
-An unsigned build or a source merge is not a Pages update. A new signed snapshot must carry
-the higher package version before installed systems receive it through `pacman -Syu`.
+The signed 1.0.1 snapshot is published on Pages: keyring/profile `1.0.0-2`, Marble shell/GDM
+`50.0.0-2`, GTK3 `20260808-2` and icons `20260829-1`. Actual old-to-new six-package delivery
+through `pacman -Syu` passed in a fresh public VM, including exact hashes and package integrity.
+See the [release verification summary](release-process.md#released-101). An unsigned build or
+source merge alone is still not a Pages update; changed package bytes need a new version/pkgrel.
 
 ## Canonical unsigned build
 

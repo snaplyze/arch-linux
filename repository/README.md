@@ -329,6 +329,12 @@ the installer release to be published already, rejects changes to `install.sh` o
 under that old version, and verifies all 14 files and package/database signatures before deployment.
 
 After HTTPS readback and a successful installed-system `pacman -Syu`, publish the package Release
-without replacing bytes. Future package updates use a new package tag. There is no automatic
+without replacing bytes. Explicitly exclude it from GitHub's Latest installer selection:
+`gh release edit "$PACKAGE_TAG" --draft=false --latest=false`. Confirm afterward that the
+repository's `/releases/latest` API still names the existing SemVer installer release, not the
+`packages-YYYYMMDD.N` tag. The installer updater intentionally accepts only SemVer release tags;
+a package-only release must not hide that installer from older clients. Do not rely on GitHub's
+[automatic Latest selection](https://cli.github.com/manual/gh_release_create).
+Future package updates use a new package tag. There is no automatic
 signing, release or merge. The normal `deployment_kind=release` path still requires the finalized
 18-file installer release with its three functional VM results.

@@ -317,8 +317,11 @@ bind_vm_source_identities() {
         source_tree="$(git -C "${repository_root}" rev-parse "refs/tags/${release_version}^{tree}")"
         git -C "${repository_root}" merge-base --is-ancestor "${source_commit}" "${harness_commit}" ||
             die 'released source is not an ancestor of the test checkout' || return 1
+        # This one documentation file is not a verifier, package, trust or maintenance input.
+        # Release readback notes may advance independently, just like the top-level docs/ tree.
         git -C "${repository_root}" diff --quiet "${source_commit}" "${harness_commit}" -- \
-            install.sh arch-linux-installer.sh packages repository maintenance ||
+            install.sh arch-linux-installer.sh packages repository maintenance \
+            ':(exclude)repository/README.md' ||
             die 'public test checkout changes release product inputs' || return 1
     fi
 }
