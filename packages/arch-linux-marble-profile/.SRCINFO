@@ -1,7 +1,7 @@
 pkgbase = arch-linux-marble-profile
 	pkgdesc = Editable Stock-fallback defaults for the arch-linux Marble GNOME profile
 	pkgver = 1.0.0
-	pkgrel = 1
+	pkgrel = 2
 	url = https://github.com/snaplyze/arch-linux
 	install = arch-linux-marble-profile.install
 	arch = any

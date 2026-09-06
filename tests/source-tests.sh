@@ -6,7 +6,7 @@ cd -- "$repo_root"
 mapfile -d '' shell_files < <(find . -type f -name '*.sh' -print0 | sort -z)
 mapfile -d '' package_shell < <(find packages -type f \( -name PKGBUILD -o -name '*.install' -o -name update-compatibility \) -print0 | sort -z)
 for file in "${shell_files[@]}" "${package_shell[@]}"; do bash -n -- "$file"; done
-test "$(bash arch-linux-installer.sh --version)" = '1.0.0'
+test "$(bash arch-linux-installer.sh --version)" = '1.0.1'
 
 bash tests/bootstrap-checks.sh
 bash tests/static-checks.sh

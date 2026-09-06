@@ -171,7 +171,8 @@ def write_profile(name, mutation="positive"):
     if mutation == "deps":
         dependencies[-1] = "curl"
     files = {
-        ".PKGINFO": pkginfo("arch-linux-marble-profile", "1.0.0-1", dependencies),
+        ".PKGINFO": pkginfo("arch-linux-marble-profile",
+                            "1.0.0-1" if mutation == "stale-revision" else "1.0.0-2", dependencies),
         ".BUILDINFO": b"pkgname = arch-linux-marble-profile\n",
         ".MTREE": b"#mtree\n",
         ".INSTALL": (profile / "arch-linux-marble-profile.install").read_bytes(),
@@ -208,7 +209,7 @@ def write_profile(name, mutation="positive"):
 
 def write_keyring():
     files = {
-        ".PKGINFO": pkginfo("arch-linux-keyring", "1.0.0-1", ["pacman"]),
+        ".PKGINFO": pkginfo("arch-linux-keyring", "1.0.0-2", ["pacman"]),
         ".BUILDINFO": b"pkgname = arch-linux-keyring\n",
         ".MTREE": b"#mtree\n",
         ".INSTALL": (keyring / "arch-linux-keyring.install").read_bytes(),
@@ -228,7 +229,7 @@ def write_keyring():
 
 write_keyring()
 write_profile("positive-profile")
-for case in ("owner", "mode", "path", "deps", "hook", "license", "link"):
+for case in ("owner", "mode", "path", "deps", "hook", "license", "link", "stale-revision"):
     write_profile(f"wrong-{case}", case)
 for index, name in enumerate(colloid_names):
     with tarfile.open(output / f"wrong-export-{index}.tar", "w", format=tarfile.PAX_FORMAT) as archive:
@@ -331,9 +332,9 @@ if [ -n "${PACKAGE_FIXTURE_OUTPUT_DIR:-}" ]; then
         exit 1
     }
     install -m0644 -- "$fixture_root/positive-keyring.pkg.tar.zst" \
-        "$PACKAGE_FIXTURE_OUTPUT_DIR/arch-linux-keyring-1.0.0-1-any.pkg.tar.zst"
+        "$PACKAGE_FIXTURE_OUTPUT_DIR/arch-linux-keyring-1.0.0-2-any.pkg.tar.zst"
     install -m0644 -- "$fixture_root/positive-profile.pkg.tar.zst" \
-        "$PACKAGE_FIXTURE_OUTPUT_DIR/arch-linux-marble-profile-1.0.0-1-any.pkg.tar.zst"
+        "$PACKAGE_FIXTURE_OUTPUT_DIR/arch-linux-marble-profile-1.0.0-2-any.pkg.tar.zst"
 fi
 
 python3 "$verifier" --verify-package \
@@ -361,6 +362,8 @@ expect_package_rejection path 'unsafe archive path' \
     "$fixture_root/wrong-path.pkg.tar.zst"
 expect_package_rejection dependencies '.PKGINFO dependencies differ' \
     "$fixture_root/wrong-deps.pkg.tar.zst"
+expect_package_rejection stale-revision '.PKGINFO pkgver differs' \
+    "$fixture_root/wrong-stale-revision.pkg.tar.zst"
 expect_package_rejection hook 'payload bytes differ from reviewed source' \
     "$fixture_root/wrong-hook.pkg.tar.zst"
 expect_package_rejection license 'payload bytes differ from reviewed source' \

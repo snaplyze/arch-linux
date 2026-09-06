@@ -7,7 +7,7 @@ and both fresh-install and dual-boot paths.
 
 ## Supported platform
 
-Use release `1.0.0` from the official Arch Linux x86_64 installation ISO, booted in UEFI mode with
+Use release `1.0.1` from the official Arch Linux x86_64 installation ISO, booted in UEFI mode with
 Secure Boot disabled and working network access. Legacy BIOS and non-x86_64 platforms are outside
 the supported boundary. Back up all important data before starting: a fresh installation can erase
 the selected physical disk.
@@ -17,7 +17,7 @@ the selected physical disk.
 Run the immutable release bootstrap from the Arch ISO:
 
 ```bash
-curl -fsS https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.0/install.sh | bash
+curl -fsS https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.1/install.sh | bash
 ```
 
 The bootstrap is release-pinned. It downloads the installer, its SHA-256 file, detached signature
@@ -26,7 +26,7 @@ key packets; then launches only the verified installer bytes from a private root
 For a verification-only run:
 
 ```bash
-curl -fsS https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.0/install.sh | bash -s -- --verify-only
+curl -fsS https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.1/install.sh | bash -s -- --verify-only
 ```
 
 The certificate fingerprints must also be compared through an independently trusted channel. HTTPS,
@@ -70,7 +70,8 @@ rotation procedure.
 ## Development verification
 
 `main` may contain reviewed changes that are not yet released. The release-pinned bootstrap
-still uses published `1.0.0`; a source merge alone does not update that installer or Pages.
+selects `1.0.1`; use it only once that release is published. A source merge alone does not
+publish an installer or update Pages. Existing `1.0.0` assets and its tag are preserved.
 See the [reviewed updates and delivery boundaries](docs/maintenance.md#external-source-inputs).
 
 The normative source command is:

@@ -1,7 +1,7 @@
 pkgbase = arch-linux-colloid-gtk3
 	pkgdesc = Reviewed Colloid blue dark GTK 3 theme for the arch-linux Marble profile
 	pkgver = 20260808
-	pkgrel = 1
+	pkgrel = 2
 	url = https://github.com/vinceliuice/Colloid-gtk-theme
 	arch = any
 	license = GPL-3.0-only

@@ -21,7 +21,7 @@ common=(
   --iso "$ARCH_ISO" --iso-sha256 "$ARCH_ISO_SHA256"
   --output-root "$EVIDENCE_ROOT"
   --release-assets "$RELEASE_ASSETS"
-  --release-version 1.0.0
+  --release-version 1.0.1
   --snapshot-sha256 "$REPOSITORY_ARCHIVE_SHA256"
   --build-metadata-sha256 "$BUILD_METADATA_SHA256"
   --unsigned-manifest-sha256 "$UNSIGNED_MANIFEST_SHA256"
@@ -54,7 +54,7 @@ The main staged Marble case additionally exercises GDM administrator-profile fal
 then real pacman removal and reinstallation followed by password logins. The Stock-GDM Marble case
 checks that the optional GDM package is absent and the greeter retains its Stock environment.
 
-The staged helper accepts only `arch-linux-repository-1.0.0.tar.zst` from the exact release-asset
+The staged helper accepts only `arch-linux-repository-1.0.1.tar.zst` from the exact release-asset
 closure. For every staged scenario it invokes the schema-2 release verifier with commit, tree,
 build-metadata and unsigned-manifest hashes, checks the archive SHA-256, safely extracts it and
 verifies the signed repository again. Minimal and Stock retain only its signed manifest and compact
@@ -78,13 +78,13 @@ bash tests/vm/run.sh marble-gnome-btrfs-luks2-plymouth-systemdboot \
   --mode public \
   --iso "$ARCH_ISO" --iso-sha256 "$ARCH_ISO_SHA256" \
   --output-root "$EVIDENCE_ROOT" \
-  --release-version 1.0.0 \
+  --release-version 1.0.1 \
   --snapshot-sha256 "$REPOSITORY_ARCHIVE_SHA256" \
   --build-metadata-sha256 "$BUILD_METADATA_SHA256" \
   --unsigned-manifest-sha256 "$UNSIGNED_MANIFEST_SHA256" \
-  --bootstrap-url https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.0/install.sh \
-  --installer-url https://github.com/snaplyze/arch-linux/releases/download/1.0.0/arch-linux-installer.sh \
-  --public-key-url https://github.com/snaplyze/arch-linux/releases/download/1.0.0/arch-linux.gpg \
+  --bootstrap-url https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.1/install.sh \
+  --installer-url https://github.com/snaplyze/arch-linux/releases/download/1.0.1/arch-linux-installer.sh \
+  --public-key-url https://github.com/snaplyze/arch-linux/releases/download/1.0.1/arch-linux.gpg \
   --pages-url 'https://snaplyze.github.io/arch-linux/repo/$arch'
 ```
 

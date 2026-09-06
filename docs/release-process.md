@@ -26,6 +26,14 @@ and platform-enforced release immutability are separate properties.
 
 ## 1. Source candidate
 
+The next installer release is `1.0.1`, carrying the reviewed Just Perfection 37 installer pin
+and Colloid icons `20260829-1`. The other five packages use a new `pkgrel=2` for this canonical
+rebuild, so none reuses a published `pkgrel=1` archive name with different bytes. Public trust,
+the accepted ISO, the retained Gum/GTK inputs and all installation choices remain unchanged.
+Previous compatibility runs are review evidence only; this release requires its own frozen build,
+signed snapshot and fresh staged/public acceptance. Publication status comes from the verified
+GitHub Release, not from this source preparation note.
+
 Perform local review, source changes, tests, commits and release-host acceptance from the same
 canonical checkout. Switch pull-request branches in place; do not create local per-cycle worktrees,
 sibling clones or copied source repositories. Generated build, signing, VM and evidence data remains

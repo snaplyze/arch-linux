@@ -3,7 +3,7 @@
 
 pkgname=arch-linux-marble-gdm
 pkgver=50.0.0
-pkgrel=1
+pkgrel=2
 pkgdesc='Fail-closed Marble blue dark Shell and Colloid icon layer for GNOME 50 GDM'
 arch=('any')
 url='https://github.com/snaplyze/arch-linux'

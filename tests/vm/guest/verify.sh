@@ -106,7 +106,7 @@ esac
 [[ "${repository_primary}" =~ ^[A-F0-9]{40}$ ]]
 [[ "${repository_signing}" =~ ^[A-F0-9]{40}$ ]]
 [ "${repository_primary}" != "${repository_signing}" ]
-[ "${release_version}" = 1.0.0 ]
+[ "${release_version}" = 1.0.1 ]
 [[ "${snapshot_sha256}" =~ ^[a-f0-9]{64}$ ]]
 [[ "${source_commit}" =~ ^[a-f0-9]{40}$ ]]
 [[ "${source_tree}" =~ ^[a-f0-9]{40}$ ]]
@@ -125,7 +125,7 @@ public)
     *) exit 2 ;;
     esac
     [ "${pages_url}" = "https://snaplyze.github.io/arch-linux/repo/\$arch" ]
-    [ "${public_key_url}" = 'https://github.com/snaplyze/arch-linux/releases/download/1.0.0/arch-linux.gpg' ]
+    [ "${public_key_url}" = 'https://github.com/snaplyze/arch-linux/releases/download/1.0.1/arch-linux.gpg' ]
     ;;
 *) exit 2 ;;
 esac

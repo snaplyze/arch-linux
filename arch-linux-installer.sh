@@ -20,7 +20,7 @@ set -E          # ERR trap inherited by shell functions (errtrace)
 : "${GUM:=/usr/local/bin/gum}" # GUM=/usr/bin/gum ./installer.sh
 
 # SCRIPT
-readonly VERSION='1.0.0'
+readonly VERSION='1.0.1'
 export ARCH_LINUX_INSTALLER_CONFIG_VERSION='1'
 
 # PROJECT REPOSITORY (used by update_installer and release-pinned downloads)

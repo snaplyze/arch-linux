@@ -1359,7 +1359,7 @@ ARCH_LINUX_DESKTOP_KEYBOARD_LAYOUT_SECOND=''
 
 # The schema-1 configuration contract is exactly 43 data-only records. Generation is atomic,
 # private, deterministic and never persists the runtime password.
-[[ "$VERSION" == '1.0.0' ]]
+[[ "$VERSION" == '1.0.1' ]]
 [[ "${#PERSISTED_CONFIG_KEYS[@]}" -eq 43 ]]
 [[ "$(printf '%s\n' "${PERSISTED_CONFIG_KEYS[@]}" | sort -u | wc -l)" -eq 43 ]]
 config_test_dir="$(mktemp -d)"
