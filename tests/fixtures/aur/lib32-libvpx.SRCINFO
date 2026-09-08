@@ -1,0 +1,15 @@
+pkgbase = lib32-libvpx
+	pkgdesc = VP8 and VP9 codec
+	pkgver = 1.16.0
+	pkgrel = 2
+	url = https://www.webmproject.org/
+	arch = x86_64
+	license = custom:BSD
+	makedepends = git
+	makedepends = nasm
+	depends = libvpx
+	provides = libvpx.so
+	source = git+https://chromium.googlesource.com/webm/libvpx#tag=04def0a07f8bfa95785e30e6db95036cda17f9b2
+	b2sums = aebe079b448e4c1e0bb084d380266dde054800d0fcff3286e6de09d35365aa99eeeb9068ba22a532184c90abb6e8fa6109719ea48463b5d28d9a57a35f83e0a4
+
+pkgname = lib32-libvpx

@@ -12,6 +12,8 @@ bash tests/bootstrap-checks.sh
 bash tests/static-checks.sh
 bash tests/function-checks.sh
 python3 tests/installer-boundary-checks.py
+python3 tests/desktop-package-checks.py
+python3 tests/retained-multilib-checks.py
 bash tests/marble-checks.sh
 bash tests/package-checks.sh
 python3 tests/docs-checks.py

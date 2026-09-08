@@ -1350,6 +1350,18 @@ aur_srcinfo_dependencies() {
 # algorithm-independent tree check in addition to Git's object identity.
 aur_review_metadata() {
     case "${1:-}" in
+    lib32-libvpx)
+        printf '%s\n' '2468e113aab6e779e507811171c1d0f1ad8b9e46 f51baca28df6984c56d003b8f8eb5584cf72489765e8f6e5fd98abb887257717 437069a55a2be12e0241c613475a4b6891f0f428b0d884d66f07b1bea24a66b8 e67352cfa03c6a2e27997a8b36c19474950009e690df822ae90a740dc1f6026b'
+        ;;
+    lib32-libwebp)
+        printf '%s\n' 'd028593984999def11e463dc8416e0a0c1d11065 0154553b28f0bc1ac90c133421e9527949cbcdce0e8502bbfe9f89b602e6fecf 2b86200fd830b76eb2f8559a429fa2d5f82132a1b52fc015540fadd8594b65ca 472b84070011fa3b895dc28699b2f1c716d27369f227c91613d0ab13ce112bac'
+        ;;
+    lib32-sdl2-compat)
+        printf '%s\n' 'bbeeff912a2e66a6d202da12ee4c27ad44f9b087 96178ad295ec3714f1ce303e4a05d8050232e79f314133e8ce2540abbf565da9 9f8fc2b1f9e3d585d38fc38cdd297d32f6c98f5c3e64663e20a0659a2f5c253e bd89fec0961b9d068daf69774dc1f01b2fc795740a138f1003ba0bfa5feec834'
+        ;;
+    lib32-sdl12-compat)
+        printf '%s\n' '90b185b9f12e499fd4a9d88a50b5f51da495d777 e5b8ffc49765ce7de53ab1f94d9ff540ee31714988a6f101c3bf0412a2f1ea35 1a99f3eafdef45c9414b71878b3e58b267f87f52400d8aee88160cf13407b229 9bedfe145cac348f569c26dc8567e370eb68c423c6bf2a36b5ee1206de5bea0b'
+        ;;
     bibata-cursor-theme-bin)
         printf '%s\n' '5d418e2c328f988b0b5c4fc51e6ca9619bfda293 887ea3300b82fd7fd8a46617fd00dc9e596daa99e7865c7353cb7d8073b6e2b4 f38772066b7b2510d02ea1b9649df7fc63f4ec37bcec843a1631314c022f3d97 edd7feee7557524eba6ba509169e5106ed8711d421ad73b1045db125eb7763c3'
         ;;
@@ -1414,6 +1426,10 @@ aur_review_pkgbuild_matches() {
 # input is listed exactly, in canonical metadata order.
 aur_reviewed_dependencies() {
     case "${1:-}" in
+    lib32-libvpx) printf '%s\n' git nasm libvpx ;;
+    lib32-libwebp) printf '%s\n' cmake ninja lib32-gcc-libs lib32-glibc libwebp ;;
+    lib32-sdl2-compat) printf '%s\n' cmake ninja sdl3 lib32-glibc lib32-sdl3 sdl2-compat ;;
+    lib32-sdl12-compat) printf '%s\n' cmake lib32-glu lib32-sdl2 sdl12-compat ;;
     bibata-cursor-theme-bin) ;;
     gnome-shell-extension-blur-my-shell) printf '%s\n' git jq gnome-shell ;;
     gnome-shell-extension-clipboard-indicator) printf '%s\n' 'gnome-shell>=46.0' ;;
@@ -1453,6 +1469,46 @@ aur_package_output_path_is_safe() {
 
 # Package directories are allowed only so that the reviewed file leaves below have parents. Root
 # authority is granted to no generic /etc, hook, PAM, polkit, D-Bus, system-service or keyring path.
+# Exact library namespaces for the four reviewed multilib AUR packages. No
+# generic /usr/lib32 permission is granted to any other AUR input.
+aur_multilib_path_is_allowed() {
+    local repo="$1" path="${2%/}" kind="$3" stem=''
+    case "$repo" in
+    lib32-libvpx) stem='libvpx' ;;
+    lib32-libwebp) stem='(libwebp(decoder|demux|mux)?|libsharpyuv)' ;;
+    lib32-sdl2-compat) stem='libSDL2(-2\.0)?' ;;
+    lib32-sdl12-compat) stem='libSDL(-1\.2)?' ;;
+    *) return 1 ;;
+    esac
+    case "$path" in
+    usr/lib32|usr/lib32/pkgconfig|usr/share/licenses)
+        [ "$kind" = d ]; return ;;
+    "usr/share/licenses/$repo")
+        [ "$kind" = d ] || { [ "$repo" = lib32-libvpx ] && [ "$kind" = l ]; }
+        return ;;
+    "usr/share/licenses/$repo/LICENSE"|"usr/share/licenses/$repo/COPYING")
+        [ "$kind" = '-' ]; return ;;
+    esac
+    if [[ "$path" =~ ^usr/lib32/${stem}\.so(\.[0-9]+)*$ ]]; then
+        [ "$kind" = '-' ] || [ "$kind" = l ]; return
+    fi
+    case "$repo:$path" in
+    lib32-libvpx:usr/lib32/pkgconfig/vpx.pc|lib32-libwebp:usr/lib32/pkgconfig/libwebp.pc|lib32-libwebp:usr/lib32/pkgconfig/libwebpdecoder.pc|lib32-libwebp:usr/lib32/pkgconfig/libwebpdemux.pc|lib32-libwebp:usr/lib32/pkgconfig/libwebpmux.pc|lib32-libwebp:usr/lib32/pkgconfig/libsharpyuv.pc)
+        [ "$kind" = '-' ] ;;
+    lib32-sdl2-compat:usr/lib32/cmake|lib32-sdl2-compat:usr/lib32/cmake/SDL2)
+        [ "$kind" = d ] ;;
+    lib32-sdl2-compat:usr/lib32/pkgconfig/sdl2-compat.pc|lib32-sdl2-compat:usr/lib32/libSDL2_test.a|lib32-sdl2-compat:usr/lib32/libSDL2main.a|lib32-sdl2-compat:usr/lib32/cmake/SDL2/SDL2Config.cmake|lib32-sdl2-compat:usr/lib32/cmake/SDL2/SDL2ConfigVersion.cmake|lib32-sdl2-compat:usr/lib32/cmake/SDL2/SDL2Targets-none.cmake|lib32-sdl2-compat:usr/lib32/cmake/SDL2/SDL2Targets.cmake|lib32-sdl2-compat:usr/lib32/cmake/SDL2/SDL2_testTargets-none.cmake|lib32-sdl2-compat:usr/lib32/cmake/SDL2/SDL2_testTargets.cmake|lib32-sdl2-compat:usr/lib32/cmake/SDL2/SDL2mainTargets-none.cmake|lib32-sdl2-compat:usr/lib32/cmake/SDL2/SDL2mainTargets.cmake|lib32-sdl2-compat:usr/lib32/cmake/SDL2/sdl2-config-version.cmake|lib32-sdl2-compat:usr/lib32/cmake/SDL2/sdl2-config.cmake)
+        [ "$kind" = '-' ] ;;
+    lib32-sdl12-compat:usr/lib32/libSDLmain.a|lib32-sdl12-compat:usr/lib32/pkgconfig/sdl12_compat.pc)
+        [ "$kind" = '-' ] ;;
+    lib32-libwebp:usr/lib32/cmake|lib32-libwebp:usr/lib32/cmake/WebP)
+        [ "$kind" = d ] ;;
+    lib32-libwebp:usr/lib32/cmake/WebP/WebPConfig.cmake|lib32-libwebp:usr/lib32/cmake/WebP/WebPConfigVersion.cmake|lib32-libwebp:usr/lib32/cmake/WebP/WebPTargets.cmake|lib32-libwebp:usr/lib32/cmake/WebP/WebPTargets-none.cmake)
+        [ "$kind" = '-' ] ;;
+    *) return 1 ;;
+    esac
+}
+
 aur_package_path_is_allowed() {
     local repo="${1:-}" path="${2:-}" entry_type="${3:-}" uuid=''
 
@@ -1468,6 +1524,11 @@ aur_package_path_is_allowed() {
         ;;
     esac
 
+    case "$repo" in
+    lib32-libvpx|lib32-libwebp|lib32-sdl2-compat|lib32-sdl12-compat)
+        aur_multilib_path_is_allowed "$repo" "$path" "$entry_type"
+        return ;;
+    esac
     if uuid="$(aur_extension_uuid "$repo" 2>/dev/null)"; then
         case "$path" in
         usr/share/gnome-shell|usr/share/gnome-shell/extensions|usr/share/glib-2.0|usr/share/glib-2.0/schemas|usr/share/licenses|usr/share/licenses/"$repo"|usr/share/locale)
@@ -1520,6 +1581,14 @@ aur_package_symlink_is_safe() {
     [ -n "$target" ] && [[ "$target" != /* ]] && [[ "$target" != *'//'* ]] &&
         [[ "$target" =~ ^[A-Za-z0-9@._+/-]+$ ]] || return 1
     case "$repo" in
+    lib32-libvpx|lib32-libwebp|lib32-sdl2-compat|lib32-sdl12-compat)
+        if [ "$repo:$path:$target" = 'lib32-libvpx:usr/share/licenses/lib32-libvpx:libvpx' ]; then
+            return 0
+        fi
+        [[ "$path" = usr/lib32/* && "$target" != */* ]] || return 1
+        aur_multilib_path_is_allowed "$repo" "$path" l &&
+            aur_multilib_path_is_allowed "$repo" "usr/lib32/$target" '-'
+        return ;;
     bibata-cursor-theme-bin) allowed_root='/usr/share/icons' ;;
     gnome-shell-extension-*) allowed_root="/usr/share/gnome-shell/extensions/$(aur_extension_uuid "$repo")" ;;
     *) return 1 ;;
@@ -3790,11 +3859,11 @@ exec_install_desktop() {
                 packages+=(ffmpeg ffmpegthumbnailer gstreamer gst-libav gst-plugin-pipewire gst-plugins-good gst-plugins-bad gst-plugins-ugly libdvdcss libheif webp-pixbuf-loader opus speex libvpx libwebp)
                 # Codecs not pulled in as a dependency by the stack above
                 packages+=(jasper libmad)
-                [ "$ARCH_LINUX_MULTILIB_ENABLED" = "true" ] && packages+=(lib32-libvpx lib32-libwebp)
+                # The retained 32-bit codecs are now built from reviewed AUR sources below.
 
                 # Optimization (SDL2 is EOL; compatibility packages map SDL2/SDL1.2 APIs onto SDL3)
                 packages+=(gamemode sdl3_image sdl2-compat sdl12-compat)
-                [ "$ARCH_LINUX_MULTILIB_ENABLED" = "true" ] && packages+=(lib32-gamemode lib32-sdl2-compat lib32-sdl12-compat)
+                [ "$ARCH_LINUX_MULTILIB_ENABLED" = "true" ] && packages+=(lib32-gamemode)
 
                 # Fonts
                 packages+=(ttf-firacode-nerd ttf-nerd-fonts-symbols woff2-font-awesome noto-fonts noto-fonts-cjk noto-fonts-emoji ttf-liberation ttf-dejavu adobe-source-sans-fonts adobe-source-serif-fonts)
@@ -3806,6 +3875,8 @@ exec_install_desktop() {
 
             # Installing packages together (preventing conflicts e.g.: jack2 and pipewire-jack)
             chroot_pacman_install "${packages[@]}"
+
+            chroot_install_desktop_multilib
 
             # Project-owned Marble/Colloid packages use the signed native repository and update
             # through ordinary pacman -Syu. This is outside Extras/Slim and never runs for Stock.
@@ -5320,9 +5391,47 @@ chroot_remove_gnome_console() {
     chroot_pacman_remove gnome-console
 }
 
+# These four packages moved out of official multilib. Keep their functionality,
+# use the reviewed AUR pipeline, and install the SDL2 provider before SDL 1.2.
+chroot_install_desktop_multilib() {
+    [ "$ARCH_LINUX_DESKTOP_EXTRAS_ENABLED" = true ] &&
+        [ "$ARCH_LINUX_MULTILIB_ENABLED" = true ] || return 0
+    chroot_pacman_install lib32-glibc lib32-gcc-libs || return 1
+    local package
+    for package in lib32-libvpx lib32-libwebp lib32-sdl2-compat lib32-sdl12-compat; do
+        chroot_aur_install "$package" || return 1
+    done
+}
+
+chroot_aur_install_dependencies() {
+    local repo="$1" dependency metadata
+    local -a official=()
+    metadata="$(aur_reviewed_dependencies "$repo")" || return 1
+    if [ "$repo" = lib32-sdl12-compat ]; then
+        # -S cannot resolve an AUR-only virtual provider, even after installation.
+        # Test the installed dependency instead; do not skip an unsatisfied edge.
+        arch-chroot /mnt pacman -T -- lib32-sdl2 >/dev/null || {
+            log_fail 'The reviewed lib32-sdl2-compat provider must be installed first'
+            return 1
+        }
+    fi
+    while IFS= read -r dependency; do
+        [ -n "$dependency" ] || continue
+        if [ "$repo" = lib32-sdl12-compat ] && [ "$dependency" = lib32-sdl2 ]; then
+            continue
+        fi
+        official+=("$dependency")
+    done <<<"$metadata"
+    [ "${#official[@]}" -eq 0 ] || chroot_pacman_install "${official[@]}"
+}
+
 chroot_pacman_install() {
     local packages=("$@")
-    local pacman_failed="true"
+    local pacman_failed="true" i
+    if ! arch-chroot /mnt pacman -Sp --noconfirm --print-format '%n' -- "${packages[@]}" >/dev/null; then
+        log_fail 'Package selection cannot be resolved from the synchronized repositories'
+        return 1
+    fi
     # Retry installing packages 5 times (in case of connection issues)
     for ((i = 1; i < 6; i++)); do
         # Print log if greater than first try
@@ -5868,7 +5977,7 @@ chroot_aur_install() {
     local aur_stage_dir_host='' aur_builder_uid='' aur_builder_ready=false
     local aur_builder_user='archlinux-aur-builder' aur_builder_home='/var/lib/arch-linux-aur-builder'
     local aur_capture_file="${SCRIPT_TMP_DIR}/aur-builder-output"
-    local -a build_dependencies=() built_packages=() accepted_packages=()
+    local -a built_packages=() accepted_packages=()
     local -a clean_user_env=()
     repo="$1"
     [[ "$repo" =~ ^[a-z0-9][a-z0-9@._+-]*$ ]] || { log_fail "Unsafe AUR package name: ${repo}"; return 1; }
@@ -5981,12 +6090,8 @@ chroot_aur_install() {
             log_warn "Reviewed AUR dependency metadata check failed for ${repo}"
             sleep 10 && continue
         fi
-        build_dependencies=()
-        if [ -n "$reviewed_dependencies" ]; then
-            mapfile -t build_dependencies <<<"$reviewed_dependencies"
-            if ! chroot_pacman_install "${build_dependencies[@]}"; then
-                sleep 10 && continue
-            fi
+        if ! chroot_aur_install_dependencies "$repo"; then
+            return 1
         fi
 
         # Apply only reviewed deterministic hardening changes as the unprivileged builder: replace
@@ -6000,6 +6105,26 @@ chroot_aur_install() {
                 cd -- "$1"
                 repo="$2"
                 case "$repo" in
+                lib32-sdl12-compat)
+                    sed -i '\''/^replaces=/d'\'' PKGBUILD
+                    ;;
+                lib32-sdl2-compat|lib32-libwebp)
+                    case "$repo" in
+                    lib32-sdl2-compat)
+                        sed -i '\''/^replaces=/d'\'' PKGBUILD
+                        source_key=0900104363B4C9D4223DE149D913FE7D4B61D39B
+                        source_key_sha=54ded84ad8f36927684c33f887d6fff71b75be861fbc28cb391abc6681c43ac9
+                        ;;
+                    lib32-libwebp)
+                        source_key=6B0E6B70976DE303EDF2F601F9C3D6BDB8232B5D
+                        source_key_sha=de1896e902d8f0d58c05e2fc199a20675057c69fa2aa940f158a930e41c65da2
+                        ;;
+                    esac
+                    printf '\''%s  %s\n'\'' "$source_key_sha" "keys/pgp/${source_key}.asc" | sha256sum --check --status
+                    install -d -m0700 -- "$HOME/.gnupg"
+                    gpg --batch --no-options --import "keys/pgp/${source_key}.asc" >&2
+                    gpgconf --kill all
+                    ;;
                 plymouth-theme-archlinux)
                     grep -Fxq "install='\''plymouth-theme-archlinux.install'\''" PKGBUILD
                     sed -i "/^install='\''plymouth-theme-archlinux.install'\''$/d" PKGBUILD
