@@ -478,6 +478,9 @@ bootstrap_launch_installer() {
             [ "${actual_digest%% *}" = "${accepted_digest}" ]
             /usr/bin/grep -qxF -- "readonly VERSION='"'"'${version}'"'"'" "${installer}"
             cd -- "${dir}"
+            # Do not pass the download/staging mask to system installation commands.
+            # Verified staging and private state retain their explicit permissions.
+            umask 022
             exec /usr/bin/bash --noprofile --norc ./arch-linux-installer.sh
         ' _ "$BOOTSTRAP_LAUNCH_DIR" "$identity" "$BOOTSTRAP_ACCEPTED_INSTALLER_SHA256" \
         "$BOOTSTRAP_VERSION" </dev/tty
