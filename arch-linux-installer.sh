@@ -2776,6 +2776,17 @@ select_enable_desktop_slim() {
 # variant_map (layout -> valid variants) is static reference data, see STATIC INPUT VALUES below
 select_enable_desktop_keyboard() {
     [ "$ARCH_LINUX_DESKTOP_ENABLED" != "true" ] && return 0
+    # Reuse an unambiguous console selection without asking for the primary layout
+    # again. Keep persisted desktop overrides and the optional second layout intact.
+    # Other console maps (e.g. dvorak) still need an explicit XKB layout/variant.
+    if [ -z "$ARCH_LINUX_DESKTOP_KEYBOARD_LAYOUT" ] &&
+        [ -z "$ARCH_LINUX_DESKTOP_KEYBOARD_VARIANT" ]; then
+        case "$ARCH_LINUX_VCONSOLE_KEYMAP" in
+        us | ru) ARCH_LINUX_DESKTOP_KEYBOARD_LAYOUT="$ARCH_LINUX_VCONSOLE_KEYMAP" ;;
+        uk) ARCH_LINUX_DESKTOP_KEYBOARD_LAYOUT=gb ;;
+        esac
+        [ -z "$ARCH_LINUX_DESKTOP_KEYBOARD_LAYOUT" ] || properties_generate
+    fi
     if [ -z "$ARCH_LINUX_DESKTOP_KEYBOARD_LAYOUT" ]; then
         local layout variant variants
         local layouts=() variant_list=()
@@ -4162,7 +4173,8 @@ exec_enable_multilib() {
             process_enter_cgroup
             [ "$DEBUG" = "true" ] && sleep 1 && process_return 0 # If debug mode then return
             sed -i '/\[multilib\]/,/Include/s/^#//' /mnt/etc/pacman.conf
-            arch-chroot /mnt pacman -Sy --noconfirm # Sync only — no upgrade on fresh install
+            # Refresh and upgrade together; the mirror may have advanced since pacstrap.
+            arch-chroot /mnt pacman -Syu --noconfirm
             process_return 0
         ) &>"$PROCESS_LOG_TMP_FILE" &
         process_capture $! "$process_name"
@@ -6396,6 +6408,11 @@ process_enter_cgroup() {
     actual_relative="$(awk -F: '$1 == "0" && $2 == "" { print $3 }' "/proc/${BASHPID}/cgroup")" || exit 125
     [ "$actual_relative" = "$PROCESS_CGROUP_RELATIVE" ] || exit 125
     printf '%s\n' "$BASHPID" >"$PROCESS_CGROUP_ACK_TMP_FILE" || exit 125
+
+    # Bootstrap downloads use 077, but system paths must be traversable by non-root
+    # users (including pacman DownloadUser). Apply 022 only in this executor child;
+    # private state keeps its explicit 0700/0600 modes and the parent is unchanged.
+    umask 022
 }
 
 process_cgroup_is_empty() {
