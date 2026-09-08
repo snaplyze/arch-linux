@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Keep four 32-bit codec/SDL libraries that moved to AUR: build exact reviewed
+  sources through the isolated builder, preserving upstream checksums and source
+  signatures, library payload checks, and the SDL2 virtual-provider dependency.
+- Resolve official package transactions before retrying downloads; report an
+  unresolved target immediately instead of repeating the same invalid request.
+
 - Keep the private bootstrap umask out of target-system file creation; preserve
   pacman download-user access without disabling its sandbox or changing DNS.
 - Reuse the unambiguous `us`, `ru`, and `uk` console choices for the primary
