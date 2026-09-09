@@ -160,6 +160,9 @@ jobs:
             --release-version "${RELEASE_VERSION}" --bundle-sha256 "${BUNDLE_SHA256}" \
             --input-dir "${RUNNER_TEMP}/release-source"
 
+      - name: Prepare hosted namespaces before secret access
+        run: bash repository/prepare-actions-namespaces.sh
+
       - name: Protect and seal accepted source before secret access
         env:
           SOURCE_COMMIT: ${{ needs.prepare.outputs.source_commit }}
@@ -412,6 +415,9 @@ jobs:
             --main-commit "${MAIN_COMMIT}" --source-commit "${SOURCE_COMMIT}" \
             --release-version "${RELEASE_VERSION}" --bundle-sha256 "${BUNDLE_SHA256}" \
             --input-dir "${RUNNER_TEMP}/release-source"
+
+      - name: Prepare hosted namespaces before secret access
+        run: bash repository/prepare-actions-namespaces.sh
 
       - name: Protect and seal accepted source before secret access
         env:
