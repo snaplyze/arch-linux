@@ -26,7 +26,7 @@ cross-field rules. The password is runtime-only and never appears in `installer.
 | `ARCH_LINUX_DISK` | Absolute `/dev/...` whole-disk path selected for installation. |
 | `ARCH_LINUX_BOOT_PARTITION` | Absolute `/dev/...` ESP path on the selected disk. |
 | `ARCH_LINUX_ROOT_PARTITION` | Absolute `/dev/...` root path on the selected disk. |
-| `ARCH_LINUX_DISK_IDENTITY` | SHA-256 identity derived from the selected disk's size, model and WWN or serial; required and uniquely resolvable before acceptance. |
+| `ARCH_LINUX_DISK_IDENTITY` | SHA-256 identity derived from the selected disk's size, model and WWN or serial; for a metadata-less virtio disk, from its kernel disk sequence and boot-local identity. It is required and uniquely resolvable before acceptance. |
 | `ARCH_LINUX_BOOT_PARTITION_IDENTITY` | SHA-256 identity derived from the parent-disk identity, PARTUUID, start and size of the selected ESP; required for dual boot and empty before a fresh layout is created. |
 | `ARCH_LINUX_ROOT_PARTITION_IDENTITY` | SHA-256 identity derived from the parent-disk identity, PARTUUID, start and size of the selected root partition; required for dual boot and empty before a fresh layout is created. |
 | `ARCH_LINUX_FILESYSTEM` | `btrfs` or `ext4`. |

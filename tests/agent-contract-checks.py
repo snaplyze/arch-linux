@@ -64,7 +64,8 @@ principles = {
     ),
     'Package and signing boundaries': (
         'unprivileged builder', 'never run `makepkg` as root',
-        'PackageRequired DatabaseRequired TrustedOnly', 'private key', 'FD 7', 'network',
+        'PackageRequired DatabaseRequired TrustedOnly', 'ARCH_LINUX_SIGNING_KEY',
+        'ARCH_LINUX_SIGNING_PASSPHRASE', 'snapshot', 'finalize', 'no-network', 'FD 7', 'network',
     ),
     'Practical VM checks': (
         'QEMU/KVM', 'fresh disk', 'independent firmware', 'GDM password login',
@@ -76,12 +77,30 @@ principles = {
         'without artificial attempt or cycle limits', 'never transfer a PASS', 'published bytes or tags',
     ),
     'Pins and keys': ('Never change', 'fingerprint', 'signing subkey', 'automatically'),
-    'Release authorization': ('separate explicit authorization', 'not `RELEASED`'),
+    'Secrets': (
+        'certification keys', 'never enter tracked files, CI, test fixtures or generated source archives',
+        'sole CI exception', 'release Environment', '`release.yml` `snapshot` and `finalize`',
+        'never enter source, argv, logs, evidence', 'destroyed at job exit',
+    ),
+    'Release authorization': (
+        'release.yml', 'standing authorization', 'immutable release', 'main',
+        'deterministic, version-only release child', 'origin main commit/tree separately',
+        'separate explicit authorization', 'not `RELEASED`',
+    ),
 }
 for heading, markers in principles.items():
     for marker in markers:
         if marker.lower() not in sections[heading].lower():
             raise SystemExit(f'agent contract check failed: {heading} principle missing: {marker!r}')
+
+signing_boundary = sections['Package and signing boundaries']
+for marker in (
+    'only its `snapshot` and `finalize` jobs', 'release-environment',
+    'PR, ordinary CI, build, readback, QEMU, Pages, maintenance and public-readback jobs',
+    'certification primary', 'recovery material',
+):
+    if marker.lower() not in signing_boundary.lower():
+        raise SystemExit(f'agent contract check failed: signing boundary missing: {marker!r}')
 
 UBUNTU_CONTAINER = (
     'container:\n'

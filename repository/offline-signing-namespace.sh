@@ -55,7 +55,7 @@ readonly signer
     [ -z "${OFFLINE_SIGN_PASSPHRASE_FILE+x}" ] &&
     [ -z "${ARCH_LINUX_OFFLINE_NAMESPACE_RECEIPT+x}" ] &&
     [ -z "${ARCH_LINUX_OFFLINE_METADATA_MODE+x}" ] ||
-    die 'private-key signing is forbidden in CI and GitHub Actions'
+    die 'signing namespace inherited ambient automation or private context'
 
 for required in awk findmnt gpgconf gpg-connect-agent id install mount realpath sleep stat wc; do
     command -v "$required" >/dev/null 2>&1 || die "required offline command is missing: ${required}"

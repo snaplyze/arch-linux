@@ -292,6 +292,10 @@ sealer_hash="$(/usr/bin/sha256sum --binary -- "$repo_root/repository/seal-offlin
 if /usr/bin/readelf -l "$accepted_sealed/repository/offline-signing-launcher" | /usr/bin/grep -Fq INTERP; then
     fail 'accepted launcher contains PT_INTERP'
 fi
+/usr/bin/env -i HOME=/root LANG=C LC_ALL=C PATH=/usr/bin:/usr/sbin \
+    /usr/bin/python3 -I "$repo_root/repository/actions-sign-release.py" prepare \
+        --source-commit "$commit" --source-tree "$tree" --source-tree-sha256 "$source_tree_sha256" \
+        --sealed-root "$work/actions-prepared" </dev/null
 signing_command /usr/bin/env -i HOME=/nonexistent LANG=C LC_ALL=C PATH=/usr/bin:/bin TMPDIR=/tmp \
     /usr/bin/python3 -I "$accepted_sealed/repository/verify-sealed-offline-code.py" \
     "$accepted_sealed" "$commit" "$tree" "$source_tree_sha256" >/dev/null
@@ -443,6 +447,7 @@ fixture_packages="$work/fixture-packages"
     "$fixture_source/maintenance" "$fixture_packages"
 executable_sources=(
     repository/acceptance-manifest.py
+    repository/actions-sign-release.py
     repository/offline-finalize-release.sh
     repository/offline-sign-release.sh
     repository/offline-signing-fd-guard.py
@@ -733,6 +738,81 @@ fi
 /usr/bin/bash "$fixture_source/repository/verify-release-assets.sh" "$phase_a" --phase-a \
     --release-version 1.0.0 --source-commit "$fixture_commit" --source-tree "$fixture_tree" \
     --build-metadata-sha256 "$build_hash" --unsigned-manifest-sha256 "$unsigned_hash" >/dev/null
+
+invoke_actions_adapter() {
+    local adapter_key adapter_phrase adapter_status=0
+    adapter_key="$(signing_gpg "$signing_home" --batch --no-options --pinentry-mode loopback \
+        --passphrase-file "$passphrase_file" --armor --export-secret-subkeys -- "$primary")" ||
+        fail 'could not export the disposable Actions fixture subkey'
+    adapter_phrase="$(<"$passphrase_file")"
+    stop_home_agent "$signing_home"
+    for attempt in {1..100}; do
+        [ -z "$(uid_processes "$signing_uid")" ] && break
+        /usr/bin/sleep 0.05
+    done
+    [ -z "$(uid_processes "$signing_uid")" ] || fail 'Actions fixture export left an account process'
+    ARCH_LINUX_SIGNING_KEY="$adapter_key" ARCH_LINUX_SIGNING_PASSPHRASE="$adapter_phrase" \
+        GITHUB_ACTIONS=true GITHUB_REF=refs/heads/main \
+        /usr/bin/python3 -I "$fixture_sealed/repository/actions-sign-release.py" "$@" \
+            --source-commit "$fixture_commit" --source-tree "$fixture_tree" \
+            --source-tree-sha256 "$fixture_tree_sha256" || adapter_status=$?
+    unset adapter_key adapter_phrase
+    [ "$adapter_status" -eq 0 ] || fail 'disposable Actions signing adapter failed'
+    [ -z "$(uid_processes "$signing_uid")" ] || fail 'Actions adapter left a signing-account process'
+}
+
+actions_snapshot="$signer_outputs/actions-snapshot"
+invoke_actions_adapter snapshot --unsigned "$unsigned" --installer "$fixture_sealed/arch-linux-installer.sh" \
+    --output "$actions_snapshot" --release-version 1.0.0 \
+    --build-metadata-sha256 "$build_hash" --unsigned-manifest-sha256 "$unsigned_hash"
+/usr/bin/bash "$fixture_source/repository/verify-release-assets.sh" "$actions_snapshot/assets" --phase-a \
+    --release-version 1.0.0 --source-commit "$fixture_commit" --source-tree "$fixture_tree" \
+    --build-metadata-sha256 "$build_hash" --unsigned-manifest-sha256 "$unsigned_hash" >/dev/null
+
+/usr/bin/python3 -I - "$fixture_sealed" "$fixture_commit" "$fixture_tree" "$fixture_tree_sha256" \
+    "$unsigned" "$signer_outputs/actions-rejected" "$build_hash" "$unsigned_hash" <<'PY'
+from pathlib import Path
+import subprocess
+import sys
+
+root, commit, tree, canonical, unsigned, output, build_hash, unsigned_hash = sys.argv[1:]
+command = ["/usr/bin/python3", "-I", root + "/repository/actions-sign-release.py", "--entry", "root",
+           "snapshot", "--source-commit", commit, "--source-tree", tree, "--source-tree-sha256", canonical,
+           "--unsigned", unsigned, "--installer", root + "/arch-linux-installer.sh", "--output", output,
+           "--release-version", "1.0.0", "--build-metadata-sha256", build_hash,
+           "--unsigned-manifest-sha256", unsigned_hash]
+environment = {"HOME": "/root", "LANG": "C", "LC_ALL": "C", "PATH": "/usr/bin:/usr/sbin"}
+
+def rejected_before_read(arguments, env):
+    process = subprocess.Popen(arguments, env=env, stdin=subprocess.PIPE,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        status = process.wait(timeout=15)
+        stdout = process.stdout.read()
+        stderr = process.stderr.read()
+        if status != 1 or stdout or b"ERROR: Actions signing boundary failed" not in stderr:
+            raise SystemExit("Actions negative did not reject before secret readiness")
+    finally:
+        if process.poll() is None:
+            process.kill()
+        process.wait()
+        process.stdin.close()
+    if Path(output).exists():
+        raise SystemExit("Actions negative published an output")
+
+for option in ("--source-commit", "--source-tree-sha256", "--unsigned-manifest-sha256"):
+    changed = command.copy()
+    index = changed.index(option) + 1
+    changed[index] = "0" * len(changed[index])
+    rejected_before_read(changed, environment)
+rejected_before_read(command, environment | {"CI": "true"})
+marker = Path(root) / "unexpected-actions-source"
+try:
+    marker.write_text("unexpected public file\n")
+    rejected_before_read(command, environment)
+finally:
+    marker.unlink(missing_ok=True)
+PY
 
 # The normal snapshot above is the positive control for every account-policy negative below. Each
 # negative uses the same valid private inputs and signer argv with only a fresh output name. Keep the
@@ -1155,6 +1235,21 @@ while IFS= read -r phase_file; do
         fail "finalize changed Phase-A byte: ${phase_file}"
 done <<<"$expected_phase_a"
 /usr/bin/bash "$fixture_source/repository/verify-release-assets.sh" "$final_output" --finalized \
+    --release-version 1.0.0 --source-commit "$fixture_commit" --source-tree "$fixture_tree" \
+    --source-tree-sha256 "$fixture_tree_sha256" --build-metadata-sha256 "$build_hash" \
+    --unsigned-manifest-sha256 "$unsigned_hash" >/dev/null
+
+actions_phase_a="$work/actions-phase-a"
+/usr/bin/cp -a --no-preserve=ownership -- "$phase_a" "$actions_phase_a"
+/usr/bin/find "$actions_phase_a" -type d -exec chmod 0755 -- {} +
+/usr/bin/find "$actions_phase_a" -type f -exec chmod 0644 -- {} +
+actions_final="$signer_outputs/actions-finalize"
+invoke_actions_adapter finalize --phase-a "$actions_phase_a" --output "$actions_final" --release-version 1.0.0 \
+    --build-metadata-sha256 "$build_hash" --unsigned-manifest-sha256 "$unsigned_hash" \
+    --snapshot-sha256 "$snapshot_hash" \
+    --minimal-run "$qemu_root/${scenarios[0]}" --stock-run "$qemu_root/${scenarios[1]}" \
+    --marble-run "$qemu_root/${scenarios[2]}"
+/usr/bin/bash "$fixture_source/repository/verify-release-assets.sh" "$actions_final" --finalized \
     --release-version 1.0.0 --source-commit "$fixture_commit" --source-tree "$fixture_tree" \
     --source-tree-sha256 "$fixture_tree_sha256" --build-metadata-sha256 "$build_hash" \
     --unsigned-manifest-sha256 "$unsigned_hash" >/dev/null

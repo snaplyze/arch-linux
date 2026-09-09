@@ -6,7 +6,8 @@ cd -- "$repo_root"
 mapfile -d '' shell_files < <(find . -type f -name '*.sh' -print0 | sort -z)
 mapfile -d '' package_shell < <(find packages -type f \( -name PKGBUILD -o -name '*.install' -o -name update-compatibility \) -print0 | sort -z)
 for file in "${shell_files[@]}" "${package_shell[@]}"; do bash -n -- "$file"; done
-test "$(bash arch-linux-installer.sh --version)" = '1.0.1'
+installer_version="$(bash arch-linux-installer.sh --version)"
+[[ "$installer_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
 
 bash tests/bootstrap-checks.sh
 bash tests/static-checks.sh
@@ -14,6 +15,10 @@ bash tests/function-checks.sh
 python3 tests/installer-boundary-checks.py
 python3 tests/desktop-package-checks.py
 python3 tests/retained-multilib-checks.py
+bash tests/vm/harness-checks.sh
+python3 tests/release-source-checks.py
+python3 tests/actions-release-checks.py
+python3 tests/actions-signing-checks.py
 bash tests/marble-checks.sh
 bash tests/package-checks.sh
 python3 tests/docs-checks.py

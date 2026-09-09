@@ -43,7 +43,8 @@ requirement. Do not scan VM disks as if they were text logs.
 
 Contains signed repository/release-asset verification, immutable release asset identities, Pages
 readback and the final public VM result. It is created only after the corresponding operations and
-cannot retroactively change source/build/QEMU results.
+cannot retroactively change source/build/QEMU results. For the generated release child, provenance
+also binds the exact successful origin main commit/tree and the deterministic transform record.
 The acceptance JSON binds the commit/tree/canonical source SHA-256, build/unsigned/snapshot hashes,
 the exact Phase-A name/hash/size map and aggregate, its manifest hash, three PASS verdicts,
 evidence no larger than 500 MiB and `deferred=[]`.

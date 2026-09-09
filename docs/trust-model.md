@@ -26,9 +26,14 @@ file, unsafe archive member or manifest mismatch. Pacman uses
 
 ## Authority separation
 
-- CI may lint source and build the canonical unsigned package set.
-- Production private signing material remains offline.
-- Offline signing consumes only an independently verified unsigned closure.
+- PR, CI, build, QEMU, Pages, maintenance and public-readback jobs may lint source, build and
+  verify the canonical unsigned package set, but receive no signing secret.
+- Only the authorized release workflow's `snapshot` and `finalize` jobs receive the signing-only
+  subkey and passphrase through the `release` Environment. Each imports that subkey into a fresh
+  temporary no-network boundary and destroys it on exit; the certification primary and recovery
+  material remain offline.
+- Authorized signing consumes only an independently verified unsigned closure and emits the exact
+  14-file Phase-A closure before QEMU acceptance and exact 18-file finalization.
 - Pages consumes only an already signed snapshot and re-verifies it using public trust.
 - Stock GNOME does not depend on project repository availability.
 
@@ -95,7 +100,7 @@ must already be locally trusted on this installed system; do not add new ownertr
 a new key as part of recovery. Import the authenticated renewal and perform a full update:
 
 ```bash
-sudo pacman-key --list-keys 8C78098D1EAC609CBC73536FB7D2C17447B90CB2 &&
+sudo pacman-key --list-keys 9C603F25F83F4B0F4745D790D97919282A24E748 &&
 sudo pacman-key --add "$RECOVERY_PUBLIC_CERT" &&
 sudo pacman-key --updatedb &&
 sudo pacman -Syu
@@ -105,7 +110,7 @@ If an operation fails, stop and investigate. Keep `PackageRequired DatabaseRequi
 do not use a keyserver, `TrustAll`, disabled signature checks or an unsigned fallback. The full update
 delivers the reviewed `arch-linux-keyring` package and its normal upgrade hook. Confirm its installed
 version and the refreshed expiry with `pacman -Q arch-linux-keyring` and
-`sudo pacman-key --finger 8C78098D1EAC609CBC73536FB7D2C17447B90CB2`.
+`sudo pacman-key --finger 9C603F25F83F4B0F4745D790D97919282A24E748`.
 See the [pacman-key manual](https://man.archlinux.org/man/pacman-key.8.en) for these operations.
 
 ## Rotation or compromise

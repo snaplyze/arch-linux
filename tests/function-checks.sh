@@ -1068,7 +1068,7 @@ unset ARCH_LINUX_QEMU_ACCEPTANCE ARCH_LINUX_QEMU_REPOSITORY_CONTRACT
     trap 'command rm -rf -- "${work_root}"' EXIT
     umask 077
     declare -A IDENTITY=([SCENARIO]=minimal-dualboot-ext4-systemdboot
-        [TARGET_SERIAL]=fixture [RUN_ID]=fixture)
+        [TARGET_SERIAL]=fixture [TARGET_DISK_METADATA]=identified [RUN_ID]=fixture)
     trim_value() { command sed 's/^[[:space:]]*//; s/[[:space:]]*$//'; }
     partition_name() { printf '%s%s' "$1" "$2"; }
     lsblk() {
@@ -1198,7 +1198,7 @@ command rm -rf -- "$repository_key_check_home"
 # The downloaded certificate is exact, but GnuPG imports merge packets into an existing keyblock.
 # Lock the post-import predicate independently so only one UID and one primary-certified signing
 # subkey can inherit pacman's local trust.
-repository_key_metadata_good=$'pub:u:255:22:B7D2C17447B90CB2:1700000000:0:::::cSC:\nfpr:::::::::8C78098D1EAC609CBC73536FB7D2C17447B90CB2:\nuid:u::::1700000000::fixture::Arch Linux repository <fixture@example.invalid>::::::::::0:\nsub:u:255:22:28D56A84F558F7C:1700000000:1800000000:::::s:\nfpr:::::::::0AA6F2237FB9674623B6E824428D56A84F558F7C:'
+repository_key_metadata_good=$'pub:u:255:22:D97919282A24E748:1700000000:0:::::cSC:\nfpr:::::::::9C603F25F83F4B0F4745D790D97919282A24E748:\nuid:u::::1700000000::fixture::Arch Linux repository <fixture@example.invalid>::::::::::0:\nsub:u:255:22:3DA0736C98322CCA:1700000000:1800000000:::::s:\nfpr:::::::::B294D26BDAD5469EE334B0453DA0736C98322CCA:'
 if ! repository_key_metadata_matches "$repository_key_metadata_good" trusted 1750000000; then
     echo 'function check failed: exact one-UID trusted keyblock was rejected' >&2
     exit 1
@@ -1206,8 +1206,8 @@ fi
 
 # A QEMU milestone certificate is held to the same exact one-primary/one-signing-subkey predicate;
 # only its expected fingerprints differ from the immutable production certificate.
-repository_key_metadata_qemu="${repository_key_metadata_good//8C78098D1EAC609CBC73536FB7D2C17447B90CB2/${repository_qemu_primary}}"
-repository_key_metadata_qemu="${repository_key_metadata_qemu//0AA6F2237FB9674623B6E824428D56A84F558F7C/${repository_qemu_signing}}"
+repository_key_metadata_qemu="${repository_key_metadata_good//9C603F25F83F4B0F4745D790D97919282A24E748/${repository_qemu_primary}}"
+repository_key_metadata_qemu="${repository_key_metadata_qemu//B294D26BDAD5469EE334B0453DA0736C98322CCA/${repository_qemu_signing}}"
 repository_key_metadata_matches \
     "$repository_key_metadata_qemu" trusted 1750000000 \
     "$repository_qemu_primary" "$repository_qemu_signing"
@@ -1233,7 +1233,7 @@ for repository_key_metadata_bad in \
     "${repository_key_metadata_good}"$'\n'"${repository_key_extra_uat}" \
     "${repository_key_metadata_missing_uid}" \
     "${repository_key_metadata_good}"$'\n'"${repository_key_extra_subkey}" \
-    "${repository_key_metadata_good/sub:u:255:22:28D56A84F558F7C:/${repository_key_extra_subkey}"$'\n'"sub:u:255:22:28D56A84F558F7C:}" \
+    "${repository_key_metadata_good/sub:u:255:22:3DA0736C98322CCA:/${repository_key_extra_subkey}"$'\n'"sub:u:255:22:3DA0736C98322CCA:}" \
     "${repository_key_metadata_good/pub:u:255:22:/pub:u:255:1:}" \
     "${repository_key_metadata_good/sub:u:255:22:/sub:u:255:1:}" \
     "${repository_key_metadata_good/cSC:/csSC:}" \
@@ -1249,7 +1249,7 @@ for repository_key_metadata_bad in \
     "${repository_key_metadata_good/sub:u:/sub:m:}" \
     "${repository_key_metadata_good/sub:u:/sub:q:}" \
     "${repository_key_metadata_good/sub:u:/sub:-:}" \
-    "${repository_key_metadata_good}"$'\nsec:u:255:22:B7D2C17447B90CB2:1700000000:0:::::cSC:'; do
+    "${repository_key_metadata_good}"$'\nsec:u:255:22:D97919282A24E748:1700000000:0:::::cSC:'; do
     if repository_key_metadata_matches "$repository_key_metadata_bad" trusted 1750000000; then
         echo 'function check failed: malformed or over-broad pacman keyblock passed' >&2
         exit 1
@@ -1359,7 +1359,7 @@ ARCH_LINUX_DESKTOP_KEYBOARD_LAYOUT_SECOND=''
 
 # The schema-1 configuration contract is exactly 43 data-only records. Generation is atomic,
 # private, deterministic and never persists the runtime password.
-[[ "$VERSION" == '1.0.1' ]]
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
 [[ "${#PERSISTED_CONFIG_KEYS[@]}" -eq 43 ]]
 [[ "$(printf '%s\n' "${PERSISTED_CONFIG_KEYS[@]}" | sort -u | wc -l)" -eq 43 ]]
 config_test_dir="$(mktemp -d)"
@@ -2286,7 +2286,186 @@ if validate_destructive_targets silent_report; then
 fi
 sdb_serial='SERIAL-B'
 
+# The actual sysfs recognizer accepts an exact virtio device component, not a generic SCSI/ATA
+# path that could also be a passed-through physical disk.
+(
+    sysfs_device_path='/sys/devices/pci0000:00/0000:00:04.0/virtio2/block/vda'
+    block_canonical() { printf '%s' "$1"; }
+    block_exists() { [ "$1" = /dev/vda ]; }
+    block_type() { printf 'disk'; }
+    readlink() {
+        [ "$1" = -f ] && [ "$2" = -- ] && [ "$3" = /sys/class/block/vda ] || return 1
+        printf '%s\n' "$sysfs_device_path"
+    }
+    block_virtual_backend_is_recognized /dev/vda
+    sysfs_device_path='/sys/devices/pci0000:00/0000:00:17.0/ata1/host0/target0:0:0/0:0:0:0/block/vda'
+    if block_virtual_backend_is_recognized /dev/vda; then
+        echo 'disk safety: generic ATA path was accepted as a virtual backend' >&2
+        exit 1
+    fi
+)
+
+# select_disk must list a virtio disk even when its dynamically allocated major is outside the
+# historical 8/259/254 whitelist. The actual virtio sysfs recognizer remains in the path.
+(
+    selection_identity=''
+    selection_properties_calls=0
+    block_canonical() { printf '%s' "$1"; }
+    block_exists() { [ "$1" = /dev/vda ]; }
+    block_type() { printf 'disk'; }
+    block_disk_sequence() { [ "$1" = /dev/vda ] && printf '73\n'; }
+    block_virtual_run_identity() { printf '11111111-1111-4111-8111-111111111111\n'; }
+    block_attribute() {
+        case "$1:$2" in
+        /dev/vda:SIZE) printf '68719476736' ;;
+        /dev/vda:WWN|/dev/vda:SERIAL|/dev/vda:MODEL) printf '' ;;
+        *) return 1 ;;
+        esac
+    }
+    block_paths_for_type() { [ "$1" = disk ] && printf '/dev/vda\n'; }
+    readlink() {
+        case "$3" in
+        /dev/vda) printf '/dev/vda\n' ;;
+        /sys/class/block/vda) printf '/sys/devices/pci0000:00/0000:00:04.0/virtio2/block/vda\n' ;;
+        *) return 1 ;;
+        esac
+    }
+    function [ {
+        local -a arguments=("$@")
+        local closing_index=$(( ${#arguments[@]} - 1 ))
+        unset "arguments[${closing_index}]"
+        if command test "${#arguments[@]}" -eq 3 && command test "${arguments[0]}" = '!' &&
+            command test "${arguments[1]}" = -e && command test "${arguments[2]}" = /dev/vda; then
+            return 1
+        fi
+        command test "${arguments[@]}"
+    }
+    lsblk() {
+        case " $* " in
+        *' -I '*) return 1 ;;
+        esac
+        [ "$*" = '-d -p -n -o PATH,TYPE,SIZE,MODEL,SERIAL' ] || return 1
+        printf '/dev/vda disk 64G  \n'
+    }
+    gum_choose() {
+        [ "$1" = --header ] && [ "$2" = '+ Choose Disk (path, size, model, serial)' ] &&
+            [ "${3:-}" = '/dev/vda 64G' ] || return 1
+        printf '/dev/vda 64G\n'
+    }
+    gum_confirm() { return 1; }
+    gum_property() { :; }
+    properties_generate() { selection_properties_calls=$((selection_properties_calls + 1)); }
+    trap_gum_exit_confirm() { return 1; }
+    ARCH_LINUX_DISK=''
+    ARCH_LINUX_BOOT_PARTITION=''
+    ARCH_LINUX_ROOT_PARTITION=''
+    ARCH_LINUX_DISK_IDENTITY=''
+    ARCH_LINUX_BOOT_PARTITION_IDENTITY=''
+    ARCH_LINUX_ROOT_PARTITION_IDENTITY=''
+    select_disk
+    selection_identity="$(block_disk_identity /dev/vda)"
+    [ "$ARCH_LINUX_DISK" = /dev/vda ] && [ "$ARCH_LINUX_BOOT_PARTITION" = /dev/vda1 ] &&
+        [ "$ARCH_LINUX_ROOT_PARTITION" = /dev/vda2 ] &&
+        [ "$ARCH_LINUX_DISK_IDENTITY" = "$selection_identity" ] &&
+        [ "$selection_properties_calls" -eq 1 ]
+)
+
+# QEMU virtio disks may omit MODEL, SERIAL and WWN. The kernel disk sequence plus the boot-scoped
+# virtual backend identity bind one such disk for this installer run; a missing physical identity
+# remains a hard rejection.
+vm_diskseq='73'
+vm_run_identity='11111111-1111-4111-8111-111111111111'
+sda_serial='SERIAL-A'
+vm_virtual_backend=true
+block_exists() { case "$1" in /dev/vda|/dev/vda1|/dev/vda2|/dev/sda|/dev/sdb|/dev/sda1|/dev/sda2|/dev/sdb1|/dev/sdb2) return 0 ;; *) return 1 ;; esac; }
+block_type() { case "$1" in /dev/vda|/dev/sda|/dev/sdb) printf 'disk' ;; /dev/vda1|/dev/vda2|/dev/sda1|/dev/sda2|/dev/sdb1|/dev/sdb2) printf 'part' ;; esac; }
+block_disk_sequence() { [ "$1" = /dev/vda ] && printf '%s\n' "$vm_diskseq"; }
+block_virtual_run_identity() { printf '%s\n' "$vm_run_identity"; }
+block_virtual_backend_is_recognized() { [ "$vm_virtual_backend" = true ]; }
+block_attribute() {
+    local node="$1" field="$2"
+    case "${node}:${field}" in
+    /dev/vda:SIZE) printf '68719476736' ;;
+    /dev/vda:WWN|/dev/vda:SERIAL|/dev/vda:MODEL) printf '' ;;
+    /dev/sda:SIZE|/dev/sdb:SIZE) printf '107374182400' ;;
+    /dev/sda:WWN|/dev/sdb:WWN) printf '' ;;
+    /dev/sda:SERIAL) printf '%s' "$sda_serial" ;;
+    /dev/sdb:SERIAL) printf '%s' "$sdb_serial" ;;
+    /dev/sda:MODEL|/dev/sdb:MODEL) printf 'QEMU SAFE DISK' ;;
+    /dev/sda1:PARTUUID) printf '11111111-1111-1111-1111-111111111111' ;;
+    /dev/sda2:PARTUUID) printf '22222222-2222-2222-2222-222222222222' ;;
+    /dev/sdb1:PARTUUID) printf '33333333-3333-3333-3333-333333333333' ;;
+    /dev/sdb2:PARTUUID) printf '44444444-4444-4444-4444-444444444444' ;;
+    /dev/sda1:START|/dev/sdb1:START) printf '2048' ;;
+    /dev/sda2:START) printf '%s' "$sda2_start" ;;
+    /dev/sdb2:START) printf '2099200' ;;
+    /dev/sda1:SIZE|/dev/sdb1:SIZE) printf '1073741824' ;;
+    /dev/sda2:SIZE|/dev/sdb2:SIZE) printf '106300440576' ;;
+    /dev/sda1:FSTYPE|/dev/sdb1:FSTYPE) printf 'vfat' ;;
+    /dev/sda2:FSTYPE|/dev/sdb2:FSTYPE) printf 'ext4' ;;
+    *) return 1 ;;
+    esac
+}
+block_paths_for_type() {
+    case "$1" in
+    disk) printf '%s\n' /dev/vda /dev/sda /dev/sdb ;;
+    part) printf '%s\n' /dev/vda1 /dev/vda2 /dev/sda1 /dev/sda2 /dev/sdb1 /dev/sdb2 ;;
+    *) return 1 ;;
+    esac
+}
+
+vm_disk_identity="$(block_disk_identity /dev/vda)" || {
+    echo 'disk safety: stable QEMU virtio disk without model/serial/WWN was rejected' >&2
+    exit 1
+}
+block_identity_is_unique disk "$vm_disk_identity" || {
+    echo 'disk safety: unique QEMU virtio disk identity was rejected' >&2
+    exit 1
+}
+ARCH_LINUX_DUAL_BOOT_ENABLED=false
+ARCH_LINUX_DISK=/dev/vda
+ARCH_LINUX_BOOT_PARTITION=/dev/vda1
+ARCH_LINUX_ROOT_PARTITION=/dev/vda2
+ARCH_LINUX_DISK_IDENTITY="$vm_disk_identity"
+ARCH_LINUX_BOOT_PARTITION_IDENTITY=''
+ARCH_LINUX_ROOT_PARTITION_IDENTITY=''
+validate_destructive_targets silent_report
+vm_diskseq='74'
+if validate_destructive_targets silent_report; then
+    echo 'disk safety: replaced QEMU virtio disk matched the accepted identity' >&2
+    exit 1
+fi
+vm_diskseq='73'
+vm_run_identity=''
+if block_disk_identity /dev/vda >/dev/null; then
+    echo 'disk safety: QEMU virtio disk without a boot-scoped identity was accepted' >&2
+    exit 1
+fi
+vm_run_identity='11111111-1111-4111-8111-111111111111'
+vm_diskseq=''
+if block_disk_identity /dev/vda >/dev/null; then
+    echo 'disk safety: QEMU virtio disk without a kernel disk sequence was accepted' >&2
+    exit 1
+fi
+vm_diskseq='73'
+sda_serial=''
+if block_disk_identity /dev/sda >/dev/null; then
+    echo 'disk safety: physical disk without a serial or WWN was accepted' >&2
+    exit 1
+fi
+sda_serial='SERIAL-A'
+vm_virtual_backend=false
+if block_disk_identity /dev/vda >/dev/null; then
+    echo 'disk safety: disk without a recognised virtio backend was accepted' >&2
+    exit 1
+fi
+vm_virtual_backend=true
+
 ARCH_LINUX_DUAL_BOOT_ENABLED=true
+ARCH_LINUX_DISK=/dev/sda
+ARCH_LINUX_BOOT_PARTITION=/dev/sda1
+ARCH_LINUX_ROOT_PARTITION=/dev/sda2
+ARCH_LINUX_DISK_IDENTITY="$(block_disk_identity /dev/sda)"
 ARCH_LINUX_BOOT_PARTITION_IDENTITY="$(block_partition_identity /dev/sda1)"
 ARCH_LINUX_ROOT_PARTITION_IDENTITY="$(block_partition_identity /dev/sda2)"
 validate_destructive_targets silent_report

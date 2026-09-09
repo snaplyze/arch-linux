@@ -12,11 +12,11 @@ required=(
     repository/offline-signing-launcher.c repository/offline-signing-fd-guard.py
     repository/offline-signing-namespace.sh repository/run-offline-signing.sh
     repository/seal-offline-signing-code.py repository/verify-sealed-offline-code.py
-    repository/offline-finalize-release.sh repository/acceptance-manifest.py
+    repository/offline-finalize-release.sh repository/acceptance-manifest.py repository/release-source.py
     tests/publication-root-check.sh tests/keyring-rotation-checks.sh
     maintenance/check-arch-iso.py maintenance/check-sources.py maintenance/sources.json
     tests/vm/frame-evidence.py
-    .github/workflows/ci.yml .github/workflows/packages.yml
+    .github/workflows/ci.yml .github/workflows/packages.yml .github/workflows/release.yml
     .github/workflows/pages.yml .github/workflows/maintenance.yml
 )
 for path in "${required[@]}"; do
@@ -33,7 +33,7 @@ for path in \
 done
 
 mapfile -t workflows < <(find "$repo_root/.github/workflows" -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort)
-expected_workflows=$'ci.yml\nmaintenance.yml\npackages.yml\npages.yml'
+expected_workflows=$'ci.yml\nmaintenance.yml\npackages.yml\npages.yml\nrelease.yml'
 [ "$(printf '%s\n' "${workflows[@]}")" = "$expected_workflows" ] || fail 'workflow closure differs'
 
 python3 - "$repo_root/.github/workflows" <<'WORKFLOW_PY'
@@ -41,11 +41,38 @@ from pathlib import Path
 import re, sys
 root=Path(sys.argv[1])
 uses=re.compile(r'^\s*uses:\s*([^\s#]+)',re.M)
+allowed_signing_secrets={'ARCH_LINUX_SIGNING_KEY', 'ARCH_LINUX_SIGNING_PASSPHRASE'}
+
+def job_block(workflow, name):
+    match=re.search(rf'^  {re.escape(name)}:\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z)', workflow, re.M|re.S)
+    if match is None:
+        raise SystemExit(f'static check failed: signing job is absent: {name}')
+    return match.group(1)
+
 for path in sorted(root.glob('*.yml')):
     text=path.read_text(encoding='utf-8')
     lowered=text.lower()
-    if 'secrets.' in lowered or 'write-all' in lowered:
-        raise SystemExit(f'static check failed: workflow requests secret/write-all authority: {path.name}')
+    if 'write-all' in lowered:
+        raise SystemExit(f'static check failed: workflow requests write-all authority: {path.name}')
+    secret_refs=set(re.findall(r'\$\{\{\s*secrets\.([A-Za-z0-9_]+)\s*\}\}', text))
+    if path.name != 'release.yml':
+        if secret_refs:
+            raise SystemExit(f'static check failed: non-signing workflow receives a secret: {path.name}')
+    else:
+        if secret_refs != allowed_signing_secrets:
+            raise SystemExit('static check failed: release workflow secret closure differs')
+        snapshot=job_block(text, 'snapshot')
+        finalize=job_block(text, 'finalize')
+        for name, job in (('snapshot', snapshot), ('finalize', finalize)):
+            if 'environment: release' not in job:
+                raise SystemExit(f'static check failed: signing job lacks release Environment: {name}')
+            refs=set(re.findall(r'\$\{\{\s*secrets\.([A-Za-z0-9_]+)\s*\}\}', job))
+            if refs != allowed_signing_secrets:
+                raise SystemExit(f'static check failed: signing job secret closure differs: {name}')
+        for name in ('prepare', 'build', 'qemu', 'draft', 'pages', 'publish', 'public'):
+            job=job_block(text, name)
+            if 'environment: release' in job or re.search(r'\$\{\{\s*secrets\.', job):
+                raise SystemExit(f'static check failed: non-signing release job receives a secret: {name}')
     for match in uses.finditer(text):
         value=match.group(1)
         if value.startswith('./'):
@@ -57,6 +84,23 @@ WORKFLOW_PY
 packages_workflow="$repo_root/.github/workflows/packages.yml"
 maintenance_workflow="$repo_root/.github/workflows/maintenance.yml"
 pages_workflow="$repo_root/.github/workflows/pages.yml"
+release_workflow="$repo_root/.github/workflows/release.yml"
+
+# GitHub expressions are matched literally, without shell expansion.
+# shellcheck disable=SC2016
+for literal in \
+    'name: Release' 'workflow_run:' 'workflows: [CI]' 'branches: [main]' 'types: [completed]' \
+    "github.event.workflow_run.conclusion == 'success'" \
+    "github.event.workflow_run.event == 'push'" \
+    "github.event.workflow_run.head_branch == 'main'" \
+    'group: immutable-release' 'cancel-in-progress: false' \
+    'repository/release-source.py prepare' 'repository/release-source.py restore' \
+    'repository/actions-sign-release.py snapshot' 'repository/actions-sign-release.py finalize' \
+    'release-source-${{ github.run_id }}' 'phase-a-${{ needs.prepare.outputs.source_commit }}' \
+    'finalized-${{ needs.prepare.outputs.source_commit }}'; do
+    grep -Fq -- "$literal" "$release_workflow" ||
+        fail "release workflow boundary absent: $literal"
+done
 
 python3 - "$packages_workflow" "$maintenance_workflow" <<'BUILD_DEPS_PY'
 from pathlib import Path
@@ -147,7 +191,7 @@ for raw_path in sys.argv[1:]:
 BUILD_DEPS_PY
 
 for literal in source_commit source_tree 'Read back canonical artifact' \
-    'actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c' \
+    'actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0' \
     'BUILD_METADATA_SHA256' 'UNSIGNED_MANIFEST_SHA256'; do
     grep -Fq -- "$literal" "$packages_workflow" || fail "canonical package binding absent: $literal"
 done
@@ -196,6 +240,15 @@ assert '    permissions:\n      contents: write\n' in verify_job
 assert 'contents: write' not in deploy_job
 assert 'persist-credentials: false' in verify_job and 'ref: ${{ inputs.source_commit }}' in verify_job
 assert not re.search(r'gh (?:release|api[^\n]*(?:--method|-X)\s+(?:POST|PATCH|PUT|DELETE))', verify_job)
+assert 'guarded_main_commit: ${{ steps.source_identity.outputs.guarded_main_commit }}' in verify_job
+assert 'needs.verify.outputs.guarded_main_commit' in deploy_job
+recheck = re.search(
+    r'      - name: Recheck reviewed main immediately before Pages deployment\n'
+    r'.*?git ls-remote --refs https://github.com/snaplyze/arch-linux.git refs/heads/main.*?\n'
+    r'      - name: Deploy verified content\n.*?actions/deploy-pages@',
+    deploy_job, re.S,
+)
+assert recheck is not None
 # Exercise the actual workflow source/tag guard, including a later deployment commit.
 guard = re.search(r'      - name: Require exact source and annotated tag\n.*?        run: \|\n(.*?)\n      - name:', workflow, re.S)
 assert guard is not None
@@ -417,7 +470,11 @@ for relative in paths:
         raise SystemExit(f'static check failed: late-bound local remains in EXIT cleanup: {relative}')
 CLEANUP_PY
 
-grep -Fq "VERSION='1.0.1'" "$repo_root/arch-linux-installer.sh" || fail 'installer version differs'
+mapfile -t installer_versions < <(
+    sed -n "s/^readonly VERSION='\\([0-9][0-9]*\\.[0-9][0-9]*\\.[0-9][0-9]*\\)'$/\\1/p" \
+        "$repo_root/arch-linux-installer.sh"
+)
+[ "${#installer_versions[@]}" -eq 1 ] || fail 'installer must declare exactly one SemVer version'
 for literal in \
     "SigLevel = PackageRequired DatabaseRequired TrustedOnly" \
     "ARCH_LINUX_GNOME_THEME_PROFILE" "stock" "marble" \
@@ -481,23 +538,21 @@ def bash(program, *args):
                           env={"PATH": "/usr/bin:/usr/sbin", "LANG": "C", "LC_ALL": "C"})
 
 # Execute only the actual scenario/identity assignments, never main, QEMU or guest setup.
-version = re.search(r"^readonly VERSION='([0-9]+\.[0-9]+\.[0-9]+)'$",
-                    (root / 'arch-linux-installer.sh').read_text(), re.M).group(1)
-require(version == '1.0.1', 'accepted release version')
-for text in (host, guests[1]):
-    guards = [line.strip() for line in text.splitlines()
-              if line.strip().startswith('[ "${release_version}" = ')]
-    require(len(guards) == 1, 'one exact release version guard')
-    for candidate in (version, '1.0.0', '1.0.2', 'main', '../1.0.1'):
-        checked = bash('release_version=$1\ndie(){ exit 1; }\n' + guards[0], candidate)
-        require((checked.returncode == 0) == (candidate == version),
-                f'release version guard accepted/rejected the wrong version: {candidate}')
+versions = re.findall(r"^readonly VERSION='([0-9]+\.[0-9]+\.[0-9]+)'$",
+                      (root / 'arch-linux-installer.sh').read_text(), re.M)
+require(len(versions) == 1, 'installer has one SemVer version declaration')
+version = versions[0]
+for label, text in (('host', host), ('bootstrap guest', guests[0]), ('verify guest', guests[1])):
+    require('1.0.1' not in text, f'{label} retains a stale fixed release version')
+    require('^[0-9]+\\.[0-9]+\\.[0-9]+$' in text,
+            f'{label} lacks a strict SemVer release-version guard')
+require('https://raw.githubusercontent.com/snaplyze/arch-linux/${IDENTITY[RELEASE_VERSION]}/install.sh'
+        in guests[0], 'public guest bootstrap URL is not identity-bound')
 for asset in ('arch-linux-installer.sh', 'arch-linux.gpg'):
-    require(f'https://github.com/snaplyze/arch-linux/releases/download/{version}/{asset}'
-            in guests[0], 'public guest release URL pin')
-require(f'https://raw.githubusercontent.com/snaplyze/arch-linux/{version}/install.sh'
-        in guests[0], 'public guest bootstrap URL pin')
-require(r'1\.0\.1:' in guests[0], 'public bootstrap output version pin')
+    require(f'https://github.com/snaplyze/arch-linux/releases/download/${{IDENTITY[RELEASE_VERSION]}}/{asset}'
+            in guests[0], 'public guest release URL is not identity-bound')
+require('https://github.com/snaplyze/arch-linux/releases/download/${release_version}' in guests[1],
+        'public verifier release URL is not release-version-bound')
 
 start = host.index('    case "${scenario_id}" in\n', host.index("main() {"))
 end = host.index("\n    esac\n    shift", start) + len("\n    esac")
@@ -804,7 +859,7 @@ import json
 globals_used = '''target_serial target_model run_id scenario_id repository_primary_fingerprint
 repository_signing_fingerprint release_version pages_url snapshot_sha256 source_commit source_tree
 installer_sha256 repository_package_set_sha256 build_metadata_sha256 unsigned_manifest_sha256
-repository_public_key_sha256'''.split()
+repository_public_key_sha256 target_disk_metadata'''.split()
 program = 'set -Eeuo pipefail\n' + verify.group() + '\n' + '\n'.join(
     name + '=fixture' for name in globals_used) + '''
 script_dir="$1" evidence="$2" response="$3" input_mode=staged marker_prefix=MINIMAL

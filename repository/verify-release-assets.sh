@@ -35,6 +35,7 @@ main() {
             --build-metadata-sha256) [ "$#" -ge 2 ] && [ -z "$build_metadata_hash" ] || { usage; return 2; }; build_metadata_hash="$2"; shift 2 ;;
             --unsigned-manifest-sha256) [ "$#" -ge 2 ] && [ -z "$unsigned_manifest_hash" ] || { usage; return 2; }; unsigned_manifest_hash="$2"; shift 2 ;;
             --sealed-offline-root) [ "$sealed" = false ] || { usage; return 2; }; sealed=true; shift ;;
+            --sealed-public-root) [ "$sealed" = false ] || { usage; return 2; }; sealed=public; shift ;;
             *) usage; return 2 ;;
         esac
     done
@@ -63,6 +64,8 @@ main() {
             repository_die 'sealed release verifier source identity differs' || return
         /usr/bin/python3 -I "${script_dir}/offline-signing-fd-guard.py" assert-public ||
             repository_die 'sealed release verification descriptor authority differs' || return
+    elif [ "$sealed" = public ]; then
+        repository_assert_sealed_public_root "$repo_root" "$source_commit" "$source_tree" "$source_tree_sha"
     else
         repository_assert_source_identity "$repo_root" "$source_commit" "$source_tree"
     fi
@@ -158,7 +161,10 @@ PY
     trap "$cleanup_command" EXIT
     python3 "${script_dir}/safe-extract-snapshot.py" "$assets/$archive" "$work/extracted"
     local sealed_option=()
-    [ "$sealed" = false ] || sealed_option=(--sealed-offline-root)
+    case "$sealed" in
+        true) sealed_option=(--sealed-offline-root) ;;
+        public) sealed_option=(--sealed-public-root) ;;
+    esac
     "${script_dir}/verify-signed-repository.sh" "$work/extracted/repo/x86_64" \
         --release-version "$version" --source-commit "$source_commit" --source-tree "$source_tree" \
         --build-metadata-sha256 "$build_metadata_hash" --unsigned-manifest-sha256 "$unsigned_manifest_hash" \

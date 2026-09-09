@@ -3,7 +3,7 @@
 
 pkgname=arch-linux-keyring
 pkgver=1.0.0
-pkgrel=2
+pkgrel=3
 pkgdesc='Public certificate refresh path for the signed arch-linux repository'
 arch=('any')
 url='https://github.com/snaplyze/arch-linux'
@@ -24,9 +24,9 @@ source=(
 )
 # BEGIN INITIAL TRUST V1 CHECKSUMS
 sha256sums=(
-    '2d80a88fb033a6c138399b391cd4347f4461b60d1294d22af166f589b12c7c67'
-    '6d980a847d1bb7599c9dbdcc4be8c87cf3289d321a328f14247baf3f27ed3d1c'
-    '9cafadd2dc1d143c4f24eab121cccf5fd74f8139e9d2ce7af55646a75988beb1'
+    '8959dfd96fd94349d505f18a6d3ef0a3bfcd9fad53291343388f787f9dbb9c6f'
+    '7e12b5e2a2ce9ed2881e06d80054a969465eea72f917282f25f27ae02cf66824'
+    '471e476b51923eb1afe73609a7ef4aef3fbc1e1c2b09ba3f77e9f1f349643b69'
     '95552a4bda2ac67bd5b957fadaa318bd14237a303b577cd097b69933d5a15e87'
     '3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986'
 )

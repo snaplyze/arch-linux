@@ -1,7 +1,8 @@
 # Release process
 
-A source candidate is not a release. Production signing and publication require separate explicit
-authorization.
+A source candidate is not a release. The configured `release.yml` pipeline has standing authority
+to sign and publish one immutable release after a successful CI-verified merge to `main`; no other
+workflow or operator gains that authority from this document.
 
 ## Release immutability
 
@@ -18,16 +19,16 @@ and verify the complete asset set while the release is still a draft. After publ
 the release API's `immutable: true` alongside its hashes and signatures. See
 [GitHub's setting documentation](https://docs.github.com/en/code-security/how-tos/secure-your-supply-chain/establish-provenance-and-integrity/prevent-release-changes).
 
-The original `1.0.0` API reports `immutable: false` in the 2026-09-06 readback. Its signed bytes
-and tag must nevertheless remain unchanged: do not delete/recreate the release or move the tag
-to retrofit this setting. The installer intentionally offers self-updates only from a release
-whose API reports `immutable: true`; preserve that check. Release-pinned bootstrap verification
-and platform-enforced release immutability are separate properties.
+The former `1.0.0` and `1.0.1` objects are retired under separate authorization. Their recorded
+results remain historical evidence for their original commits and inputs; they do not establish an
+available current release. The installer offers self-updates only from a release whose API reports
+`immutable: true`. Release-pinned bootstrap verification and platform-enforced release immutability
+are separate properties.
 
-## Released 1.0.1
+## Historical 1.0.1 evidence (retired)
 
-[Release 1.0.1](https://github.com/snaplyze/arch-linux/releases/tag/1.0.1) was published on
-2026-09-06 with `immutable: true`. Its annotated tag resolves to commit
+The former `1.0.1` release was published on 2026-09-06 with `immutable: true`. Before retirement,
+its annotated tag resolved to commit
 `bdb42154f55dac5c0d7cddfc2f0f57d493024354`, tree
 `bccfbbbdd0458909da8af3cddc75a21b671724bb`. Installer SHA-256 is
 `a9bb35e6799599c9f22d4171860928799c060de9d4a4450c9be379579ced3318`;
@@ -56,18 +57,22 @@ The supplemental run used reviewed test-only harness commit
 separately bound to the unchanged released product above. Its run ID is
 `marble-20260906T180030Z-7ff430e2`; the earlier failed supplemental attempts remain FAIL.
 
-Later test/documentation commits do not move this tag or change released bytes. Historical
-compatibility runs and failed diagnostic attempts remain separate from this release's evidence.
+Historical compatibility runs and failed diagnostic attempts remain separate from this record. They
+must never be relabelled as acceptance for `1.0.2` or a later release.
 
 ## 1. Source candidate
 
-Release `1.0.1` carries the reviewed Just Perfection 37 installer pin
-and Colloid icons `20260829-1`. The other five packages use a new `pkgrel=2` for this canonical
-rebuild, so none reuses a published `pkgrel=1` archive name with different bytes. Public trust,
-the accepted ISO, the retained Gum/GTK inputs and all installation choices remain unchanged.
-Previous compatibility runs are review evidence only; the separate frozen build, signed snapshot
-and fresh staged/public acceptance for 1.0.1 are summarized above. A subsequent installer change
-requires a new version and its own affected checks, never replacement of these assets.
+The release pipeline starts from the exact successful online `main` merge. It derives a deterministic
+release child containing only allowlisted version changes, records
+`repository/release-origin.json` (schema 1) with the origin main commit/tree, release version,
+transform schema and package revisions, and reconstructs the child from the origin's complete
+mode-and-byte tree. It tests, builds and signs that child; the origin main commit/tree and release
+child commit/tree are both bound into provenance. A generated child never bypasses review of the
+origin merge, and no result from an earlier tree is transferred to it.
+
+The manual **Run workflow** action resumes an existing release for the current reviewed `main`
+commit; it cannot start a fresh candidate. To retry preparation before a tag exists, rerun that
+commit's CI push run and let its successful completion trigger the release workflow.
 
 The executor verifies its own process group and cgroup before acknowledging entry. A child that
 finishes before the parent can inspect `/proc` is accepted only after a successful Bash child wait,
@@ -123,21 +128,24 @@ Otherwise an `archlinux-keyring` upgrade can report a failed scriptlet even when
 successfully. This machine-local pacman key is not the project production signing key;
 it is destroyed with the container. Package/database signature policies are not relaxed.
 
-## 3. Offline signing and repository assembly
+## 3. Authorized Actions signing and repository assembly
 
-Move the downloaded and independently verified unsigned closure to the authorized offline signing
-environment. Record the exact canonical `BUILD-METADATA.json` and `UNSIGNED-SHA256SUMS` SHA-256
-values before entering the signing boundary. Follow the root hash-pinned sealer and dedicated
-`arch-linux-signing` account procedure in [repository tooling](../repository/README.md). Supply the
-canonical private-home and passphrase paths only as the launcher's two-line FIFO input; never place
-either in argv, environment, logs or evidence. Invoke the generated static launcher in `snapshot`
-mode with the canonical build arguments. The linked runbook is mandatory: it contains the exact
-five-argument sealer invocation, account policy and ownership/mode preconditions. In particular,
-persistent private bytes remain encrypted only in the one authorized external recovery directory.
-Routine signing decrypts/imports only the signing-only export into one-use tmpfs objects inside the
-same no-network operation, and destroys them afterward. The accepted unsigned/QEMU inputs are
-root-owned readable copies (never their native mode-`0700` run roots), while the missing
-snapshot/final output names share a separate signing-owned mode-`0700` parent.
+The release pipeline records the exact canonical `BUILD-METADATA.json` and `UNSIGNED-SHA256SUMS`
+SHA-256 values before entering its signing boundary. Only the `snapshot` and `finalize` jobs use the
+`release` Environment and receive `ARCH_LINUX_SIGNING_KEY` and
+`ARCH_LINUX_SIGNING_PASSPHRASE`. The adapter imports only the signing-only subkey into a fresh
+temporary no-network boundary, signs the accepted closure, and destroys that material when the job
+exits. The certification primary and recovery material remain outside Actions. Build, readback,
+QEMU, draft, Pages, publish, PR, CI, maintenance and public-readback jobs receive neither signing
+secret.
+
+The root hash-pinned sealer and dedicated `arch-linux-signing` account procedure in
+[repository tooling](../repository/README.md) remains the host-local recovery boundary. Its static
+launcher preserves the exact FD 6/7/8/9 contract and the 14/18 closures; it does not redefine the
+authorized Actions adapter.
+
+For host-local recovery only, invoke the retained launcher in `snapshot` mode with the canonical
+build arguments:
 
 ```bash
 set +x
@@ -151,13 +159,10 @@ printf '%s\n%s\n' "$PRIVATE_HOME" "$PASSPHRASE_FILE" | \
   --unsigned-manifest-sha256 "$UNSIGNED_MANIFEST_SHA256"
 ```
 
-The launcher is entered as host root, validates the unique locked signing account, then drops all
-root identity before it reads the FIFO pathnames. The operation emits `$SNAPSHOT_OUTPUT/assets`
-with exact 14 Phase-A assets and `$SNAPSHOT_OUTPUT/repository` with the signed Pages tree. The
-Phase-A set is the former 12 files plus byte-identical build metadata
-and unsigned manifest. Signed `RELEASE-SHA256SUMS` covers the exact 12 non-self files. The launcher
-retains private authority only through FDs 6/7, uses capability FD 8 and lock FD 9, exposes loopback
-only inside fresh user/PID/mount/network namespaces and removes every private agent/socket on exit.
+Snapshot emits `$SNAPSHOT_OUTPUT/assets` with exact 14 Phase-A assets and
+`$SNAPSHOT_OUTPUT/repository` with the signed Pages tree. The Phase-A set is the former 12 files plus
+byte-identical build metadata and unsigned manifest. Signed `RELEASE-SHA256SUMS` covers the exact 12
+non-self files. The same closure requirements apply to the host launcher and Actions adapter.
 
 ## 4. Independent verification
 
@@ -204,10 +209,14 @@ unchanged error or weaken real disk/signature/secret protections.
 
 ## 6. GitHub Release and Pages
 
-After all three staged QEMU scenarios pass, invoke the sealed launcher in `finalize` mode. It must
-copy all 14 Phase-A files byte-for-byte and add the signed acceptance JSON and signed compressed
-evidence archive. The JSON binds the exact Phase-A map/aggregate/manifest, commit/tree/canonical
-source hash, build/snapshot inputs, three PASS verdicts, evidence at most 500 MiB and `deferred=[]`.
+After all three staged QEMU scenarios pass, the authorized `finalize` job must copy all 14 Phase-A
+files byte-for-byte and add the signed acceptance JSON and signed compressed evidence archive for
+exact 18. The JSON binds the exact Phase-A map/aggregate/manifest, release child commit/tree and
+canonical source hash, build/snapshot inputs, three PASS verdicts, evidence at most 500 MiB and
+`deferred=[]`. The bound child contains `repository/release-origin.json`, which records the reviewed
+main commit/tree; public verification reconstructs the child from that origin.
+
+For host-local recovery only, invoke the retained launcher in `finalize` mode:
 
 ```bash
 set +x
@@ -224,23 +233,21 @@ printf '%s\n%s\n' "$PRIVATE_HOME" "$PASSPHRASE_FILE" | \
     --marble-run "$ACCEPTED_MARBLE_RUN"
 ```
 
-Then create annotated tag `$VERSION` on the frozen commit and create a draft GitHub Release. Upload
-exactly the eighteen already verified assets without changing
-their names or bytes. Download every draft asset again, verify hashes, detached signatures,
-installer version and tag-to-commit-to-tree, then run `.github/workflows/pages.yml` with the numeric
-draft Release ID and the exact source/tree/canonical-source/snapshot/build hashes. The workflow performs authenticated
-API readback and public-key-only verification before deploying Pages. Verify package/database
-objects over public HTTPS, publish the Release without replacing any asset, then repeat
-unauthenticated asset and Pages readback.
+The pipeline creates an annotated tag `$VERSION` on the deterministic release child and a draft
+GitHub Release. It uploads exactly the eighteen verified assets without changing their names or
+bytes, reads them back through the API, verifies hashes, detached signatures, installer version,
+tag-to-child commit/tree and origin main provenance, then calls `pages.yml` with the numeric draft
+Release ID and exact source/origin/tree/canonical-source/snapshot/build hashes. Pages performs
+authenticated API readback and public-key-only verification before deployment. The pipeline then
+verifies package/database objects over public HTTPS, publishes the immutable Release without
+replacing an asset, and repeats unauthenticated asset and Pages readback.
 
-The manually dispatched verification job needs `contents: write` to read an unpublished draft
-(GitHub requires push-level access); its API operations only read and it cannot sign.
-The separate deployment job receives only Pages/OIDC permissions. The workflow runs from `main`,
-but checks out and verifies the exact tagged release source, which must be an ancestor of that
-workflow commit. This permits a reviewed deployment-only fix after source freeze without moving
-the release tag, rebuilding assets or transferring acceptance to a new tree. Record the deployment
-commit separately from the released source commit. Any product change requires new acceptance and
-a new release version; it must not replace existing release bytes.
+GitHub cannot atomically deploy Pages and publish a Release. The Pages job rechecks the reviewed
+`main` commit immediately before deployment; publication stops if that commit has advanced after
+Pages deployment. While the reviewed `main` commit is unchanged, a retry resumes only the exact
+existing draft and its already verified bytes. If `main` advances, its next successful CI run
+prepares a new candidate; the earlier draft stays unpublished. Never upload replacement assets,
+move the earlier tag or transfer its acceptance to newer source.
 
 ## 7. Public final VM test
 
@@ -262,19 +269,21 @@ identity and per-package/database hashes. FAIL includes a non-zero exit status a
 phase. Heavy run-owned VM inputs are deleted before bounded credential scanning; cumulative evidence
 remains at most 500 MiB.
 
-## 8. Updates after 1.0.0
+## 8. Updates
 
-Installer changes are new immutable SemVer releases (`1.0.1`, `1.0.2`, and later). Arch Linux
+Installer changes are new immutable SemVer releases. Arch Linux
 updates normally through `pacman -Syu`. Marble/profile changes increment the owning package's
 `pkgrel` and are delivered through the signed Pages repository, so they do not require an installer
 release. Source pins change only through a reviewed pull request.
 Use the explicit [package-only Pages route](../repository/README.md#package-only-updates), with a
-new package tag and verified offline-signed snapshot. This is not a new installer release.
+new package tag and verified signed snapshot. This is not a new installer release.
 
 The maintenance watcher may only create or update an advisory issue; monthly A+B is advisory and
-never blocks release. No workflow automatically merges, releases, signs, rotates keys or changes a
-fingerprint, checksum, source pin or accepted ISO. There is no `arch-os` synchronization. A signing
-key changes only through a separately authorized manual rotation procedure.
+never blocks release. The configured release pipeline automatically signs and releases only its
+exact verified release child after the online `main` merge. No workflow automatically merges,
+rotates keys or changes a fingerprint, checksum, source pin or accepted ISO. There is no `arch-os`
+synchronization. A signing key changes only through a separately authorized manual rotation
+procedure.
 
 ## Required path summary
 
@@ -283,7 +292,7 @@ SOURCE
   -> syntax/static/function/ShellCheck/secret checks
   -> one clean canonical Arch package build
   -> unsigned package and repository verification
-  -> local offline signing
+  -> authorized Actions signing of the exact 14-file closure
   -> three QEMU scenarios
   -> immutable GitHub Release and verified Pages deployment
   -> one public final VM test

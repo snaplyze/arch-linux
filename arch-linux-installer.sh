@@ -20,7 +20,7 @@ set -E          # ERR trap inherited by shell functions (errtrace)
 : "${GUM:=/usr/local/bin/gum}" # GUM=/usr/bin/gum ./installer.sh
 
 # SCRIPT
-readonly VERSION='1.0.1'
+readonly VERSION='1.0.2'
 export ARCH_LINUX_INSTALLER_CONFIG_VERSION='1'
 
 # PROJECT REPOSITORY (used by update_installer and release-pinned downloads)
@@ -48,9 +48,9 @@ readonly REPOSITORY_TRUST_VERSION='1'
 readonly REPOSITORY_NAME='arch-linux'
 readonly REPOSITORY_SERVER_URL="https://snaplyze.github.io/arch-linux/repo/\$arch"
 readonly REPOSITORY_PUBLIC_KEY_URL="https://github.com/snaplyze/arch-linux/releases/download/${VERSION}/arch-linux.gpg"
-readonly REPOSITORY_PUBLIC_KEY_SHA256='2d80a88fb033a6c138399b391cd4347f4461b60d1294d22af166f589b12c7c67'
-readonly REPOSITORY_PRIMARY_FINGERPRINT='8C78098D1EAC609CBC73536FB7D2C17447B90CB2'
-readonly REPOSITORY_SIGNING_SUBKEY_FINGERPRINT='0AA6F2237FB9674623B6E824428D56A84F558F7C'
+readonly REPOSITORY_PUBLIC_KEY_SHA256='8959dfd96fd94349d505f18a6d3ef0a3bfcd9fad53291343388f787f9dbb9c6f'
+readonly REPOSITORY_PRIMARY_FINGERPRINT='9C603F25F83F4B0F4745D790D97919282A24E748'
+readonly REPOSITORY_SIGNING_SUBKEY_FINGERPRINT='B294D26BDAD5469EE334B0453DA0736C98322CCA'
 readonly REPOSITORY_PUBLICATION_READY='true'
 # Experimental GDM remains independently gated from the Stock and Marble desktop profiles.
 readonly MARBLE_GDM_PUBLICATION_READY='true'
@@ -1917,6 +1917,45 @@ block_attribute() {
     printf '%s\n' "$value"
 }
 
+# A virtio backend may not expose model, serial or WWN. diskseq is allocated by the kernel for
+# this disk instance, while boot_id confines that fallback to the current live environment.
+block_disk_sequence() {
+    local disk="$1" canonical name sequence
+
+    canonical="$(block_canonical "$disk")" || return 1
+    block_exists "$canonical" && [ "$(block_type "$canonical")" = disk ] || return 1
+    name="${canonical#/dev/}"
+    [ "$canonical" = "/dev/${name}" ] && [[ "$name" =~ ^[A-Za-z0-9._-]+$ ]] || return 1
+    IFS= read -r sequence <"/sys/class/block/${name}/diskseq" || return 1
+    [[ "$sequence" =~ ^[1-9][0-9]*$ ]] || return 1
+    printf '%s\n' "$sequence"
+}
+
+block_virtual_backend_is_recognized() {
+    local disk="$1" canonical name device_path component
+    local -a device_path_parts=()
+
+    canonical="$(block_canonical "$disk")" || return 1
+    block_exists "$canonical" && [ "$(block_type "$canonical")" = disk ] || return 1
+    name="${canonical#/dev/}"
+    [ "$canonical" = "/dev/${name}" ] && [[ "$name" =~ ^[A-Za-z0-9._-]+$ ]] || return 1
+    device_path="$(readlink -f -- "/sys/class/block/${name}")" || return 1
+    [[ "$device_path" == /sys/devices/*/block/"$name" ]] || return 1
+    IFS=/ read -r -a device_path_parts <<<"${device_path#/sys/devices/}"
+    for component in "${device_path_parts[@]}"; do
+        [[ "$component" =~ ^virtio[0-9]+$ ]] && return 0
+    done
+    return 1
+}
+
+block_virtual_run_identity() {
+    local boot_id
+
+    IFS= read -r boot_id </proc/sys/kernel/random/boot_id || return 1
+    [[ "$boot_id" =~ ^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$ ]] || return 1
+    printf '%s\n' "$boot_id"
+}
+
 block_paths_for_type() {
     local wanted="$1"
     case "$wanted" in disk | part) ;;
@@ -1931,7 +1970,7 @@ block_identity_field_is_safe() {
 }
 
 block_disk_identity() {
-    local disk canonical size wwn serial model material
+    local disk canonical size wwn serial model diskseq run_identity material
 
     disk="$1"
     canonical="$(block_canonical "$disk")" || return 1
@@ -1943,15 +1982,24 @@ block_disk_identity() {
     wwn="${wwn#"${wwn%%[![:space:]]*}"}" && wwn="${wwn%"${wwn##*[![:space:]]}"}"
     serial="${serial#"${serial%%[![:space:]]*}"}" && serial="${serial%"${serial##*[![:space:]]}"}"
     model="${model#"${model%%[![:space:]]*}"}" && model="${model%"${model##*[![:space:]]}"}"
-    [[ "$size" =~ ^[1-9][0-9]*$ ]] && block_identity_field_is_safe "$model" || return 1
+    [[ "$size" =~ ^[1-9][0-9]*$ ]] || return 1
+    [ -z "$model" ] || block_identity_field_is_safe "$model" || return 1
     if [ -n "$wwn" ]; then
         block_identity_field_is_safe "$wwn" || return 1
-    else
-        block_identity_field_is_safe "$serial" || return 1
     fi
     [ -z "$serial" ] || block_identity_field_is_safe "$serial" || return 1
-    printf -v material 'size=%s\nwwn=%s\nserial=%s\nmodel=%s\n' \
-        "$size" "$wwn" "$serial" "$model"
+    if [ -n "$model" ] && { [ -n "$wwn" ] || [ -n "$serial" ]; }; then
+        printf -v material 'size=%s\nwwn=%s\nserial=%s\nmodel=%s\n' \
+            "$size" "$wwn" "$serial" "$model"
+    else
+        block_virtual_backend_is_recognized "$canonical" || return 1
+        diskseq="$(block_disk_sequence "$canonical")" || return 1
+        run_identity="$(block_virtual_run_identity)" || return 1
+        [[ "$diskseq" =~ ^[1-9][0-9]*$ ]] || return 1
+        [[ "$run_identity" =~ ^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$ ]] || return 1
+        printf -v material 'kind=virtio\nsize=%s\nwwn=%s\nserial=%s\nmodel=%s\ndiskseq=%s\nboot-id=%s\n' \
+            "$size" "$wwn" "$serial" "$model" "$diskseq" "$run_identity"
+    fi
     printf '%s' "$material" | sha256sum --binary | awk '{ print $1 }'
 }
 
@@ -2084,9 +2132,9 @@ validate_destructive_targets() {
     disk_identity="$(block_disk_identity "$ARCH_LINUX_DISK")" || disk_identity=''
     if [ -z "${ARCH_LINUX_DISK_IDENTITY:-}" ] ||
         [ "$disk_identity" != "$ARCH_LINUX_DISK_IDENTITY" ]; then
-        "$report" "ARCH_LINUX_DISK physical identity is missing or changed" && ok=false
+        "$report" "ARCH_LINUX_DISK stable identity is missing or changed" && ok=false
     elif ! block_identity_is_unique disk "$disk_identity"; then
-        "$report" "ARCH_LINUX_DISK physical identity is ambiguous" && ok=false
+        "$report" "ARCH_LINUX_DISK stable identity is ambiguous" && ok=false
     fi
 
     if [ "$ARCH_LINUX_DUAL_BOOT_ENABLED" = true ]; then
@@ -2386,7 +2434,7 @@ validate_properties_with_reporter() {
     if [ "$DEBUG" = "false" ]; then
         timezone_path_is_safe "$ARCH_LINUX_TIMEZONE" || validate_fail "ARCH_LINUX_TIMEZONE is not a safe zoneinfo entry on this ISO"
 
-        # Physical identity, partition identity and dual-boot filesystem/size checks are one shared
+        # Stable disk identity, partition identity and dual-boot filesystem/size checks are one shared
         # gate here and immediately before the first storage mutation.
         validate_destructive_targets validate_fail || valid="false"
     fi
@@ -2612,15 +2660,35 @@ select_keyboard() {
 select_disk() {
     if [ -z "$ARCH_LINUX_DISK" ] || [ -z "$ARCH_LINUX_BOOT_PARTITION" ] || [ -z "$ARCH_LINUX_ROOT_PARTITION" ]; then
         local user_input selected_identity items options
-        mapfile -t items < <(lsblk -I 8,259,254 -d -p -n -o PATH,SIZE,MODEL,SERIAL)
-        options=() && for item in "${items[@]}"; do options+=("$item"); done
+        mapfile -t items < <(
+            lsblk -d -p -n -o PATH,TYPE,SIZE,MODEL,SERIAL | while read -r path type size details; do
+                [ "$type" = disk ] || continue
+                if [ -n "$details" ]; then
+                    printf '%s %s %s\n' "$path" "$size" "$details"
+                else
+                    printf '%s %s\n' "$path" "$size"
+                fi
+            done
+        )
+        options=()
+        for item in "${items[@]}"; do
+            read -r user_input _ <<<"$item"
+            user_input="$(block_canonical "$user_input")" || continue
+            selected_identity="$(block_disk_identity "$user_input")" || continue
+            block_identity_is_unique disk "$selected_identity" || continue
+            options+=("$item")
+        done
+        [ "${#options[@]}" -gt 0 ] || {
+            gum_confirm --affirmative="Ok" --negative="" "No disk has a stable unique identity"
+            return 1
+        }
         user_input="$(gum_choose --header "+ Choose Disk (path, size, model, serial)" "${options[@]}")" || trap_gum_exit_confirm
         [ -z "$user_input" ] && return 1
         read -r user_input _ <<<"$user_input"
         [ ! -e "$user_input" ] && log_fail "Disk does not exists" && return 1
         user_input="$(block_canonical "$user_input")" || return 1
         selected_identity="$(block_disk_identity "$user_input")" || {
-            gum_confirm --affirmative="Ok" --negative="" "Selected disk lacks a stable serial/WWN, model or size identity"
+            gum_confirm --affirmative="Ok" --negative="" "Selected disk lacks a stable identity"
             return 1
         }
         if ! block_identity_is_unique disk "$selected_identity"; then
@@ -3243,7 +3311,7 @@ exec_prepare_disk() {
         assert_accepted_destructive_target log_fail || exit 1
 
         # Bind every destructive command to already-open block-device handles. Canonical pathname,
-        # major:minor and the accepted physical fingerprint must all agree after open. A later
+        # major:minor and the accepted stable fingerprint must all agree after open. A later
         # pathname replacement therefore cannot redirect wipefs/sgdisk/mkfs/cryptsetup/mount.
         local target_disk target_boot target_root target_disk_fd target_boot_fd target_root_fd
         local target_disk_handle target_boot_handle target_root_handle cryptroot_fd cryptroot_handle=''

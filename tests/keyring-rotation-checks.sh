@@ -41,7 +41,7 @@ esac
 if [ "${ARCH_LINUX_PRIVILEGED_ACCEPTANCE:-false}" = true ]; then
     for command_name in losetup wipefs sgdisk partprobe udevadm mkfs.ext4 blkid cryptsetup \
         fallocate truncate head base64 mount umount findmnt setpriv useradd userdel usermod \
-        groupdel cc python3 ps timeout getsubids; do
+        groupdel blockdev mknod cc python3 ps timeout getsubids; do
         command -v -- "${command_name}" >/dev/null 2>&1 ||
             fail "missing privileged acceptance command: ${command_name}"
     done
@@ -178,6 +178,166 @@ privileged_block_fd_acceptance() (
     local image loop_device='' partition_one partition_two mapper_name mapper_path backing
     local disk_fd='' partition_one_fd='' partition_two_fd='' mapper_fd='' test_phrase=''
     local disk_handle partition_one_handle partition_two_handle mapper_handle cleanup_ok=true
+    local partition_one_rdev='' partition_two_rdev=''
+    local -a created_partition_nodes=()
+
+    loop_fixture_base_identity_matches() {
+        local devt="$1" node_rdev="$2" expected_backing="$3" current_backing="$4"
+        local major minor expected_rdev
+
+        [[ "${devt}" =~ ^[1-9][0-9]*:[0-9]+$ ]] || return 1
+        IFS=: read -r major minor <<<"${devt}"
+        expected_rdev="$(printf '%x:%x' "${major}" "${minor}")"
+        [ "${node_rdev}" = "${expected_rdev}" ] &&
+            [ "${current_backing}" = "${expected_backing}" ]
+    }
+
+    loop_fixture_base_rdev() {
+        local loop_name sysfs_loop devt current_backing node_rdev
+
+        loop_name="${loop_device#/dev/}"
+        [[ "${loop_name}" =~ ^loop[0-9]+$ ]] || return 1
+        sysfs_loop="/sys/class/block/${loop_name}"
+        [ -d "${sysfs_loop}" ] || return 1
+        [ -b "${loop_device}" ] && [ ! -L "${loop_device}" ] || return 1
+        devt="$(cat -- "${sysfs_loop}/dev")"
+        node_rdev="$(stat -Lc '%t:%T' -- "${loop_device}")" || return 1
+        current_backing="$(losetup -n -O BACK-FILE "${loop_device}" 2>/dev/null)" || return 1
+        loop_fixture_base_identity_matches "${devt}" "${node_rdev}" "${image}" "${current_backing}" ||
+            return 1
+        printf '%s\n' "${node_rdev}"
+    }
+
+    loop_partition_fixture_devt() {
+        local partition="$1" loop_name partition_name partition_number sysfs_partition
+        local devt sectors current_backing
+
+        loop_name="${loop_device#/dev/}"
+        partition_name="${partition#/dev/}"
+        [[ "${loop_name}" =~ ^loop[0-9]+$ ]] || return 1
+        [[ "${partition_name}" =~ ^${loop_name}p[1-9][0-9]*$ ]] || return 1
+        loop_fixture_base_rdev >/dev/null || return 1
+        partition_number="${partition_name#"${loop_name}p"}"
+        sysfs_partition="/sys/class/block/${loop_name}/${partition_name}"
+        [ -d "${sysfs_partition}" ] || return 1
+        [ "$(cat -- "${sysfs_partition}/partition")" = "${partition_number}" ] || return 1
+        devt="$(cat -- "${sysfs_partition}/dev")"
+        sectors="$(cat -- "${sysfs_partition}/size")"
+        [[ "${devt}" =~ ^[1-9][0-9]*:[0-9]+$ ]] || return 1
+        [[ "${sectors}" =~ ^[1-9][0-9]*$ ]] || return 1
+        current_backing="$(losetup -n -O BACK-FILE "${loop_device}" 2>/dev/null)" || return 1
+        [ "${current_backing}" = "${image}" ] || return 1
+        printf '%s\n' "${devt}"
+    }
+
+    loop_partition_fixture_rdev() {
+        local partition="$1" devt major minor
+
+        devt="$(loop_partition_fixture_devt "${partition}")" || return 1
+        IFS=: read -r major minor <<<"${devt}"
+        printf '%x:%x\n' "${major}" "${minor}"
+    }
+
+    ensure_loop_partition_node() {
+        local partition="$1" devt major minor expected_rdev actual_rdev size inode
+
+        devt="$(loop_partition_fixture_devt "${partition}")" ||
+            fail "kernel did not materialize the expected loop partition: ${partition}"
+        IFS=: read -r major minor <<<"${devt}"
+        expected_rdev="$(printf '%x:%x' "${major}" "${minor}")"
+        if [ -e "${partition}" ] || [ -L "${partition}" ]; then
+            if [ ! -b "${partition}" ] || [ -L "${partition}" ]; then
+                fail "existing loop partition node is unsafe: ${partition}"
+            fi
+        else
+            mknod -m 0600 -- "${partition}" b "${major}" "${minor}" ||
+                fail "could not create the kernel-reported loop partition node: ${partition}"
+            inode="$(stat -Lc '%d:%i' -- "${partition}")" ||
+                fail "created loop partition node has no stable inode: ${partition}"
+            created_partition_nodes+=("${partition}|${devt}|${inode}")
+            printf 'KEYRING_LOOP_FIXTURE_NODE created=%s devt=%s inode=%s\n' \
+                "${partition}" "${devt}" "${inode}"
+        fi
+        actual_rdev="$(stat -Lc '%t:%T' -- "${partition}")" ||
+            fail "loop partition node cannot be inspected: ${partition}"
+        [ "${actual_rdev}" = "${expected_rdev}" ] ||
+            fail "loop partition node differs from its kernel-reported device: ${partition}"
+        size="$(blockdev --getsize64 "${partition}")" ||
+            fail "loop partition node has no readable block size: ${partition}"
+        [[ "${size}" =~ ^[1-9][0-9]*$ ]] ||
+            fail "loop partition node has a zero or malformed block size: ${partition}"
+    }
+
+    created_partition_node_is_unchanged() {
+        local partition="$1" devt="$2" inode="$3" major minor expected_rdev actual_rdev current_inode
+
+        if [ ! -b "${partition}" ] || [ -L "${partition}" ]; then
+            return 1
+        fi
+        IFS=: read -r major minor <<<"${devt}"
+        expected_rdev="$(printf '%x:%x' "${major}" "${minor}")"
+        actual_rdev="$(stat -Lc '%t:%T' -- "${partition}" 2>/dev/null)" || return 1
+        current_inode="$(stat -Lc '%d:%i' -- "${partition}" 2>/dev/null)" || return 1
+        [ "${actual_rdev}" = "${expected_rdev}" ] && [ "${current_inode}" = "${inode}" ]
+    }
+
+    cleanup_created_partition_nodes() {
+        local record partition devt inode current_devt
+        local nodes_ok=true
+
+        for record in "${created_partition_nodes[@]}"; do
+            IFS='|' read -r partition devt inode <<<"${record}"
+            current_devt="$(loop_partition_fixture_devt "${partition}")" || {
+                nodes_ok=false
+                continue
+            }
+            [ "${current_devt}" = "${devt}" ] || {
+                nodes_ok=false
+                continue
+            }
+            if ! created_partition_node_is_unchanged "${partition}" "${devt}" "${inode}"; then
+                nodes_ok=false
+                continue
+            fi
+            rm -f -- "${partition}" || nodes_ok=false
+        done
+        [ "${nodes_ok}" = true ]
+    }
+
+    fixture_base_rdev_rejection() {
+        local loop_name devt current_backing major minor wrong_rdev rejection_status
+
+        loop_name="${loop_device#/dev/}"
+        devt="$(cat -- "/sys/class/block/${loop_name}/dev")"
+        current_backing="$(losetup -n -O BACK-FILE "${loop_device}")"
+        IFS=: read -r major minor <<<"${devt}"
+        wrong_rdev="$(printf '%x:%x' "${major}" "$((minor + 1))")"
+        set +e
+        loop_fixture_base_identity_matches "${devt}" "${wrong_rdev}" "${image}" "${current_backing}"
+        rejection_status=$?
+        set -e
+        assert_real_rejection_status "${rejection_status}" 'loop fixture base node with a mismatched kernel rdev'
+    }
+
+    fixture_created_node_symlink_rejection() {
+        local node="${test_root}/loop-node-symlink-${BASHPID}" moved="${test_root}/loop-node-moved-${BASHPID}"
+        local devt major minor inode rejection_status
+
+        devt="$(loop_partition_fixture_devt "${partition_one}")"
+        IFS=: read -r major minor <<<"${devt}"
+        mknod -m 0600 -- "${node}" b "${major}" "${minor}"
+        inode="$(stat -Lc '%d:%i' -- "${node}")"
+        mv -- "${node}" "${moved}"
+        ln -s -- "${moved}" "${node}"
+        set +e
+        created_partition_node_is_unchanged "${node}" "${devt}" "${inode}"
+        rejection_status=$?
+        set -e
+        assert_real_rejection_status "${rejection_status}" 'replaced created loop node through a symlink'
+        [ -L "${node}" ] && [ -b "${moved}" ] ||
+            fail 'symlink-replacement fixture was unexpectedly removed or altered'
+        rm -- "${node}" "${moved}"
+    }
 
     # A loop device proves that destructive utilities operate through stable opened block FDs.
     # It deliberately does not claim the installer's physical TYPE=disk identity; that remains a
@@ -202,9 +362,10 @@ privileged_block_fd_acceptance() (
                 cleanup_ok=false
             fi
         fi
+        cleanup_created_partition_nodes || cleanup_ok=false
         if [ -n "${loop_device}" ]; then
             backing="$(losetup -n -O BACK-FILE "${loop_device}" 2>/dev/null || true)"
-            if [ "${backing}" = "${image}" ]; then
+            if loop_fixture_base_rdev >/dev/null && [ "${backing}" = "${image}" ]; then
                 losetup -d "${loop_device}" || cleanup_ok=false
                 loop_device=''
             else
@@ -221,11 +382,15 @@ privileged_block_fd_acceptance() (
     [[ "${loop_device}" =~ ^/dev/loop[0-9]+$ ]] || fail 'unexpected loop-device path'
     [ "$(losetup -n -O BACK-FILE "${loop_device}")" = "${image}" ] ||
         fail 'loop-device backing readback mismatch'
+    loop_fixture_base_rdev >/dev/null ||
+        fail 'allocated loop node differs from its sysfs device identity or backing fixture'
+    fixture_base_rdev_rejection
 
     exec {disk_fd}<>"${loop_device}"
     disk_handle="/proc/${BASHPID}/fd/${disk_fd}"
     [ -b "${disk_handle}" ] &&
-        [ "$(stat -Lc '%t:%T' -- "${disk_handle}")" = "$(stat -Lc '%t:%T' -- "${loop_device}")" ] ||
+        [ "$(stat -Lc '%t:%T' -- "${disk_handle}")" = "$(loop_fixture_base_rdev)" ] &&
+        [ "$(stat -Lc '%t:%T' -- "${loop_device}")" = "$(loop_fixture_base_rdev)" ] ||
         fail 'opened loop-disk descriptor is not bound to the selected device'
     wipefs -af -- "${disk_handle}" >/dev/null
     sgdisk --zap-all -- "${disk_handle}" >/dev/null
@@ -237,19 +402,29 @@ privileged_block_fd_acceptance() (
 
     partition_one="${loop_device}p1"
     partition_two="${loop_device}p2"
+    ensure_loop_partition_node "${partition_one}"
+    ensure_loop_partition_node "${partition_two}"
+    fixture_created_node_symlink_rejection
     [ -b "${partition_one}" ] && [ -b "${partition_two}" ] ||
         fail 'loop partitions did not materialize'
     exec {partition_one_fd}<>"${partition_one}"
     exec {partition_two_fd}<>"${partition_two}"
     partition_one_handle="/proc/${BASHPID}/fd/${partition_one_fd}"
     partition_two_handle="/proc/${BASHPID}/fd/${partition_two_fd}"
-    [ "$(stat -Lc '%t:%T' -- "${partition_one_handle}")" = "$(stat -Lc '%t:%T' -- "${partition_one}")" ] &&
-        [ "$(stat -Lc '%t:%T' -- "${partition_two_handle}")" = "$(stat -Lc '%t:%T' -- "${partition_two}")" ] ||
-        fail 'opened partition descriptor is not bound to its selected partition'
+    partition_one_rdev="$(loop_partition_fixture_rdev "${partition_one}")" ||
+        fail 'first loop partition lacks a fresh fixture identity before formatting'
+    [ "$(stat -Lc '%t:%T' -- "${partition_one_handle}")" = "${partition_one_rdev}" ] &&
+        [ "$(stat -Lc '%t:%T' -- "${partition_one}")" = "${partition_one_rdev}" ] ||
+        fail 'opened first partition descriptor is not bound to its kernel fixture identity'
     mkfs.ext4 -q -F -L FDPLAIN -- "${partition_one_handle}"
     [ "$(blkid -s LABEL -o value -- "${partition_one}")" = FDPLAIN ] ||
         fail 'filesystem utility did not operate on the opened partition descriptor'
 
+    partition_two_rdev="$(loop_partition_fixture_rdev "${partition_two}")" ||
+        fail 'second loop partition lacks a fresh fixture identity before LUKS formatting'
+    [ "$(stat -Lc '%t:%T' -- "${partition_two_handle}")" = "${partition_two_rdev}" ] &&
+        [ "$(stat -Lc '%t:%T' -- "${partition_two}")" = "${partition_two_rdev}" ] ||
+        fail 'opened second partition descriptor is not bound to its kernel fixture identity'
     test_phrase="$(head -c 48 /dev/urandom | base64 -w0)"
     [ -n "${test_phrase}" ] || fail 'could not generate ephemeral LUKS test phrase'
     printf '%s' "${test_phrase}" | cryptsetup luksFormat --type luks2 --batch-mode \

@@ -12,7 +12,7 @@ rules.
 - `repository/`: canonical build, verification, offline signing and signed-snapshot tools.
 - `tests/`: source, installer-function, Marble, package and repository regression tests.
 - `maintenance/`: advisory monitors for the Arch ISO and current external source inputs.
-- `.github/workflows/`: exactly four no-production-secret workflows.
+- `.github/workflows/`: five pinned workflows, including the authorized release pipeline.
 - `docs/`: current product, testing, release and trust documentation.
 
 Generated configuration, logs, package outputs, virtual disks, firmware state, acceptance evidence
@@ -105,9 +105,13 @@ before the destructive operation.
 PKGBUILDs run only as a disposable unprivileged builder; never run `makepkg` as root. Root may consume
 only independently verified package bytes. Pacman trust remains
 `PackageRequired DatabaseRequired TrustedOnly`. Package and repository database signatures are
-mandatory. CI may build unsigned packages but must never receive a production private key,
-passphrase, recovery material or signing authority. Do not introduce unsigned fallback, `TrustAll`,
-automatic fingerprint acceptance or keyserver bootstrap.
+mandatory. The configured `release.yml` pipeline is the sole CI exception for signing:
+only its `snapshot` and `finalize` jobs may receive the release-environment
+`ARCH_LINUX_SIGNING_KEY` and `ARCH_LINUX_SIGNING_PASSPHRASE` secrets. They import only the
+signing-only subkey into a fresh temporary no-network boundary and destroy it when the job exits.
+PR, ordinary CI, build, readback, QEMU, Pages, maintenance and public-readback jobs receive neither
+secret, no certification primary, recovery material nor other signing authority. Do not introduce
+unsigned fallback, `TrustAll`, automatic fingerprint acceptance or keyserver bootstrap.
 
 Before production signing, independently bind the accepted Git commit/tree and canonical
 mode-and-byte SHA-256, then copy the hash-pinned sealer into a fresh root-owned mode-`0700`
@@ -115,13 +119,15 @@ bootstrap directory as a mode-`0500` file. Execute that pinned copy only as host
 the exact four-variable environment and stdin `/dev/null`. The sealer creates one immutable
 root-owned exact-file closure and compiles a fresh x86-64 static PIE launcher with no `PT_INTERP`.
 
-The generated `repository/offline-signing-launcher` is the sole production entrypoint. It runs only
-as the locked, nologin, no-home, quiescent `arch-linux-signing` account with no supplementary groups.
-Its FIFO stdin contains exactly two canonical pathnames: the existing private home and the mode-0600
-passphrase file. Those pathnames never enter argv, environment, logs or evidence. The launcher
-retains the home as FD 6, captures the passphrase into a fully sealed memfd 7, carries only its
-one-shot capability on FD 8 and locks the home on FD 9. It closes ambient descriptors, disables
-core dumps and dumpability, and never exposes private bytes to GitHub, a VM or `repo-add`.
+The generated `repository/offline-signing-launcher` is the sole host production entrypoint. It runs
+only as the locked, nologin, no-home, quiescent `arch-linux-signing` account with no supplementary
+groups. Its FIFO stdin contains exactly two canonical pathnames: the existing private home and the
+mode-0600 passphrase file. Those pathnames never enter argv, environment, logs or evidence. The
+launcher retains the home as FD 6, captures the passphrase into a fully sealed memfd 7, carries only
+its one-shot capability on FD 8 and locks the home on FD 9. It closes ambient descriptors, disables
+core dumps and dumpability. The authorized Actions adapter is a separate, temporary signing-only
+subkey boundary; it must never receive the certification primary, recovery material or use
+`repo-add` with private authority.
 
 Both launcher modes, `snapshot` and `finalize`, enter fresh user, network, PID and mount namespaces.
 Namespace PID 1 binds only retained FD 6 at the fixed private home, keeps every agent socket on
@@ -190,9 +196,12 @@ Do not relabel old results, move the tag or replace assets to fix a diagnostic t
 
 ## Secrets
 
-Private OpenPGP/SSH keys, tokens, passphrases, recovery phrases/shares, revocation material and local
-configuration never enter tracked files, CI, test fixtures or generated source archives. Public
-`arch-linux.gpg` and published fingerprints are permitted and must contain no secret packets.
+Private OpenPGP certification keys, SSH keys, tokens, recovery phrases/shares, revocation material
+and local configuration never enter tracked files, CI, test fixtures or generated source archives.
+The signing-only subkey and its passphrase are the sole CI exception: the release Environment injects
+them only into `release.yml` `snapshot` and `finalize`; they never enter source, argv, logs, evidence,
+test fixtures or generated source archives and are destroyed at job exit. Public `arch-linux.gpg` and
+published fingerprints are permitted and must contain no secret packets.
 
 ## Tree-bound results
 
@@ -220,6 +229,10 @@ change and all affected tests are required.
 
 ## Release authorization
 
-Do not sign with production material, create or mutate a GitHub release, deploy Pages, publish
-packages, rotate keys or change repository settings without a separate explicit authorization.
-Source-candidate completion is not `RELEASED`.
+The configured `release.yml` pipeline has standing authorization to create one new immutable
+release and deploy its verified Pages tree after a successful online merge to `main`: it must derive
+and test a deterministic, version-only release child, bind the origin main commit/tree separately,
+and publish only its exact finalized closure. This standing authorization does not permit a
+different workflow, a retry with changed inputs, key rotation, repository-setting changes, release
+deletion, tag movement or any unrelated publication. Those actions still require separate explicit
+authorization. Source-candidate completion is not `RELEASED`.
