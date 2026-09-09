@@ -85,9 +85,10 @@ Keep source, package and actual VM results distinct.
 
 ## Release/public acceptance
 
-Production offline signing, immutable Release creation, verified Pages deployment and the final
-public VM readback are separate stages. Source or synthetic signature tests cannot be promoted to
-those statuses. Staged QEMU consumes only the exact 14-file Phase-A closure. After three functional
+The authorized release workflow signs only in its release-environment `snapshot` and `finalize`
+jobs; all other CI jobs have no signing secret. Immutable Release creation, verified Pages deployment
+and the final public VM readback are separate stages. Source or synthetic signature tests cannot be
+promoted to those statuses. Staged QEMU consumes only the exact 14-file Phase-A closure. After three functional
 PASS verdicts, launcher `finalize` preserves those 14 bytes and adds signed acceptance JSON/evidence
 for exact 18; installer-release Pages deployment accepts only that final closure. Later
 [package-only updates](../repository/README.md#package-only-updates) use a separately tagged,

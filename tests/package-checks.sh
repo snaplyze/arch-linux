@@ -37,6 +37,19 @@ output = pathlib.Path(sys.argv[2])
 profile = root / "packages" / "arch-linux-marble-profile"
 keyring = root / "packages" / "arch-linux-keyring"
 trust = root / "repository" / "trust"
+
+
+def package_version(package, *, previous_revision=False):
+    metadata = (package / ".SRCINFO").read_text()
+    version = re.search(r"^\s*pkgver = (\S+)$", metadata, re.M).group(1)
+    revision = int(re.search(r"^\s*pkgrel = ([0-9]+)$", metadata, re.M).group(1))
+    if previous_revision:
+        revision -= 1
+    epoch = re.search(r"^\s*epoch = ([0-9]+)$", metadata, re.M)
+    prefix = f"{epoch.group(1)}:" if epoch and int(epoch.group(1)) else ""
+    return f"{prefix}{version}-{revision}"
+
+
 colloid_pkgbuild = (root / "packages/arch-linux-colloid-icons/PKGBUILD").read_text()
 transform = re.search(r"^_remove_colloid_export_paths\(\) \{\n.*?^\}", colloid_pkgbuild, re.M | re.S)
 assert transform and '_remove_colloid_export_paths "${icon_root}" || return 1' in colloid_pkgbuild
@@ -172,7 +185,8 @@ def write_profile(name, mutation="positive"):
         dependencies[-1] = "curl"
     files = {
         ".PKGINFO": pkginfo("arch-linux-marble-profile",
-                            "1.0.0-1" if mutation == "stale-revision" else "1.0.0-2", dependencies),
+                            package_version(profile, previous_revision=mutation == "stale-revision"),
+                            dependencies),
         ".BUILDINFO": b"pkgname = arch-linux-marble-profile\n",
         ".MTREE": b"#mtree\n",
         ".INSTALL": (profile / "arch-linux-marble-profile.install").read_bytes(),
@@ -209,7 +223,7 @@ def write_profile(name, mutation="positive"):
 
 def write_keyring():
     files = {
-        ".PKGINFO": pkginfo("arch-linux-keyring", "1.0.0-2", ["pacman"]),
+        ".PKGINFO": pkginfo("arch-linux-keyring", package_version(keyring), ["pacman"]),
         ".BUILDINFO": b"pkgname = arch-linux-keyring\n",
         ".MTREE": b"#mtree\n",
         ".INSTALL": (keyring / "arch-linux-keyring.install").read_bytes(),
@@ -331,10 +345,15 @@ if [ -n "${PACKAGE_FIXTURE_OUTPUT_DIR:-}" ]; then
         printf 'package checks failed: PACKAGE_FIXTURE_OUTPUT_DIR is not a real directory\n' >&2
         exit 1
     }
-    install -m0644 -- "$fixture_root/positive-keyring.pkg.tar.zst" \
-        "$PACKAGE_FIXTURE_OUTPUT_DIR/arch-linux-keyring-1.0.0-2-any.pkg.tar.zst"
-    install -m0644 -- "$fixture_root/positive-profile.pkg.tar.zst" \
-        "$PACKAGE_FIXTURE_OUTPUT_DIR/arch-linux-marble-profile-1.0.0-2-any.pkg.tar.zst"
+    for fixture_package in keyring marble-profile; do
+        fixture_version="$(awk '$1 == "pkgver" { version=$3 } $1 == "pkgrel" { revision=$3 }
+            END { print version "-" revision }' \
+            "$repo_root/packages/arch-linux-${fixture_package}/.SRCINFO")"
+        fixture_name=keyring
+        [ "$fixture_package" = keyring ] || fixture_name=profile
+        install -m0644 -- "$fixture_root/positive-${fixture_name}.pkg.tar.zst" \
+            "$PACKAGE_FIXTURE_OUTPUT_DIR/arch-linux-${fixture_package}-${fixture_version}-any.pkg.tar.zst"
+    done
 fi
 
 python3 "$verifier" --verify-package \

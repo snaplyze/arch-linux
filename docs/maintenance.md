@@ -22,9 +22,11 @@ findings. Initial healthy checks and unchanged daily reports stay quiet. Subscri
 issue and configure your GitHub notification delivery preferences; this does not override a muted
 account or guarantee email delivery.
 
-The current signing subkey expires on **2027-08-24 at 11:42:46 UTC**; the renewal cycle begins
-**2027-02-25**. These dates are read from the public certificate, not silently updated trust pins.
-GitHub never renews a key or handles private material. Follow the
+The current signing subkey expires on **2028-09-08 at 04:25:31 UTC**; advisory warnings begin on
+**2028-02-11** and the renewal cycle begins **2028-03-12**. These dates are read from the public
+certificate, not silently updated trust pins.
+GitHub never renews a key or handles the certification primary or recovery material. The authorized
+release pipeline temporarily imports only the signing-only subkey in its two signing jobs. Follow the
 [manual renewal procedure](trust-model.md#expiry-renewal-and-installed-systems).
 
 GitHub scheduled runs may be delayed and public repositories with no activity can have schedules
@@ -133,8 +135,9 @@ commit `444df605b34529dfab7be77d0f434bf54a6dd4cc`; its AUR input is unchanged. T
 development HEAD contains unreleased popup/shader/pipeline changes, not a released v73.
 Keep that advisory visible until a separately reviewed update is justified.
 
-This review did not change the published 1.0.0 bootstrap, assets, tag or Pages. The new installer
-pin reaches release-pinned fresh installs through the separately verified 1.0.1 installer release.
+This historical review did not change the then-published 1.0.0 bootstrap, assets, tag or Pages. The
+new installer pin reached release-pinned fresh installs through the separately verified 1.0.1
+installer release before both release/tag objects were retired.
 These extensions are AUR packages, not project Pages packages: this change does not deliver
 Just Perfection 37 to existing systems through `pacman -Syu`. Project Marble/profile and public
 keyring packages retain their separate signed Pages/pacman update path.
@@ -202,7 +205,7 @@ verified, offline-signed 1.0.1 snapshot on Pages. A separate fresh public VM ins
 original signed 1.0.0 packages, then upgraded all six to the exact new versions and hashes through
 normal `pacman -Syu`, with unchanged signature policy and clean package integrity. The actual
 1.0.0 installer also verified, replaced itself and restarted into immutable 1.0.1. See the
-[release summary](release-process.md#released-101); earlier unsigned compatibility results above
+[historical release summary](release-process.md#historical-101-evidence-retired); earlier unsigned compatibility results above
 are not relabeled as release acceptance. An installer release is not required solely for a
 profile/icon package change. Never replace published 1.0.0 assets. Platform-enforced
 immutability for future releases is a separate [publication setting](release-process.md#release-immutability).

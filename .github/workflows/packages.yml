@@ -12,6 +12,52 @@ on:
         required: true
         type: string
 
+      main_commit:
+        description: Reviewed main parent of generated release source
+        required: false
+        type: string
+      release_version:
+        description: Generated release version
+        required: false
+        type: string
+      source_artifact:
+        description: Run-scoped source bundle artifact
+        required: false
+        type: string
+      bundle_sha256:
+        description: Expected source bundle SHA-256
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      source_commit:
+        required: true
+        type: string
+      source_tree:
+        required: true
+        type: string
+      main_commit:
+        required: true
+        type: string
+      release_version:
+        required: true
+        type: string
+      source_artifact:
+        required: true
+        type: string
+      bundle_sha256:
+        required: true
+        type: string
+    outputs:
+      artifact_name:
+        value: ${{ jobs.build.outputs.artifact_name }}
+      artifact_digest:
+        value: ${{ jobs.build.outputs.artifact_digest }}
+      build_metadata_sha256:
+        value: ${{ jobs.build.outputs.build_metadata_sha256 }}
+      unsigned_manifest_sha256:
+        value: ${{ jobs.build.outputs.unsigned_manifest_sha256 }}
+
 permissions:
   contents: read
 
@@ -46,7 +92,29 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          ref: ${{ inputs.source_commit }}
+          fetch-depth: 0
+          ref: ${{ inputs.main_commit || inputs.source_commit }}
+
+      - name: Download exact release source
+        if: inputs.source_artifact != ''
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: ${{ inputs.source_artifact }}
+          path: ${{ runner.temp }}/release-source
+
+      - name: Restore and verify release child
+        if: inputs.source_artifact != ''
+        env:
+          MAIN_COMMIT: ${{ inputs.main_commit }}
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          BUNDLE_SHA256: ${{ inputs.bundle_sha256 }}
+        run: |
+          set -euo pipefail
+          python3 repository/release-source.py restore \
+            --main-commit "${MAIN_COMMIT}" --source-commit "${SOURCE_COMMIT}" \
+            --release-version "${RELEASE_VERSION}" --bundle-sha256 "${BUNDLE_SHA256}" \
+            --input-dir "${RUNNER_TEMP}/release-source"
 
       - name: Require exact frozen source
         env:
@@ -281,7 +349,7 @@ jobs:
 
       - name: Upload canonical unsigned artifact
         id: upload
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4.6.2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ${{ steps.provenance.outputs.artifact_name }}
           path: /tmp/arch-linux-build/canonical-unsigned
@@ -307,10 +375,32 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          ref: ${{ inputs.source_commit }}
+          fetch-depth: 0
+          ref: ${{ inputs.main_commit || inputs.source_commit }}
+
+      - name: Download exact release source
+        if: inputs.source_artifact != ''
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: ${{ inputs.source_artifact }}
+          path: ${{ runner.temp }}/release-source
+
+      - name: Restore and verify release child
+        if: inputs.source_artifact != ''
+        env:
+          MAIN_COMMIT: ${{ inputs.main_commit }}
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          BUNDLE_SHA256: ${{ inputs.bundle_sha256 }}
+        run: |
+          set -euo pipefail
+          python3 repository/release-source.py restore \
+            --main-commit "${MAIN_COMMIT}" --source-commit "${SOURCE_COMMIT}" \
+            --release-version "${RELEASE_VERSION}" --bundle-sha256 "${BUNDLE_SHA256}" \
+            --input-dir "${RUNNER_TEMP}/release-source"
 
       - name: Download run-scoped artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v5.0.0
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
         with:
           name: ${{ needs.build.outputs.artifact_name }}
           path: ${{ runner.temp }}/canonical-readback

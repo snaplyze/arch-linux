@@ -1,7 +1,7 @@
 # Repository tooling
 
 This directory implements a small fail-closed pipeline for the signed `[arch-linux]` package
-repository. It deliberately separates unsigned building, offline signing and public verification.
+repository. It deliberately separates unsigned building, authorized signing and public verification.
 
 ## Files
 
@@ -17,6 +17,8 @@ repository. It deliberately separates unsigned building, offline signing and pub
 - `run-offline-signing.sh` and `offline-signing-namespace.sh`: descriptor and full-namespace boundary.
 - `offline-sign-release.sh`: exact-14 Phase-A snapshot signer.
 - `offline-finalize-release.sh`: byte-preserving exact-18 acceptance finalizer.
+- `actions-sign-release.py`: temporary no-network Actions adapter for the signing-only subkey.
+- `release-source.py`: deterministic release-child generation and origin verification.
 - `acceptance-manifest.py`: canonical three-QEMU PASS and evidence binding.
 - `snapshot-manifest.py`: canonical flat signed manifest.
 - `verify-signed-repository.sh`: exact package/database/signature verification.
@@ -58,10 +60,19 @@ The advisory comparison is:
 repository/compare-package-builds.sh "$ARTIFACT_DIR/build-a" "$ARTIFACT_DIR/build-b"
 ```
 
-## Offline signing
+## Authorized signing and host recovery
 
-Run only after separate authorization and outside CI. Independently calculate the accepted commit,
-tree and canonical mode/byte SHA-256. As host root, copy `seal-offline-signing-code.py` by its
+The configured `release.yml` pipeline is authorized after a successful CI-verified merge
+to `main`. It derives and validates a deterministic version-only release child, records the separate
+origin main identity in `repository/release-origin.json`, and signs only that child. Only its
+`snapshot` and `finalize` jobs use the `release` Environment and receive
+`ARCH_LINUX_SIGNING_KEY` and `ARCH_LINUX_SIGNING_PASSPHRASE`. The adapter imports only the
+signing-only subkey into a new temporary no-network boundary and destroys it at job exit. The
+certification primary and recovery material never enter Actions; build, QEMU, PR, CI, Pages,
+maintenance, draft, publish and public-readback jobs receive neither signing secret.
+
+The host procedure below is the separate local recovery boundary. Independently calculate the
+accepted commit, tree and canonical mode/byte SHA-256. As host root, copy `seal-offline-signing-code.py` by its
 independently recorded hash into a fresh root-private bootstrap directory, mode `0500`, and invoke
 that copy through `env -i` and stdin `/dev/null`. It verifies the locked/nologin/no-home
 `arch-linux-signing` account, captures the exact source, and builds a root-owned read-only closure
@@ -248,7 +259,8 @@ directory mode `0700`. Do not substitute shell tracing,
 argv, exported variables or chat for that two-line FIFO. The
 launcher retains the home as FD 6, seals the passphrase in memfd 7, uses capability FD 8 and lock FD
 9, and enters fresh user/network/PID/mount namespaces with private tmpfs agent sockets. Inner scripts
-reject direct, sourced and CI use before private access. The signing subkey must be signing-only and
+reject direct, sourced and CI use before private access for this host launcher. That rejection does
+not apply to the separately authorized Actions adapter. The signing subkey must be signing-only and
 have at least 180 days remaining. `repo-add --include-sigs` receives no private authority.
 
 After all three staged QEMU functional results report PASS, use the same launcher with
@@ -309,15 +321,15 @@ repository snapshot.
 
 Pages deployment is public-key-only. `.github/workflows/pages.yml` receives the numeric draft
 Release ID plus the exact frozen commit/tree/canonical hash and build/snapshot hashes. It reads back
-exactly eighteen draft assets through the authenticated GitHub API, verifies their API digests, annotated tag,
-checksums, signatures and full repository closure, then safely extracts and uploads the Pages
-artifact. Production private material is never an Actions secret.
+exactly eighteen draft assets through the authenticated GitHub API, verifies their API digests,
+annotated tag, checksums, signatures and full repository closure, then safely extracts and uploads
+the Pages artifact. The Pages job receives no signing secret or private material.
 
 ### Package-only updates
 
 For a Marble/profile update, increment the owning package's `pkgrel` in a reviewed PR, regenerate
 `.SRCINFO`, test the change and merge it. Build and verify that exact main commit, then use the same
-offline `snapshot` signing operation. Do not change the installer version or its published assets.
+authorized `snapshot` signing operation. Do not change the installer version or its published assets.
 Test package upgrade and the affected desktop behavior on an installed system.
 
 Create a separate annotated `packages-YYYYMMDD.N` tag on that package source commit and a draft
@@ -335,6 +347,7 @@ repository's `/releases/latest` API still names the existing SemVer installer re
 `packages-YYYYMMDD.N` tag. The installer updater intentionally accepts only SemVer release tags;
 a package-only release must not hide that installer from older clients. Do not rely on GitHub's
 [automatic Latest selection](https://cli.github.com/manual/gh_release_create).
-Future package updates use a new package tag. There is no automatic
-signing, release or merge. The normal `deployment_kind=release` path still requires the finalized
-18-file installer release with its three functional VM results.
+Future package updates use a new package tag. The configured release pipeline may sign and publish
+only its exact verified child after the reviewed merge; it never merges source or rotates a key. The
+normal `deployment_kind=release` path still requires the finalized 18-file installer release with
+its three functional VM results.

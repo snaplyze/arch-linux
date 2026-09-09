@@ -11,7 +11,7 @@ usage() {
 Usage: $0 SNAPSHOT_DIRECTORY --release-version X.Y.Z \\
   --source-commit SHA --source-tree SHA \\
   --build-metadata-sha256 SHA --unsigned-manifest-sha256 SHA \
-  [--sealed-offline-root]
+  [--sealed-offline-root|--sealed-public-root]
 USAGE
 }
 
@@ -90,6 +90,7 @@ main() {
             --build-metadata-sha256) [ "$#" -ge 2 ] || { usage; return 2; }; build_metadata_hash="$2"; shift 2 ;;
             --unsigned-manifest-sha256) [ "$#" -ge 2 ] || { usage; return 2; }; unsigned_manifest_hash="$2"; shift 2 ;;
             --sealed-offline-root) [ "$sealed" = false ] || { usage; return 2; }; sealed=true; shift ;;
+            --sealed-public-root) [ "$sealed" = false ] || { usage; return 2; }; sealed=public; shift ;;
             *) usage; return 2 ;;
         esac
     done
@@ -115,6 +116,9 @@ main() {
             repository_die 'sealed repository verifier source identity differs' || return
         /usr/bin/python3 -I "${script_dir}/offline-signing-fd-guard.py" assert-public ||
             repository_die 'sealed repository verification descriptor authority differs' || return
+    elif [ "$sealed" = public ]; then
+        repository_assert_sealed_public_root "$repo_root" "$source_commit" "$source_tree" \
+            "${ARCH_LINUX_PUBLIC_ACCEPTED_TREE_SHA256:-}"
     else
         repository_assert_source_identity "$repo_root" "$source_commit" "$source_tree"
     fi

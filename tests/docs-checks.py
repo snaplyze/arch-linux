@@ -35,9 +35,18 @@ for literal in (
     if literal not in readme: fail(f"README lacks {literal!r}")
 for command_path in re.findall(r'`((?:repository|tests|maintenance)/[A-Za-z0-9_./-]+(?:\.sh|\.py))', readme):
     if not (ROOT/command_path).is_file(): fail(f"README names missing command: {command_path}")
+for literal in (
+    '1.0.2/install.sh', 'snapshot', 'finalize', 'ARCH_LINUX_SIGNING_KEY',
+    'ARCH_LINUX_SIGNING_PASSPHRASE', 'release-environment',
+    'latest published immutable GitHub Release',
+):
+    if literal not in readme:
+        fail(f"README lacks release-pipeline boundary: {literal!r}")
+if 'releases/tag/1.0.1' in readme or 'releases/tag/1.0.0' in readme:
+    fail('README presents a retired release/tag as an installation reference')
 
 package_repository=(ROOT/'docs/package-repository.md').read_text(encoding='utf-8')
-offline_signing=package_repository.split('## Offline signing',1)[1].split('## Verification',1)[0]
+offline_signing=package_repository.split('## Signing boundary',1)[1].split('## Verification',1)[0]
 verification=package_repository.split('## Verification',1)[1].split('## Pacman policy',1)[0]
 for literal in (
     '$ACCEPTED_UNSIGNED', '$SNAPSHOT_OUTPUT', 'root-owned, single-link',
@@ -61,4 +70,23 @@ release_verification=release_process.split('## 4. Independent verification',1)[1
 for literal in ('$SNAPSHOT_OUTPUT/repository', '$SNAPSHOT_OUTPUT/assets'):
     if literal not in release_verification:
         fail(f"release verification path lacks {literal!r}")
+for literal in (
+    'release.yml', 'release child', 'repository/release-origin.json',
+    'ARCH_LINUX_SIGNING_KEY', 'ARCH_LINUX_SIGNING_PASSPHRASE', 'no-network boundary',
+    'origin main commit/tree', 'exact 14 Phase-A assets', 'exact 18',
+):
+    if literal not in release_process:
+        fail(f"release process lacks authorized pipeline boundary: {literal!r}")
+if 'https://github.com/snaplyze/arch-linux/releases/tag/1.0.1' in release_process:
+    fail('release process presents retired 1.0.1 as an active Release link')
+
+primary=(ROOT/'repository/trust/primary-fingerprint').read_text(encoding='ascii').strip()
+signing=(ROOT/'repository/trust/signing-subkey-fingerprint').read_text(encoding='ascii').strip()
+trust_readme=(ROOT/'repository/trust/README.md').read_text(encoding='utf-8')
+trust_model=(ROOT/'docs/trust-model.md').read_text(encoding='utf-8')
+for literal, name in ((primary, 'primary fingerprint'), (signing, 'signing-subkey fingerprint')):
+    if literal not in trust_readme:
+        fail(f'trust README lacks current {name}')
+if primary not in trust_model:
+    fail('trust model recovery commands retain a stale primary fingerprint')
 print(f"documentation checks passed: files={len(seen)}")

@@ -24,13 +24,12 @@ while IFS= read -r package; do
 done < repository/package-set
 ```
 
-The Colloid icon input for 1.0.1 is `20260829-1`; the GTK3 input and GDM-critical icon hashes
-are unchanged. See the [review and delivery boundary](maintenance.md#colloid-and-gum-review-september-2026).
-The signed 1.0.1 snapshot is published on Pages: keyring/profile `1.0.0-2`, Marble shell/GDM
-`50.0.0-2`, GTK3 `20260808-2` and icons `20260829-1`. Actual old-to-new six-package delivery
-through `pacman -Syu` passed in a fresh public VM, including exact hashes and package integrity.
-See the [release verification summary](release-process.md#released-101). An unsigned build or
-source merge alone is still not a Pages update; changed package bytes need a new version/pkgrel.
+The Colloid icon input is `20260829-1`; the GTK3 input and GDM-critical icon hashes are unchanged.
+See the [review and delivery boundary](maintenance.md#colloid-and-gum-review-september-2026).
+The historical `1.0.1` snapshot and its package-delivery evidence remain records of their original
+inputs; its retired release/tag objects are not a current Pages publication reference. An unsigned
+build or source merge alone is still not a Pages update; changed package bytes need a new
+version/pkgrel.
 
 ## Canonical unsigned build
 
@@ -46,16 +45,27 @@ schema-2 source/build identity, `.BUILDINFO`, `.MTREE`, a canonical checksum lis
 or unexpected objects. It decompresses every real package and checks its exact package-specific
 payload, ownership, modes, dependencies, hooks, licenses and bounded internal symlinks.
 
-## Offline signing
+## Signing boundary
 
-Production signing is local and explicitly authorized. Use the root hash-pinned sealer and generated
-static launcher described in [repository tooling](../repository/README.md). The private home and
-mode-`0600` passphrase pathname are supplied only as two FIFO lines; the launcher retains FD 6,
-sealed memfd 7, capability FD 8 and lock FD 9. The independently accepted canonical build hashes are
-mandatory inputs. Before invoking the launcher, stage the verified unsigned closure as the separate
-root-owned, single-link `$ACCEPTED_UNSIGNED` copy described by the repository tooling. Prepare
-`$SNAPSHOT_OUTPUT` as a missing name below a separate signing-account-owned mode-`0700` parent.
-Neither variable may point at the native build directory or share a parent with private state:
+The configured `release.yml` pipeline is authorized after a successful reviewed merge to
+`main`. It reconstructs and tests a deterministic version-only release child, binds both that child
+and the origin main commit/tree, and then gives only its `snapshot` and `finalize` jobs the
+release-environment `ARCH_LINUX_SIGNING_KEY` and `ARCH_LINUX_SIGNING_PASSPHRASE` secrets. Those jobs
+import only the signing-only subkey into a fresh temporary no-network boundary and remove it on exit.
+Build, QEMU, PR, CI, Pages, maintenance and public-readback jobs receive neither secret.
+
+The independently accepted canonical build hashes are mandatory inputs. The adapter signs the exact
+14-file Phase-A closure, QEMU consumes that closure, and finalization preserves its 14 bytes while
+adding the signed acceptance JSON and evidence archive for exact 18. It must never import the
+certification primary, recovery material or pass private authority to `repo-add`.
+
+The root hash-pinned sealer and generated static launcher remain the host-local signing entrypoint
+for the documented recovery boundary. Its private home and mode-`0600` passphrase pathname are
+supplied only as two FIFO lines; it retains FD 6, sealed memfd 7, capability FD 8 and lock FD 9.
+Before invoking it, stage the verified unsigned closure as the separate root-owned, single-link
+`$ACCEPTED_UNSIGNED` copy described by the repository tooling. Prepare `$SNAPSHOT_OUTPUT` as a
+missing name below a separate signing-account-owned mode-`0700` parent. Neither variable may point
+at the native build directory or share a parent with private state:
 
 ```bash
 set +x
@@ -64,15 +74,15 @@ printf '%s\n%s\n' "$PRIVATE_HOME" "$PASSPHRASE_FILE" | \
   --unsigned "$ACCEPTED_UNSIGNED" \
   --installer "$SEALED_ROOT/arch-linux-installer.sh" \
   --output "$SNAPSHOT_OUTPUT" \
-  --release-version 1.0.1 \
+  --release-version "$VERSION" \
   --build-metadata-sha256 "$BUILD_METADATA_SHA256" \
   --unsigned-manifest-sha256 "$UNSIGNED_MANIFEST_SHA256"
 ```
 
-The launcher is invoked as host root only so it can validate the exact unique locked account; it
+The host launcher is invoked as root only so it can validate the exact unique locked account; it
 irreversibly drops to that account before reading either FIFO-supplied pathname. No production
-private key, passphrase or recovery material is accepted through source files, CI,
-command-line options or generated artifacts. The boundary uses an empty-derived environment and
+private key, passphrase or recovery material is accepted through source files, command-line options
+or generated artifacts. The host boundary uses an empty-derived environment and
 fresh user/PID/mount/network namespaces, exposes only loopback, and destroys its private agent/socket
 state on every exit. The signer verifies the independently accepted build hashes and
 each package payload before creating package signatures, signed database/files indexes, a signed
@@ -82,12 +92,12 @@ canonical manifest, installer assets and a deterministic Pages snapshot.
 
 ```bash
 repository/verify-signed-repository.sh "$SNAPSHOT_OUTPUT/repository" \
-  --release-version 1.0.1 \
+  --release-version "$VERSION" \
   --source-commit "$SOURCE_COMMIT" --source-tree "$SOURCE_TREE" \
   --build-metadata-sha256 "$BUILD_METADATA_SHA256" \
   --unsigned-manifest-sha256 "$UNSIGNED_MANIFEST_SHA256"
 repository/verify-release-assets.sh "$SNAPSHOT_OUTPUT/assets" --phase-a \
-  --release-version 1.0.1 \
+  --release-version "$VERSION" \
   --source-commit "$SOURCE_COMMIT" --source-tree "$SOURCE_TREE" \
   --build-metadata-sha256 "$BUILD_METADATA_SHA256" \
   --unsigned-manifest-sha256 "$UNSIGNED_MANIFEST_SHA256"
@@ -111,11 +121,12 @@ normal updates use `pacman -Syu`.
 
 ## Pages deployment
 
-`.github/workflows/pages.yml` accepts a numeric draft Release ID and the exact frozen source/build
-identities. It reads back exactly eighteen finalized uploaded assets through the authenticated API, proves the
+`.github/workflows/pages.yml` is called by the release pipeline with a numeric draft Release ID and
+the exact frozen source/build identities. It reads back exactly eighteen finalized uploaded assets
+through the authenticated API, proves the
 annotated tag, API digests, archive checksum and signatures, safely extracts the snapshot, and
-re-verifies every package/database object before uploading the Pages artifact. Actions contains no
-private signing key.
+re-verifies every package/database object before uploading the Pages artifact. The Pages job contains
+no signing secret or private key.
 
 For package-only updates, use the `packages` deployment mode described in
 [repository tooling](../repository/README.md#package-only-updates). It accepts a separately tagged,

@@ -8,13 +8,16 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 source "${script_dir}/lib/common.sh"
 
 usage() {
-    printf 'Usage: %s [--sealed-offline-root] UNSIGNED_BUILD_DIRECTORY\n' "$0" >&2
+    printf 'Usage: %s [--sealed-offline-root|--sealed-public-root] UNSIGNED_BUILD_DIRECTORY\n' "$0" >&2
 }
 
 main() {
     local sealed=false
     if [ "${1:-}" = --sealed-offline-root ]; then
         sealed=true
+        shift
+    elif [ "${1:-}" = --sealed-public-root ]; then
+        sealed=public
         shift
     fi
     [ "$#" -eq 1 ] || { usage; return 2; }
@@ -36,6 +39,11 @@ main() {
         source_tree="${ARCH_LINUX_OFFLINE_ACCEPTED_TREE:-}"
         [[ "$source_commit" =~ ^[a-f0-9]{40}$ ]] && [[ "$source_tree" =~ ^[a-f0-9]{40}$ ]] ||
             repository_die 'sealed source identity is missing or malformed' || return
+    elif [ "$sealed" = public ]; then
+        source_commit="${ARCH_LINUX_PUBLIC_ACCEPTED_COMMIT:-}"
+        source_tree="${ARCH_LINUX_PUBLIC_ACCEPTED_TREE:-}"
+        repository_assert_sealed_public_root "$(cd -- "$script_dir/.." && pwd -P)" \
+            "$source_commit" "$source_tree" "${ARCH_LINUX_PUBLIC_ACCEPTED_TREE_SHA256:-}"
     else
         repository_read_source_identity source_commit source_tree "$script_dir/.."
     fi

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Authorize the guarded GitHub Actions release pipeline after a CI-verified `main` merge. It derives,
+  tests and signs a deterministic version-only release child while separately binding the origin
+  main commit/tree. Only `snapshot` and `finalize` receive the release-environment signing-only
+  subkey and passphrase; all other CI jobs remain without signing authority.
+- Retire the historical `1.0.0` and `1.0.1` release/tag objects without relabelling their evidence
+  as acceptance for a later release.
+
 - Keep four 32-bit codec/SDL libraries that moved to AUR: build exact reviewed
   sources through the isolated builder, preserving upstream checksums and source
   signatures, library payload checks, and the SDL2 virtual-provider dependency.

@@ -11,6 +11,21 @@ package build and independent verification of the production-signed release asse
 - `qemu-img`, QEMU Guest Agent support, OpenSSL and Python 3;
 - an absolute artifact/evidence directory outside the source tree.
 
+On a GitHub Linux runner, create a distinct mode-`0700` output directory for each matrix job, make
+`/dev/kvm` readable and writable by the runner, then run the preflight for that exact scenario before
+`run.sh`. The preflight verifies the accepted ISO digest, runner clock, available RAM and storage,
+KVM access and a stopped QEMU KVM-acceleration probe. It is safe to run before release assets are
+downloaded into the job workspace.
+
+```bash
+install -d -m 0700 -- "$RUNNER_TEMP/qemu-evidence"
+sudo chmod a+rw /dev/kvm
+bash tests/vm/preflight.sh \
+  --scenario marble-gnome-btrfs-luks2-plymouth-systemdboot \
+  --iso "$ARCH_ISO" --iso-sha256 "$ARCH_ISO_SHA256" \
+  --output-root "$RUNNER_TEMP/qemu-evidence"
+```
+
 `run.sh` creates a new qcow2 disk and copies independent OVMF VARS for every run. It refuses reused
 run paths and binds all runs in one output root to one exact source/tree, ISO, production-signed
 snapshot, build metadata and unsigned manifest. Commands sharing an output root must run
@@ -26,7 +41,7 @@ common=(
   --iso "$ARCH_ISO" --iso-sha256 "$ARCH_ISO_SHA256"
   --output-root "$EVIDENCE_ROOT"
   --release-assets "$RELEASE_ASSETS"
-  --release-version 1.0.1
+  --release-version "$RELEASE_VERSION"
   --snapshot-sha256 "$REPOSITORY_ARCHIVE_SHA256"
   --build-metadata-sha256 "$BUILD_METADATA_SHA256"
   --unsigned-manifest-sha256 "$UNSIGNED_MANIFEST_SHA256"
@@ -59,7 +74,7 @@ The main staged Marble case additionally exercises GDM administrator-profile fal
 then real pacman removal and reinstallation followed by password logins. The Stock-GDM Marble case
 checks that the optional GDM package is absent and the greeter retains its Stock environment.
 
-The staged helper accepts only `arch-linux-repository-1.0.1.tar.zst` from the exact release-asset
+The staged helper accepts only `arch-linux-repository-$RELEASE_VERSION.tar.zst` from the exact release-asset
 closure. For every staged scenario it invokes the schema-2 release verifier with commit, tree,
 build-metadata and unsigned-manifest hashes, checks the archive SHA-256, safely extracts it and
 verifies the signed repository again. Minimal and Stock retain only its signed manifest and compact
@@ -83,13 +98,13 @@ bash tests/vm/run.sh marble-gnome-btrfs-luks2-plymouth-systemdboot \
   --mode public \
   --iso "$ARCH_ISO" --iso-sha256 "$ARCH_ISO_SHA256" \
   --output-root "$EVIDENCE_ROOT" \
-  --release-version 1.0.1 \
+  --release-version "$RELEASE_VERSION" \
   --snapshot-sha256 "$REPOSITORY_ARCHIVE_SHA256" \
   --build-metadata-sha256 "$BUILD_METADATA_SHA256" \
   --unsigned-manifest-sha256 "$UNSIGNED_MANIFEST_SHA256" \
-  --bootstrap-url https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.1/install.sh \
-  --installer-url https://github.com/snaplyze/arch-linux/releases/download/1.0.1/arch-linux-installer.sh \
-  --public-key-url https://github.com/snaplyze/arch-linux/releases/download/1.0.1/arch-linux.gpg \
+  --bootstrap-url "https://raw.githubusercontent.com/snaplyze/arch-linux/$RELEASE_VERSION/install.sh" \
+  --installer-url "https://github.com/snaplyze/arch-linux/releases/download/$RELEASE_VERSION/arch-linux-installer.sh" \
+  --public-key-url "https://github.com/snaplyze/arch-linux/releases/download/$RELEASE_VERSION/arch-linux.gpg" \
   --pages-url 'https://snaplyze.github.io/arch-linux/repo/$arch'
 ```
 
@@ -100,6 +115,11 @@ and signature to be byte-identical. It then verifies schema-2 commit/tree/instal
 downloads all 23 signed-manifest objects from the canonical Pages HTTPS URL, checks every size/hash,
 and verifies all six package plus both canonical database signatures with the exact public key.
 Pages manifest bytes alone are not treated as proof of the enclosing archive digest.
+
+By default, `run.sh` attaches the target as `virtio-blk-pci` without serial, vendor or product fields.
+The guest therefore proves the trusted virtio sysfs ancestry, kernel `diskseq` and current boot ID
+used by the installer identity fallback; it never treats a missing physical-disk identity as valid.
+`--target-disk-metadata identified` restores the older serial/model fixture only for diagnosis.
 
 ## Results and diagnosis
 

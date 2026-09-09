@@ -378,8 +378,6 @@ def seal(
         fail("sealing requires host root in the initial user namespace")
     if any(os.environ.get(name) for name in FORBIDDEN_ENVIRONMENT):
         fail("private signing state is forbidden during code sealing")
-    if os.environ.get("CI", "false").lower() == "true" or os.environ.get("GITHUB_ACTIONS", "false").lower() == "true":
-        fail("offline code sealing is forbidden in CI")
     if SHA1.fullmatch(expected_commit) is None or SHA1.fullmatch(expected_tree) is None:
         fail("accepted Git identity is malformed")
     if SHA256.fullmatch(expected_tree_sha256) is None:

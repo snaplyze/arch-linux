@@ -1,0 +1,793 @@
+name: Release
+
+on:
+  workflow_run:
+    workflows: [CI]
+    branches: [main]
+    types: [completed]
+  # Recovery only: actions-release.py rejects dispatch without an existing accepted release.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: immutable-release
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  prepare:
+    name: Prepare source derived from reviewed main
+    if: >-
+      github.repository == 'snaplyze/arch-linux' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        github.event.workflow_run.head_repository.full_name == github.repository))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # Draft inventory requires push-level access; this job performs API reads only.
+    permissions:
+      contents: write
+    outputs:
+      main_commit: ${{ steps.source.outputs.main_commit }}
+      main_tree: ${{ steps.source.outputs.main_tree }}
+      source_commit: ${{ steps.source.outputs.source_commit }}
+      source_tree: ${{ steps.source.outputs.source_tree }}
+      source_tree_sha256: ${{ steps.source.outputs.source_tree_sha256 }}
+      release_version: ${{ steps.source.outputs.release_version }}
+      bundle_sha256: ${{ steps.source.outputs.bundle_sha256 }}
+      resume: ${{ steps.source.outputs.resume }}
+      resume_release_id: ${{ steps.source.outputs.resume_release_id }}
+      resume_run_id: ${{ steps.source.outputs.resume_run_id }}
+      already_published: ${{ steps.source.outputs.already_published }}
+    steps:
+      - name: Check out accepted main commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          fetch-tags: true
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Install source and public verifier dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends jq gnupg zstd
+
+      - name: Prepare immutable source and provenance
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MAIN_COMMIT: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF}" = refs/heads/main
+          [[ "${MAIN_COMMIT}" =~ ^[a-f0-9]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "${MAIN_COMMIT}"
+          git merge-base --is-ancestor "${MAIN_COMMIT}" refs/remotes/origin/main
+          test "$(git rev-parse refs/remotes/origin/main)" = "${MAIN_COMMIT}"
+          selection="$(python3 repository/actions-release.py select)"
+          version="$(jq -er .release_version <<<"${selection}")"
+          jq -r 'to_entries[] | "\(.key)=\(.value)"' <<<"${selection}" >>"${GITHUB_OUTPUT}"
+          python3 repository/release-source.py prepare \
+            --main-commit "${MAIN_COMMIT}" --release-version "${version}" \
+            --output-dir "${RUNNER_TEMP}/prepared-release"
+          jq -r 'to_entries[] | "\(.key)=\(.value)"' \
+            "${RUNNER_TEMP}/prepared-release/identity.json" >>"${GITHUB_OUTPUT}"
+          if [ "$(jq -r .already_published <<<"${selection}")" = true ]; then
+            source_commit="$(jq -r .source_commit "${RUNNER_TEMP}/prepared-release/identity.json")"
+            umask 022
+            git checkout --detach "${source_commit}"
+            python3 repository/actions-release.py readback --public \
+              --identity "${RUNNER_TEMP}/prepared-release/identity.json" \
+              --release-id "$(jq -r .resume_release_id <<<"${selection}")" \
+              --output-dir "${RUNNER_TEMP}/already-published-readback"
+          fi
+
+      - name: Upload immutable source transport
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-source-${{ github.run_id }}
+          path: ${{ runner.temp }}/prepared-release
+          if-no-files-found: error
+          retention-days: 14
+
+  build:
+    if: needs.prepare.outputs.resume != 'true'
+    name: Build and read back canonical unsigned packages
+    needs: prepare
+    uses: ./.github/workflows/packages.yml
+    with:
+      source_commit: ${{ needs.prepare.outputs.source_commit }}
+      source_tree: ${{ needs.prepare.outputs.source_tree }}
+      main_commit: ${{ needs.prepare.outputs.main_commit }}
+      release_version: ${{ needs.prepare.outputs.release_version }}
+      source_artifact: release-source-${{ github.run_id }}
+      bundle_sha256: ${{ needs.prepare.outputs.bundle_sha256 }}
+
+  snapshot:
+    name: Sign verified Phase-A snapshot
+    needs: [prepare, build]
+    environment: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    container:
+      image: archlinux:base-devel@sha256:714acd1eef9ae997d95691b1c5220ada0076185b77857c1813f02de0fa83cf7b
+      options: --init --privileged
+    outputs:
+      snapshot_sha256: ${{ steps.provenance.outputs.snapshot_sha256 }}
+    steps:
+      - name: Install isolated signing dependencies
+        run: |
+          set -euo pipefail
+          pacman-key --init
+          pacman-key --populate archlinux
+          pacman -Syu --noconfirm --needed \
+            acl bash binutils coreutils cryptsetup curl diffutils dosfstools e2fsprogs file gcc \
+            git gnupg gptfdisk grep jq libarchive libcap make pacman parted python shadow \
+            systemd tar util-linux zstd
+
+      - name: Check out reviewed main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ needs.prepare.outputs.main_commit }}
+
+      - name: Download exact release source
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: release-source-${{ github.run_id }}
+          path: ${{ runner.temp }}/release-source
+
+      - name: Restore and verify release child
+        env:
+          MAIN_COMMIT: ${{ needs.prepare.outputs.main_commit }}
+          SOURCE_COMMIT: ${{ needs.prepare.outputs.source_commit }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.release_version }}
+          BUNDLE_SHA256: ${{ needs.prepare.outputs.bundle_sha256 }}
+        run: |
+          set -euo pipefail
+          python3 repository/release-source.py restore \
+            --main-commit "${MAIN_COMMIT}" --source-commit "${SOURCE_COMMIT}" \
+            --release-version "${RELEASE_VERSION}" --bundle-sha256 "${BUNDLE_SHA256}" \
+            --input-dir "${RUNNER_TEMP}/release-source"
+
+      - name: Protect and seal accepted source before secret access
+        env:
+          SOURCE_COMMIT: ${{ needs.prepare.outputs.source_commit }}
+          SOURCE_TREE: ${{ needs.prepare.outputs.source_tree }}
+          SOURCE_TREE_SHA256: ${{ needs.prepare.outputs.source_tree_sha256 }}
+        run: |
+          set -euo pipefail
+          umask 022
+          test ! -e /opt/arch-linux-canonical
+          git clone --no-local --no-hardlinks -- "${GITHUB_WORKSPACE}" /opt/arch-linux-canonical
+          git -C /opt/arch-linux-canonical remote remove origin
+          chown -R root:root /opt/arch-linux-canonical
+          chmod -R go-w /opt/arch-linux-canonical
+          /usr/bin/env -i HOME=/root LANG=C LC_ALL=C PATH=/usr/bin:/usr/sbin \
+            /usr/bin/python3 -I /opt/arch-linux-canonical/repository/actions-sign-release.py prepare \
+            --source-commit "${SOURCE_COMMIT}" --source-tree "${SOURCE_TREE}" \
+            --source-tree-sha256 "${SOURCE_TREE_SHA256}" \
+            --sealed-root /opt/arch-linux-release-sealed
+
+      - name: Execute full namespace and publication regression gates
+        working-directory: /opt/arch-linux-canonical
+        run: |
+          set -euo pipefail
+          useradd --create-home --shell /bin/bash release-checker
+          checker_home="$(getent passwd release-checker | cut -d: -f6)"
+          test -n "${checker_home}"
+          runuser -u release-checker -- git \
+            -c safe.directory=/opt/arch-linux-canonical \
+            -c safe.directory=/opt/arch-linux-canonical/.git \
+            clone --no-local --no-hardlinks /opt/arch-linux-canonical "${checker_home}/source"
+          runuser -u release-checker -- env -i HOME="${checker_home}" LANG=C LC_ALL=C PATH=/usr/bin:/usr/sbin \
+            bash "${checker_home}/source/tests/repository-checks.sh"
+          runuser -u release-checker -- env -i HOME="${checker_home}" LANG=C LC_ALL=C PATH=/usr/bin:/usr/sbin \
+            bash "${checker_home}/source/tests/repository-checks.sh" --require-full-namespace
+          /usr/bin/env -i HOME=/root LANG=C LC_ALL=C PATH=/usr/bin:/usr/sbin \
+            /usr/bin/bash --noprofile --norc tests/publication-root-check.sh </dev/null
+          bash tests/keyring-rotation-checks.sh
+          env ARCH_LINUX_PRIVILEGED_ACCEPTANCE=true bash tests/keyring-rotation-checks.sh
+
+      - name: Download canonical unsigned build
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: ${{ needs.build.outputs.artifact_name }}
+          path: /opt/arch-linux-release-inputs/unsigned
+
+      - name: Protect public signing inputs
+        run: |
+          set -euo pipefail
+          chown -R root:root /opt/arch-linux-release-inputs
+          find /opt/arch-linux-release-inputs -type d -exec chmod 0755 -- {} +
+          find /opt/arch-linux-release-inputs -type f -exec chmod 0644 -- {} +
+
+      - name: Sign snapshot in dedicated isolated boundary
+        env:
+          ARCH_LINUX_SIGNING_KEY: ${{ secrets.ARCH_LINUX_SIGNING_KEY }}
+          ARCH_LINUX_SIGNING_PASSPHRASE: ${{ secrets.ARCH_LINUX_SIGNING_PASSPHRASE }}
+          SOURCE_COMMIT: ${{ needs.prepare.outputs.source_commit }}
+          SOURCE_TREE: ${{ needs.prepare.outputs.source_tree }}
+          SOURCE_TREE_SHA256: ${{ needs.prepare.outputs.source_tree_sha256 }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.release_version }}
+          BUILD_METADATA_SHA256: ${{ needs.build.outputs.build_metadata_sha256 }}
+          UNSIGNED_MANIFEST_SHA256: ${{ needs.build.outputs.unsigned_manifest_sha256 }}
+        run: |
+          set +x
+          set -euo pipefail
+          /usr/bin/python3 -I /opt/arch-linux-release-sealed/repository/actions-sign-release.py snapshot \
+            --source-commit "${SOURCE_COMMIT}" --source-tree "${SOURCE_TREE}" \
+            --source-tree-sha256 "${SOURCE_TREE_SHA256}" \
+            --unsigned /opt/arch-linux-release-inputs/unsigned \
+            --installer /opt/arch-linux-release-sealed/arch-linux-installer.sh \
+            --output /opt/arch-linux-release-output/result --release-version "${RELEASE_VERSION}" \
+            --build-metadata-sha256 "${BUILD_METADATA_SHA256}" \
+            --unsigned-manifest-sha256 "${UNSIGNED_MANIFEST_SHA256}"
+
+      - name: Record signed snapshot provenance
+        id: provenance
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.release_version }}
+        run: |
+          set -euo pipefail
+          install -d -m0755 "${RUNNER_TEMP}/phase-a"
+          cp /opt/arch-linux-release-output/result/assets/* "${RUNNER_TEMP}/phase-a/"
+          chmod 0644 "${RUNNER_TEMP}/phase-a/"*
+          digest="$(sha256sum --binary "${RUNNER_TEMP}/phase-a/arch-linux-repository-${RELEASE_VERSION}.tar.zst")"
+          printf 'snapshot_sha256=%s\n' "${digest%% *}" >>"${GITHUB_OUTPUT}"
+
+      - name: Upload exact fourteen signed staging assets
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: phase-a-${{ needs.prepare.outputs.source_commit }}
+          path: ${{ runner.temp }}/phase-a
+          if-no-files-found: error
+          retention-days: 14
+
+  qemu:
+    name: QEMU staged / ${{ matrix.scenario }}
+    needs: [prepare, build, snapshot]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario:
+          - minimal-ext4-systemdboot
+          - stock-gnome-btrfs-luks2-plymouth-grub
+          - marble-gnome-btrfs-luks2-plymouth-systemdboot
+    steps:
+      - name: Check out reviewed main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ needs.prepare.outputs.main_commit }}
+
+      - name: Download exact release source
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: release-source-${{ github.run_id }}
+          path: ${{ runner.temp }}/release-source
+
+      - name: Restore and verify release child
+        env:
+          MAIN_COMMIT: ${{ needs.prepare.outputs.main_commit }}
+          SOURCE_COMMIT: ${{ needs.prepare.outputs.source_commit }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.release_version }}
+          BUNDLE_SHA256: ${{ needs.prepare.outputs.bundle_sha256 }}
+        run: |
+          set -euo pipefail
+          python3 repository/release-source.py restore \
+            --main-commit "${MAIN_COMMIT}" --source-commit "${SOURCE_COMMIT}" \
+            --release-version "${RELEASE_VERSION}" --bundle-sha256 "${BUNDLE_SHA256}" \
+            --input-dir "${RUNNER_TEMP}/release-source"
+
+      - name: Make room for VM disks on the disposable hosted runner
+        run: |
+          set -euo pipefail
+          test "${RUNNER_ENVIRONMENT}" = github-hosted
+          for sdk in /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+            /usr/local/.ghcup /opt/hostedtoolcache/CodeQL; do
+            if [ -d "${sdk}" ] && [ ! -L "${sdk}" ]; then
+              sudo rm --recursive --force --one-file-system -- "${sdk}"
+            fi
+          done
+          sudo docker image prune --all --force
+          df -h "${RUNNER_TEMP}"
+
+      - name: Install actual VM dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            qemu-system-x86 qemu-utils ovmf genisoimage jq gnupg zstd openssl
+          sudo chmod ugo+rw /dev/kvm
+          sudo install -d -m0700 -o "$(id -u)" -g "$(id -g)" "/run/user/$(id -u)"
+
+      - name: Download exact signed staging assets
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: phase-a-${{ needs.prepare.outputs.source_commit }}
+          path: ${{ runner.temp }}/phase-a
+
+      - name: Download accepted ISO and execute real staged scenario
+        env:
+          SCENARIO: ${{ matrix.scenario }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.release_version }}
+          SNAPSHOT_SHA256: ${{ needs.snapshot.outputs.snapshot_sha256 }}
+          BUILD_METADATA_SHA256: ${{ needs.build.outputs.build_metadata_sha256 }}
+          UNSIGNED_MANIFEST_SHA256: ${{ needs.build.outputs.unsigned_manifest_sha256 }}
+        run: |
+          set -euo pipefail
+          iso="${RUNNER_TEMP}/$(jq -r .isoName maintenance/accepted-arch-iso.json)"
+          iso_hash="$(jq -r .sha256 maintenance/accepted-arch-iso.json)"
+          curl --proto '=https' --tlsv1.2 --fail --location --retry 3 \
+            --output "${iso}" "$(jq -r .isoUrl maintenance/accepted-arch-iso.json)"
+          printf '%s *%s\n' "${iso_hash}" "${iso}" | sha256sum --check --strict
+          install -d -m0700 "${RUNNER_TEMP}/qemu-evidence"
+          bash tests/vm/preflight.sh --scenario "${SCENARIO}" --iso "${iso}" --iso-sha256 "${iso_hash}" \
+            --output-root "${RUNNER_TEMP}/qemu-evidence"
+          bash tests/vm/run.sh "${SCENARIO}" --mode staged \
+            --iso "${iso}" --iso-sha256 "${iso_hash}" \
+            --output-root "${RUNNER_TEMP}/qemu-evidence" \
+            --release-assets "${RUNNER_TEMP}/phase-a" --release-version "${RELEASE_VERSION}" \
+            --snapshot-sha256 "${SNAPSHOT_SHA256}" --build-metadata-sha256 "${BUILD_METADATA_SHA256}" \
+            --unsigned-manifest-sha256 "${UNSIGNED_MANIFEST_SHA256}"
+
+      - name: Package compact completed or failed evidence
+        if: always()
+        env:
+          SCENARIO: ${{ matrix.scenario }}
+        run: |
+          set -euo pipefail
+          test -d "${RUNNER_TEMP}/qemu-evidence" || exit 0
+          mapfile -t runs < <(find "${RUNNER_TEMP}/qemu-evidence" -mindepth 1 -maxdepth 1 -type d -printf '%f\n')
+          test "${#runs[@]}" -eq 1
+          test -f "${RUNNER_TEMP}/qemu-evidence/${runs[0]}/result.json"
+          tar --create --gzip --file "${RUNNER_TEMP}/${SCENARIO}.tar.gz" \
+            --directory "${RUNNER_TEMP}/qemu-evidence" "${runs[0]}"
+
+      - name: Upload compact scenario evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: qemu-${{ matrix.scenario }}-${{ needs.prepare.outputs.source_commit }}
+          path: ${{ runner.temp }}/${{ matrix.scenario }}.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
+  finalize:
+    name: Sign acceptance and finalize exact eighteen assets
+    needs: [prepare, build, snapshot, qemu]
+    environment: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    container:
+      image: archlinux:base-devel@sha256:714acd1eef9ae997d95691b1c5220ada0076185b77857c1813f02de0fa83cf7b
+      options: --init --privileged
+    steps:
+      - name: Install isolated signing dependencies
+        run: |
+          set -euo pipefail
+          pacman-key --init
+          pacman-key --populate archlinux
+          pacman -Syu --noconfirm --needed \
+            acl bash binutils coreutils cryptsetup curl diffutils dosfstools e2fsprogs file gcc \
+            git gnupg gptfdisk grep jq libarchive libcap make pacman parted python shadow \
+            systemd tar util-linux zstd
+
+      - name: Check out reviewed main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ needs.prepare.outputs.main_commit }}
+
+      - name: Download exact release source
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: release-source-${{ github.run_id }}
+          path: ${{ runner.temp }}/release-source
+
+      - name: Restore and verify release child
+        env:
+          MAIN_COMMIT: ${{ needs.prepare.outputs.main_commit }}
+          SOURCE_COMMIT: ${{ needs.prepare.outputs.source_commit }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.release_version }}
+          BUNDLE_SHA256: ${{ needs.prepare.outputs.bundle_sha256 }}
+        run: |
+          set -euo pipefail
+          python3 repository/release-source.py restore \
+            --main-commit "${MAIN_COMMIT}" --source-commit "${SOURCE_COMMIT}" \
+            --release-version "${RELEASE_VERSION}" --bundle-sha256 "${BUNDLE_SHA256}" \
+            --input-dir "${RUNNER_TEMP}/release-source"
+
+      - name: Protect and seal accepted source before secret access
+        env:
+          SOURCE_COMMIT: ${{ needs.prepare.outputs.source_commit }}
+          SOURCE_TREE: ${{ needs.prepare.outputs.source_tree }}
+          SOURCE_TREE_SHA256: ${{ needs.prepare.outputs.source_tree_sha256 }}
+        run: |
+          set -euo pipefail
+          umask 022
+          test ! -e /opt/arch-linux-canonical
+          git clone --no-local --no-hardlinks -- "${GITHUB_WORKSPACE}" /opt/arch-linux-canonical
+          git -C /opt/arch-linux-canonical remote remove origin
+          chown -R root:root /opt/arch-linux-canonical
+          chmod -R go-w /opt/arch-linux-canonical
+          /usr/bin/env -i HOME=/root LANG=C LC_ALL=C PATH=/usr/bin:/usr/sbin \
+            /usr/bin/python3 -I /opt/arch-linux-canonical/repository/actions-sign-release.py prepare \
+            --source-commit "${SOURCE_COMMIT}" --source-tree "${SOURCE_TREE}" \
+            --source-tree-sha256 "${SOURCE_TREE_SHA256}" \
+            --sealed-root /opt/arch-linux-release-sealed
+
+      - name: Download original Phase-A bytes
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: phase-a-${{ needs.prepare.outputs.source_commit }}
+          path: /opt/arch-linux-release-inputs/phase-a
+
+      - name: Download three completed QEMU evidence artifacts
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          pattern: qemu-*-${{ needs.prepare.outputs.source_commit }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/qemu-artifacts
+
+      - name: Stage bounded public evidence for finalization
+        run: |
+          set -euo pipefail
+          for scenario in minimal-ext4-systemdboot stock-gnome-btrfs-luks2-plymouth-grub \
+            marble-gnome-btrfs-luks2-plymouth-systemdboot; do
+            python3 repository/actions-release.py unpack-evidence \
+              --archive "${RUNNER_TEMP}/qemu-artifacts/${scenario}.tar.gz" \
+              --output-dir "/opt/arch-linux-release-inputs/evidence/${scenario}"
+          done
+          chown -R root:root /opt/arch-linux-release-inputs
+          find /opt/arch-linux-release-inputs -type d -exec chmod 0755 -- {} +
+          find /opt/arch-linux-release-inputs -type f -exec chmod 0644 -- {} +
+
+      - name: Finalize accepted source and three functional PASS results
+        env:
+          ARCH_LINUX_SIGNING_KEY: ${{ secrets.ARCH_LINUX_SIGNING_KEY }}
+          ARCH_LINUX_SIGNING_PASSPHRASE: ${{ secrets.ARCH_LINUX_SIGNING_PASSPHRASE }}
+          SOURCE_COMMIT: ${{ needs.prepare.outputs.source_commit }}
+          SOURCE_TREE: ${{ needs.prepare.outputs.source_tree }}
+          SOURCE_TREE_SHA256: ${{ needs.prepare.outputs.source_tree_sha256 }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.release_version }}
+          BUILD_METADATA_SHA256: ${{ needs.build.outputs.build_metadata_sha256 }}
+          UNSIGNED_MANIFEST_SHA256: ${{ needs.build.outputs.unsigned_manifest_sha256 }}
+          SNAPSHOT_SHA256: ${{ needs.snapshot.outputs.snapshot_sha256 }}
+        run: |
+          set +x
+          set -euo pipefail
+          minimal_run=(/opt/arch-linux-release-inputs/evidence/minimal-ext4-systemdboot/*)
+          stock_run=(/opt/arch-linux-release-inputs/evidence/stock-gnome-btrfs-luks2-plymouth-grub/*)
+          marble_run=(/opt/arch-linux-release-inputs/evidence/marble-gnome-btrfs-luks2-plymouth-systemdboot/*)
+          test "${#minimal_run[@]}:${#stock_run[@]}:${#marble_run[@]}" = 1:1:1
+          /usr/bin/python3 -I /opt/arch-linux-release-sealed/repository/actions-sign-release.py finalize \
+            --source-commit "${SOURCE_COMMIT}" --source-tree "${SOURCE_TREE}" \
+            --source-tree-sha256 "${SOURCE_TREE_SHA256}" \
+            --phase-a /opt/arch-linux-release-inputs/phase-a \
+            --output /opt/arch-linux-release-output/result --release-version "${RELEASE_VERSION}" \
+            --build-metadata-sha256 "${BUILD_METADATA_SHA256}" \
+            --unsigned-manifest-sha256 "${UNSIGNED_MANIFEST_SHA256}" --snapshot-sha256 "${SNAPSHOT_SHA256}" \
+            --minimal-run "${minimal_run[0]}" --stock-run "${stock_run[0]}" --marble-run "${marble_run[0]}"
+
+      - name: Export finalized public assets
+        run: |
+          set -euo pipefail
+          install -d -m0755 "${RUNNER_TEMP}/finalized"
+          cp /opt/arch-linux-release-output/result/* "${RUNNER_TEMP}/finalized/"
+          chmod 0644 "${RUNNER_TEMP}/finalized/"*
+
+      - name: Upload exact eighteen finalized public assets
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: finalized-${{ needs.prepare.outputs.source_commit }}
+          path: ${{ runner.temp }}/finalized
+          if-no-files-found: error
+          retention-days: 14
+
+  draft:
+    if: >-
+      always() && needs.prepare.result == 'success' &&
+      needs.prepare.outputs.already_published != 'true' &&
+      (needs.finalize.result == 'success' || needs.prepare.outputs.resume == 'true')
+    name: Create annotated tag and verified draft
+    needs: [prepare, finalize]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: write
+      actions: read
+    outputs:
+      release_id: ${{ steps.draft.outputs.release_id }}
+      snapshot_sha256: ${{ steps.draft.outputs.snapshot_sha256 }}
+      build_metadata_sha256: ${{ steps.draft.outputs.build_metadata_sha256 }}
+      unsigned_manifest_sha256: ${{ steps.draft.outputs.unsigned_manifest_sha256 }}
+    steps:
+      - name: Check out reviewed main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ needs.prepare.outputs.main_commit }}
+
+      - name: Download exact release source
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: release-source-${{ github.run_id }}
+          path: ${{ runner.temp }}/release-source
+
+      - name: Restore and verify release child
+        env:
+          MAIN_COMMIT: ${{ needs.prepare.outputs.main_commit }}
+          SOURCE_COMMIT: ${{ needs.prepare.outputs.source_commit }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.release_version }}
+          BUNDLE_SHA256: ${{ needs.prepare.outputs.bundle_sha256 }}
+        run: |
+          set -euo pipefail
+          python3 repository/release-source.py restore \
+            --main-commit "${MAIN_COMMIT}" --source-commit "${SOURCE_COMMIT}" \
+            --release-version "${RELEASE_VERSION}" --bundle-sha256 "${BUNDLE_SHA256}" \
+            --input-dir "${RUNNER_TEMP}/release-source"
+
+      - name: Install public verification dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends gnupg zstd
+
+      - name: Download unchanged finalized assets
+        if: needs.prepare.outputs.resume != 'true'
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: finalized-${{ needs.prepare.outputs.source_commit }}
+          path: ${{ runner.temp }}/finalized
+
+      - name: Resume original accepted signed assets
+        if: needs.prepare.outputs.resume == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESUME_RELEASE_ID: ${{ needs.prepare.outputs.resume_release_id }}
+          RESUME_RUN_ID: ${{ needs.prepare.outputs.resume_run_id }}
+          SOURCE_COMMIT: ${{ needs.prepare.outputs.source_commit }}
+        run: |
+          set +x
+          set -euo pipefail
+          [[ "${RESUME_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
+          if [[ "${RESUME_RELEASE_ID}" =~ ^[1-9][0-9]*$ ]] &&
+            [ "$(gh api "/repos/snaplyze/arch-linux/releases/${RESUME_RELEASE_ID}" --jq '.assets | length')" = 18 ]; then
+            python3 repository/actions-release.py readback \
+              --identity "${RUNNER_TEMP}/release-source/identity.json" \
+              --release-id "${RESUME_RELEASE_ID}" --output-dir "${RUNNER_TEMP}/finalized"
+          else
+            # Preserve original signature bytes when resuming a partially uploaded draft.
+            gh run download "${RESUME_RUN_ID}" --repo snaplyze/arch-linux \
+              --name "finalized-${SOURCE_COMMIT}" --dir "${RUNNER_TEMP}/finalized"
+          fi
+
+      - name: Publish annotated tag and read back exact draft assets
+        id: draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_IMMUTABILITY_REQUIRED: ${{ vars.RELEASE_IMMUTABILITY_REQUIRED }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.release_version }}
+        run: |
+          set +x
+          set -euo pipefail
+          release_id="$(python3 repository/actions-release.py draft \
+            --identity "${RUNNER_TEMP}/release-source/identity.json" \
+            --assets "${RUNNER_TEMP}/finalized")"
+          printf 'release_id=%s\n' "${release_id}" >>"${GITHUB_OUTPUT}"
+          for pair in \
+            "snapshot_sha256:arch-linux-repository-${RELEASE_VERSION}.tar.zst" \
+            build_metadata_sha256:BUILD-METADATA.json \
+            unsigned_manifest_sha256:UNSIGNED-SHA256SUMS; do
+            field="${pair%%:*}"
+            filename="${pair#*:}"
+            digest="$(sha256sum --binary "${RUNNER_TEMP}/finalized/${filename}")"
+            printf '%s=%s\n' "${field}" "${digest%% *}" >>"${GITHUB_OUTPUT}"
+          done
+
+  pages:
+    if: always() && needs.prepare.result == 'success' && needs.draft.result == 'success'
+    name: Verify and deploy signed repository Pages
+    needs: [prepare, draft]
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/pages.yml
+    with:
+      deployment_kind: release
+      release_id: ${{ needs.draft.outputs.release_id }}
+      release_version: ${{ needs.prepare.outputs.release_version }}
+      source_commit: ${{ needs.prepare.outputs.source_commit }}
+      source_tree: ${{ needs.prepare.outputs.source_tree }}
+      source_tree_sha256: ${{ needs.prepare.outputs.source_tree_sha256 }}
+      snapshot_sha256: ${{ needs.draft.outputs.snapshot_sha256 }}
+      build_metadata_sha256: ${{ needs.draft.outputs.build_metadata_sha256 }}
+      unsigned_manifest_sha256: ${{ needs.draft.outputs.unsigned_manifest_sha256 }}
+
+  publish:
+    if: always() && needs.prepare.result == 'success' && needs.draft.result == 'success' && needs.pages.result == 'success'
+    name: Publish immutable release after verified Pages deployment
+    needs: [prepare, draft, pages]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: write
+    steps:
+      - name: Check out reviewed main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ needs.prepare.outputs.main_commit }}
+
+      - name: Download exact release source
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: release-source-${{ github.run_id }}
+          path: ${{ runner.temp }}/release-source
+
+      - name: Restore and verify release child
+        env:
+          MAIN_COMMIT: ${{ needs.prepare.outputs.main_commit }}
+          SOURCE_COMMIT: ${{ needs.prepare.outputs.source_commit }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.release_version }}
+          BUNDLE_SHA256: ${{ needs.prepare.outputs.bundle_sha256 }}
+        run: |
+          set -euo pipefail
+          python3 repository/release-source.py restore \
+            --main-commit "${MAIN_COMMIT}" --source-commit "${SOURCE_COMMIT}" \
+            --release-version "${RELEASE_VERSION}" --bundle-sha256 "${BUNDLE_SHA256}" \
+            --input-dir "${RUNNER_TEMP}/release-source"
+
+      - name: Install public verification dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends gnupg zstd
+
+      - name: Publish only reverified immutable release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ needs.draft.outputs.release_id }}
+          RELEASE_IMMUTABILITY_REQUIRED: ${{ vars.RELEASE_IMMUTABILITY_REQUIRED }}
+        run: |
+          set +x
+          set -euo pipefail
+          python3 repository/actions-release.py publish \
+            --identity "${RUNNER_TEMP}/release-source/identity.json" \
+            --release-id "${RELEASE_ID}" --output-dir "${RUNNER_TEMP}/publish-readback"
+
+  public:
+    if: always() && needs.prepare.result == 'success' && needs.draft.result == 'success' && needs.publish.result == 'success'
+    name: Public release readback and real Marble VM
+    needs: [prepare, draft, publish]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    steps:
+      - name: Check out reviewed main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ needs.prepare.outputs.main_commit }}
+
+      - name: Download exact release source
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: release-source-${{ github.run_id }}
+          path: ${{ runner.temp }}/release-source
+
+      - name: Restore and verify release child
+        env:
+          MAIN_COMMIT: ${{ needs.prepare.outputs.main_commit }}
+          SOURCE_COMMIT: ${{ needs.prepare.outputs.source_commit }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.release_version }}
+          BUNDLE_SHA256: ${{ needs.prepare.outputs.bundle_sha256 }}
+        run: |
+          set -euo pipefail
+          python3 repository/release-source.py restore \
+            --main-commit "${MAIN_COMMIT}" --source-commit "${SOURCE_COMMIT}" \
+            --release-version "${RELEASE_VERSION}" --bundle-sha256 "${BUNDLE_SHA256}" \
+            --input-dir "${RUNNER_TEMP}/release-source"
+
+      - name: Fetch immutable annotated release tag
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.release_version }}
+          SOURCE_COMMIT: ${{ needs.prepare.outputs.source_commit }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "refs/tags/${RELEASE_VERSION}:refs/tags/${RELEASE_VERSION}"
+          test "$(git cat-file -t "refs/tags/${RELEASE_VERSION}")" = tag
+          test "$(git rev-parse "refs/tags/${RELEASE_VERSION}^{}")" = "${SOURCE_COMMIT}"
+
+      - name: Make room for VM disks on the disposable hosted runner
+        run: |
+          set -euo pipefail
+          test "${RUNNER_ENVIRONMENT}" = github-hosted
+          for sdk in /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+            /usr/local/.ghcup /opt/hostedtoolcache/CodeQL; do
+            if [ -d "${sdk}" ] && [ ! -L "${sdk}" ]; then
+              sudo rm --recursive --force --one-file-system -- "${sdk}"
+            fi
+          done
+          sudo docker image prune --all --force
+          df -h "${RUNNER_TEMP}"
+
+      - name: Install public VM and verification dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            qemu-system-x86 qemu-utils ovmf genisoimage jq gnupg zstd openssl
+          sudo chmod ugo+rw /dev/kvm
+          sudo install -d -m0700 -o "$(id -u)" -g "$(id -g)" "/run/user/$(id -u)"
+
+      - name: Independently verify unauthenticated release downloads
+        env:
+          RELEASE_ID: ${{ needs.draft.outputs.release_id }}
+        run: |
+          set -euo pipefail
+          python3 repository/actions-release.py readback --public \
+            --identity "${RUNNER_TEMP}/release-source/identity.json" \
+            --release-id "${RELEASE_ID}" --output-dir "${RUNNER_TEMP}/public-readback"
+
+      - name: Run real public-only Marble installation
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.release_version }}
+          SNAPSHOT_SHA256: ${{ needs.draft.outputs.snapshot_sha256 }}
+          BUILD_METADATA_SHA256: ${{ needs.draft.outputs.build_metadata_sha256 }}
+          UNSIGNED_MANIFEST_SHA256: ${{ needs.draft.outputs.unsigned_manifest_sha256 }}
+        run: |
+          set -euo pipefail
+          iso="${RUNNER_TEMP}/$(jq -r .isoName maintenance/accepted-arch-iso.json)"
+          iso_hash="$(jq -r .sha256 maintenance/accepted-arch-iso.json)"
+          curl --proto '=https' --tlsv1.2 --fail --location --retry 3 \
+            --output "${iso}" "$(jq -r .isoUrl maintenance/accepted-arch-iso.json)"
+          printf '%s *%s\n' "${iso_hash}" "${iso}" | sha256sum --check --strict
+          install -d -m0700 "${RUNNER_TEMP}/qemu-public"
+          bash tests/vm/preflight.sh --scenario marble-gnome-btrfs-luks2-plymouth-systemdboot \
+            --iso "${iso}" --iso-sha256 "${iso_hash}" --output-root "${RUNNER_TEMP}/qemu-public"
+          bash tests/vm/run.sh marble-gnome-btrfs-luks2-plymouth-systemdboot --mode public \
+            --iso "${iso}" --iso-sha256 "${iso_hash}" --output-root "${RUNNER_TEMP}/qemu-public" \
+            --release-version "${RELEASE_VERSION}" --snapshot-sha256 "${SNAPSHOT_SHA256}" \
+            --build-metadata-sha256 "${BUILD_METADATA_SHA256}" \
+            --unsigned-manifest-sha256 "${UNSIGNED_MANIFEST_SHA256}" \
+            --bootstrap-url "https://raw.githubusercontent.com/snaplyze/arch-linux/${RELEASE_VERSION}/install.sh" \
+            --installer-url "https://github.com/snaplyze/arch-linux/releases/download/${RELEASE_VERSION}/arch-linux-installer.sh" \
+            --public-key-url "https://github.com/snaplyze/arch-linux/releases/download/${RELEASE_VERSION}/arch-linux.gpg" \
+            --pages-url 'https://snaplyze.github.io/arch-linux/repo/$arch'
+
+      - name: Package compact public acceptance evidence
+        if: always()
+        run: |
+          set -euo pipefail
+          test -d "${RUNNER_TEMP}/qemu-public" || exit 0
+          tar --create --gzip --file "${RUNNER_TEMP}/public-evidence.tar.gz" \
+            --directory "${RUNNER_TEMP}/qemu-public" .
+
+      - name: Upload public acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: public-acceptance-${{ needs.prepare.outputs.source_commit }}
+          path: ${{ runner.temp }}/public-evidence.tar.gz
+          if-no-files-found: error
+          retention-days: 14

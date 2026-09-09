@@ -46,6 +46,40 @@ on:
         required: true
         type: string
 
+  workflow_call:
+    inputs:
+      deployment_kind:
+        required: false
+        type: string
+        default: release
+      package_tag:
+        required: false
+        type: string
+      release_id:
+        required: true
+        type: string
+      release_version:
+        required: true
+        type: string
+      source_commit:
+        required: true
+        type: string
+      source_tree:
+        required: true
+        type: string
+      source_tree_sha256:
+        required: true
+        type: string
+      snapshot_sha256:
+        required: true
+        type: string
+      build_metadata_sha256:
+        required: true
+        type: string
+      unsigned_manifest_sha256:
+        required: true
+        type: string
+
 permissions:
   contents: read
 
@@ -60,6 +94,8 @@ defaults:
 jobs:
   verify:
     name: Verify signed snapshot
+    outputs:
+      guarded_main_commit: ${{ steps.source_identity.outputs.guarded_main_commit }}
     # GitHub requires push-level access to read unpublished release assets.
     # Only this manual job receives it; API operations below are read-only.
     permissions:
@@ -82,6 +118,7 @@ jobs:
           sudo apt-get install --yes --no-install-recommends gnupg zstd
 
       - name: Require exact source and annotated tag
+        id: source_identity
         env:
           DEPLOYMENT_KIND: ${{ inputs.deployment_kind }}
           PACKAGE_TAG: ${{ inputs.package_tag }}
@@ -99,7 +136,18 @@ jobs:
           [[ "${GITHUB_SHA}" =~ ^[a-f0-9]{40}$ ]]
           # Deployment infrastructure may advance after the release is frozen.
           # Verify the tagged ancestor itself, never relabel it as the workflow tree.
-          git merge-base --is-ancestor "${SOURCE_COMMIT}" "${GITHUB_SHA}"
+          if git cat-file -e HEAD:repository/release-origin.json 2>/dev/null; then
+            main_commit="$(git show HEAD:repository/release-origin.json | jq -er .mainCommit)"
+            [[ "${main_commit}" =~ ^[a-f0-9]{40}$ ]]
+            git merge-base --is-ancestor "${main_commit}" "${GITHUB_SHA}"
+            test "$(git ls-remote --refs origin refs/heads/main | cut -f1)" = "${main_commit}"
+            printf 'guarded_main_commit=%s\n' "${main_commit}" >>"${GITHUB_OUTPUT}"
+            python3 repository/release-source.py verify \
+              --main-commit "${main_commit}" --source-commit "${SOURCE_COMMIT}" \
+              --release-version "${RELEASE_VERSION}"
+          else
+            git merge-base --is-ancestor "${SOURCE_COMMIT}" "${GITHUB_SHA}"
+          fi
           test "$(git rev-parse --verify 'HEAD^{commit}')" = "${SOURCE_COMMIT}"
           test "$(git rev-parse --verify 'HEAD^{tree}')" = "${SOURCE_TREE}"
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
@@ -222,7 +270,7 @@ jobs:
           rm -rf -- "${GH_CONFIG_DIR}" "${HOME}"
 
       - name: Upload verified Pages content
-        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v4.0.0
+        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4.0.0
         with:
           path: ${{ runner.temp }}/site
 
@@ -237,6 +285,15 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - name: Recheck reviewed main immediately before Pages deployment
+        if: needs.verify.outputs.guarded_main_commit != ''
+        env:
+          MAIN_COMMIT: ${{ needs.verify.outputs.guarded_main_commit }}
+        run: |
+          set -euo pipefail
+          [[ "${MAIN_COMMIT}" =~ ^[a-f0-9]{40}$ ]]
+          test "$(git ls-remote --refs https://github.com/snaplyze/arch-linux.git refs/heads/main | cut -f1)" = "${MAIN_COMMIT}"
+
       - name: Deploy verified content
         id: deployment
-        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v4.0.5
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5

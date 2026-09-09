@@ -4,7 +4,7 @@ set +x
 set -E
 set -euo pipefail
 umask 077
-trap 'printf "ERROR: release finalization command failed at source line %s\n" "$LINENO" >&2' ERR
+trap 'if [ "${FUNCNAME[0]:-}" = public_exec ]; then printf "ERROR: release finalization command failed at source line %s\n" "${BASH_LINENO[0]}" >&2; else printf "ERROR: release finalization command failed at source line %s\n" "$LINENO" >&2; fi' ERR
 
 [[ "${BASH_SOURCE[0]}" = /* ]] || { printf 'ERROR: sealed finalizer path is not absolute\n' >&2; exit 1; }
 script_dir="${BASH_SOURCE[0]%/*}"
@@ -142,6 +142,8 @@ main() {
     evidence_stage="$work/evidence"
     public_exec /usr/bin/mkdir -p -- "$stage" "$evidence_stage"
     public_exec /usr/bin/cp -a --no-preserve=ownership -- "$phase_a/." "$stage/"
+    # Public Phase-A inputs may be mode 0755; publication retains a private stage.
+    public_exec /usr/bin/chmod 0700 -- "$stage"
     for file in "$phase_a"/*; do
         public_exec /usr/bin/cmp --silent -- "$file" "$stage/${file##*/}" ||
             repository_die 'Phase-A byte changed during finalization'

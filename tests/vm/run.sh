@@ -24,6 +24,7 @@ output_parent=''
 input_mode=''
 release_assets=''
 release_version=''
+target_disk_metadata='absent'
 snapshot_sha256=''
 build_metadata_sha256=''
 unsigned_manifest_sha256=''
@@ -98,6 +99,7 @@ usage() {
         '       --iso ABSOLUTE_PATH --iso-sha256 SHA256' \
         '       --output-root ABSOLUTE_PRIVATE_DIRECTORY' \
         '       --mode staged --release-assets ABSOLUTE_DIRECTORY --release-version VERSION' \
+        '       [--target-disk-metadata absent|identified]' \
         '       --snapshot-sha256 SHA256 --build-metadata-sha256 SHA256 --unsigned-manifest-sha256 SHA256' \
         '   or: --mode public --release-version VERSION --snapshot-sha256 SHA256' \
         '       --bootstrap-url URL --installer-url URL --public-key-url URL --pages-url URL' >&2
@@ -1121,8 +1123,6 @@ launch_qemu() {
         -drive "if=pflash,format=raw,unit=0,readonly=on,file=${ovmf_code}"
         -drive "if=pflash,format=raw,unit=1,file=${run_root}/OVMF_VARS.fd"
         -drive "if=none,id=target,format=qcow2,file=${run_root}/target.qcow2,cache=writeback,discard=unmap"
-        -device 'virtio-scsi-pci,id=scsi0'
-        -device "scsi-hd,id=targetdev,drive=target,bus=scsi0.0,serial=${target_serial},vendor=SNAPLYZE,product=${target_model},bootindex=${bootindex}"
         -device 'virtio-vga,id=display0'
         -device virtio-serial-pci
         -chardev "socket,id=qga0,path=${runtime_dir}/qga.sock,server=on,wait=off"
@@ -1136,6 +1136,16 @@ launch_qemu() {
         -nic 'user,model=virtio-net-pci'
         -sandbox 'on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny'
     )
+    if [ "${target_disk_metadata}" = identified ]; then
+        command+=(
+            -device 'virtio-scsi-pci,id=scsi0'
+            -device "scsi-hd,id=targetdev,drive=target,bus=scsi0.0,serial=${target_serial},vendor=SNAPLYZE,product=${target_model},bootindex=${bootindex}"
+        )
+    else
+        command+=(
+            -device "virtio-blk-pci,id=targetdev,drive=target,bootindex=${bootindex}"
+        )
+    fi
     if [ "${install_phase}" = true ]; then
         command+=(
             -chardev "socket,id=seriallog,path=${runtime_dir}/serial.sock,server=on,wait=off"
@@ -1304,6 +1314,7 @@ qga_verify() {
         --arg repository_primary "${repository_primary_fingerprint}" \
         --arg repository_signing "${repository_signing_fingerprint}" \
         --arg input_mode "${input_mode}" --arg release_version "${release_version}" \
+        --arg target_disk_metadata "${target_disk_metadata}" \
         --arg pages_url "${pages_url:--}" --arg public_key_url "${public_key_url:--}" \
         --arg snapshot_sha256 "${snapshot_sha256}" --arg source_commit "${source_commit}" \
         --arg source_tree "${source_tree}" --arg installer_sha256 "${installer_sha256}" \
@@ -1313,7 +1324,7 @@ qga_verify() {
         --arg public_key_sha256 "${repository_public_key_sha256}" '
         {execute:"guest-exec",arguments:{path:"/usr/bin/bash","capture-output":true,
           arg:["-c",$script,"minimal-verify",$phase,$serial,$vendor,$model,$username,$scenario,$run_id,
-            $repository_primary,$repository_signing,$input_mode,$release_version,$pages_url,$public_key_url,
+            $repository_primary,$repository_signing,$input_mode,$release_version,$target_disk_metadata,$pages_url,$public_key_url,
             $snapshot_sha256,$source_commit,$source_tree,$installer_sha256,$package_set_sha256,
             $build_metadata_sha256,$unsigned_manifest_sha256,$public_key_sha256]}}')"
     printf '%s\n' "${request}" | jq -cS . >"${evidence}/${stem}.request.json"
@@ -1602,6 +1613,7 @@ bind_frozen_inputs() {
         "bootstrap_sha256=${bootstrap_sha256}" \
         "iso_sha256=${iso_sha256}" \
         "release_version=${release_version}" \
+        "target_disk_metadata=${target_disk_metadata}" \
         "snapshot_sha256=${snapshot_sha256}" \
         "build_metadata_sha256=${build_metadata_sha256}" \
         "unsigned_manifest_sha256=${unsigned_manifest_sha256}")"
@@ -1717,6 +1729,7 @@ main() {
         --mode) [ "$#" -ge 2 ] || { usage; exit 2; }; input_mode="$2"; shift 2 ;;
         --release-assets) [ "$#" -ge 2 ] || { usage; exit 2; }; release_assets="$2"; shift 2 ;;
         --release-version) [ "$#" -ge 2 ] || { usage; exit 2; }; release_version="$2"; shift 2 ;;
+        --target-disk-metadata) [ "$#" -ge 2 ] || { usage; exit 2; }; target_disk_metadata="$2"; shift 2 ;;
         --snapshot-sha256) [ "$#" -ge 2 ] || { usage; exit 2; }; snapshot_sha256="$2"; shift 2 ;;
         --build-metadata-sha256) [ "$#" -ge 2 ] || { usage; exit 2; }; build_metadata_sha256="$2"; shift 2 ;;
         --unsigned-manifest-sha256) [ "$#" -ge 2 ] || { usage; exit 2; }; unsigned_manifest_sha256="$2"; shift 2 ;;
@@ -1740,7 +1753,10 @@ main() {
     *) die 'mode/scenario is outside the release acceptance matrix' ;;
     esac
     [[ "${release_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die 'release version is malformed'
-    [ "${release_version}" = 1.0.1 ] || die 'this frozen acceptance harness is release-pinned to 1.0.1'
+    case "${target_disk_metadata}" in
+    absent | identified) ;;
+    *) die 'target disk metadata mode is invalid' ;;
+    esac
     for digest in "${snapshot_sha256}" "${build_metadata_sha256}" "${unsigned_manifest_sha256}"; do
         [[ "${digest}" =~ ^[a-f0-9]{64}$ ]] || die 'release input SHA-256 is malformed'
     done
@@ -1885,8 +1901,8 @@ main() {
             "${run_root}/payload/repository.contract"
     fi
     {
-        printf 'SCENARIO=%s\nRUN_ID=%s\nTARGET_SERIAL=%s\nTARGET_VENDOR=SNAPLYZE\nTARGET_MODEL=%s\n' \
-            "${scenario_id}" "${run_id}" "${target_serial}" "${target_model}"
+        printf 'SCENARIO=%s\nRUN_ID=%s\nTARGET_SERIAL=%s\nTARGET_VENDOR=SNAPLYZE\nTARGET_MODEL=%s\nTARGET_DISK_METADATA=%s\n' \
+            "${scenario_id}" "${run_id}" "${target_serial}" "${target_model}" "${target_disk_metadata}"
         printf 'HOSTNAME=%s\nUSERNAME=vmtest\nMICROCODE=none\n' "${guest_hostname}"
         printf 'SOURCE_COMMIT=%s\nSOURCE_TREE=%s\nINSTALLER_SHA256=%s\nHARNESS_SHA256=%s\nISO_SHA256=%s\n' \
             "${source_commit}" "${source_tree}" "${installer_sha256}" "${harness_sha256}" "${iso_sha256}"

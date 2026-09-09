@@ -11,6 +11,22 @@ repository_require_command() {
     command -v -- "$1" >/dev/null 2>&1 || repository_die "required command not found: $1"
 }
 
+repository_assert_sealed_public_root() {
+    local root="$1" commit="$2" tree="$3" canonical_hash="$4"
+    [ "${ARCH_LINUX_PUBLIC_CODE_ROOT:-}" = "$root" ] &&
+        [ "${ARCH_LINUX_PUBLIC_ACCEPTED_COMMIT:-}" = "$commit" ] &&
+        [ "${ARCH_LINUX_PUBLIC_ACCEPTED_TREE:-}" = "$tree" ] &&
+        [ "${ARCH_LINUX_PUBLIC_ACCEPTED_TREE_SHA256:-}" = "$canonical_hash" ] &&
+        [ -z "${GNUPGHOME+x}" ] && [ -z "${OFFLINE_SIGN_PASSPHRASE_FILE+x}" ] &&
+        [ -z "${ARCH_LINUX_SIGNING_KEY+x}" ] && [ -z "${ARCH_LINUX_SIGNING_PASSPHRASE+x}" ] ||
+        repository_die 'sealed public verification context differs' || return
+    /usr/bin/python3 -I "$root/repository/verify-sealed-offline-code.py" \
+        "$root" "$commit" "$tree" "$canonical_hash" ||
+        repository_die 'sealed public verification code identity differs' || return
+    /usr/bin/python3 -I "$root/repository/offline-signing-fd-guard.py" assert-public ||
+        repository_die 'sealed public verification inherited private descriptors' || return
+}
+
 repository_assert_regular_file() {
     local path="$1" label="${2:-file}"
     [ -f "$path" ] && [ ! -L "$path" ] && [ -s "$path" ] ||

@@ -15,14 +15,14 @@ guest_error() {
 }
 trap 'guest_error "$LINENO" "$BASH_COMMAND"' ERR
 
-[ "$#" -eq 21 ] || { printf 'usage: verify.sh PHASE SERIAL VENDOR MODEL USERNAME SCENARIO RUN_ID REPOSITORY_PRIMARY REPOSITORY_SIGNING INPUT_MODE RELEASE_VERSION PAGES_URL PUBLIC_KEY_URL SNAPSHOT_SHA256 SOURCE_COMMIT SOURCE_TREE INSTALLER_SHA256 PACKAGE_SET_SHA256 BUILD_METADATA_SHA256 UNSIGNED_MANIFEST_SHA256 PUBLIC_KEY_SHA256\n' >&2; exit 2; }
+[ "$#" -eq 22 ] || { printf 'usage: verify.sh PHASE SERIAL VENDOR MODEL USERNAME SCENARIO RUN_ID REPOSITORY_PRIMARY REPOSITORY_SIGNING INPUT_MODE RELEASE_VERSION TARGET_DISK_METADATA PAGES_URL PUBLIC_KEY_URL SNAPSHOT_SHA256 SOURCE_COMMIT SOURCE_TREE INSTALLER_SHA256 PACKAGE_SET_SHA256 BUILD_METADATA_SHA256 UNSIGNED_MANIFEST_SHA256 PUBLIC_KEY_SHA256\n' >&2; exit 2; }
 readonly phase="$1" expected_serial="$2" expected_vendor="$3" expected_model="$4"
 readonly username="$5" scenario="$6" run_id="$7" repository_primary="$8"
 readonly repository_signing="$9" input_mode="${10}" release_version="${11}"
-readonly pages_url="${12}" public_key_url="${13}" snapshot_sha256="${14}"
-readonly source_commit="${15}" source_tree="${16}" installer_sha256="${17}"
-readonly package_set_sha256="${18}" build_metadata_sha256="${19}"
-readonly unsigned_manifest_sha256="${20}" public_key_sha256="${21}"
+readonly target_disk_metadata="${12}" pages_url="${13}" public_key_url="${14}"
+readonly snapshot_sha256="${15}" source_commit="${16}" source_tree="${17}"
+readonly installer_sha256="${18}" package_set_sha256="${19}"
+readonly build_metadata_sha256="${20}" unsigned_manifest_sha256="${21}" public_key_sha256="${22}"
 case "${scenario}" in
 minimal-ext4-systemdboot)
     marker_prefix='MINIMAL'
@@ -106,7 +106,11 @@ esac
 [[ "${repository_primary}" =~ ^[A-F0-9]{40}$ ]]
 [[ "${repository_signing}" =~ ^[A-F0-9]{40}$ ]]
 [ "${repository_primary}" != "${repository_signing}" ]
-[ "${release_version}" = 1.0.1 ]
+[[ "${release_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+case "${target_disk_metadata}" in
+absent | identified) ;;
+*) exit 2 ;;
+esac
 [[ "${snapshot_sha256}" =~ ^[a-f0-9]{64}$ ]]
 [[ "${source_commit}" =~ ^[a-f0-9]{40}$ ]]
 [[ "${source_tree}" =~ ^[a-f0-9]{40}$ ]]
@@ -125,7 +129,7 @@ public)
     *) exit 2 ;;
     esac
     [ "${pages_url}" = "https://snaplyze.github.io/arch-linux/repo/\$arch" ]
-    [ "${public_key_url}" = 'https://github.com/snaplyze/arch-linux/releases/download/1.0.1/arch-linux.gpg' ]
+    [ "${public_key_url}" = "https://github.com/snaplyze/arch-linux/releases/download/${release_version}/arch-linux.gpg" ]
     ;;
 *) exit 2 ;;
 esac
@@ -141,6 +145,21 @@ partition_name() {
     else
         printf '%s%s' "${disk}" "${number}"
     fi
+}
+
+virtual_disk_is_virtio_backed() {
+    local disk="$1" name device_path component
+    name="${disk##*/}"
+    [[ "${name}" =~ ^[A-Za-z0-9._-]+$ ]] || return 1
+    device_path="$(readlink -f -- "/sys/class/block/${name}")" || return 1
+    case "${device_path}" in
+    /sys/devices/*/block/"${name}") ;;
+    *) return 1 ;;
+    esac
+    while IFS= read -r component; do
+        [[ "${component}" =~ ^virtio[0-9]+$ ]] && return 0
+    done < <(tr / '\n' <<<"${device_path#/sys/devices/}")
+    return 1
 }
 
 is_btrfs_stock() {
@@ -180,8 +199,11 @@ find_target() {
         serial="$(lsblk -dnro SERIAL -- "${device}" | trim_value)"
         vendor="$(lsblk -dnro VENDOR -- "${device}" | trim_value)"
         model="$(lsblk -dnro MODEL -- "${device}" | trim_value)"
-        if [ "${serial}" = "${expected_serial}" ] && [ "${vendor}" = "${expected_vendor}" ] &&
-            [ "${model}" = "${expected_model}" ]; then
+        if { [ "${target_disk_metadata}" = identified ] &&
+            [ "${serial}" = "${expected_serial}" ] && [ "${vendor}" = "${expected_vendor}" ] &&
+            [ "${model}" = "${expected_model}" ]; } ||
+            { [ "${target_disk_metadata}" = absent ] && virtual_disk_is_virtio_backed "${device}" &&
+            [ -z "${serial}" ]; }; then
             matches+=("${device}")
         fi
     done

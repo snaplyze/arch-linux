@@ -45,7 +45,7 @@ load_identity() {
     local file="$1" line key value
     local -A seen=()
     local -a allowed=(
-        SCENARIO RUN_ID TARGET_SERIAL TARGET_VENDOR TARGET_MODEL HOSTNAME USERNAME MICROCODE
+        SCENARIO RUN_ID TARGET_SERIAL TARGET_VENDOR TARGET_MODEL TARGET_DISK_METADATA HOSTNAME USERNAME MICROCODE
         SOURCE_COMMIT SOURCE_TREE INSTALLER_SHA256 HARNESS_SHA256 ISO_SHA256
         INPUT_MODE RELEASE_VERSION BOOTSTRAP_SHA256 SNAPSHOT_SHA256 BUILD_METADATA_SHA256
         UNSIGNED_MANIFEST_SHA256 PUBLIC_KEY_SHA256 PRIMARY_FINGERPRINT SIGNING_SUBKEY_FINGERPRINT
@@ -69,15 +69,41 @@ load_identity() {
 }
 
 disk_identity() {
-    local disk="$1" size wwn serial model material
+    local disk="$1" size wwn serial model diskseq run_identity material
     size="$(lsblk -bdno SIZE -- "${disk}" | trim_value)"
     wwn="$(lsblk -bdno WWN -- "${disk}" | trim_value)"
     serial="$(lsblk -bdno SERIAL -- "${disk}" | trim_value)"
     model="$(lsblk -bdno MODEL -- "${disk}" | trim_value)"
     [[ "${size}" =~ ^[1-9][0-9]*$ ]] || fail 'target size is malformed'
-    printf -v material 'size=%s\nwwn=%s\nserial=%s\nmodel=%s\n' \
-        "${size}" "${wwn}" "${serial}" "${model}"
+    if [ -n "${model}" ] && { [ -n "${wwn}" ] || [ -n "${serial}" ]; }; then
+        printf -v material 'size=%s\nwwn=%s\nserial=%s\nmodel=%s\n' \
+            "${size}" "${wwn}" "${serial}" "${model}"
+    else
+        diskseq="$(cat -- "/sys/class/block/${disk##*/}/diskseq")"
+        run_identity="$(cat -- /proc/sys/kernel/random/boot_id)"
+        virtual_disk_is_virtio_backed "${disk}" || fail 'target virtual backend is not virtio'
+        [[ "${diskseq}" =~ ^[1-9][0-9]*$ ]] || fail 'target virtual disk sequence is malformed'
+        [[ "${run_identity}" =~ ^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$ ]] ||
+            fail 'target virtual boot identity is malformed'
+        printf -v material 'kind=virtio\nsize=%s\nwwn=%s\nserial=%s\nmodel=%s\ndiskseq=%s\nboot-id=%s\n' \
+            "${size}" "${wwn}" "${serial}" "${model}" "${diskseq}" "${run_identity}"
+    fi
     printf '%s' "${material}" | sha256sum --binary | awk '{ print $1 }'
+}
+
+virtual_disk_is_virtio_backed() {
+    local disk="$1" name device_path component
+    name="${disk##*/}"
+    [[ "${name}" =~ ^[A-Za-z0-9._-]+$ ]] || return 1
+    device_path="$(readlink -f -- "/sys/class/block/${name}")" || return 1
+    case "${device_path}" in
+    /sys/devices/*/block/"${name}") ;;
+    *) return 1 ;;
+    esac
+    while IFS= read -r component; do
+        [[ "${component}" =~ ^virtio[0-9]+$ ]] && return 0
+    done < <(tr / '\n' <<<"${device_path#/sys/devices/}")
+    return 1
 }
 
 partition_identity() {
@@ -92,13 +118,18 @@ partition_identity() {
 }
 
 prepare_dual_boot_neighbor() {
-    local target="$1" esp neighbor root_mount esp_uuid neighbor_uuid
+    local target="$1" serial esp neighbor root_mount esp_uuid neighbor_uuid
     [ "${IDENTITY[SCENARIO]}" = minimal-dualboot-ext4-systemdboot ]
-    [ "$(lsblk -dnro SERIAL -- "${target}" | trim_value)" = "${IDENTITY[TARGET_SERIAL]}" ]
-    [ "$(lsblk -dnro VENDOR -- "${target}" | trim_value)" = SNAPLYZE ]
+    if [ "${IDENTITY[TARGET_DISK_METADATA]}" = identified ]; then
+        [ "$(lsblk -dnro SERIAL -- "${target}" | trim_value)" = "${IDENTITY[TARGET_SERIAL]}" ]
+        [ "$(lsblk -dnro VENDOR -- "${target}" | trim_value)" = SNAPLYZE ]
+    else
+        serial="$(lsblk -dnro SERIAL -- "${target}" | trim_value)"
+        virtual_disk_is_virtio_backed "${target}" && [ -z "${serial}" ]
+    fi
     [ -z "$(lsblk -nrpo MOUNTPOINTS -- "${target}" | tr -d '[:space:]')" ]
     [ "$(lsblk -nrpo TYPE -- "${target}" | awk '$1 == "part" { n++ } END { print n+0 }')" -eq 0 ]
-    # This runs only inside the disposable guest, on its new serial-bound target.
+    # This runs only inside the disposable guest, on its newly created target disk.
     sgdisk -o -n 1:0:+1G -t 1:ef00 -n 2:0:+12G -t 2:8300 -n 3:0:0 -t 3:8300 -- "${target}"
     partprobe -- "${target}"
     udevadm settle
@@ -247,7 +278,7 @@ main() {
     local -a candidates=()
 
     [ "$(id -u)" -eq 0 ] || fail 'bootstrap must run as root'
-    for command_name in awk bash cat curl find findmnt install lsblk mountpoint rm sed sha256sum stat stty systemctl tail update-ca-trust; do
+    for command_name in awk bash cat curl find findmnt install lsblk mountpoint readlink rm sed sha256sum stat stty systemctl tail update-ca-trust; do
         command -v -- "${command_name}" >/dev/null 2>&1 || fail "guest command is missing: ${command_name}"
     done
     [ -c /dev/ttyS0 ] && [ -c /dev/ttyS1 ] || fail 'required serial devices are unavailable'
@@ -291,7 +322,12 @@ main() {
         ;;
     *) fail 'input mode is invalid' ;;
     esac
-    [ "${IDENTITY[RELEASE_VERSION]}" = 1.0.1 ] || fail 'release version differs'
+    [[ "${IDENTITY[RELEASE_VERSION]}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
+        fail 'release version is malformed'
+    case "${IDENTITY[TARGET_DISK_METADATA]}" in
+    absent | identified) ;;
+    *) fail 'target disk metadata mode is invalid' ;;
+    esac
     case "${IDENTITY[SCENARIO]}" in
     minimal-ext4-systemdboot)
         marker_prefix='MINIMAL'
@@ -380,12 +416,12 @@ main() {
     if [ "${IDENTITY[INPUT_MODE]}" = public ]; then
         expected_public_contract="$(printf '%s\n' \
             'schema=1' \
-            'bootstrap_url=https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.1/install.sh' \
-            'installer_url=https://github.com/snaplyze/arch-linux/releases/download/1.0.1/arch-linux-installer.sh' \
-            'public_key_url=https://github.com/snaplyze/arch-linux/releases/download/1.0.1/arch-linux.gpg' \
+            "bootstrap_url=https://raw.githubusercontent.com/snaplyze/arch-linux/${IDENTITY[RELEASE_VERSION]}/install.sh" \
+            "installer_url=https://github.com/snaplyze/arch-linux/releases/download/${IDENTITY[RELEASE_VERSION]}/arch-linux-installer.sh" \
+            "public_key_url=https://github.com/snaplyze/arch-linux/releases/download/${IDENTITY[RELEASE_VERSION]}/arch-linux.gpg" \
             "pages_url=https://snaplyze.github.io/arch-linux/repo/\$arch")"
         [ "$(cat -- "${payload_mount}/public.contract")" = "${expected_public_contract}" ] ||
-            fail 'public URL contract differs from release 1.0.1'
+            fail 'public URL contract differs from the release identity'
     fi
 
     for block_path in /sys/class/block/*; do
@@ -396,9 +432,12 @@ main() {
         serial="$(lsblk -dnro SERIAL -- "${device}" | trim_value)"
         vendor="$(lsblk -dnro VENDOR -- "${device}" | trim_value)"
         model="$(lsblk -dnro MODEL -- "${device}" | trim_value)"
-        if [ "${serial}" = "${IDENTITY[TARGET_SERIAL]}" ] &&
+        if { [ "${IDENTITY[TARGET_DISK_METADATA]}" = identified ] &&
+            [ "${serial}" = "${IDENTITY[TARGET_SERIAL]}" ] &&
             [ "${vendor}" = "${IDENTITY[TARGET_VENDOR]}" ] &&
-            [ "${model}" = "${IDENTITY[TARGET_MODEL]}" ]; then
+            [ "${model}" = "${IDENTITY[TARGET_MODEL]}" ]; } ||
+            { [ "${IDENTITY[TARGET_DISK_METADATA]}" = absent ] &&
+            virtual_disk_is_virtio_backed "${device}" && [ -z "${serial}" ]; }; then
             candidates+=("${device}")
         fi
     done
@@ -407,6 +446,12 @@ main() {
     [ -z "$(lsblk -nro FSTYPE -- "${target}" | tr -d '[:space:]')" ] || fail 'fresh target has a filesystem'
     [ "$(lsblk -nrpo TYPE -- "${target}" | awk '$1 == "part" { n++ } END { print n + 0 }')" -eq 0 ] ||
         fail 'fresh target has partitions'
+    if [ "${IDENTITY[TARGET_DISK_METADATA]}" = absent ]; then
+        printf '%s_QEMU_VIRTIO_TARGET run_id=%s target=%s diskseq=%s backend=%s serial=absent\n' \
+            "${marker_prefix}" "${IDENTITY[RUN_ID]}" "${target}" \
+            "$(cat -- "/sys/class/block/${target##*/}/diskseq")" \
+            "$(readlink -f -- "/sys/class/block/${target##*/}")"
+    fi
     target_identity="$(disk_identity "${target}")"
 
     [ ! -e "${work_root}" ] && [ ! -L "${work_root}" ] || fail 'private installer work root already exists'
@@ -421,7 +466,7 @@ main() {
         curl --proto '=https' --proto-redir '=https' --fail --location --silent --show-error \
             --connect-timeout 10 --max-time 120 --max-filesize 1048576 \
             --output "${public_bootstrap}" -- \
-            'https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.1/install.sh'
+            "https://raw.githubusercontent.com/snaplyze/arch-linux/${IDENTITY[RELEASE_VERSION]}/install.sh"
         [ -f "${public_bootstrap}" ] && [ ! -L "${public_bootstrap}" ] ||
             fail 'public bootstrap download is unsafe'
         [ "$(sha256sum --binary -- "${public_bootstrap}" | awk '{ print $1 }')" = \
@@ -430,21 +475,26 @@ main() {
         bootstrap_output="$(/usr/bin/env -i HOME=/root LANG=C LC_ALL=C PATH=/usr/bin:/usr/sbin \
             /usr/bin/bash --noprofile --norc "${public_bootstrap}" --verify-only)" ||
             fail 'public bootstrap verification failed'
-        [[ "${bootstrap_output}" =~ ^Verified\ Arch\ Linux\ Installer\ 1\.0\.1:\ sha256\ ([a-f0-9]{64})$ ]] ||
-            fail 'public bootstrap verification output is malformed'
-        accepted_installer_sha="${BASH_REMATCH[1]}"
+        case "${bootstrap_output}" in
+        "Verified Arch Linux Installer ${IDENTITY[RELEASE_VERSION]}: sha256 "*)
+            accepted_installer_sha="${bootstrap_output#"Verified Arch Linux Installer ${IDENTITY[RELEASE_VERSION]}: sha256 "}"
+            ;;
+        *) fail 'public bootstrap verification output is malformed' ;;
+        esac
+        [[ "${accepted_installer_sha}" =~ ^[a-f0-9]{64}$ ]] ||
+            fail 'public bootstrap accepted installer digest is malformed'
         [ "${accepted_installer_sha}" = "${IDENTITY[INSTALLER_SHA256]}" ] ||
             fail 'public bootstrap accepted a different installer than the frozen source'
         curl --proto '=https' --proto-redir '=https' --fail --location --silent --show-error \
             --connect-timeout 10 --max-time 120 --max-filesize 1048576 \
             --output "${public_installer}" -- \
-            'https://github.com/snaplyze/arch-linux/releases/download/1.0.1/arch-linux-installer.sh'
+            "https://github.com/snaplyze/arch-linux/releases/download/${IDENTITY[RELEASE_VERSION]}/arch-linux-installer.sh"
         [ "$(sha256sum --binary -- "${public_installer}" | awk '{ print $1 }')" = \
             "${accepted_installer_sha}" ] || fail 'public Release installer differs from bootstrap verification'
         curl --proto '=https' --proto-redir '=https' --fail --location --silent --show-error \
             --connect-timeout 10 --max-time 120 --max-filesize 1048576 \
             --output "${public_key}" -- \
-            'https://github.com/snaplyze/arch-linux/releases/download/1.0.1/arch-linux.gpg'
+            "https://github.com/snaplyze/arch-linux/releases/download/${IDENTITY[RELEASE_VERSION]}/arch-linux.gpg"
         [ "$(sha256sum --binary -- "${public_key}" | awk '{ print $1 }')" = \
             "${IDENTITY[PUBLIC_KEY_SHA256]}" ] || fail 'public Release key differs from frozen trust'
         install -o 0 -g 0 -m 0700 -- "${public_installer}" "${work_root}/arch-linux-installer.sh"

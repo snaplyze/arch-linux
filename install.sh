@@ -11,11 +11,11 @@ set -o pipefail
 IFS=$' \t\n'
 umask 077
 
-readonly BOOTSTRAP_VERSION='1.0.1'
-readonly BOOTSTRAP_RELEASE_URL='https://github.com/snaplyze/arch-linux/releases/download/1.0.1'
-readonly BOOTSTRAP_CERTIFICATE_SHA256='2d80a88fb033a6c138399b391cd4347f4461b60d1294d22af166f589b12c7c67'
-readonly BOOTSTRAP_PRIMARY_FINGERPRINT='8C78098D1EAC609CBC73536FB7D2C17447B90CB2'
-readonly BOOTSTRAP_SIGNING_SUBKEY_FINGERPRINT='0AA6F2237FB9674623B6E824428D56A84F558F7C'
+readonly BOOTSTRAP_VERSION='1.0.2'
+readonly BOOTSTRAP_RELEASE_URL='https://github.com/snaplyze/arch-linux/releases/download/1.0.2'
+readonly BOOTSTRAP_CERTIFICATE_SHA256='8959dfd96fd94349d505f18a6d3ef0a3bfcd9fad53291343388f787f9dbb9c6f'
+readonly BOOTSTRAP_PRIMARY_FINGERPRINT='9C603F25F83F4B0F4745D790D97919282A24E748'
+readonly BOOTSTRAP_SIGNING_SUBKEY_FINGERPRINT='B294D26BDAD5469EE334B0453DA0736C98322CCA'
 readonly -a BOOTSTRAP_RELEASE_FILES=(
     arch-linux-installer.sh
     arch-linux-installer.sh.sha256
@@ -513,7 +513,7 @@ bootstrap_require_environment() {
         [ -x "$command_path" ] || bootstrap_fail "required command is unavailable: ${command_path}"
     done
     [ "$(/usr/bin/uname -s)" = Linux ] && [ "$(/usr/bin/uname -m)" = x86_64 ] || \
-        bootstrap_fail 'release 1.0.1 supports Linux x86_64 only'
+        bootstrap_fail "release ${BOOTSTRAP_VERSION} supports Linux x86_64 only"
     if [ "$mode" = 'launch' ] && ! (: </dev/tty) 2>/dev/null; then
         bootstrap_fail 'an interactive terminal is required'
     fi
@@ -591,7 +591,7 @@ bootstrap_main() {
     bootstrap_run_as_root /usr/bin/grep -qxF -- \
         "readonly VERSION='${BOOTSTRAP_VERSION}'" \
         "$BOOTSTRAP_LAUNCH_DIR/arch-linux-installer.sh" || \
-        bootstrap_fail 'installer version does not match immutable release 1.0.1'
+        bootstrap_fail "installer version does not match immutable release ${BOOTSTRAP_VERSION}"
     bootstrap_validate_fingerprint_file "$BOOTSTRAP_LAUNCH_DIR/primary-fingerprint" \
         "$BOOTSTRAP_PRIMARY_FINGERPRINT" || bootstrap_fail 'primary fingerprint mismatch'
     bootstrap_validate_fingerprint_file "$BOOTSTRAP_LAUNCH_DIR/signing-subkey-fingerprint" \

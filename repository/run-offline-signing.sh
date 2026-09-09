@@ -147,7 +147,7 @@ readonly canonical_entry_path script_dir code_root
 
 if [ -n "${CI+x}" ] || [ -n "${GITHUB_ACTIONS+x}" ] || [ -n "${GNUPGHOME+x}" ] ||
     [ -n "${OFFLINE_SIGN_PASSPHRASE_FILE+x}" ]; then
-    printf 'ERROR: private-key signing is forbidden in CI and GitHub Actions\n' >&2
+    printf 'ERROR: signing launcher inherited ambient automation or private context\n' >&2
     exit 1
 fi
 for required in awk flock gpgconf gpg-connect-agent id install mount python3 realpath sleep stat unshare wc; do
