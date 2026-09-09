@@ -253,6 +253,7 @@ PY
 python3 -B - "$verifier" <<'PY'
 import importlib.util
 import io
+import re
 import tarfile
 import sys
 
@@ -268,7 +269,10 @@ new_apps={app_root+name for name in (
 )}
 hashes=module.expected_payload_hashes(icon_package)
 assert new_apps <= hashes.keys()
-assert module.expected_pkgver(icon_package) == '20260829-1'
+icon_pkgbuild = (module.PACKAGES / icon_package / 'PKGBUILD').read_text()
+icon_revisions = re.findall(r'^pkgrel=([1-9][0-9]*)$', icon_pkgbuild, re.M)
+assert len(icon_revisions) == 1, 'icon package must declare one positive revision'
+assert module.expected_pkgver(icon_package) == f'20260829-{icon_revisions[0]}'
 required=(set(module.PACKAGE_METADATA_PATHS) | module.PACKAGE_REQUIRED_PATHS[icon_package] |
           set(module.EXPECTED_FILE_SOURCES[icon_package]) | hashes.keys())
 for absent in sorted(new_apps):
