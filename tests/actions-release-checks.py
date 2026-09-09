@@ -6,9 +6,13 @@ from __future__ import annotations
 import importlib.util
 from contextlib import redirect_stderr, redirect_stdout
 import io
+import json
+import os
 from pathlib import Path
+import shlex
 import tarfile
 import tempfile
+import textwrap
 import sys
 import subprocess
 import unittest
@@ -84,6 +88,84 @@ class ActionsReleaseChecks(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.module.unpack_evidence(archive, root / "output")
                 self.assertFalse((root / "outside").exists())
+
+    def test_finalizer_workflow_stages_one_run_under_each_consumer_scenario_name(self) -> None:
+        workflow = (ROOT / ".github/workflows/release.yml").read_text()
+        def step_script(name: str) -> str:
+            marker = f"      - name: {name}\n"
+            self.assertEqual(workflow.count(marker), 1)
+            step = workflow.split(marker, 1)[1].split("\n      - name:", 1)[0]
+            return textwrap.dedent(step.split("        run: |\n", 1)[1])
+        staging = step_script("Stage bounded public evidence for finalization")
+        finalizing = step_script("Finalize accepted source and three functional PASS results")
+        scenarios = ("minimal-ext4-systemdboot", "stock-gnome-btrfs-luks2-plymouth-grub",
+                     "marble-gnome-btrfs-luks2-plymouth-systemdboot")
+        for closure in ("run-directory", "top-level-file", "two-roots", "linked-root", "existing-evidence", "existing-incoming"):
+            with self.subTest(closure=closure), tempfile.TemporaryDirectory(prefix="finalizer-handoff-", dir="/var/tmp") as temporary:
+                fixture = Path(temporary)
+                artifacts = fixture / "qemu-artifacts"
+                artifacts.mkdir()
+                payload = b"original evidence bytes\x00\xff\n"
+                for index, scenario in enumerate(scenarios):
+                    with tarfile.open(artifacts / f"{scenario}.tar.gz", "w:gz") as archive:
+                        run = f"original-run-{index}"
+                        member = tarfile.TarInfo(run)
+                        member.type = tarfile.DIRTYPE
+                        member.mode = 0o700
+                        if index == 0 and closure == "top-level-file":
+                            member.type = tarfile.REGTYPE
+                        elif index == 0 and closure == "linked-root":
+                            member.type = tarfile.SYMTYPE
+                            member.linkname = "elsewhere"
+                        archive.addfile(member)
+                        if member.isdir():
+                            record = tarfile.TarInfo(f"{run}/result.json")
+                            record.size = len(payload)
+                            record.mode = 0o600
+                            archive.addfile(record, io.BytesIO(payload))
+                        if index == 0 and closure == "two-roots":
+                            other = tarfile.TarInfo("extra-run")
+                            other.type = tarfile.DIRTYPE
+                            archive.addfile(other)
+                inputs = fixture / "inputs"
+                previous = None
+                if closure in {"existing-evidence", "existing-incoming"}:
+                    previous = inputs / ("evidence" if closure == "existing-evidence" else "incoming-evidence") / "previous"
+                    previous.parent.mkdir(parents=True)
+                    previous.write_bytes(payload)
+                bounded = staging.replace("/opt/arch-linux-release-inputs", str(inputs))
+                self.assertEqual(bounded.count("chown -R root:root"), 1)
+                bounded = bounded.replace("chown -R root:root", f"chown -R {os.getuid()}:{os.getgid()}", 1)
+                environment = dict(os.environ, RUNNER_TEMP=str(fixture))
+                completed = subprocess.run(["/usr/bin/bash", "-c", bounded], cwd=ROOT, env=environment,
+                                           capture_output=True, timeout=10, check=False)
+                if closure != "run-directory":
+                    self.assertNotEqual(completed.returncode, 0)
+                    if previous is not None:
+                        self.assertEqual(previous.read_bytes(), payload)
+                    continue
+                self.assertEqual(completed.returncode, 0, completed.stderr.decode())
+                for scenario in scenarios:
+                    consumer = inputs / "evidence" / scenario
+                    self.assertTrue(consumer.is_dir())
+                    self.assertFalse(consumer.is_symlink())
+                    self.assertEqual({path.name for path in consumer.iterdir()}, {"result.json"})
+                    self.assertEqual((consumer / "result.json").read_bytes(), payload)
+                    self.assertEqual((consumer / "result.json").stat().st_mode & 0o777, 0o644)
+                self.assertEqual({path.name for path in inputs.iterdir()}, {"evidence"})
+                entrypoint = "/usr/bin/python3 -I /opt/arch-linux-release-sealed/repository/actions-sign-release.py finalize"
+                self.assertEqual(finalizing.count(entrypoint), 1)
+                capture = "python3 -c " + shlex.quote("import json,sys; print(json.dumps(sys.argv[1:]))") + " finalize"
+                handoff = finalizing.replace(entrypoint, capture, 1).replace("/opt/arch-linux-release-inputs", str(inputs))
+                for name in ("SOURCE_COMMIT", "SOURCE_TREE", "SOURCE_TREE_SHA256", "RELEASE_VERSION",
+                             "BUILD_METADATA_SHA256", "UNSIGNED_MANIFEST_SHA256", "SNAPSHOT_SHA256"):
+                    environment[name] = "fixture"
+                consumed = subprocess.run(["/usr/bin/bash", "-c", handoff], cwd=ROOT, env=environment,
+                                          capture_output=True, timeout=10, check=False)
+                self.assertEqual(consumed.returncode, 0, consumed.stderr.decode())
+                arguments = json.loads(consumed.stdout)
+                for flag, scenario in zip(("--minimal-run", "--stock-run", "--marble-run"), scenarios, strict=True):
+                    self.assertEqual(arguments[arguments.index(flag) + 1], str(inputs / "evidence" / scenario))
 
     def test_same_main_selection_resumes_draft_or_reads_published_release(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

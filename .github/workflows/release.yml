@@ -454,12 +454,27 @@ jobs:
       - name: Stage bounded public evidence for finalization
         run: |
           set -euo pipefail
+          shopt -s nullglob dotglob
+          incoming_root=/opt/arch-linux-release-inputs/incoming-evidence
+          evidence_root=/opt/arch-linux-release-inputs/evidence
+          test ! -e "${incoming_root}"
+          test ! -L "${incoming_root}"
+          test ! -e "${evidence_root}"
+          test ! -L "${evidence_root}"
+          install -d -m0755 "${evidence_root}"
           for scenario in minimal-ext4-systemdboot stock-gnome-btrfs-luks2-plymouth-grub \
             marble-gnome-btrfs-luks2-plymouth-systemdboot; do
             python3 repository/actions-release.py unpack-evidence \
               --archive "${RUNNER_TEMP}/qemu-artifacts/${scenario}.tar.gz" \
-              --output-dir "/opt/arch-linux-release-inputs/evidence/${scenario}"
+              --output-dir "${incoming_root}/${scenario}"
+            runs=("${incoming_root}/${scenario}/"*)
+            test "${#runs[@]}" -eq 1
+            test -d "${runs[0]}"
+            test ! -L "${runs[0]}"
+            mv -T -- "${runs[0]}" "${evidence_root}/${scenario}"
+            rmdir -- "${incoming_root}/${scenario}"
           done
+          rmdir -- "${incoming_root}"
           chown -R root:root /opt/arch-linux-release-inputs
           find /opt/arch-linux-release-inputs -type d -exec chmod 0755 -- {} +
           find /opt/arch-linux-release-inputs -type f -exec chmod 0644 -- {} +
@@ -478,10 +493,6 @@ jobs:
         run: |
           set +x
           set -euo pipefail
-          minimal_run=(/opt/arch-linux-release-inputs/evidence/minimal-ext4-systemdboot/*)
-          stock_run=(/opt/arch-linux-release-inputs/evidence/stock-gnome-btrfs-luks2-plymouth-grub/*)
-          marble_run=(/opt/arch-linux-release-inputs/evidence/marble-gnome-btrfs-luks2-plymouth-systemdboot/*)
-          test "${#minimal_run[@]}:${#stock_run[@]}:${#marble_run[@]}" = 1:1:1
           /usr/bin/python3 -I /opt/arch-linux-release-sealed/repository/actions-sign-release.py finalize \
             --source-commit "${SOURCE_COMMIT}" --source-tree "${SOURCE_TREE}" \
             --source-tree-sha256 "${SOURCE_TREE_SHA256}" \
@@ -489,7 +500,9 @@ jobs:
             --output /opt/arch-linux-release-output/result --release-version "${RELEASE_VERSION}" \
             --build-metadata-sha256 "${BUILD_METADATA_SHA256}" \
             --unsigned-manifest-sha256 "${UNSIGNED_MANIFEST_SHA256}" --snapshot-sha256 "${SNAPSHOT_SHA256}" \
-            --minimal-run "${minimal_run[0]}" --stock-run "${stock_run[0]}" --marble-run "${marble_run[0]}"
+            --minimal-run /opt/arch-linux-release-inputs/evidence/minimal-ext4-systemdboot \
+            --stock-run /opt/arch-linux-release-inputs/evidence/stock-gnome-btrfs-luks2-plymouth-grub \
+            --marble-run /opt/arch-linux-release-inputs/evidence/marble-gnome-btrfs-luks2-plymouth-systemdboot
 
       - name: Export finalized public assets
         run: |
