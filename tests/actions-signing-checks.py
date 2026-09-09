@@ -7,6 +7,8 @@ import importlib.util
 import io
 import os
 from pathlib import Path
+import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -17,6 +19,7 @@ from unittest import mock
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parent.parent
 ADAPTER = ROOT / "repository/actions-sign-release.py"
+NAMESPACES = ROOT / "repository/prepare-actions-namespaces.sh"
 
 
 class AdapterChecks(unittest.TestCase):
@@ -29,6 +32,81 @@ class AdapterChecks(unittest.TestCase):
         cls.adapter = importlib.util.module_from_spec(spec)
         sys.modules[spec.name] = cls.adapter
         spec.loader.exec_module(cls.adapter)
+
+    def test_namespace_preparation_rejects_missing_or_foreign_release_context(self) -> None:
+        expected = {"CI": "true", "GITHUB_ACTIONS": "true", "RUNNER_ENVIRONMENT": "github-hosted",
+                    "GITHUB_REPOSITORY": "snaplyze/arch-linux", "GITHUB_WORKFLOW": "Release",
+                    "GITHUB_JOB": "snapshot", "GITHUB_REF": "refs/heads/main"}
+        cases = [{}] + [dict(expected, **{name: "foreign"}) for name in expected]
+        for context in cases:
+            with self.subTest(context=context):
+                completed = subprocess.run(["/usr/bin/bash", str(NAMESPACES)], env=context,
+                                           capture_output=True, timeout=10, check=False)
+                self.assertEqual(completed.returncode, 1)
+                self.assertIn(b"namespace preparation requires the hosted Release signing job", completed.stderr)
+                self.assertNotIn(b"ACTIONS_NAMESPACES_RESULT", completed.stdout)
+
+    def test_namespace_preparation_rejects_secret_presence_without_echoing_bytes(self) -> None:
+        sentinel = os.urandom(24).hex()
+        for name in ("ARCH_LINUX_SIGNING_KEY", "ARCH_LINUX_SIGNING_PASSPHRASE"):
+            for value in ("", sentinel):
+                with self.subTest(name=name, present=bool(value)):
+                    completed = subprocess.run(["/usr/bin/bash", str(NAMESPACES)], env={name: value},
+                                               capture_output=True, timeout=10, check=False)
+                    self.assertEqual(completed.returncode, 1)
+                    self.assertIn(b"namespace preparation refuses signing secret environment", completed.stderr)
+                    self.assertNotIn(sentinel.encode(), completed.stdout + completed.stderr)
+
+    def test_each_signing_job_prepares_namespaces_before_sealing_and_secret_access(self) -> None:
+        workflow = (ROOT / ".github/workflows/release.yml").read_text()
+        invocation = "run: bash repository/prepare-actions-namespaces.sh"
+        self.assertEqual(workflow.count(invocation), 2)
+        for job in ("snapshot", "finalize"):
+            with self.subTest(job=job):
+                blocks = re.findall(rf"(?ms)^  {job}:\n(.*?)(?=^  [a-z_]+:\n|\Z)", workflow)
+                self.assertEqual(len(blocks), 1)
+                block = blocks[0]
+                self.assertEqual(block.count(invocation), 1)
+                order = [block.index(marker) for marker in (
+                    "python3 repository/release-source.py restore", invocation,
+                    "/usr/bin/python3 -I /opt/arch-linux-canonical/repository/actions-sign-release.py prepare",
+                    "ARCH_LINUX_SIGNING_KEY: ${{ secrets.ARCH_LINUX_SIGNING_KEY }}")]
+                self.assertEqual(order, sorted(order))
+
+    def test_namespace_policy_failure_and_signals_restore_only_the_expected_state(self) -> None:
+        source = NAMESPACES.read_text()
+        marker = "# Ubuntu's host AppArmor policy"
+        self.assertEqual(source.count(marker), 1)
+        block = source[source.index(marker):]
+        assignment = "readonly policy=/proc/sys/kernel/apparmor_restrict_unprivileged_userns"
+        self.assertEqual(block.count(assignment), 1)
+        cases = [("return 0", 0, "0", None), ("return 1", 1, "1", None),
+                 ("exit 37", 37, "1", None),
+                 ('printf "1\\n" >"$policy"; exit 24', 24, "1", None),
+                 ('printf "7\\n" >"$policy"; exit 23', 23, "7", b"rollback refused unexpected policy state")]
+        cases.extend((f'kill -{name} "$$"', status, "1", None)
+                     for name, status in (("HUP", 129), ("INT", 130), ("TERM", 143)))
+        cases = [(*case, "") for case in cases]
+        wrong_initial_write = r'''printf() { if [[ "$1" = '0\n' ]]; then builtin printf '1\n'; else builtin printf "$@"; fi; }'''
+        wrong_restore_write = r'''printf() { if [[ "$1" = '1\n' ]]; then builtin printf '0\n'; else builtin printf "$@"; fi; }'''
+        cases.extend((("return 0", 1, "1", b"policy readback differs", wrong_initial_write),
+                      ("exit 37", 37, "0", b"policy rollback failed", wrong_restore_write)))
+        for probe, expected_status, expected_policy, diagnostic, write_fixture in cases:
+            with self.subTest(probe=probe), tempfile.TemporaryDirectory(prefix="namespace-policy-") as temporary:
+                policy = Path(temporary) / "policy"
+                policy.write_text("1\n")
+                bounded = block.replace(assignment, "readonly policy=" + shlex.quote(str(policy)), 1)
+                script = ('set -euo pipefail\n' + write_fixture + '\n'
+                          'fail() { printf "ERROR: %s\\n" "$1" >&2; exit 1; }\n'
+                          f'probe() {{ {probe}; }}\n' + bounded)
+                completed = subprocess.run(["/usr/bin/bash", "-c", script], env={"PATH": "/usr/bin:/bin"},
+                                           capture_output=True, timeout=10, check=False)
+                self.assertEqual(completed.returncode, expected_status)
+                self.assertEqual(policy.read_text().strip(), expected_policy)
+                if diagnostic is not None:
+                    self.assertIn(diagnostic, completed.stderr)
+                if expected_status != 0:
+                    self.assertNotIn(b"ACTIONS_NAMESPACES_RESULT", completed.stdout)
 
     def test_secret_protocol_is_bounded_and_exact(self) -> None:
         adapter = self.adapter
