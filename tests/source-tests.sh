@@ -14,6 +14,7 @@ bash tests/static-checks.sh
 bash tests/function-checks.sh
 python3 tests/installer-boundary-checks.py
 python3 tests/desktop-package-checks.py
+python3 tests/installation-remediation-checks.py
 python3 tests/retained-multilib-checks.py
 bash tests/vm/harness-checks.sh
 python3 tests/release-source-checks.py

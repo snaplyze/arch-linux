@@ -23,6 +23,12 @@
 - Add executable regressions for umask inheritance, private state, keyboard
   selection and package-command failure propagation.
 
+- Use mkinitcpio's systemd-native `sd-volatile` path for GRUB Btrfs snapshots and configure
+  grub-btrfs entries with a read-only lower root plus a temporary writable overlay.
+- Enable one filesystem-scoped Btrfs scrub timer instead of scheduling duplicate subvolume jobs.
+- Make required first-login GNOME settings transactional with readback, private combined logging,
+  idempotent retry state and a success marker; add the explicit CalendarServer dependency.
+
 ## 1.0.0
 
 - Provides Minimal TTY, Stock GNOME and optional Marble profiles, with Marble GDM as a separate

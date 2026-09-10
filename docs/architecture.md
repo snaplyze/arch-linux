@@ -81,6 +81,28 @@ that transaction fails before any project package is committed. Once a project p
 the authenticated repository and trust path are retained so the package can be updated or removed;
 the installer does not leave an unsigned or unauthenticated bridge.
 
+For Btrfs with GRUB, the core stage builds the systemd initramfs with mkinitcpio's `sd-volatile`
+contract. It configures grub-btrfs snapshot entries with `systemd.volatile=overlay` and read-only
+root flags, so a selected snapshot is mounted as the lower layer while writes go to a temporary
+overlay. The snapshot and its lower layer remain unchanged; `/home` and the separate ESP retain
+their normal mount scope. With a separate ESP, generated entries use the current matching kernel
+and initramfs pair available in `/boot`; the VM additionally checks that the running kernel release
+has a matching `/usr/lib/modules` tree in the selected root and in the initramfs payload. This is a
+userspace snapshot rollback contract. A snapshot that predates a kernel update can contain only an
+older module tree, so it requires a separately retained kernel/initramfs pair before it is a valid
+historical-kernel rollback target; the installer does not synthesize that pair through an unverified
+boot service.
+
+Btrfs scrub is filesystem-scoped. A Btrfs installation enables one `btrfs-scrub@-.timer` for the
+root filesystem; `/home` and `/.snapshots` are subvolumes and do not receive duplicate timers.
+
+GNOME's one-time user initializer runs in the real user session. Required settings use a set,
+readback and private combined log; an atomic per-step state file makes retries idempotent. The
+success marker and removal of the autostart entry happen only after every required setting passes.
+An unsuccessful run keeps the autostart entry for a later attempt. The desktop package set includes
+`evolution-data-server` explicitly because GNOME's CalendarServer integration may load its `libecal`
+library even when the rest of the GNOME group does not pull that dependency into a slim installation.
+
 ## Failure and recovery boundaries
 
 - Preflight failure changes no target disk.
