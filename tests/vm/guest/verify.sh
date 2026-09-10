@@ -352,8 +352,20 @@ wait_for_desktop_initialization() {
 }
 
 verify_graphical_locale_keyboard_contract() {
-    local uid="$1" config="/home/${username}/installer.conf" expected_x11 actual key expected shell_pid
+    local uid="$1" config="/home/${username}/installer.conf" init_dir="/home/${username}/.arch-linux/system" \
+        expected_x11 actual key expected shell_pid
     wait_for_desktop_initialization "/home/${username}/.config/autostart/initialize.desktop"
+    [ -f "${init_dir}/initialize.success" ] && [ ! -L "${init_dir}/initialize.success" ]
+    [ "$(stat -c '%a' "${init_dir}/initialize.success")" = 600 ]
+    [ "$(stat -c '%u' "${init_dir}/initialize.success")" = "${uid}" ]
+    grep -qx 'status=success' "${init_dir}/initialize.success"
+    [ -f "${init_dir}/initialize.log" ] && [ ! -L "${init_dir}/initialize.log" ]
+    [ "$(stat -c '%a' "${init_dir}/initialize.log")" = 600 ]
+    [ "$(stat -c '%u' "${init_dir}/initialize.log")" = "${uid}" ]
+    grep -q 'Initialized' "${init_dir}/initialize.log"
+    if grep -q 'Initialization failed' "${init_dir}/initialize.log"; then
+        return 1
+    fi
     [ -f "${config}" ] && [ ! -L "${config}" ]
     grep -qx 'ARCH_LINUX_LOCALE_LANG=en_US' "${config}"
     grep -qx 'ARCH_LINUX_LOCALE_GEN_LIST=en_US.UTF-8 UTF-8' "${config}"
@@ -606,6 +618,7 @@ verify_grub_runtime_contract() {
     verify_grub_efi_target
     systemctl is-enabled --quiet grub-btrfsd.service
     systemctl is-active --quiet grub-btrfsd.service
+    verify_kernel_initramfs_pair /boot/initramfs-linux.img
     config_arguments="$(verify_grub_config_contract "${root_argument}" "${luks_argument}")"
     qkk="$(verify_grub_package_integrity)"
     [ -z "${luks_argument}" ] || encryption_proof="${luks_argument}"
@@ -669,14 +682,29 @@ verify_luks_initramfs() {
     local hooks expected_hooks image='/boot/initramfs-linux.img' listing
     hooks="$(sed -n 's/^HOOKS=(\(.*\))$/\1/p' /etc/mkinitcpio.conf)"
     expected_hooks='base systemd keyboard autodetect microcode modconf sd-vconsole plymouth block sd-encrypt filesystems fsck'
-    is_grub_stock && expected_hooks+=' grub-btrfs-overlayfs'
+    is_grub_stock && expected_hooks+=' sd-volatile'
     [ "${hooks}" = "${expected_hooks}" ]
     [ "$(plymouth-set-default-theme)" = archlinux ]
     pacman -Q plymouth plymouth-theme-archlinux >/dev/null
     [ -f "${image}" ] && [ ! -L "${image}" ]
     listing="$(lsinitcpio -l "${image}")"
+    verify_kernel_initramfs_pair "${image}"
     grep -Eq '(^|/)systemd-cryptsetup$' <<<"${listing}"
     grep -Eq '(^|/)plymouthd?$' <<<"${listing}"
+    if is_grub_stock; then
+        grep -Eq '(^|/)systemd-volatile-root.service$' <<<"${listing}"
+        grep -Eq '(^|/)systemd-volatile-root$' <<<"${listing}"
+        grep -Eq '(^|/)overlay\.ko([.]zst)?$' <<<"${listing}"
+    fi
+}
+
+verify_kernel_initramfs_pair() {
+    local image="$1" kernel_release listing
+    kernel_release="$(uname -r)"
+    [ -n "${kernel_release}" ]
+    [ -d "/usr/lib/modules/${kernel_release}" ]
+    listing="$(lsinitcpio -l "${image}")"
+    grep -Fq -- "usr/lib/modules/${kernel_release}/" <<<"${listing}"
 }
 
 verify_btrfs_contract() {

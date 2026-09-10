@@ -126,6 +126,9 @@ class DesktopPackageChecks(unittest.TestCase):
         self.assertNotIn('gamemode', packages)
         self.assertNotIn('ffmpeg', packages)
 
+    def test_gnome_calendar_server_dependency_is_explicit(self):
+        self.assertIn('evolution-data-server', desktop_targets())
+
     def test_profile_filesystem_and_kernel_selection_remain_effective(self):
         self.assertNotIn('gnome-shell-extensions', desktop_targets())
         self.assertIn('gnome-shell-extensions', desktop_targets(profile='marble'))

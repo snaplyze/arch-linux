@@ -3532,6 +3532,71 @@ exec_prepare_disk() {
 
 # ---------------------------------------------------------------------------------------------------
 
+chroot_configure_grub_btrfs_snapshot_boot() {
+    local target_root="${1:-/mnt}"
+    local config="${target_root}/etc/default/grub-btrfs/config"
+    local candidate
+
+    [ -d "$target_root" ] && [ ! -L "$target_root" ] || return 1
+    [ -f "$config" ] && [ ! -L "$config" ] || return 1
+    candidate="$(mktemp -- "${config}.tmp.XXXXXXXXXX")" || return 1
+    if ! cp -p -- "$config" "$candidate"; then
+        rm -f -- "$candidate"
+        return 1
+    fi
+
+    if grep -Eq '^[[:space:]]*GRUB_BTRFS_SNAPSHOT_KERNEL_PARAMETERS[[:space:]]*=' "$candidate"; then
+        sed -i -E \
+            's|^[[:space:]]*GRUB_BTRFS_SNAPSHOT_KERNEL_PARAMETERS[[:space:]]*=.*$|GRUB_BTRFS_SNAPSHOT_KERNEL_PARAMETERS="systemd.volatile=overlay"|' \
+            "$candidate" || {
+            rm -f -- "$candidate"
+            return 1
+        }
+    else
+        printf '%s\n' 'GRUB_BTRFS_SNAPSHOT_KERNEL_PARAMETERS="systemd.volatile=overlay"' >>"$candidate" || {
+            rm -f -- "$candidate"
+            return 1
+        }
+    fi
+    if grep -Eq '^[[:space:]]*GRUB_BTRFS_ROOTFLAGS[[:space:]]*=' "$candidate"; then
+        sed -i -E \
+            's|^[[:space:]]*GRUB_BTRFS_ROOTFLAGS[[:space:]]*=.*$|GRUB_BTRFS_ROOTFLAGS="ro"|' \
+            "$candidate" || {
+            rm -f -- "$candidate"
+            return 1
+        }
+    else
+        printf '%s\n' 'GRUB_BTRFS_ROOTFLAGS="ro"' >>"$candidate" || {
+            rm -f -- "$candidate"
+            return 1
+        }
+    fi
+
+    [ "$(grep -Ec '^[[:space:]]*GRUB_BTRFS_SNAPSHOT_KERNEL_PARAMETERS[[:space:]]*=' "$candidate")" -eq 1 ] &&
+        [ "$(grep -Fxc -- 'GRUB_BTRFS_SNAPSHOT_KERNEL_PARAMETERS="systemd.volatile=overlay"' "$candidate")" -eq 1 ] &&
+        [ "$(grep -Ec '^[[:space:]]*GRUB_BTRFS_ROOTFLAGS[[:space:]]*=' "$candidate")" -eq 1 ] &&
+        [ "$(grep -Fxc -- 'GRUB_BTRFS_ROOTFLAGS="ro"' "$candidate")" -eq 1 ] || {
+        rm -f -- "$candidate"
+        return 1
+    }
+
+    if cmp -s -- "$config" "$candidate"; then
+        rm -f -- "$candidate"
+    else
+        mv -fT -- "$candidate" "$config" || {
+            rm -f -- "$candidate"
+            return 1
+        }
+    fi
+}
+
+chroot_enable_btrfs_scrub() {
+    local target_root="${1:-/mnt}"
+    arch-chroot "$target_root" systemctl enable btrfs-scrub@-.timer
+}
+
+# ---------------------------------------------------------------------------------------------------
+
 exec_pacstrap_core() {
     local process_name="Pacstrap Arch Linux Core"
     process_init "$process_name"
@@ -3624,7 +3689,7 @@ exec_pacstrap_core() {
         # https://wiki.archlinux.org/title/Microcode#mkinitcpio
         local btrfs_hook=""
 
-        [ "$ARCH_LINUX_FILESYSTEM" = "btrfs" ] && [ "$ARCH_LINUX_BOOTLOADER" = "grub" ] && btrfs_hook=' grub-btrfs-overlayfs'
+        [ "$ARCH_LINUX_FILESYSTEM" = "btrfs" ] && [ "$ARCH_LINUX_BOOTLOADER" = "grub" ] && btrfs_hook=' sd-volatile'
         [ "$ARCH_LINUX_ENCRYPTION_ENABLED" = "true" ] && sed -i "s/^HOOKS=(.*)$/HOOKS=(base systemd keyboard autodetect microcode modconf sd-vconsole block sd-encrypt filesystems fsck${btrfs_hook})/" /mnt/etc/mkinitcpio.conf
         [ "$ARCH_LINUX_ENCRYPTION_ENABLED" = "false" ] && sed -i "s/^HOOKS=(.*)$/HOOKS=(base systemd keyboard autodetect microcode modconf sd-vconsole block filesystems fsck${btrfs_hook})/" /mnt/etc/mkinitcpio.conf
         arch-chroot /mnt mkinitcpio -P
@@ -3692,6 +3757,13 @@ exec_pacstrap_core() {
 
         # GRUB INSTALLATION
         if [ "$ARCH_LINUX_BOOTLOADER" = "grub" ]; then
+
+            if [ "$ARCH_LINUX_FILESYSTEM" = "btrfs" ]; then
+                chroot_configure_grub_btrfs_snapshot_boot /mnt || {
+                    log_fail 'Failed to configure systemd-native Btrfs snapshot boot'
+                    process_return 1
+                }
+            fi
 
             # Add kernel args to /etc/default/grub
             local kernel_cmdline="${kernel_args[*]}"
@@ -3800,10 +3872,8 @@ exec_pacstrap_core() {
             arch-chroot /mnt systemctl set-default multi-user.target
 
         if [ "$ARCH_LINUX_FILESYSTEM" = "btrfs" ]; then
-            # Btrfs scrub timer (systemd path escaping: / → -, /.snapshots → .snapshots)
-            arch-chroot /mnt systemctl enable btrfs-scrub@-.timer          # /
-            arch-chroot /mnt systemctl enable btrfs-scrub@home.timer       # /home
-            arch-chroot /mnt systemctl enable btrfs-scrub@.snapshots.timer # /.snapshots
+            # Scrub is filesystem-scoped; /home and /.snapshots are subvolumes of the same target FS.
+            chroot_enable_btrfs_scrub /mnt
         fi
 
         if [ "$ARCH_LINUX_FILESYSTEM" = "btrfs" ] && [ "$ARCH_LINUX_BTRFS_SNAPPER_ENABLED" = "true" ]; then
@@ -3887,7 +3957,7 @@ exec_install_desktop() {
             # Packages for services enabled below (don't rely on transitive gnome-group deps).
             # pipewire-pulse and wireplumber in particular are NOT pulled by the gnome group
             # (only 'pipewire' is, via mutter), so enabling their units would fail without these.
-            packages+=(bluez bluez-utils avahi pipewire pipewire-pulse wireplumber)
+            packages+=(bluez bluez-utils avahi pipewire pipewire-pulse wireplumber evolution-data-server)
 
             # GNOME desktop extras
             if [ "$ARCH_LINUX_DESKTOP_EXTRAS_ENABLED" = "true" ]; then
@@ -4131,7 +4201,8 @@ exec_install_desktop() {
             # "fix" this into an additive write.
             {
                 echo "# exec_install_desktop | Set GNOME keyboard layout"
-                echo "gsettings set org.gnome.desktop.input-sources sources \"[${gnome_sources}]\""
+                printf "initialize_gsettings keyboard-sources %q gsettings set org.gnome.desktop.input-sources sources %q -- gsettings get org.gnome.desktop.input-sources sources\n" \
+                    "[${gnome_sources}]" "[${gnome_sources}]"
             } | chroot_user_append_file "/home/${ARCH_LINUX_USERNAME}/${INIT_FILENAME}.sh" 0600
 
             # Bind the layout switch to Alt+Shift when a second layout was chosen, so nothing has to
@@ -4146,8 +4217,12 @@ exec_install_desktop() {
             if [ -n "${ARCH_LINUX_DESKTOP_KEYBOARD_LAYOUT_SECOND:-}" ]; then
                 {
                     echo "# exec_install_desktop | Add Alt+Shift as a layout switch, keeping the GNOME defaults"
-                    echo "gsettings set org.gnome.desktop.wm.keybindings switch-input-source \"['<Super>space','XF86Keyboard','<Alt>Shift_L','<Shift>Alt_L']\""
-                    echo "gsettings set org.gnome.desktop.wm.keybindings switch-input-source-backward \"['<Shift><Super>space','<Shift>XF86Keyboard','<Alt>Shift_R','<Shift>Alt_R']\""
+                    printf "initialize_gsettings switch-input-source %q gsettings set org.gnome.desktop.wm.keybindings switch-input-source %q -- gsettings get org.gnome.desktop.wm.keybindings switch-input-source\n" \
+                        "['<Super>space','XF86Keyboard','<Alt>Shift_L','<Shift>Alt_L']" \
+                        "['<Super>space','XF86Keyboard','<Alt>Shift_L','<Shift>Alt_L']"
+                    printf "initialize_gsettings switch-input-source-backward %q gsettings set org.gnome.desktop.wm.keybindings switch-input-source-backward %q -- gsettings get org.gnome.desktop.wm.keybindings switch-input-source-backward\n" \
+                        "['<Shift><Super>space','<Shift>XF86Keyboard','<Alt>Shift_R','<Shift>Alt_R']" \
+                        "['<Shift><Super>space','<Shift>XF86Keyboard','<Alt>Shift_R','<Shift>Alt_R']"
                 } | chroot_user_append_file "/home/${ARCH_LINUX_USERNAME}/${INIT_FILENAME}.sh" 0600
             fi
 
@@ -5374,7 +5449,8 @@ desktop_configure_gnome_locale() {
     gnome_region="$(locale_with_utf8 "$ARCH_LINUX_LOCALE_LANG")"
     {
         echo '# desktop_configure_gnome_locale | Match GNOME Formats to the selected language'
-        printf "gsettings set org.gnome.system.locale region '%s'\n" "$gnome_region"
+        printf "initialize_gsettings gnome-formats %q gsettings set org.gnome.system.locale region %q -- gsettings get org.gnome.system.locale region\n" \
+            "'${gnome_region}'" "$gnome_region"
     } | chroot_user_append_file "/home/${ARCH_LINUX_USERNAME}/${INIT_FILENAME}.sh" 0600
 }
 
@@ -6450,13 +6526,203 @@ chroot_user_finalize_init() {
             autostart_candidate="$(mktemp -- "${autostart_file}.tmp.XXXXXXXXXX")"
             trap '\''rm -f -- "$script_candidate" "$autostart_candidate"'\'' EXIT
             {
-                printf "%s\n" "#!/usr/bin/env bash" "ARCH_LINUX_VERSION=${version}"
+                printf "%s\n" "#!/usr/bin/env bash" "ARCH_LINUX_VERSION=${version}" "init_name=${init_name}"
+                cat <<'\''INITIALIZE_RUNTIME'\''
+set -u
+set -o pipefail
+umask 077
+system_dir="$HOME/.arch-linux/system"
+autostart_file="$HOME/.config/autostart/${init_name}.desktop"
+log_file="$system_dir/${init_name}.log"
+state_file="$system_dir/${init_name}.state"
+success_marker="$system_dir/${init_name}.success"
+
+validate_owned_file() {
+    local path="$1"
+    [ ! -L "$path" ] || return 1
+    if [ -e "$path" ]; then
+        [ -f "$path" ] && [ -O "$path" ]
+    fi
+}
+
+[ -d "$HOME" ] && [ ! -L "$HOME" ] && [ -O "$HOME" ] || exit 1
+[ -d "$system_dir" ] && [ ! -L "$system_dir" ] && [ -O "$system_dir" ] || exit 1
+[ -d "${HOME}/.config/autostart" ] && [ ! -L "${HOME}/.config/autostart" ] && \
+    [ -O "${HOME}/.config/autostart" ] || exit 1
+validate_owned_file "$log_file" || exit 1
+if [ -e "$log_file" ]; then
+    chmod 0600 -- "$log_file" || exit 1
+fi
+exec >>"$log_file" 2>&1
+printf "%s | attempt=%s | begin\n" "$(date "+%Y-%m-%d %H:%M:%S")" "$$"
+
+if [ -e "$state_file" ] || [ -L "$state_file" ]; then
+    validate_owned_file "$state_file" || {
+        printf "%s | invalid state file\n" "$(date "+%Y-%m-%d %H:%M:%S")" >&2
+        exit 1
+    }
+    chmod 0600 -- "$state_file" || exit 1
+    grep -Fqx -- "schema=1" "$state_file" || {
+        printf "%s | unsupported state schema\n" "$(date "+%Y-%m-%d %H:%M:%S")" >&2
+        exit 1
+    }
+    while IFS= read -r state_line || [ -n "$state_line" ]; do
+        case "$state_line" in
+        schema=1 | completed=*) ;;
+        *)
+            printf "%s | malformed state record\n" "$(date "+%Y-%m-%d %H:%M:%S")" >&2
+            exit 1
+            ;;
+        esac
+    done <"$state_file"
+fi
+
+state_has() {
+    [ -f "$state_file" ] && grep -Fqx -- "completed=$1" "$state_file" >/dev/null
+}
+
+state_mark() {
+    local step="$1" state_candidate
+    validate_owned_file "$state_file" || return 1
+    state_candidate="$(mktemp -- "${state_file}.tmp.XXXXXXXXXX")" || return 1
+    if [ -e "$state_file" ]; then
+        if ! cat -- "$state_file" >"$state_candidate"; then
+            rm -f -- "$state_candidate"
+            return 1
+        fi
+    else
+        if ! printf "%s\n" "schema=1" >"$state_candidate"; then
+            rm -f -- "$state_candidate"
+            return 1
+        fi
+    fi
+    if ! grep -Fqx -- "completed=$step" "$state_candidate"; then
+        printf "completed=%s\n" "$step" >>"$state_candidate" || {
+            rm -f -- "$state_candidate"
+            return 1
+        }
+    fi
+    chmod 0600 -- "$state_candidate" || {
+        rm -f -- "$state_candidate"
+        return 1
+    }
+    mv -fT -- "$state_candidate" "$state_file" || {
+        rm -f -- "$state_candidate"
+        return 1
+    }
+}
+
+normalize_gvariant() {
+    printf "%s" "$1" | tr -d "[:space:]"
+}
+
+initialize_failed=0
+initialize_gsettings() {
+    local step="$1" expected="$2" separator_seen=false actual rc
+    local -a set_command=() get_command=()
+    shift 2
+    while [ "$#" -gt 0 ]; do
+        if [ "$1" = "--" ]; then
+            separator_seen=true
+            shift
+            break
+        fi
+        set_command+=("$1")
+        shift
+    done
+    if [ "$separator_seen" != true ] || [ "${#set_command[@]}" -eq 0 ] || [ "$#" -eq 0 ]; then
+        printf "%s | step=%s | malformed required command\n" "$(date "+%Y-%m-%d %H:%M:%S")" "$step" >&2
+        initialize_failed=1
+        return 1
+    fi
+    get_command=("$@")
+    if state_has "$step"; then
+        printf "%s | step=%s | status=already-complete\n" "$(date "+%Y-%m-%d %H:%M:%S")" "$step"
+        return 0
+    fi
+
+    if actual="$("${get_command[@]}" 2>&1)"; then
+        if [ "$(normalize_gvariant "$actual")" = "$(normalize_gvariant "$expected")" ]; then
+            if state_mark "$step"; then
+                printf "%s | step=%s | status=already-configured\n" "$(date "+%Y-%m-%d %H:%M:%S")" "$step"
+                return 0
+            fi
+            printf "%s | step=%s | state-write-failed\n" "$(date "+%Y-%m-%d %H:%M:%S")" "$step" >&2
+            initialize_failed=1
+            return 1
+        fi
+    else
+        rc=$?
+        printf "%s | step=%s | precheck-failed exit=%s\n%s\n" \
+            "$(date "+%Y-%m-%d %H:%M:%S")" "$step" "$rc" "$actual" >&2
+        initialize_failed=1
+        return 1
+    fi
+
+    if "${set_command[@]}"; then
+        :
+    else
+        rc=$?
+        printf "%s | step=%s | set-failed exit=%s\n" \
+            "$(date "+%Y-%m-%d %H:%M:%S")" "$step" "$rc" >&2
+        initialize_failed=1
+        return 1
+    fi
+    if actual="$("${get_command[@]}" 2>&1)"; then
+        if [ "$(normalize_gvariant "$actual")" != "$(normalize_gvariant "$expected")" ]; then
+            printf "%s | step=%s | readback-mismatch expected=%s actual=%s\n" \
+                "$(date "+%Y-%m-%d %H:%M:%S")" "$step" "$expected" "$actual" >&2
+            initialize_failed=1
+            return 1
+        fi
+    else
+        rc=$?
+        printf "%s | step=%s | readback-failed exit=%s\n%s\n" \
+            "$(date "+%Y-%m-%d %H:%M:%S")" "$step" "$rc" "$actual" >&2
+        initialize_failed=1
+        return 1
+    fi
+    if ! state_mark "$step"; then
+        printf "%s | step=%s | state-write-failed\n" "$(date "+%Y-%m-%d %H:%M:%S")" "$step" >&2
+        initialize_failed=1
+        return 1
+    fi
+    printf "%s | step=%s | status=completed\n" "$(date "+%Y-%m-%d %H:%M:%S")" "$step"
+}
+
+if [ -e "$success_marker" ] || [ -L "$success_marker" ]; then
+    validate_owned_file "$success_marker" || exit 1
+    if ! grep -Fqx -- "version=$ARCH_LINUX_VERSION" "$success_marker" ||
+        ! grep -Fqx -- "status=success" "$success_marker"; then
+        printf "%s | invalid success marker\n" "$(date "+%Y-%m-%d %H:%M:%S")" >&2
+        exit 1
+    fi
+    if [ -e "$autostart_file" ] || [ -L "$autostart_file" ]; then
+        validate_owned_file "$autostart_file" || exit 1
+        rm -f -- "$autostart_file" || exit 1
+    fi
+    printf "%s | Arch Linux %s | Already initialized\n" \
+        "$(date "+%Y-%m-%d %H:%M:%S")" "$ARCH_LINUX_VERSION"
+    exit 0
+fi
+INITIALIZE_RUNTIME
                 cat -- "$source_file"
                 printf "%s\n" \
-                    "# exec_finalize_arch_linux | Remove autostart init files" \
-                    "rm -f -- \"\$HOME/.config/autostart/${init_name}.desktop\"" \
-                    "# exec_finalize_arch_linux | Print initialized info" \
-                    "echo \"\$(date '\''+%Y-%m-%d %H:%M:%S'\'') | Arch Linux \${ARCH_LINUX_VERSION} | Initialized\""
+                    "# exec_finalize_arch_linux | Final success gate" \
+                    "if [ \"\$initialize_failed\" -ne 0 ]; then" \
+                    "    printf \"%s | Arch Linux %s | Initialization failed; retry registration preserved\\n\" \"\$(date \"+%Y-%m-%d %H:%M:%S\")\" \"\$ARCH_LINUX_VERSION\" >&2" \
+                    "    exit 1" \
+                    "fi" \
+                    "validate_owned_file \"\$success_marker\" || exit 1" \
+                    "[ ! -e \"\$success_marker\" ] && [ ! -L \"\$success_marker\" ] || exit 1" \
+                    "marker_candidate=\"\$(mktemp -- \"\${success_marker}.tmp.XXXXXXXXXX\")\" || exit 1" \
+                    "printf \"version=%s\\nstatus=success\\n\" \"\$ARCH_LINUX_VERSION\" >\"\$marker_candidate\" || { rm -f -- \"\$marker_candidate\"; exit 1; }" \
+                    "chmod 0600 -- \"\$marker_candidate\" && mv -fT -- \"\$marker_candidate\" \"\$success_marker\" || { rm -f -- \"\$marker_candidate\"; exit 1; }" \
+                    "if [ -e \"\$autostart_file\" ] || [ -L \"\$autostart_file\" ]; then" \
+                    "    validate_owned_file \"\$autostart_file\" || exit 1" \
+                    "    rm -f -- \"\$autostart_file\" || exit 1" \
+                    "fi" \
+                    "printf \"%s | Arch Linux %s | Initialized\\n\" \"\$(date \"+%Y-%m-%d %H:%M:%S\")\" \"\$ARCH_LINUX_VERSION\""
             } >"$script_candidate"
             chmod 0700 -- "$script_candidate"
             {
@@ -6465,8 +6731,8 @@ chroot_user_finalize_init() {
                     "Type=Application" \
                     "Name=Arch Linux Initialize" \
                     "Icon=preferences-system"
-                printf "Exec=bash -c '\''%s/.arch-linux/system/%s.sh > %s/.arch-linux/system/%s.log'\''\n" \
-                    "$HOME" "$init_name" "$HOME" "$init_name"
+                printf "Exec=/usr/bin/bash -c '\''exec \"\$HOME/.arch-linux/system/%s.sh\"'\''\n" \
+                    "$init_name"
             } >"$autostart_candidate"
             chmod 0600 -- "$autostart_candidate"
             mv -fT -- "$script_candidate" "$final_script"

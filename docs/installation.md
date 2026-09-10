@@ -55,7 +55,14 @@ acceptance scenario keeps it disabled. Marble trust and packages are never boots
 Choose the desktop preset and `stock` for both appearance prompts. GNOME, GDM and Wayland are the
 only graphical path. Ptyxis is the desktop terminal. The system receives the reviewed editable
 extension defaults, Bibata cursor, locale-matched GNOME Formats and optional Latin/Russian layouts
-with verified shortcut alternatives.
+with verified shortcut alternatives. `evolution-data-server` is installed explicitly so the GNOME
+CalendarServer integration has its `libecal` runtime dependency in slim installations.
+
+At the first real user login, a one-time initializer applies the selected GNOME Formats and keyboard
+settings. Each required operation is read back before it is recorded as complete. Its combined
+stdout/stderr log, state and success marker are private to the user; a failed required operation
+leaves the autostart entry in place for an idempotent retry, and the entry is removed only after the
+success marker has been written.
 
 For the accepted encrypted scenario, choose Btrfs and LUKS2, perform a real GDM password login, then
 verify lock/unlock, reboot and `pacman -Syu`. GDM authentication is password-only.
