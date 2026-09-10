@@ -28,6 +28,13 @@ for path in markdown:
         if not resolved.exists(): fail(f"broken local link: {path.relative_to(ROOT)} -> {target}")
 
 readme=(ROOT/'README.md').read_text(encoding='utf-8')
+installer=(ROOT/'arch-linux-installer.sh').read_text(encoding='utf-8')
+version_match=re.search(r"^readonly VERSION='([^']+)'$", installer, re.M)
+if version_match is None:
+    fail('installer version is missing from the documentation check input')
+release_version=version_match.group(1)
+if re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', release_version) is None:
+    fail(f'installer version is malformed: {release_version!r}')
 for literal in (
     'Minimal TTY','Stock GNOME','Marble','ext4','Btrfs','GRUB','systemd-boot','LUKS2',
     'pacman -Syu','SHA-256','arch-linux.gpg','release-pinned',
@@ -36,7 +43,7 @@ for literal in (
 for command_path in re.findall(r'`((?:repository|tests|maintenance)/[A-Za-z0-9_./-]+(?:\.sh|\.py))', readme):
     if not (ROOT/command_path).is_file(): fail(f"README names missing command: {command_path}")
 for literal in (
-    '1.0.2/install.sh', 'snapshot', 'finalize', 'ARCH_LINUX_SIGNING_KEY',
+    f'{release_version}/install.sh', 'snapshot', 'finalize', 'ARCH_LINUX_SIGNING_KEY',
     'ARCH_LINUX_SIGNING_PASSPHRASE', 'release-environment',
     'latest published immutable GitHub Release',
 ):
