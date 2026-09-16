@@ -17,7 +17,7 @@ the selected physical disk.
 Run the immutable release bootstrap from the Arch ISO:
 
 ```bash
-curl -fsS https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.2/install.sh | bash
+curl -fsS https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.4/install.sh | bash
 ```
 
 This source-floor command is valid once the exact `1.0.2` tag is published. Before then, use the
@@ -30,7 +30,7 @@ key packets; then launches only the verified installer bytes from a private root
 For a verification-only run:
 
 ```bash
-curl -fsS https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.2/install.sh | bash -s -- --verify-only
+curl -fsS https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.4/install.sh | bash -s -- --verify-only
 ```
 
 The certificate fingerprints must also be compared through an independently trusted channel. HTTPS,

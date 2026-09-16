@@ -22,7 +22,7 @@ For a non-destructive public-release or QEMU readback, run the same immutable bo
 verification-only mode:
 
 ```bash
-curl -fsS https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.2/install.sh | bash -s -- --verify-only
+curl -fsS https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.4/install.sh | bash -s -- --verify-only
 ```
 
 This mode completes the HTTPS download, checksum, certificate/fingerprint, secret-packet,
