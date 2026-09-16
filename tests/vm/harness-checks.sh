@@ -58,6 +58,8 @@ grep -Fq -- 'verify_user_manager_graphical_environment' "${verify}" ||
     fail 'GTK4 application smoke does not validate the real graphical session environment'
 grep -Fq -- 'GTK4_APP_LAUNCH_FAIL' "${verify}" ||
     fail 'GTK4 application launch failures do not retain unit and journal diagnostics'
+grep -Fq -- 'reason=missing-executable' "${verify}" ||
+    fail 'GTK4 application smoke does not identify a missing executable'
 grep -Fq -- 'GTK4_APP_(DIAGNOSTIC|LAUNCH_FAIL)' "${host}" ||
     fail 'bounded GTK4 application diagnostics are absent from the compact summary'
 (
@@ -74,6 +76,47 @@ grep -Fq -- 'GTK4_APP_(DIAGNOSTIC|LAUNCH_FAIL)' "${host}" ||
     manager_environment=$'XDG_CURRENT_DESKTOP=GNOME\nXDG_SESSION_TYPE=wayland'
     if verify_user_manager_graphical_environment 1000; then
         fail 'missing Wayland display environment was accepted for graphical app launch'
+    fi
+)
+(
+    eval "$(sed -n '/^provision_gtk4_smoke_dependencies() {/,/^}/p' "${verify}")"
+    # shellcheck disable=SC2034 # Consumed by the extracted verifier helper above.
+    boxes_installed=false install_calls=0 metadata_signed=true phase=fixture
+    # shellcheck disable=SC2329 # Invoked indirectly by the extracted verifier helper above.
+    package_installed_exact() {
+        [ "$1" = gnome-boxes ] && [ "${boxes_installed}" = true ]
+    }
+    # shellcheck disable=SC2329 # Invoked indirectly by the extracted verifier helper above.
+    pacman() {
+        case "$1" in
+        -S)
+            [ "$#" -eq 5 ] && [ "$2" = --needed ] && [ "$3" = --noconfirm ] &&
+                [ "$4" = --disable-download-timeout ] && [ "$5" = extra/gnome-boxes ]
+            install_calls=$((install_calls + 1))
+            boxes_installed=true
+            ;;
+        -Qi)
+            [ "$2" = -- ] && [ "$3" = gnome-boxes ]
+            printf 'Name            : gnome-boxes\n'
+            if [ "${metadata_signed}" = true ]; then
+                printf 'Validated By    : Signature\n'
+            else
+                printf 'Validated By    : None\n'
+            fi
+            ;;
+        *) return 1 ;;
+        esac
+    }
+    provision_gtk4_smoke_dependencies 2>/dev/null ||
+        fail 'missing Boxes dependency was not provisioned'
+    [ "${install_calls}" -eq 1 ] || fail 'missing Boxes dependency did not trigger one install'
+    install_calls=0
+    provision_gtk4_smoke_dependencies 2>/dev/null ||
+        fail 'installed signed Boxes dependency was rejected'
+    [ "${install_calls}" -eq 0 ] || fail 'installed Boxes dependency was reinstalled'
+    metadata_signed=false
+    if provision_gtk4_smoke_dependencies 2>/dev/null; then
+        fail 'unsigned Boxes dependency metadata was accepted'
     fi
 )
 grep -Fq -- 'installed_package_record_exact' "${verify}" ||

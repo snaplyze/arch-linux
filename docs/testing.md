@@ -102,9 +102,12 @@ installer or claim coverage of every customization on an existing workstation.
 
 The scenario also creates a new ordinary user, authenticates through GDM with virtual keyboard
 input, checks automatic GTK4 activation and returns to the original user. Light/dark application
-startup checks cover Nautilus, Ptyxis, Settings and Boxes; optional captures are diagnostic aids.
-Process startup alone does not establish correct rendering. Inspect the captures or the live VM
-for styling defects before claiming visual acceptance.
+startup checks run through the real GNOME user-manager environment and cover Nautilus, Ptyxis,
+Settings and Boxes. Because Boxes is not part of the normal installer application set, the
+acceptance guest provisions signed `extra/gnome-boxes` only for this smoke check; the installed
+product defaults remain unchanged. Optional captures are diagnostic aids. Process startup alone
+does not establish correct rendering. Inspect the captures or the live VM for styling defects
+before claiming visual acceptance.
 
 Existing lifecycle phases cover removal, reinstall and GDM fallback; source tests separately
 exercise unsupported GTK/libadwaita fallback, edited CSS preservation and unrelated GTK settings.

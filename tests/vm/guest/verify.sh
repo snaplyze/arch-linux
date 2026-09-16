@@ -1729,13 +1729,31 @@ emit_user_app_diagnostics() {
     fi
 }
 
+provision_gtk4_smoke_dependencies() {
+    local info
+    if ! package_installed_exact gnome-boxes; then
+        SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+            pacman -S --needed --noconfirm --disable-download-timeout extra/gnome-boxes
+        printf 'GTK4_APP_DIAGNOSTIC executable=/usr/bin/gnome-boxes phase=%s message=test-only-official-package-provisioned\n' \
+            "${phase}" >&2
+    fi
+    package_installed_exact gnome-boxes
+    info="$(pacman -Qi -- gnome-boxes)"
+    grep -Eq '^Name[[:space:]]*:[[:space:]]*gnome-boxes$' <<<"${info}"
+    grep -Eq '^Validated By[[:space:]]*:[[:space:]]*Signature([[:space:]]|$)' <<<"${info}"
+}
+
 launch_and_wait_for_user_app() {
     local uid="$1" executable="$2" deadline=$((SECONDS + 60)) unit state diagnostics line
     local launch_status=0
     shift 2
-    [ -x "${executable}" ]
-    user_executable_running "${uid}" "${executable}" && return 0
     unit="arch-linux-qemu-${phase}-${executable##*/}"
+    if [ ! -x "${executable}" ]; then
+        printf 'GTK4_APP_LAUNCH_FAIL executable=%s unit=%s phase=%s category=summary reason=missing-executable\n' \
+            "${executable}" "${unit}.service" "${phase}" >&2
+        return 1
+    fi
+    user_executable_running "${uid}" "${executable}" && return 0
     if run_in_user_session "${uid}" systemd-run --user --quiet --collect \
         --property=Type=exec --unit="${unit}" "${executable}" "$@"; then
         while [ "${SECONDS}" -lt "${deadline}" ]; do
@@ -1768,6 +1786,7 @@ run_gtk4_app_smoke() {
     uid="$(id -u "${username}")"
     wait_for_user_session >/dev/null
     verify_user_manager_graphical_environment "${uid}"
+    provision_gtk4_smoke_dependencies
     run_in_user_session "${uid}" gsettings set org.gnome.desktop.interface color-scheme "${scheme}"
     launch_and_wait_for_user_app "${uid}" /usr/bin/nautilus --new-window
     launch_and_wait_for_user_app "${uid}" /usr/bin/ptyxis
