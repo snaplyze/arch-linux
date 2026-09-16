@@ -1324,12 +1324,14 @@ fi
             [ -r "$process_status" ] || continue
             process_dir="${process_status%/status}"
             [ -r "$process_dir/comm" ] && [ -r "$process_dir/stat" ] || continue
-            IFS= read -r process_comm <"$process_dir/comm" || continue
+            { IFS= read -r process_comm <"$process_dir/comm"; } 2>/dev/null || continue
             [ "$process_comm" = gpg-agent ] || continue
-            process_uid="$(/usr/bin/awk '/^Uid:/ {print $2; exit}' "$process_status")"
+            process_uid="$(/usr/bin/awk '/^Uid:/ {print $2; exit}' "$process_status" 2>/dev/null)" || continue
             [ "$process_uid" = "$signing_uid" ] || continue
             agent_pid="${process_dir##*/}"
-            agent_start="$(/usr/bin/awk '{print $22; exit}' "$process_dir/stat")"
+            agent_start="$(/usr/bin/awk '{print $22; exit}' "$process_dir/stat" 2>/dev/null)" || continue
+            [[ "$agent_start" =~ ^[1-9][0-9]*$ ]] || continue
+            process_identity_is_live "$agent_pid" "$agent_start" || continue
             printf '%s %s\n' "$agent_pid" "$agent_start"
             process_identity_is_live "$supervisor_pid" "$supervisor_start" || exit 1
             /usr/bin/kill -KILL -- "$supervisor_pid"

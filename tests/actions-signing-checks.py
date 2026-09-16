@@ -23,6 +23,54 @@ NAMESPACES = ROOT / "repository/prepare-actions-namespaces.sh"
 
 
 class AdapterChecks(unittest.TestCase):
+    def test_publication_agent_watcher_skips_processes_that_disappear_during_read(self) -> None:
+        source = (ROOT / "tests/publication-root-check.sh").read_text()
+        start = source.index("(\n    for attempt in {1..2000}; do")
+        end = source.index(') >"$watch_result" &', start)
+        watcher = source[start + 2:end]
+        for vanished, next_agent in (("status", True), ("stat", True), ("status", False), ("stat", False)):
+            with self.subTest(vanished=vanished, next_agent=next_agent), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                for pid in (101, 102):
+                    process = root / str(pid)
+                    process.mkdir()
+                    (process / "comm").write_text("gpg-agent\n")
+                    (process / "status").write_text("Uid:\t944\t944\t944\t944\n")
+                    (process / "stat").write_text(" ".join([str(pid)] * 22) + "\n")
+                if not next_agent:
+                    (root / "102/comm").write_text("unrelated\n")
+                body = watcher.replace("/proc/[1-9]*/status", '"$fixture_root"/[1-9]*/status')
+                body = body.replace("/usr/bin/awk", "fixture_awk")
+                body = body.replace("/usr/bin/kill", "fixture_kill")
+                body = body.replace("/usr/bin/sleep 0.005", ":")
+                setup = r'''
+set -euo pipefail
+fixture_root=$1
+vanished=$2
+signing_uid=944
+supervisor_pid=999
+supervisor_start=999
+process_identity_is_live() { [[ "$1 $2" = '999 999' || "$1 $2" = '102 102' ]]; }
+fixture_awk() {
+    local path="${@: -1}"
+    if [[ "$path" = "$fixture_root/101/$vanished" ]]; then
+        rm -- "$path"
+    fi
+    /usr/bin/awk "$@"
+}
+fixture_kill() {
+    [[ "$*" = '-KILL -- 999' ]]
+    printf 'observed\n' >"$fixture_root/killed"
+}
+'''
+                completed = subprocess.run(
+                    ["bash", "-c", setup + body, "watcher-fixture", str(root), vanished],
+                    capture_output=True, timeout=10, check=False)
+                self.assertEqual(completed.returncode, 0 if next_agent else 1, completed.stderr.decode())
+                self.assertEqual(completed.stderr, b"")
+                self.assertEqual(completed.stdout, b"102 102\n" if next_agent else b"")
+                self.assertEqual((root / "killed").exists(), next_agent)
+
     @classmethod
     def setUpClass(cls) -> None:
         if not ADAPTER.is_file():
