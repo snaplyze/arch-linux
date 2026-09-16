@@ -8,15 +8,21 @@ PKGBUILDs are built only by an unprivileged temporary user.
 
 - `arch-linux-keyring`: installs the public project trust inputs and pacman repository policy.
 - `arch-linux-marble-shell`: pinned Marble GNOME Shell assets.
-- `arch-linux-colloid-gtk3`: pinned GTK3 theme assets.
+- `arch-linux-colloid-gtk`: pinned GTK3, GTK4 and libadwaita theme assets; replaces `arch-linux-colloid-gtk3`.
 - `arch-linux-colloid-icons`: pinned icon theme assets.
 - `arch-linux-marble-profile`: user-session profile, compatibility checks and Stock fallback.
 - `arch-linux-marble-gdm`: separate opt-in GDM Shell process overlay.
 
 ## Ownership boundaries
 
-Packages may own only their reviewed project paths. They do not replace vendor GNOME Shell/GDM
-resources, PAM configuration, user home files or global environment files. The GDM package installs
+Packages may own only their reviewed project paths. Pacman does not own user home files, and
+packages do not replace vendor GNOME Shell/GDM resources, PAM configuration or global environment
+files. The Marble profile user service separately activates packaged GTK4/libadwaita CSS before
+GNOME session applications start. It replaces user `gtk.css` and `gtk-dark.css` without backups,
+preserves unrelated settings and removes only unchanged project wrappers during cleanup. See the
+[Marble lifecycle](../docs/marble.md#gtk4libadwaita-and-existing-installations).
+
+The GDM package installs
 a systemd drop-in for `org.gnome.Shell@gdm.service`; its `G_RESOURCE_OVERLAYS` and `DCONF_PROFILE`
 variables do not reach ordinary user sessions.
 

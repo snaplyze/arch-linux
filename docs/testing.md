@@ -10,6 +10,9 @@ statuses: `EXECUTED_PASS`, `EXECUTED_FAIL`, `REVIEWED_ONLY`, `NOT_RUN_ENVIRONMEN
 bash tests/source-tests.sh
 ```
 
+The package-migration checks require `vercmp`. On Ubuntu 24.04 it is supplied by
+`makepkg`; the CI dependency setup installs that package explicitly.
+
 It executes:
 
 - Bash syntax and installer version smoke;
@@ -34,6 +37,12 @@ The required release build runs once in a clean Arch environment under a non-roo
 repository/build-packages.sh "$ARTIFACT_DIR/unsigned"
 repository/verify-unsigned-build.sh "$ARTIFACT_DIR/unsigned"
 ```
+
+For a reproducibility comparison, give both independent disposable build environments the same
+absolute `WORK_DIR` (for example, a missing `build-work` directory below each temporary builder's
+home). The builder refuses an existing workspace and removes its own workspace on exit. Without
+this setting, random temporary paths enter makepkg's `.BUILDINFO` and make archive hashes differ
+even when installed payloads are identical.
 
 The scheduled A+B comparison is advisory:
 
@@ -82,6 +91,34 @@ Minimal must reach its working TTY without a forced VT switch. There is no conti
 frame-timing threshold, pixel challenge or manual-review receipt. If a functional check fails,
 investigate and fix the cause, add a regression check, and rerun the affected checks on the new inputs.
 Keep source, package and actual VM results distinct.
+
+## Marble GTK migration acceptance
+
+The main staged Marble VM scenario requires the signed legacy release fixture recorded in
+`tests/vm/legacy-marble-release.json`, in addition to the candidate snapshot. The host authenticates
+both repositories before use. The guest records the fresh candidate package set, installs the
+legacy profile and GTK3 theme from the strict signed repository, enters a real GDM session, then
+runs `pacman -Syu` against the candidate and logs in again. It checks replacement of
+`arch-linux-colloid-gtk3`, package-version parity, the packaged GTK4 hashes and active session CSS.
+This is a real package migration from legacy profile/theme state; it does not rerun the old
+installer or claim coverage of every customization on an existing workstation.
+
+The scenario also creates a new ordinary user, authenticates through GDM with virtual keyboard
+input, checks automatic GTK4 activation, dismisses GNOME’s first-login Welcome dialog with Escape,
+then verifies logout and returns to the original user. Light/dark application
+startup checks run through the real GNOME user-manager environment and cover Nautilus, Ptyxis,
+Settings and Boxes. Because Boxes is not part of the normal installer application set, the
+acceptance guest provisions signed `extra/gnome-boxes` only for this smoke check; the installed
+product defaults remain unchanged. Optional captures are diagnostic aids. Process startup alone
+does not establish correct rendering. Inspect the captures or the live VM for styling defects
+before claiming visual acceptance.
+
+Existing lifecycle phases cover removal, reinstall and GDM fallback; source tests separately
+exercise unsupported GTK/libadwaita fallback, edited CSS preservation and unrelated GTK settings.
+Stock checks require absence of Colloid packages and project CSS imports. Keep these evidence
+layers distinct and bind results to the exact candidate, legacy fixture and harness identities.
+Until each check executes, report it as `NOT_RUN_ENVIRONMENT`; source tests and builds alone do
+not establish migration, real-session or visual acceptance. See [VM commands](../tests/vm/README.md).
 
 ## Release/public acceptance
 

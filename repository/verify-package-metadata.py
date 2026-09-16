@@ -26,7 +26,7 @@ TRUST = ROOT / "repository" / "trust"
 EXPECTED_PACKAGE_SET = [
     "arch-linux-keyring",
     "arch-linux-marble-shell",
-    "arch-linux-colloid-gtk3",
+    "arch-linux-colloid-gtk",
     "arch-linux-colloid-icons",
     "arch-linux-marble-profile",
     "arch-linux-marble-gdm",
@@ -45,12 +45,12 @@ EXPECTED_INSTALL = {
 EXPECTED_DEPENDENCIES = {
     "arch-linux-keyring": ["pacman"],
     "arch-linux-marble-shell": [],
-    "arch-linux-colloid-gtk3": ["gtk3"],
+    "arch-linux-colloid-gtk": ["gtk3", "gtk4", "libadwaita"],
     "arch-linux-colloid-icons": ["hicolor-icon-theme", "gtk-update-icon-cache"],
     "arch-linux-marble-profile": [
         "arch-linux-keyring>=1.0.0",
         "arch-linux-marble-shell>=50.0.0",
-        "arch-linux-colloid-gtk3>=20260808",
+        "arch-linux-colloid-gtk>=20260808-5",
         "arch-linux-colloid-icons>=20260817",
         "bash",
         "coreutils",
@@ -59,6 +59,9 @@ EXPECTED_DEPENDENCIES = {
         "gnome-shell-extensions",
         "grep",
         "pacman",
+        "python",
+        "systemd",
+        "util-linux",
     ],
     "arch-linux-marble-gdm": [
         "arch-linux-colloid-icons>=20260817",
@@ -78,8 +81,9 @@ EXPECTED_DEPENDENCIES = {
     ],
 }
 EXPECTED_SOURCE_ALIASES = {
-    "arch-linux-colloid-gtk3": [
-        "arch-linux-colloid-gtk3-6c2dc65865628bda9fdc8157a30cd5eda6fd41f9.tar.gz"
+    "arch-linux-colloid-gtk": [
+        "arch-linux-colloid-gtk-6c2dc65865628bda9fdc8157a30cd5eda6fd41f9.tar.gz",
+        "gtk4-assets.sha256"
     ],
     "arch-linux-colloid-icons": [
         "arch-linux-colloid-icons-ceac6608ecd0e40025cbc2ebbd32bf0e0f4ebc6a.tar.gz"
@@ -101,12 +105,14 @@ EXPECTED_SOURCE_ALIASES = {
         "supported-gnome-majors",
         "90-arch-linux-marble-profile.hook",
         "LICENSE-project",
+        "gtk4-session",
+        "arch-linux-marble-gtk4.service",
     ],
     "arch-linux-marble-gdm": [
         "Marble-shell-filled-50.zip",
         "Marble-source-df788bc3d9d2147bcdeaedb907b90ced64f0ad48.tar.gz",
-        "gnome-shell-1_50.4-1-x86_64.pkg.tar.zst",
-        "GNOME-Shell-source-dcda6594b153aa179d92cc62e2414d84a43ab82c.tar.gz",
+        "gnome-shell-1_50.5-1-x86_64.pkg.tar.zst",
+        "GNOME-Shell-source-dd8bec9326c2416e7b65b8bc9db4e62126a4fe8b.tar.gz",
         "SPDX-LGPL-2.1-only-c4a7237ec8f4654e867546f9f409749300f1bf4c.txt",
         "build-combined-css.py",
         "verify-license-provenance.py",
@@ -142,7 +148,7 @@ PACKAGE_PREFIXES = {
     "arch-linux-marble-shell": [
         "usr/share/arch-linux-marble/shell/50.0.0/Marble-blue-dark/",
     ],
-    "arch-linux-colloid-gtk3": ["usr/share/themes/Colloid-Dark/"],
+    "arch-linux-colloid-gtk": ["usr/share/themes/Colloid-Dark/", "usr/share/arch-linux-marble/gtk4/"],
     "arch-linux-colloid-icons": [
         "usr/share/icons/Colloid/",
         "usr/share/icons/Colloid-Light/",
@@ -162,8 +168,8 @@ PACKAGE_EXACT_PATHS = {
     "arch-linux-marble-shell": {
         "usr/share/licenses/arch-linux-marble-shell/LICENSE",
     },
-    "arch-linux-colloid-gtk3": {
-        "usr/share/licenses/arch-linux-colloid-gtk3/LICENSE",
+    "arch-linux-colloid-gtk": {
+        "usr/share/licenses/arch-linux-colloid-gtk/LICENSE",
     },
     "arch-linux-colloid-icons": {
         "usr/share/licenses/arch-linux-colloid-icons/LICENSE",
@@ -173,6 +179,9 @@ PACKAGE_EXACT_PATHS = {
         "usr/share/arch-linux-marble/supported-gnome-majors",
         "usr/share/libalpm/hooks/90-arch-linux-marble-profile.hook",
         "usr/share/licenses/arch-linux-marble-profile/LICENSE-project",
+        "usr/lib/arch-linux-marble-profile/gtk4-session",
+        "usr/lib/systemd/user/arch-linux-marble-gtk4.service",
+        "usr/lib/systemd/user/gnome-session-pre.target.wants/arch-linux-marble-gtk4.service",
     },
     "arch-linux-marble-gdm": {
         "usr/lib/arch-linux-marble-gdm/update-compatibility",
@@ -200,7 +209,7 @@ PACKAGE_REQUIRED_PATHS["arch-linux-marble-shell"].update(
         "usr/share/arch-linux-marble/shell/50.0.0/Marble-blue-dark/gnome-shell/workspace-placeholder.svg",
     }
 )
-PACKAGE_REQUIRED_PATHS["arch-linux-colloid-gtk3"].update(
+PACKAGE_REQUIRED_PATHS["arch-linux-colloid-gtk"].update(
     {
         "usr/share/themes/Colloid-Dark/index.theme",
         "usr/share/themes/Colloid-Dark/gtk-3.0/gtk.css",
@@ -226,7 +235,9 @@ EXPECTED_FILE_SOURCES = {
     "arch-linux-marble-shell": {
         "usr/share/licenses/arch-linux-marble-shell/LICENSE": PACKAGES / "arch-linux-marble-gdm" / "LICENSE-Marble",
     },
-    "arch-linux-colloid-gtk3": {},
+    "arch-linux-colloid-gtk": {
+        "usr/share/arch-linux-marble/gtk4/assets.sha256": PACKAGES / "arch-linux-colloid-gtk" / "gtk4-assets.sha256",
+    },
     "arch-linux-colloid-icons": {},
     "arch-linux-marble-profile": {
         ".INSTALL": PACKAGES / "arch-linux-marble-profile" / "arch-linux-marble-profile.install",
@@ -234,6 +245,8 @@ EXPECTED_FILE_SOURCES = {
         "usr/share/arch-linux-marble/supported-gnome-majors": PACKAGES / "arch-linux-marble-profile" / "supported-gnome-majors",
         "usr/share/libalpm/hooks/90-arch-linux-marble-profile.hook": PACKAGES / "arch-linux-marble-profile" / "90-arch-linux-marble-profile.hook",
         "usr/share/licenses/arch-linux-marble-profile/LICENSE-project": PACKAGES / "arch-linux-marble-profile" / "LICENSE-project",
+        "usr/lib/arch-linux-marble-profile/gtk4-session": PACKAGES / "arch-linux-marble-profile" / "gtk4-session",
+        "usr/lib/systemd/user/arch-linux-marble-gtk4.service": PACKAGES / "arch-linux-marble-profile" / "arch-linux-marble-gtk4.service",
     },
     "arch-linux-marble-gdm": {
         ".INSTALL": PACKAGES / "arch-linux-marble-gdm" / "arch-linux-marble-gdm.install",
@@ -395,14 +408,24 @@ def expected_payload_hashes(package: str) -> dict[str, str]:
             "workspace-placeholder.svg": "50.0.0/theme/workspace-placeholder.svg",
         }
         return {f"{shell_root}/{name}": assets[source] for name, source in source_names.items()}
-    if package == "arch-linux-colloid-gtk3":
-        return {
+    if package == "arch-linux-colloid-gtk":
+        hashes = {
             "usr/share/themes/Colloid-Dark/gtk-3.0/gtk.css":
                 "4a13cedd0b7ada1903ce517f9d7c7998d5d683cb0d644a3862efe9a9ea86f128",
             "usr/share/themes/Colloid-Dark/gtk-3.0/gtk-dark.css":
                 "4a13cedd0b7ada1903ce517f9d7c7998d5d683cb0d644a3862efe9a9ea86f128",
-            "usr/share/licenses/arch-linux-colloid-gtk3/LICENSE": COLLOID_LICENSE_SHA256,
+            "usr/share/licenses/arch-linux-colloid-gtk/LICENSE": COLLOID_LICENSE_SHA256,
         }
+        hashes.update({
+            f"usr/share/themes/Colloid-Dark/gtk-4.0/{name}":
+                "e2cc5b09f29b2b4dda06b051c92f927c0f9ea9e02b81a95d8fbda0d9937b9c2a"
+            for name in ("gtk.css", "gtk-dark.css")
+        })
+        hashes.update({
+            f"usr/share/arch-linux-marble/gtk4/{name}": digest
+            for name, digest in parse_hash_manifest(PACKAGES / package / "gtk4-assets.sha256").items()
+        })
+        return hashes
     if package == "arch-linux-colloid-icons":
         hashes = {
             f"usr/share/icons/Colloid-Dark/{name}": digest
@@ -550,6 +573,16 @@ def expected_pkgver(package: str) -> str:
     return f"{prefix}{source['pkgver'][0]}-{source['pkgrel'][0]}"
 
 
+def migration_fields(package: str) -> dict[str, list[str]]:
+    if package == "arch-linux-colloid-gtk":
+        return {
+            "provides": ["arch-linux-colloid-gtk3=" + expected_pkgver(package)],
+            "conflicts": ["arch-linux-colloid-gtk3"],
+            "replaces": ["arch-linux-colloid-gtk3"],
+        }
+    return {"provides": [], "conflicts": [], "replaces": []}
+
+
 def verify_pkginfo(package: str, data: bytes) -> None:
     info = parse_pkginfo(data)
     expected_singletons = {
@@ -564,6 +597,10 @@ def verify_pkginfo(package: str, data: bytes) -> None:
         fail(f"{package}: .PKGINFO license differs")
     if info.get("depend", []) != EXPECTED_DEPENDENCIES[package]:
         fail(f"{package}: .PKGINFO dependencies differ")
+    for field, expected in migration_fields(package).items():
+        archive_field = "conflict" if field == "conflicts" else field
+        if info.get(archive_field, []) != expected:
+            fail(f"{package}: .PKGINFO {field} differs")
 
 
 def verify_package_tar(archive: tarfile.TarFile, package: str) -> None:
@@ -583,6 +620,7 @@ def verify_package_tar(archive: tarfile.TarFile, package: str) -> None:
         elif member.isfile():
             expected_mode = 0o755 if name in {
                 "usr/lib/arch-linux-marble-profile/update-compatibility",
+                "usr/lib/arch-linux-marble-profile/gtk4-session",
                 "usr/lib/arch-linux-marble-gdm/update-compatibility",
             } else 0o644
         elif member.issym():
@@ -618,7 +656,14 @@ def verify_package_tar(archive: tarfile.TarFile, package: str) -> None:
         "usr/share/icons/Colloid-Dark/status/symbolic/battery-level-100-symbolic.svg",
         "usr/share/icons/Colloid-Dark/apps/symbolic/org.gnome.Settings-accessibility-symbolic.svg",
     } if package == "arch-linux-colloid-icons" else set()
-    for name in required - symlink_hash_paths:
+    service_links = {
+        "usr/lib/systemd/user/gnome-session-pre.target.wants/arch-linux-marble-gtk4.service":
+            "../arch-linux-marble-gtk4.service",
+    } if package == "arch-linux-marble-profile" else {}
+    for name, target in service_links.items():
+        if not members[name].issym() or members[name].linkname != target:
+            fail(f"{package}: session service activation link differs: {name}")
+    for name in required - symlink_hash_paths - service_links.keys():
         if not members[name].isfile():
             fail(f"{package}: required package path is not regular: {name}")
 
@@ -725,6 +770,9 @@ def verify_metadata(report: bool = True) -> None:
             fail(f"{package}: license expression differs from the reviewed package contract")
         if info.get("depends", []) != EXPECTED_DEPENDENCIES[package]:
             fail(f"{package}: dependency closure or order differs from the reviewed package contract")
+        for field, expected in migration_fields(package).items():
+            if info.get(field, []) != expected:
+                fail(f"{package}: migration {field} differs")
         if info.get("install", []) != EXPECTED_INSTALL.get(package, []):
             fail(f"{package}: install-script contract differs")
         if any(value == "SKIP" for value in info.get("sha256sums", [])):
@@ -772,7 +820,7 @@ def verify_metadata(report: bool = True) -> None:
         "arch-linux-marble-profile": {
             "arch-linux-keyring",
             "arch-linux-marble-shell",
-            "arch-linux-colloid-gtk3",
+            "arch-linux-colloid-gtk",
             "arch-linux-colloid-icons",
         },
         "arch-linux-marble-gdm": {

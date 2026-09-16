@@ -1,21 +1,25 @@
 # shellcheck shell=bash disable=SC2034,SC2100,SC2154
 # Maintainer: snaplyze <snaplyze@users.noreply.github.com>
 
-pkgname=arch-linux-colloid-gtk3
+pkgname=arch-linux-colloid-gtk
 pkgver=20260808
-pkgrel=2
-pkgdesc='Reviewed Colloid blue dark GTK 3 theme for the arch-linux Marble profile'
+pkgrel=5
+pkgdesc='Reviewed Colloid GTK 3, GTK 4 and libadwaita theme for the arch-linux Marble profile'
 arch=('any')
 url='https://github.com/vinceliuice/Colloid-gtk-theme'
 license=('GPL-3.0-only')
-depends=('gtk3')
+depends=('gtk3' 'gtk4' 'libadwaita')
+provides=("arch-linux-colloid-gtk3=${pkgver}-${pkgrel}")
+conflicts=('arch-linux-colloid-gtk3')
+replaces=('arch-linux-colloid-gtk3')
 makedepends=('sassc')
 options=('!strip' '!debug')
 
 _upstream_commit='6c2dc65865628bda9fdc8157a30cd5eda6fd41f9'
 _gtk_css_sha256='4a13cedd0b7ada1903ce517f9d7c7998d5d683cb0d644a3862efe9a9ea86f128'
-source=("${pkgname}-${_upstream_commit}.tar.gz::https://github.com/vinceliuice/Colloid-gtk-theme/archive/${_upstream_commit}.tar.gz")
-sha256sums=('bab6d8903f1eec46e48c7cf10f262e39ea19ce3d731f1d6204e330ec928a0a29')
+source=("${pkgname}-${_upstream_commit}.tar.gz::https://github.com/vinceliuice/Colloid-gtk-theme/archive/${_upstream_commit}.tar.gz" 'gtk4-assets.sha256')
+sha256sums=('bab6d8903f1eec46e48c7cf10f262e39ea19ce3d731f1d6204e330ec928a0a29'
+    '718bb29a28acdf6ed3d7d10c033a4ecd01c0d4ba88eeebd50384988bbd470582')
 
 build() {
     local upstream="${srcdir}/Colloid-gtk-theme-${_upstream_commit}"
@@ -26,6 +30,12 @@ build() {
     # makepkg runs this as the unprivileged build user. Explicit --dest prevents writes to HOME;
     # deliberately omit upstream --libadwaita, which would overwrite ~/.config/gtk-4.0.
     bash "${upstream}/install.sh" --dest "${stage}" --theme default --color dark
+    # Compile the dedicated libadwaita system-color variant without touching HOME.
+    mkdir -p "${stage}/libadwaita"
+    cp -a "${upstream}/src/assets/gtk/assets" "${stage}/libadwaita/assets"
+    cp "${upstream}/src/assets/gtk/symbolics/"*.svg "${stage}/libadwaita/assets/"
+    sassc -M -t expanded "${upstream}/src/main/libadwaita/libadwaita-Light.scss" \
+        "${stage}/libadwaita/gtk.css"
 }
 
 check() {
@@ -35,6 +45,10 @@ check() {
     test -f "${theme}/gtk-3.0/gtk-dark.css"
     echo "${_gtk_css_sha256}  ${theme}/gtk-3.0/gtk.css" | sha256sum --check --status
     echo "${_gtk_css_sha256}  ${theme}/gtk-3.0/gtk-dark.css" | sha256sum --check --status
+    local gtk4_hash='e2cc5b09f29b2b4dda06b051c92f927c0f9ea9e02b81a95d8fbda0d9937b9c2a'
+    echo "${gtk4_hash}  ${theme}/gtk-4.0/gtk.css" | sha256sum --check --status
+    echo "${gtk4_hash}  ${theme}/gtk-4.0/gtk-dark.css" | sha256sum --check --status
+    (cd "${srcdir}/gtk-stage/libadwaita" && sha256sum --check "${srcdir}/gtk4-assets.sha256")
 }
 
 package() {
@@ -45,5 +59,9 @@ package() {
     install -d "${target_theme}"
     install -m0644 "${source_theme}/index.theme" "${target_theme}/index.theme"
     cp -a -- "${source_theme}/gtk-3.0" "${target_theme}/gtk-3.0"
+    cp -a -- "${source_theme}/gtk-4.0" "${target_theme}/gtk-4.0"
+    install -d "${pkgdir}/usr/share/arch-linux-marble/gtk4"
+    cp -a "${srcdir}/gtk-stage/libadwaita/." "${pkgdir}/usr/share/arch-linux-marble/gtk4/"
+    install -m0644 "${srcdir}/gtk4-assets.sha256" "${pkgdir}/usr/share/arch-linux-marble/gtk4/assets.sha256"
     install -Dm0644 "${upstream}/LICENSE" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
 }

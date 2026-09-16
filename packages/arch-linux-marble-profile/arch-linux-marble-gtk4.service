@@ -1,0 +1,13 @@
+[Unit]
+Description=Activate Arch Linux Marble GTK4 CSS for this GNOME session
+Before=gnome-session-pre.target
+PartOf=gnome-session-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=-/usr/lib/arch-linux-marble-profile/gtk4-session apply
+ExecStop=-/usr/lib/arch-linux-marble-profile/gtk4-session remove
+
+[Install]
+WantedBy=gnome-session-pre.target

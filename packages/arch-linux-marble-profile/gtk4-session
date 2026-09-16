@@ -1,0 +1,684 @@
+#!/usr/bin/env python3
+"""Activate and remove Marble's GTK4 CSS import for one GNOME user."""
+
+import argparse
+import ast
+from contextlib import contextmanager
+import fcntl
+import json
+import os
+from pathlib import Path
+import re
+import secrets
+import stat
+import subprocess
+import sys
+import tempfile
+
+
+MARKER_PATH = Path("/var/lib/arch-linux-marble/gtk4-enabled")
+CSS_SOURCE = Path("/usr/share/arch-linux-marble/gtk4/gtk.css")
+CSS_BYTES = ('@import url("file://' + str(CSS_SOURCE) + '");\n').encode("utf-8")
+HELPER_PATH = Path("/usr/lib/arch-linux-marble-profile/gtk4-session")
+SERVICE_NAME = "arch-linux-marble-gtk4.service"
+LOGIN_DEFS_PATH = Path("/etc/login.defs")
+PASSWD_PATH = Path("/etc/passwd")
+RUNTIME_ROOT = Path("/run/user")
+STATE_RELATIVE = Path(".local/state/arch-linux-marble/gtk4.json")
+LOCK_RELATIVE = Path(".local/state/arch-linux-marble/gtk4.lock")
+CSS_NAMES = ("gtk.css", "gtk-dark.css")
+
+
+class HelperError(RuntimeError):
+    """A safe, user-visible helper failure."""
+
+
+class UnsafePathError(HelperError):
+    """A path cannot be changed without following or replacing foreign state."""
+
+
+def read_uid_min(path=LOGIN_DEFS_PATH):
+    """Read UID_MIN from login.defs, using Arch's conventional default."""
+    try:
+        lines = Path(path).read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return 1000
+    for line in lines:
+        content = line.split("#", 1)[0].strip()
+        fields = content.split()
+        if len(fields) == 2 and fields[0] == "UID_MIN":
+            try:
+                value = int(fields[1], 10)
+            except ValueError:
+                return 1000
+            return value if value > 0 else 1000
+    return 1000
+
+
+def valid_marker(path=MARKER_PATH, owner_uid=0):
+    """Return true only for the root-owned regular activation marker."""
+    try:
+        info = Path(path).lstat()
+    except OSError:
+        return False
+    return stat.S_ISREG(info.st_mode) and info.st_uid == owner_uid
+
+
+def _absolute(path, label):
+    result = Path(path)
+    if not result.is_absolute() or ".." in result.parts:
+        raise UnsafePathError(f"{label} must be an absolute normalized path")
+    return result
+
+
+def _existing_components(path):
+    current = Path(path.anchor)
+    for part in path.parts[1:]:
+        current /= part
+        try:
+            info = current.lstat()
+        except FileNotFoundError:
+            continue
+        except OSError as error:
+            raise UnsafePathError(f"cannot inspect {current}: {error}") from error
+        yield current, info
+
+
+def _reject_parent_symlinks(path):
+    path = _absolute(path, "path")
+    for component, info in _existing_components(path):
+        if stat.S_ISLNK(info.st_mode):
+            raise UnsafePathError(f"refusing symlink path component: {component}")
+        if not stat.S_ISDIR(info.st_mode):
+            raise UnsafePathError(f"path component is not a directory: {component}")
+
+
+def _ensure_private_directory(path, uid):
+    path = _absolute(path, "directory")
+    _reject_parent_symlinks(path.parent)
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        old_umask = os.umask(0o077)
+        try:
+            path.mkdir()
+        except FileExistsError:
+            pass
+        except OSError as error:
+            raise UnsafePathError(f"cannot create directory {path}: {error}") from error
+        finally:
+            os.umask(old_umask)
+        info = path.lstat()
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+        raise UnsafePathError(f"unsafe directory: {path}")
+    if info.st_uid != uid:
+        raise UnsafePathError(f"directory is not owned by uid {uid}: {path}")
+
+
+def _ensure_directory_chain(path, uid):
+    """Create a user-owned leaf path without following existing symlinks."""
+    path = _absolute(path, "directory")
+    current = Path(path.anchor)
+    for part in path.parts[1:]:
+        current /= part
+        try:
+            info = current.lstat()
+        except FileNotFoundError:
+            old_umask = os.umask(0o077)
+            try:
+                current.mkdir()
+            except FileExistsError:
+                pass
+            except OSError as error:
+                raise UnsafePathError(f"cannot create directory {current}: {error}") from error
+            finally:
+                os.umask(old_umask)
+            info = current.lstat()
+        except OSError as error:
+            raise UnsafePathError(f"cannot inspect directory {current}: {error}") from error
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+            raise UnsafePathError(f"unsafe directory: {current}")
+    if path.lstat().st_uid != uid:
+        raise UnsafePathError(f"directory is not owned by uid {uid}: {path}")
+
+
+def _ensure_directory_tree(path, anchor, uid):
+    path = _absolute(path, "directory")
+    anchor = _absolute(anchor, "home")
+    try:
+        path.relative_to(anchor)
+    except ValueError as error:
+        raise UnsafePathError(f"state directory is outside home: {path}") from error
+    _reject_parent_symlinks(anchor)
+    if not anchor.is_dir() or anchor.lstat().st_uid != uid:
+        raise UnsafePathError(f"home is not an owned directory: {anchor}")
+    current = anchor
+    for part in path.relative_to(anchor).parts:
+        current /= part
+        _ensure_private_directory(current, uid)
+
+
+def _config_home(home, configured):
+    home = _absolute(home, "home")
+    if configured:
+        candidate = Path(configured)
+        if candidate.is_absolute():
+            return _absolute(candidate, "XDG_CONFIG_HOME")
+    return home / ".config"
+
+
+def _css_paths(home, configured):
+    gtk_dir = _config_home(home, configured) / "gtk-4.0"
+    return tuple(gtk_dir / name for name in CSS_NAMES)
+
+
+def _preflight_write_target(path, uid):
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return
+    except OSError as error:
+        raise UnsafePathError(f"cannot inspect {path}: {error}") from error
+    if stat.S_ISDIR(info.st_mode):
+        raise UnsafePathError(f"refusing to replace directory: {path}")
+    if not (stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode)):
+        raise UnsafePathError(f"refusing to replace special file: {path}")
+    if info.st_uid != uid:
+        raise UnsafePathError(f"refusing file owned by another uid: {path}")
+
+
+def _regular_file_equals(path, expected, uid):
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError:
+        return False
+    try:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != uid:
+            return False
+        with os.fdopen(descriptor, "rb", closefd=False) as stream:
+            return stream.read(len(expected) + 1) == expected
+    except OSError:
+        return False
+    finally:
+        os.close(descriptor)
+
+
+def _atomic_write(path, content, uid):
+    _preflight_write_target(path, uid)
+    if _regular_file_equals(path, content, uid):
+        return
+    descriptor = None
+    temporary = None
+    try:
+        descriptor, temporary_name = tempfile.mkstemp(prefix=".arch-linux-marble-", dir=path.parent)
+        temporary = Path(temporary_name)
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "wb") as stream:
+            descriptor = None
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        temporary = None
+        directory_fd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    except OSError as error:
+        raise HelperError(f"cannot write {path}: {error}") from error
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        if temporary is not None:
+            try:
+                temporary.unlink()
+            except FileNotFoundError:
+                pass
+
+
+def _state_path(home):
+    return _absolute(home, "home") / STATE_RELATIVE
+
+
+def _safe_recorded_path(value):
+    if not isinstance(value, str):
+        return None
+    path = Path(value)
+    if not path.is_absolute() or ".." in path.parts:
+        return None
+    if path.name not in CSS_NAMES or path.parent.name != "gtk-4.0":
+        return None
+    return path
+
+
+def _load_state(home, uid):
+    path = _state_path(home)
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return ()
+    except OSError:
+        return ()
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != uid or info.st_size > 16384:
+        return ()
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return ()
+    if not isinstance(document, dict) or document.get("version") != 1:
+        return ()
+    paths = document.get("paths")
+    if not isinstance(paths, list):
+        return ()
+    safe_paths = []
+    for value in paths:
+        path_value = _safe_recorded_path(value)
+        if path_value is not None:
+            safe_paths.append(path_value)
+    return tuple(safe_paths)
+
+
+def _write_state(home, paths, uid):
+    path = _state_path(home)
+    _ensure_directory_tree(path.parent, Path(home), uid)
+    content = (json.dumps({"paths": [str(item) for item in paths], "version": 1},
+                          sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+    _atomic_write(path, content, uid)
+
+
+def _remove_state(home, uid):
+    path = _state_path(home)
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return
+    except OSError:
+        return
+    if stat.S_ISREG(info.st_mode) and info.st_uid == uid:
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+
+
+@contextmanager
+def _user_lock(home, uid):
+    home = _absolute(home, "home")
+    lock_path = home / LOCK_RELATIVE
+    _ensure_directory_tree(lock_path.parent, home, uid)
+    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(lock_path, flags, 0o600)
+    except OSError as error:
+        raise UnsafePathError(f"cannot open lock {lock_path}: {error}") from error
+    try:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != uid:
+            raise UnsafePathError(f"unsafe lock file: {lock_path}")
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(descriptor)
+
+
+def _remove_css(path, uid):
+    try:
+        _reject_parent_symlinks(path.parent)
+    except UnsafePathError:
+        return
+    directory_flags = (os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+                       | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        directory_fd = os.open(path.parent, directory_flags)
+    except FileNotFoundError:
+        return
+    except OSError as error:
+        raise HelperError(f"cannot open CSS directory {path.parent}: {error}") from error
+    file_fd = None
+    quarantine = None
+    try:
+        directory_info = os.fstat(directory_fd)
+        if not stat.S_ISDIR(directory_info.st_mode) or directory_info.st_uid != uid:
+            return
+        file_flags = (os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+                      | getattr(os, "O_NOFOLLOW", 0))
+        try:
+            file_fd = os.open(path.name, file_flags, dir_fd=directory_fd)
+        except FileNotFoundError:
+            return
+        except OSError:
+            return
+        inspected = os.fstat(file_fd)
+        if not stat.S_ISREG(inspected.st_mode) or inspected.st_uid != uid:
+            return
+        with os.fdopen(file_fd, "rb", closefd=False) as stream:
+            if stream.read(len(CSS_BYTES) + 1) != CSS_BYTES:
+                return
+
+        for _attempt in range(8):
+            candidate = ".arch-linux-marble-preserved-" + secrets.token_hex(12)
+            try:
+                os.stat(candidate, dir_fd=directory_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                quarantine = candidate
+                break
+        if quarantine is None:
+            raise HelperError(f"cannot allocate removal quarantine in {path.parent}")
+        try:
+            os.rename(path.name, quarantine,
+                      src_dir_fd=directory_fd, dst_dir_fd=directory_fd)
+        except FileNotFoundError:
+            return
+        quarantined = os.stat(quarantine, dir_fd=directory_fd, follow_symlinks=False)
+        os.lseek(file_fd, 0, os.SEEK_SET)
+        still_owned = (os.read(file_fd, len(CSS_BYTES) + 1) == CSS_BYTES)
+        if ((quarantined.st_dev, quarantined.st_ino) != (inspected.st_dev, inspected.st_ino)
+                or not still_owned):
+            # Restore without replacing a newer editor-created destination. In that
+            # rare conflict keep both edits and report the recovery filename.
+            try:
+                os.link(quarantine, path.name, src_dir_fd=directory_fd,
+                        dst_dir_fd=directory_fd, follow_symlinks=False)
+            except FileExistsError as error:
+                raise HelperError(
+                    f"preserved concurrent edit at {path.parent / quarantine}"
+                ) from error
+            os.unlink(quarantine, dir_fd=directory_fd)
+            quarantine = None
+            return
+        os.unlink(quarantine, dir_fd=directory_fd)
+        quarantine = None
+        os.fsync(directory_fd)
+    except OSError as error:
+        if quarantine is not None:
+            try:
+                os.link(quarantine, path.name, src_dir_fd=directory_fd,
+                        dst_dir_fd=directory_fd, follow_symlinks=False)
+                os.unlink(quarantine, dir_fd=directory_fd)
+                quarantine = None
+            except OSError:
+                pass
+        raise HelperError(f"cannot remove {path}: {error}") from error
+    finally:
+        if file_fd is not None:
+            os.close(file_fd)
+        os.close(directory_fd)
+
+
+def _remove_user_locked(home, config_home, uid):
+    recorded = _load_state(home, uid)
+    current = _css_paths(home, config_home)
+    unique = []
+    for path in (*recorded, *current):
+        safe = _safe_recorded_path(str(path))
+        if safe is not None and safe not in unique:
+            unique.append(safe)
+    errors = []
+    for path in unique:
+        try:
+            _remove_css(path, uid)
+        except HelperError as error:
+            errors.append(str(error))
+    _remove_state(home, uid)
+    if errors:
+        raise HelperError("; ".join(errors))
+
+
+def remove_user(home, config_home=None, uid=None):
+    """Remove exact helper-owned CSS from recorded and current locations."""
+    uid = os.geteuid() if uid is None else uid
+    with _user_lock(home, uid):
+        _remove_user_locked(Path(home), config_home, uid)
+
+
+def apply_user(home, config_home=None, marker_path=MARKER_PATH,
+               theme_reader=None, uid=None, marker_uid=0):
+    """Apply CSS when enabled, otherwise clean up exact helper-owned files."""
+    uid = os.geteuid() if uid is None else uid
+    home = _absolute(home, "home")
+    theme_reader = effective_gtk_theme if theme_reader is None else theme_reader
+    with _user_lock(home, uid):
+        enabled = valid_marker(marker_path, marker_uid)
+        try:
+            theme = theme_reader() if enabled else None
+        except (HelperError, OSError):
+            _remove_user_locked(home, config_home, uid)
+            raise
+        if not enabled or theme != "Colloid-Dark":
+            _remove_user_locked(home, config_home, uid)
+            return False
+
+        paths = _css_paths(home, config_home)
+        for old_path in _load_state(home, uid):
+            if old_path not in paths:
+                _remove_css(old_path, uid)
+        gtk_dir = paths[0].parent
+        config_root = gtk_dir.parent
+        _reject_parent_symlinks(config_root.parent)
+        _ensure_directory_chain(config_root, uid)
+        _ensure_private_directory(gtk_dir, uid)
+        for path in paths:
+            _preflight_write_target(path, uid)
+        try:
+            for path in paths:
+                _atomic_write(path, CSS_BYTES, uid)
+            _write_state(home, paths, uid)
+        except (HelperError, OSError):
+            for path in paths:
+                _remove_css(path, uid)
+            _remove_state(home, uid)
+            raise
+        return True
+
+
+def status_user(home, config_home=None, marker_path=MARKER_PATH,
+                theme_reader=None, uid=None, marker_uid=0):
+    """Return active only when activation inputs and both CSS files match."""
+    uid = os.geteuid() if uid is None else uid
+    theme_reader = effective_gtk_theme if theme_reader is None else theme_reader
+    if not valid_marker(marker_path, marker_uid):
+        return "inactive"
+    try:
+        if theme_reader() != "Colloid-Dark":
+            return "inactive"
+        paths = _css_paths(home, config_home)
+        for path in paths:
+            _reject_parent_symlinks(path.parent)
+        if all(_regular_file_equals(path, CSS_BYTES, uid) for path in paths):
+            return "active"
+    except (HelperError, OSError):
+        pass
+    return "inactive"
+
+
+def effective_gtk_theme():
+    """Read the effective GNOME GTK theme for the current user/session."""
+    try:
+        result = subprocess.run(
+            ["/usr/bin/gsettings", "get", "org.gnome.desktop.interface", "gtk-theme"],
+            text=True,
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise HelperError(f"cannot read effective GTK theme: {error}") from error
+    if result.returncode != 0:
+        detail = result.stderr.strip() or f"gsettings exited {result.returncode}"
+        raise HelperError(f"cannot read effective GTK theme: {detail}")
+    try:
+        value = ast.literal_eval(result.stdout.strip())
+    except (SyntaxError, ValueError) as error:
+        raise HelperError("gsettings returned an invalid GTK theme") from error
+    if not isinstance(value, str):
+        raise HelperError("gsettings returned a non-string GTK theme")
+    return value
+
+
+def _local_users(passwd_path, uid_min_value):
+    try:
+        lines = Path(passwd_path).read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError as error:
+        raise HelperError(f"cannot read local passwd database: {error}") from error
+    for line in lines:
+        fields = line.split(":")
+        if len(fields) != 7 or not re.fullmatch(r"[a-z_][a-z0-9_-]*[$]?", fields[0]):
+            continue
+        try:
+            uid = int(fields[2], 10)
+        except ValueError:
+            continue
+        if uid < uid_min_value:
+            continue
+        home = Path(fields[5])
+        if not home.is_absolute():
+            continue
+        try:
+            info = home.lstat()
+        except OSError:
+            continue
+        if not stat.S_ISDIR(info.st_mode) or stat.S_ISLNK(info.st_mode) or info.st_uid != uid:
+            continue
+        yield fields[0], uid, home
+
+
+def _active_user_bus(runtime, uid):
+    try:
+        runtime_info = runtime.lstat()
+        bus_info = (runtime / "bus").lstat()
+    except OSError:
+        return False
+    return (stat.S_ISDIR(runtime_info.st_mode)
+            and not stat.S_ISLNK(runtime_info.st_mode)
+            and runtime_info.st_uid == uid
+            and stat.S_ISSOCK(bus_info.st_mode)
+            and bus_info.st_uid == uid)
+
+
+def _clean_user_prefix(name, uid, home, runtime):
+    return [
+        "/usr/bin/runuser", "-u", name, "--", "/usr/bin/env", "-i",
+        "HOME=" + str(home),
+        "USER=" + name,
+        "LOGNAME=" + name,
+        "PATH=/usr/bin:/usr/sbin",
+        "LANG=C.UTF-8",
+        "LC_ALL=C.UTF-8",
+        "XDG_RUNTIME_DIR=" + str(runtime),
+    ]
+
+
+def build_remove_all_commands(passwd_path=PASSWD_PATH, runtime_root=RUNTIME_ROOT,
+                              helper_path=HELPER_PATH, uid_min_value=None):
+    """Build exact sanitized commands; this function never reads user state."""
+    if uid_min_value is None:
+        uid_min_value = read_uid_min()
+    operations = []
+    for name, uid, home in _local_users(passwd_path, uid_min_value):
+        runtime = Path(runtime_root) / str(uid)
+        prefix = _clean_user_prefix(name, uid, home, runtime)
+        stop = None
+        if _active_user_bus(runtime, uid):
+            bus = runtime / "bus"
+            stop = prefix + [
+                "DBUS_SESSION_BUS_ADDRESS=unix:path=" + str(bus),
+                "/usr/bin/systemctl", "--user", "stop", SERVICE_NAME,
+            ]
+        remove = prefix + [str(helper_path), "remove"]
+        operations.append((stop, remove))
+    return operations
+
+
+def dispatch_remove_all(operations=None, runner=None):
+    if operations is None:
+        operations = build_remove_all_commands()
+    if runner is None:
+        runner = subprocess.run
+    failed = False
+    run_options = {
+        "stdin": subprocess.DEVNULL,
+        "env": {"PATH": "/usr/bin:/usr/sbin", "LANG": "C", "LC_ALL": "C"},
+        "timeout": 20,
+        "check": False,
+    }
+    for stop, remove in operations:
+        if stop is not None:
+            try:
+                result = runner(stop, **run_options)
+            except (OSError, subprocess.TimeoutExpired) as error:
+                print(f"gtk4-session: user service stop failed: {error}", file=sys.stderr)
+                failed = True
+                continue
+            if result.returncode != 0:
+                print(f"gtk4-session: user service stop failed with status {result.returncode}",
+                      file=sys.stderr)
+                failed = True
+                continue
+        try:
+            result = runner(remove, **run_options)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            print(f"gtk4-session: user cleanup failed: {error}", file=sys.stderr)
+            failed = True
+            continue
+        if result.returncode != 0:
+            print(f"gtk4-session: user cleanup failed with status {result.returncode}",
+                  file=sys.stderr)
+            failed = True
+    return 1 if failed else 0
+
+
+def _parser():
+    parser = argparse.ArgumentParser(
+        prog="gtk4-session",
+        description="Manage per-user Marble GTK4 CSS activation.",
+    )
+    parser.add_argument("command", choices=("apply", "remove", "status", "remove-all"))
+    return parser
+
+
+def main(argv=None):
+    try:
+        arguments = _parser().parse_args(argv)
+    except SystemExit as exit_status:
+        return int(exit_status.code)
+
+    euid = os.geteuid()
+    if arguments.command == "remove-all":
+        if euid != 0:
+            print("gtk4-session: remove-all requires root", file=sys.stderr)
+            return 2
+        return dispatch_remove_all()
+    if euid == 0:
+        print(f"gtk4-session: {arguments.command} must not run as root", file=sys.stderr)
+        return 2
+
+    uid_min = read_uid_min()
+    if euid < uid_min:
+        if arguments.command == "status":
+            print("inactive")
+        return 0
+    home_value = os.environ.get("HOME", "")
+    if not home_value or not Path(home_value).is_absolute():
+        print("gtk4-session: HOME must be absolute", file=sys.stderr)
+        return 2
+    configured = os.environ.get("XDG_CONFIG_HOME")
+    if configured and not Path(configured).is_absolute():
+        configured = None
+    try:
+        if arguments.command == "apply":
+            apply_user(Path(home_value), configured, uid=euid)
+        elif arguments.command == "remove":
+            remove_user(Path(home_value), configured, uid=euid)
+        else:
+            print(status_user(Path(home_value), configured, uid=euid))
+    except (HelperError, OSError) as error:
+        print(f"gtk4-session: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

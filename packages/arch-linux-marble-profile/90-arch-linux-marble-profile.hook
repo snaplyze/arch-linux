@@ -3,8 +3,10 @@ Operation = Install
 Operation = Upgrade
 Type = Package
 Target = gnome-shell
+Target = gtk4
+Target = libadwaita
 Target = arch-linux-marble-shell
-Target = arch-linux-colloid-gtk3
+Target = arch-linux-colloid-gtk
 Target = arch-linux-colloid-icons
 
 [Action]

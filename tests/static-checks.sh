@@ -599,7 +599,24 @@ validator = next(node for node in parsed.body if isinstance(node, ast.FunctionDe
                  and node.name == "validate_identity_record")
 def rejected(message):
     raise ValueError(message)
-namespace = {"SCENARIOS": final_scenarios, "re": re, "fail": rejected}
+# This fixture isolates disk/run identity validation. Real signed legacy-manifest verification
+# and malformed/missing legacy evidence are exercised by repository-checks.sh.
+legacy_identity = {
+    "legacy_release_version": "0.9.0", "legacy_snapshot_sha256": "a" * 64,
+    "legacy_source_commit": "b" * 40, "legacy_source_tree": "c" * 40,
+    "legacy_manifest_sha256": "a" * 64,
+    "legacy_profile_version": "0.9.0-1", "legacy_gtk3_version": "0.9.0-1",
+}
+def legacy_manifest_dependency(read, identity, contract):
+    require(identity == legacy_identity, "finalizer legacy identity forwarding")
+
+def unused_evidence_reader(name, limit):
+    raise AssertionError("isolated identity fixture must not read manifest evidence")
+
+namespace = {"SCENARIOS": final_scenarios, "re": re, "fail": rejected,
+             "VERSION": re.compile(r"[0-9]+\.[0-9]+\.[0-9]+"),
+             "HEX40": re.compile(r"[a-f0-9]{40}"), "HEX64": re.compile(r"[a-f0-9]{64}"),
+             "validate_legacy_manifest": legacy_manifest_dependency}
 exec("from __future__ import annotations\n" + ast.get_source_segment(acceptance, validator), namespace)
 
 def final_accepts(scenario, serial, model, run_id, recorded_run_id=None):
@@ -633,9 +650,11 @@ def final_accepts(scenario, serial, model, run_id, recorded_run_id=None):
     rows.append(("release_sha256sums_sha256", digest))
     if scenario == final_scenarios[2]:
         rows.append(("repository_server_port", "12345"))
+        rows.extend(legacy_identity.items())
     raw = "".join(f"{name}={value}\n" for name, value in rows).encode()
     try:
-        namespace["validate_identity_record"](raw, result, scenario, run_id, "1.0.0", expected, contract, digest)
+        namespace["validate_identity_record"](raw, result, scenario, run_id, "1.0.0", expected,
+                                               contract, digest, unused_evidence_reader)
     except ValueError:
         return False
     return True

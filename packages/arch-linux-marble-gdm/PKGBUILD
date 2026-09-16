@@ -3,7 +3,7 @@
 
 pkgname=arch-linux-marble-gdm
 pkgver=50.0.0
-pkgrel=2
+pkgrel=3
 pkgdesc='Fail-closed Marble blue dark Shell and Colloid icon layer for GNOME 50 GDM'
 arch=('any')
 url='https://github.com/snaplyze/arch-linux'
@@ -34,13 +34,13 @@ install='arch-linux-marble-gdm.install'
 options=('!strip' '!debug')
 
 _marble_commit='df788bc3d9d2147bcdeaedb907b90ced64f0ad48'
-_gnome_shell_commit='dcda6594b153aa179d92cc62e2414d84a43ab82c'
+_gnome_shell_commit='dd8bec9326c2416e7b65b8bc9db4e62126a4fe8b'
 _spdx_license_list_commit='c4a7237ec8f4654e867546f9f409749300f1bf4c'
-_arch_gnome_shell_pkgver='1:50.4-1'
-_arch_gnome_shell_archive='gnome-shell-1_50.4-1-x86_64.pkg.tar.zst'
+_arch_gnome_shell_pkgver='1:50.5-1'
+_arch_gnome_shell_archive='gnome-shell-1_50.5-1-x86_64.pkg.tar.zst'
 _theme='Marble-blue-dark'
-_stock_resource_sha256='2f60b5bf210d6666787a7982bce49914e361ee5be6195ec9bf1356554744a57e'
-_stock_dark_css_sha256='52bcaf970687b663bbaa12b8bc43f27886f48bec4574b43eec4ae746b0d8b6e1'
+_stock_resource_sha256='28170a6cd8be11441339bd00384877f0ad56b88c9c32b5ce2458ba286760fb79'
+_stock_dark_css_sha256='0dacfeda755803f46bfaa39fffaa5ce571cfcdf90b915393f24476c3ffc8cba9'
 _marble_css_sha256='eba48c15d2f9bd578f691df052fa543f4f2d9801b73dd4af37c005282712a67c'
 _combined_css_sha256='8086687542b02f7d6c7d36890339dab2f23aad985264ccb2624d9457287a29c2'
 _dconf_db_sha256='848a1300b74cddaa3bc10fdbd9fc68d24504d4c43eb687dd35eac40900cf897c'
@@ -48,7 +48,7 @@ _dconf_db_sha256='848a1300b74cddaa3bc10fdbd9fc68d24504d4c43eb687dd35eac40900cf89
 source=(
     'Marble-shell-filled-50.zip::https://api.github.com/repos/imarkoff/Marble-shell-theme/releases/assets/490305209'
     "Marble-source-${_marble_commit}.tar.gz::https://github.com/imarkoff/Marble-shell-theme/archive/${_marble_commit}.tar.gz"
-    "${_arch_gnome_shell_archive}::https://archive.archlinux.org/packages/g/gnome-shell/gnome-shell-1:50.4-1-x86_64.pkg.tar.zst"
+    "${_arch_gnome_shell_archive}::https://archive.archlinux.org/packages/g/gnome-shell/gnome-shell-1:50.5-1-x86_64.pkg.tar.zst"
     "GNOME-Shell-source-${_gnome_shell_commit}.tar.gz::https://github.com/GNOME/gnome-shell/archive/${_gnome_shell_commit}.tar.gz"
     "SPDX-LGPL-2.1-only-${_spdx_license_list_commit}.txt::https://raw.githubusercontent.com/spdx/license-list-data/${_spdx_license_list_commit}/text/LGPL-2.1-only.txt"
     'build-combined-css.py'
@@ -76,13 +76,13 @@ noextract=("${_arch_gnome_shell_archive}")
 sha256sums=(
     '2b5c99f676b93ad6288921c108459b3679360e33935a4f98b8c283f82eecec11'
     'e84b682ff3164d2c5ae5097001c0baed9323aba12c334ece3d77f7fefe4aa656'
-    'c0dddf681d3d9c4799e92f816a4c56152a5be85fdb7604a7dd491e6e77a3b9e3'
-    '6bdb992cf20b35e37c5d803197124dd7ba6acd69ffa99decd126ade79adfff20'
+    'bd564f61a97fe0a0eacc3a2dd27e679186da04d52197a4a285567f6181f299e5'
+    '098c2123bb18ba8970c84a9b21908070cc534e5cd646412dd448f4eb3c0da543'
     '5749785c8bdefafcb5d798270ed0a967036fe2ca63dcedade1627565dfef81d2'
     'a077563e427110db9ea7d1eb7515e5d4a086a53cdb8c6f9a577b28ad3090c38b'
-    '13bc342f36ca7e268a34b899854ae90b53a4889509ad3046ad48506a6c31ed65'
-    '074ce9a1b9c4b3d245893b567857c1a28f70cfa572d94487209da7dd9cce6a8a'
-    '54ab62de22ae8ccbe4af174446987d1695253d40eb9b2bebefcedb6e1ad62247'
+    'b864bbb82a47c60e6452ab2854eae4227be2ae97948eb3625a89db3d1206f790'
+    'c6fd25bb4820efba30adf6746ba0343c6d6b1eaef8fd0356ed4b0fe390dc9acb'
+    '50ff6831061dbbb167133163134bc16e6131bc4619504d4387628f58d0a1644f'
     '475e63c2475257271c1e8aa2ccf7b72c269af6ee33f8a652a55d8ca05e7732e7'
     '971a495d64b206d4aeda00b7e00c16338f349316f47f375a3db97a6fdf7ed489'
     '0e8ec6d59a9becdb61ea13b29f018595884b1717485d470d96927e451ca283d4'
@@ -98,7 +98,7 @@ sha256sums=(
     '5749785c8bdefafcb5d798270ed0a967036fe2ca63dcedade1627565dfef81d2'
     '27393e7c7eec6d71f1b788e5adaa8f12046160d746d782a7beae581a4e910047'
     '3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986'
-    '9db955c89aa25e357a402f6fc09ad43f7c29b51430c8064d19b8241e0a173628'
+    '7468f0ba8300e52f223016bfd7f5bcb9c361c2cebbca57a7431e933e43bae5c1'
 )
 
 prepare() {

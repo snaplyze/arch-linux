@@ -41,7 +41,8 @@ See the [trust model](docs/trust-model.md).
 
 - **Minimal TTY** installs the base system and networking without a graphical desktop.
 - **Stock GNOME** installs unmodified GNOME, GDM and Wayland and remains the safe default.
-- **Marble** is an explicit profile installed only through signed project packages.
+- **Marble** is an explicit profile installed only through signed project packages, including
+  unified Colloid GTK3, GTK4/libadwaita and icon styling.
 - **Marble GDM** is a separate opt-in package. Its environment overlay is scoped only to the GDM
   Shell process; unsupported GNOME versions fall back to Stock.
 
@@ -56,7 +57,11 @@ sudo pacman -Syu
 
 A Marble profile update therefore does not require a new installer release. Removing the Marble
 profile returns the user session to Stock; reinstalling it restores the package-owned profile.
-Stock GNOME remains usable when the project package repository is unavailable.
+The unified `arch-linux-colloid-gtk` package replaces `arch-linux-colloid-gtk3` during normal
+updates. GTK4/libadwaita styling activates automatically on the next GNOME login, replacing existing
+user CSS without backups; see the [Marble lifecycle](docs/marble.md#gtk4libadwaita-and-existing-installations).
+Stock GNOME installs no Colloid theme packages or project user CSS and remains usable when the
+project package repository is unavailable.
 
 ## Versioning and maintenance policy
 
