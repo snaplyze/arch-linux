@@ -80,7 +80,7 @@ marble-gnome-btrfs-luks2-plymouth-systemdboot)
     prelogin | firstlogin | lock | unlock | update | postreboot-prelogin | secondlogin | \
         legacy-install | legacy-login | migration-update | migrated-login | \
         gtk4-app-smoke-light | gtk4-app-smoke-dark | fresh-user-prepare | \
-        fresh-user-login | return-user-login | \
+        fresh-user-login | fresh-user-logout | return-user-login | \
         incompatible-fixture | incompatible-prelogin | incompatible-login | restore-marble | \
         restored-prelogin | restored-login | remove-marble | removed-prelogin | removed-login | \
         reinstall-marble | reinstalled-prelogin | reinstalled-login) ;;
@@ -1608,7 +1608,7 @@ emit_marble_action_pass() {
 }
 
 wait_for_named_user_logout() {
-    local account="$1" deadline=$((SECONDS + 180))
+    local account="$1" deadline=$((SECONDS + 180)) candidate=''
     while [ "${SECONDS}" -lt "${deadline}" ]; do
         if ! session_name_exists "${account}"; then
             wait_for_greeter >/dev/null
@@ -1616,6 +1616,16 @@ wait_for_named_user_logout() {
         fi
         sleep 1
     done
+    printf 'GTK4_SESSION_DIAGNOSTIC phase=%s outcome=logout-timeout account=%s\n' \
+        "${phase}" "${account}" >&2
+    while read -r candidate _; do
+        [ -n "${candidate}" ] || continue
+        printf 'GTK4_SESSION_DIAGNOSTIC session=%s name=%s class=%s service=%s type=%s state=%s active=%s\n' \
+            "${candidate}" "$(session_property "${candidate}" Name)" \
+            "$(session_property "${candidate}" Class)" "$(session_property "${candidate}" Service)" \
+            "$(session_property "${candidate}" Type)" "$(session_property "${candidate}" State)" \
+            "$(session_property "${candidate}" Active)" >&2
+    done < <(loginctl list-sessions --no-legend 2>/dev/null | head -n 16)
     return 1
 }
 
@@ -1843,7 +1853,7 @@ prepare_fresh_marble_user() {
     emit_marble_action_pass fresh-user-created-with-password-user-list-disabled
 }
 
-verify_fresh_marble_user_and_logout() {
+verify_fresh_marble_user() {
     local account=marblefresh session uid shell_pid css expected_css
     session="$(wait_for_named_user_session "${account}")"
     uid="$(id -u "${account}")"
@@ -1866,9 +1876,16 @@ verify_fresh_marble_user_and_logout() {
         [ "$(cat -- "${css}")" = "${expected_css}" ]
         [ "$(stat -c %u -- "${css}")" = "${uid}" ]
     done
+    emit_marble_action_pass fresh-user-real-gdm-login-automatic-gtk4-active
+}
+
+logout_fresh_marble_user() {
+    local account=marblefresh uid
+    wait_for_named_user_session "${account}" >/dev/null
+    uid="$(id -u "${account}")"
     run_in_named_user_session "${uid}" "${account}" /usr/bin/gnome-session-quit --logout --no-prompt
     wait_for_named_user_logout "${account}"
-    emit_marble_action_pass fresh-user-real-gdm-login-automatic-gtk4-active
+    emit_marble_action_pass fresh-user-real-session-logout
 }
 
 cleanup_fresh_marble_user() {
@@ -1991,7 +2008,10 @@ run_marble_phase() {
         prepare_fresh_marble_user
         ;;
     fresh-user-login)
-        verify_fresh_marble_user_and_logout
+        verify_fresh_marble_user
+        ;;
+    fresh-user-logout)
+        logout_fresh_marble_user
         ;;
     return-user-login)
         cleanup_fresh_marble_user

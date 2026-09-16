@@ -101,7 +101,8 @@ This is a real package migration from legacy profile/theme state; it does not re
 installer or claim coverage of every customization on an existing workstation.
 
 The scenario also creates a new ordinary user, authenticates through GDM with virtual keyboard
-input, checks automatic GTK4 activation and returns to the original user. Light/dark application
+input, checks automatic GTK4 activation, dismisses GNOME’s first-login Welcome dialog with Escape,
+then verifies logout and returns to the original user. Light/dark application
 startup checks run through the real GNOME user-manager environment and cover Nautilus, Ptyxis,
 Settings and Boxes. Because Boxes is not part of the normal installer application set, the
 acceptance guest provisions signed `extra/gnome-boxes` only for this smoke check; the installed

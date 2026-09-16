@@ -259,7 +259,7 @@ compact_run_evidence() {
         case "${candidate}" in
         *.ppm | *.request.json | *.start.json | *.status.json) continue ;;
         esac
-        grep -aEh '^[[:space:]]*([A-Z]+_QEMU_(READY|INSTALLER_EXIT|INSTALL_COMPLETE|NEIGHBOR_PRESERVED|GUEST_PASS|GUEST_FAIL)|QEMU_HOST_FAIL|QEMU_DIAGNOSTIC_WARNING:|SCREENSHOT_WARNING:|GTK4_APP_(DIAGNOSTIC|LAUNCH_FAIL)|exit_status=|qemu-img|signed repository checks passed|release asset checks passed)' \
+        grep -aEh '^[[:space:]]*([A-Z]+_QEMU_(READY|INSTALLER_EXIT|INSTALL_COMPLETE|NEIGHBOR_PRESERVED|GUEST_PASS|GUEST_FAIL)|QEMU_HOST_FAIL|QEMU_DIAGNOSTIC_WARNING:|SCREENSHOT_WARNING:|GTK4_APP_(DIAGNOSTIC|LAUNCH_FAIL)|GTK4_SESSION_DIAGNOSTIC|exit_status=|qemu-img|signed repository checks passed|release asset checks passed)' \
             "${candidate}" 2>/dev/null || true
     done < <(find "${evidence}" -maxdepth 1 -type f -print0 | LC_ALL=C sort -z) |
         awk 'NR <= 2000 { print substr($0, 1, 4096) }' >>"${summary}" || return 1
@@ -561,7 +561,7 @@ with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
             frame(connection)
             time.sleep(0.08)
     elif operation == 'key':
-        if value != 'ret':
+        if value not in ('ret', 'esc'):
             raise SystemExit('unsupported HMP key')
         connection.sendall(f'sendkey {value} 50\n'.encode('ascii'))
         frame(connection)
@@ -1551,6 +1551,17 @@ marble_named_gdm_login() {
     qga_verify "${phase}" "${stem}-login"
 }
 
+run_fresh_marble_user_round_trip() {
+    qga_verify fresh-user-prepare fresh-user-prepare
+    marble_named_gdm_login fresh-user-login fresh-user marblefresh
+    # GNOME's first-login Welcome dialog binds Escape to Skip. Close it through
+    # the virtual keyboard before asking GNOME to open its end-session dialog.
+    hmp_request key esc
+    sleep 1
+    qga_verify fresh-user-logout fresh-user-logout
+    marble_named_gdm_login return-user-login return-user vmtest
+}
+
 run_marble_acceptance() {
     local first_boot_id post_boot_id
 
@@ -1583,9 +1594,7 @@ run_marble_acceptance() {
         capture_screen gtk4-app-smoke-light
         qga_verify gtk4-app-smoke-dark gtk4-app-smoke-dark
         capture_screen gtk4-app-smoke-dark
-        qga_verify fresh-user-prepare fresh-user-prepare
-        marble_named_gdm_login fresh-user-login fresh-user marblefresh
-        marble_named_gdm_login return-user-login return-user vmtest
+        run_fresh_marble_user_round_trip
         record_assertion legacy-signed-package-migration \
             'signed legacy profile and GTK3 packages ran in a real session, then candidate pacman -Syu replaced GTK3 with the unified package before another GDM login'
         record_assertion fresh-user-gdm-gtk4-activation \

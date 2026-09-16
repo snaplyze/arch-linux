@@ -50,6 +50,27 @@ fi
 if ! grep -Fq -- 'fresh-user-login' "${host}" || ! grep -Fq -- 'return-user-login' "${host}"; then
     fail 'second ordinary user GDM round trip is absent'
 fi
+(
+    eval "$(sed -n '/^run_fresh_marble_user_round_trip() {/,/^}/p' "${host}")"
+    calls=()
+    # shellcheck disable=SC2329 # Invoked by the extracted orchestration helper.
+    qga_verify() { calls+=("verify:$1"); }
+    # shellcheck disable=SC2329 # Invoked by the extracted orchestration helper.
+    marble_named_gdm_login() { calls+=("login:$1:$3"); }
+    # shellcheck disable=SC2329 # Invoked by the extracted orchestration helper.
+    hmp_request() { calls+=("key:$1:$2"); }
+    # shellcheck disable=SC2329 # Avoid a real UI pause in this behavioral fixture.
+    sleep() { :; }
+    run_fresh_marble_user_round_trip
+    expected=(verify:fresh-user-prepare login:fresh-user-login:marblefresh
+        key:key:esc verify:fresh-user-logout login:return-user-login:vmtest)
+    [ "${calls[*]}" = "${expected[*]}" ] ||
+        fail 'fresh-user login, Welcome dismissal, logout and return are out of order'
+)
+grep -Fq -- 'fresh-user-login | fresh-user-logout | return-user-login' "${verify}" ||
+    fail 'fresh-user logout is not registered as a separate guest phase'
+grep -Fq -- 'GTK4_SESSION_DIAGNOSTIC' "${host}" ||
+    fail 'bounded fresh-user logout diagnostics are absent from the compact summary'
 grep -Fq -- 'gtk4-app-smoke' "${verify}" ||
     fail 'GTK4/libadwaita application smoke phase is absent'
 grep -Fq -- 'systemd-run --user --quiet --collect' "${verify}" ||
