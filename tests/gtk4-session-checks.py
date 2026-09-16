@@ -409,7 +409,9 @@ class Gtk4SessionChecks(unittest.TestCase):
         passwd = self.fixture.root / "passwd"
         bob_home = self.fixture.root / "home/bob"
         bob_home.mkdir(parents=True)
-        passwd.write_text(f"bob:x:1000:1000:Bob:{bob_home}:/bin/bash\n")
+        passwd.write_text(
+            f"bob:x:{self.fixture.uid}:{self.fixture.uid}:Bob:{bob_home}:/bin/bash\n"
+        )
         operations = gtk4.build_remove_all_commands(
             passwd_path=passwd,
             runtime_root=self.fixture.root / "run/user",
