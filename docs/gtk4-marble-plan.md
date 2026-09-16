@@ -54,4 +54,17 @@ converge with new installations after a signed package update and a new GNOME lo
 
 ## Progress
 
-- Plan saved with the approved unified package rename; implementation in progress.
+- Implemented the unified package, legacy migration metadata, staged GTK 4/libadwaita
+  payload, profile compatibility checks and automatic per-user session activation.
+- Updated installer, release metadata transformation, documentation and Stock/Marble
+  VM assertions; retained the six-package release closure.
+- Added regression coverage for helper ownership/removal, migration metadata and
+  release-generated versioned provides. Independent integration review found no blocking
+  defect; helper review identified cleanup edge cases addressed with regressions.
+- A full source suite and canonical six-package build passed on an intermediate candidate.
+  Re-run both against the final reviewed source identity before reporting completion.
+- Release acceptance remains pending: real old-package-to-new-package pacman migration,
+  fresh-versus-upgraded parity, new-user GNOME login and named-application light/dark
+  rendering. Existing VM update assertions do not prove the legacy migration scenario.
+- The development workstation has not been migrated. Deploy through the existing signed
+  release workflow, then update installed Marble packages and start a new GNOME session.

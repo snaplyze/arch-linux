@@ -106,6 +106,23 @@ class Gtk4SessionChecks(unittest.TestCase):
         self.assertFalse(dark.exists())
         self.assertFalse(self.fixture.state.exists())
 
+    def test_apply_cleans_previous_recorded_xdg_location_before_recording_new_one(self):
+        first_config = self.fixture.root / "first/config"
+        second_config = self.fixture.root / "second/config"
+        first_css = self.css_paths(first_config)
+        second_css = self.css_paths(second_config)
+
+        self.fixture.apply(first_config)
+        self.fixture.apply(second_config)
+
+        self.assertFalse(first_css[0].exists())
+        self.assertFalse(first_css[1].exists())
+        self.assertEqual(second_css[0].read_bytes(), gtk4.CSS_BYTES)
+        self.assertEqual(second_css[1].read_bytes(), gtk4.CSS_BYTES)
+        self.fixture.remove()
+        self.assertFalse(second_css[0].exists())
+        self.assertFalse(second_css[1].exists())
+
     def test_css_symlinks_are_replaced_without_modifying_targets(self):
         css, dark = self.css_paths()
         css.parent.mkdir(parents=True)
@@ -166,6 +183,97 @@ class Gtk4SessionChecks(unittest.TestCase):
         self.assertEqual(css.read_text(), "replacement chosen by user\n")
         self.assertTrue(dark.is_dir())
         self.assertFalse(self.fixture.state.exists())
+
+    def test_remove_restores_file_replaced_after_verification(self):
+        css, dark = self.css_paths()
+        self.fixture.apply()
+        real_rename = os.rename
+        raced = False
+
+        def editor_race(source, destination, *args, **kwargs):
+            nonlocal raced
+            if source == "gtk.css" and not raced:
+                raced = True
+                replacement = css.parent / ".editor-replacement"
+                replacement.write_text("concurrent user edit\n")
+                os.replace(replacement, css)
+            return real_rename(source, destination, *args, **kwargs)
+
+        with mock.patch.object(gtk4.os, "rename", side_effect=editor_race):
+            self.fixture.remove()
+
+        self.assertTrue(raced)
+        self.assertEqual(css.read_text(), "concurrent user edit\n")
+        self.assertFalse(dark.exists())
+        self.assertEqual(
+            sorted(path.name for path in css.parent.iterdir()),
+            ["gtk.css"],
+        )
+
+    def test_remove_restores_same_inode_modified_after_quarantine(self):
+        css, dark = self.css_paths()
+        self.fixture.apply()
+        real_rename = os.rename
+        raced = False
+
+        def editor_race(source, destination, *args, **kwargs):
+            nonlocal raced
+            result = real_rename(source, destination, *args, **kwargs)
+            if source == "gtk.css" and not raced:
+                raced = True
+                (css.parent / destination).write_text("edit through open inode\n")
+            return result
+
+        with mock.patch.object(gtk4.os, "rename", side_effect=editor_race):
+            self.fixture.remove()
+
+        self.assertTrue(raced)
+        self.assertEqual(css.read_text(), "edit through open inode\n")
+        self.assertFalse(dark.exists())
+
+    def test_remove_does_not_clobber_destination_recreated_during_restore(self):
+        css, _dark = self.css_paths()
+        self.fixture.apply()
+        real_rename = os.rename
+        raced = False
+
+        def editor_race(source, destination, *args, **kwargs):
+            nonlocal raced
+            if source == "gtk.css" and not raced:
+                raced = True
+                replacement = css.parent / ".first-edit"
+                replacement.write_text("first concurrent edit\n")
+                os.replace(replacement, css)
+                result = real_rename(source, destination, *args, **kwargs)
+                css.write_text("newer concurrent edit\n")
+                return result
+            return real_rename(source, destination, *args, **kwargs)
+
+        with mock.patch.object(gtk4.os, "rename", side_effect=editor_race):
+            with self.assertRaisesRegex(gtk4.HelperError, "preserved concurrent edit"):
+                self.fixture.remove()
+
+        self.assertEqual(css.read_text(), "newer concurrent edit\n")
+        recovery = list(css.parent.glob(".arch-linux-marble-preserved-*"))
+        self.assertEqual(len(recovery), 1)
+        self.assertEqual(recovery[0].read_text(), "first concurrent edit\n")
+
+    def test_theme_read_failure_cleans_previous_activation(self):
+        css, dark = self.css_paths()
+        self.fixture.apply()
+        with self.assertRaisesRegex(gtk4.HelperError, "theme unavailable"):
+            gtk4.apply_user(
+                home=self.fixture.home, marker_path=self.fixture.marker,
+                uid=self.fixture.uid, marker_uid=self.fixture.uid,
+                theme_reader=mock.Mock(side_effect=gtk4.HelperError("theme unavailable")),
+            )
+        self.assertFalse(css.exists())
+        self.assertFalse(dark.exists())
+        self.assertFalse(self.fixture.state.exists())
+
+    def test_remove_is_idempotent_when_css_directory_is_missing(self):
+        self.fixture.remove()
+        self.assertFalse(self.fixture.default_config.exists())
 
     def test_remove_handles_missing_and_corrupt_state_using_current_config(self):
         css, dark = self.css_paths()
@@ -277,15 +385,15 @@ class Gtk4SessionChecks(unittest.TestCase):
         bus.bind(str(runtime / "bus"))
         helper = Path("/usr/lib/arch-linux-marble-profile/gtk4-session")
 
-        commands = gtk4.build_remove_all_commands(
+        operations = gtk4.build_remove_all_commands(
             passwd_path=passwd,
             runtime_root=runtime_root,
             helper_path=helper,
             uid_min_value=1000,
         )
 
-        self.assertEqual(len(commands), 2)
-        stop, remove = commands
+        self.assertEqual(len(operations), 1)
+        stop, remove = operations[0]
         clean_prefix = ["/usr/bin/runuser", "-u", "alice", "--", "/usr/bin/env", "-i"]
         self.assertEqual(stop[:6], clean_prefix)
         self.assertIn("XDG_RUNTIME_DIR=" + str(runtime), stop)
@@ -295,22 +403,41 @@ class Gtk4SessionChecks(unittest.TestCase):
         self.assertEqual(remove[:6], clean_prefix)
         self.assertIn("HOME=" + str(alice_home), remove)
         self.assertEqual(remove[-2:], [str(helper), "remove"])
-        self.assertNotIn("daemon", " ".join(" ".join(command) for command in commands))
+        self.assertNotIn("daemon", " ".join(" ".join(command) for command in operations[0]))
 
     def test_dispatcher_skips_system_users_and_inactive_user_bus(self):
         passwd = self.fixture.root / "passwd"
         bob_home = self.fixture.root / "home/bob"
         bob_home.mkdir(parents=True)
         passwd.write_text(f"bob:x:1000:1000:Bob:{bob_home}:/bin/bash\n")
-        commands = gtk4.build_remove_all_commands(
+        operations = gtk4.build_remove_all_commands(
             passwd_path=passwd,
             runtime_root=self.fixture.root / "run/user",
             helper_path=Path("/helper"),
             uid_min_value=1000,
         )
-        self.assertEqual(len(commands), 1)
-        self.assertEqual(commands[0][-2:], ["/helper", "remove"])
-        self.assertNotIn("systemctl", commands[0])
+        self.assertEqual(len(operations), 1)
+        stop, remove = operations[0]
+        self.assertIsNone(stop)
+        self.assertEqual(remove[-2:], ["/helper", "remove"])
+        self.assertNotIn("systemctl", remove)
+
+    def test_dispatcher_does_not_remove_after_active_service_stop_failure(self):
+        stop = ["stop-command"]
+        remove = ["remove-command"]
+        calls = []
+
+        def runner(command, **kwargs):
+            calls.append((command, kwargs))
+            return type("Result", (), {"returncode": 1})()
+
+        err = io.StringIO()
+        with redirect_stderr(err):
+            result = gtk4.dispatch_remove_all([(stop, remove)], runner=runner)
+
+        self.assertEqual(result, 1)
+        self.assertEqual([call[0] for call in calls], [stop])
+        self.assertIn("stop failed", err.getvalue())
 
     def test_cli_help_validation_and_privilege_boundaries(self):
         out = io.StringIO()

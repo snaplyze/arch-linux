@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import re
+import secrets
 import stat
 import subprocess
 import sys
@@ -328,14 +329,83 @@ def _remove_css(path, uid):
         _reject_parent_symlinks(path.parent)
     except UnsafePathError:
         return
-    if not _regular_file_equals(path, CSS_BYTES, uid):
-        return
+    directory_flags = (os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+                       | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0))
     try:
-        path.unlink()
+        directory_fd = os.open(path.parent, directory_flags)
     except FileNotFoundError:
-        pass
+        return
     except OSError as error:
+        raise HelperError(f"cannot open CSS directory {path.parent}: {error}") from error
+    file_fd = None
+    quarantine = None
+    try:
+        directory_info = os.fstat(directory_fd)
+        if not stat.S_ISDIR(directory_info.st_mode) or directory_info.st_uid != uid:
+            return
+        file_flags = (os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+                      | getattr(os, "O_NOFOLLOW", 0))
+        try:
+            file_fd = os.open(path.name, file_flags, dir_fd=directory_fd)
+        except FileNotFoundError:
+            return
+        except OSError:
+            return
+        inspected = os.fstat(file_fd)
+        if not stat.S_ISREG(inspected.st_mode) or inspected.st_uid != uid:
+            return
+        with os.fdopen(file_fd, "rb", closefd=False) as stream:
+            if stream.read(len(CSS_BYTES) + 1) != CSS_BYTES:
+                return
+
+        for _attempt in range(8):
+            candidate = ".arch-linux-marble-preserved-" + secrets.token_hex(12)
+            try:
+                os.stat(candidate, dir_fd=directory_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                quarantine = candidate
+                break
+        if quarantine is None:
+            raise HelperError(f"cannot allocate removal quarantine in {path.parent}")
+        try:
+            os.rename(path.name, quarantine,
+                      src_dir_fd=directory_fd, dst_dir_fd=directory_fd)
+        except FileNotFoundError:
+            return
+        quarantined = os.stat(quarantine, dir_fd=directory_fd, follow_symlinks=False)
+        os.lseek(file_fd, 0, os.SEEK_SET)
+        still_owned = (os.read(file_fd, len(CSS_BYTES) + 1) == CSS_BYTES)
+        if ((quarantined.st_dev, quarantined.st_ino) != (inspected.st_dev, inspected.st_ino)
+                or not still_owned):
+            # Restore without replacing a newer editor-created destination. In that
+            # rare conflict keep both edits and report the recovery filename.
+            try:
+                os.link(quarantine, path.name, src_dir_fd=directory_fd,
+                        dst_dir_fd=directory_fd, follow_symlinks=False)
+            except FileExistsError as error:
+                raise HelperError(
+                    f"preserved concurrent edit at {path.parent / quarantine}"
+                ) from error
+            os.unlink(quarantine, dir_fd=directory_fd)
+            quarantine = None
+            return
+        os.unlink(quarantine, dir_fd=directory_fd)
+        quarantine = None
+        os.fsync(directory_fd)
+    except OSError as error:
+        if quarantine is not None:
+            try:
+                os.link(quarantine, path.name, src_dir_fd=directory_fd,
+                        dst_dir_fd=directory_fd, follow_symlinks=False)
+                os.unlink(quarantine, dir_fd=directory_fd)
+                quarantine = None
+            except OSError:
+                pass
         raise HelperError(f"cannot remove {path}: {error}") from error
+    finally:
+        if file_fd is not None:
+            os.close(file_fd)
+        os.close(directory_fd)
 
 
 def _remove_user_locked(home, config_home, uid):
@@ -372,12 +442,19 @@ def apply_user(home, config_home=None, marker_path=MARKER_PATH,
     theme_reader = effective_gtk_theme if theme_reader is None else theme_reader
     with _user_lock(home, uid):
         enabled = valid_marker(marker_path, marker_uid)
-        theme = theme_reader() if enabled else None
+        try:
+            theme = theme_reader() if enabled else None
+        except (HelperError, OSError):
+            _remove_user_locked(home, config_home, uid)
+            raise
         if not enabled or theme != "Colloid-Dark":
             _remove_user_locked(home, config_home, uid)
             return False
 
         paths = _css_paths(home, config_home)
+        for old_path in _load_state(home, uid):
+            if old_path not in paths:
+                _remove_css(old_path, uid)
         gtk_dir = paths[0].parent
         config_root = gtk_dir.parent
         _reject_parent_symlinks(config_root.parent)
@@ -499,37 +576,56 @@ def build_remove_all_commands(passwd_path=PASSWD_PATH, runtime_root=RUNTIME_ROOT
     """Build exact sanitized commands; this function never reads user state."""
     if uid_min_value is None:
         uid_min_value = read_uid_min()
-    commands = []
+    operations = []
     for name, uid, home in _local_users(passwd_path, uid_min_value):
         runtime = Path(runtime_root) / str(uid)
         prefix = _clean_user_prefix(name, uid, home, runtime)
+        stop = None
         if _active_user_bus(runtime, uid):
             bus = runtime / "bus"
-            commands.append(prefix + [
+            stop = prefix + [
                 "DBUS_SESSION_BUS_ADDRESS=unix:path=" + str(bus),
                 "/usr/bin/systemctl", "--user", "stop", SERVICE_NAME,
-            ])
-        commands.append(prefix + [str(helper_path), "remove"])
-    return commands
+            ]
+        remove = prefix + [str(helper_path), "remove"]
+        operations.append((stop, remove))
+    return operations
 
 
-def dispatch_remove_all():
+def dispatch_remove_all(operations=None, runner=None):
+    if operations is None:
+        operations = build_remove_all_commands()
+    if runner is None:
+        runner = subprocess.run
     failed = False
-    for command in build_remove_all_commands():
+    run_options = {
+        "stdin": subprocess.DEVNULL,
+        "env": {"PATH": "/usr/bin:/usr/sbin", "LANG": "C", "LC_ALL": "C"},
+        "timeout": 20,
+        "check": False,
+    }
+    for stop, remove in operations:
+        if stop is not None:
+            try:
+                result = runner(stop, **run_options)
+            except (OSError, subprocess.TimeoutExpired) as error:
+                print(f"gtk4-session: user service stop failed: {error}", file=sys.stderr)
+                failed = True
+                continue
+            if result.returncode != 0:
+                print(f"gtk4-session: user service stop failed with status {result.returncode}",
+                      file=sys.stderr)
+                failed = True
+                continue
         try:
-            result = subprocess.run(
-                command,
-                stdin=subprocess.DEVNULL,
-                env={"PATH": "/usr/bin:/usr/sbin", "LANG": "C", "LC_ALL": "C"},
-                timeout=20,
-                check=False,
-            )
+            result = runner(remove, **run_options)
         except (OSError, subprocess.TimeoutExpired) as error:
-            print(f"gtk4-session: dispatcher failed: {error}", file=sys.stderr)
+            print(f"gtk4-session: user cleanup failed: {error}", file=sys.stderr)
             failed = True
             continue
         if result.returncode != 0:
-            print(f"gtk4-session: command failed with status {result.returncode}", file=sys.stderr)
+            print(f"gtk4-session: user cleanup failed with status {result.returncode}",
+                  file=sys.stderr)
             failed = True
     return 1 if failed else 0
 

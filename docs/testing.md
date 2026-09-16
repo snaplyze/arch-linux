@@ -83,6 +83,29 @@ frame-timing threshold, pixel challenge or manual-review receipt. If a functiona
 investigate and fix the cause, add a regression check, and rerun the affected checks on the new inputs.
 Keep source, package and actual VM results distinct.
 
+## Marble GTK migration acceptance
+
+The regular VM update phase starts from the candidate package set. It does not prove
+replacement of the legacy `arch-linux-colloid-gtk3` package. Before releasing this migration:
+
+1. Install the previous signed Marble release in a disposable VM; record its exact source,
+   package versions and snapshot identities. Start a real GNOME session.
+2. Update that VM against the independently verified signed candidate snapshot using the
+   normal `pacman -Syu` transaction. Confirm replacement by `arch-linux-colloid-gtk`, absence
+   of the legacy package, and no missing profile dependency. Log out and log in through GDM.
+3. Compare `pacman -Q` for the six project packages, the packaged GTK4 manifest/hash checks,
+   `gtk4-session status` and the user service status with a fresh candidate Marble VM.
+4. Log into a newly created ordinary user through GDM and confirm automatic activation.
+   Inspect Nautilus, Ptyxis, Settings, file dialogs and Boxes in light and dark modes.
+   Record rendering observations separately from package and service assertions.
+5. Exercise profile removal, reinstall and unsupported-library fallback; confirm owned CSS
+   is removed while user-modified CSS and unrelated GTK settings survive. Check Stock has
+   neither Colloid package nor project CSS imports.
+
+Keep this evidence bound to both signed snapshots and the actual harness/source identities.
+Until these steps execute, report migration/session/rendering acceptance as
+`NOT_RUN_ENVIRONMENT`, even when source tests and package builds pass.
+
 ## Release/public acceptance
 
 The authorized release workflow signs only in its release-environment `snapshot` and `finalize`
