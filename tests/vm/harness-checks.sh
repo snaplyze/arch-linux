@@ -52,6 +52,30 @@ if ! grep -Fq -- 'fresh-user-login' "${host}" || ! grep -Fq -- 'return-user-logi
 fi
 grep -Fq -- 'gtk4-app-smoke' "${verify}" ||
     fail 'GTK4/libadwaita application smoke phase is absent'
+grep -Fq -- 'systemd-run --user --quiet --collect' "${verify}" ||
+    fail 'GTK4 application smoke does not inherit the real user-manager environment'
+grep -Fq -- 'verify_user_manager_graphical_environment' "${verify}" ||
+    fail 'GTK4 application smoke does not validate the real graphical session environment'
+grep -Fq -- 'GTK4_APP_LAUNCH_FAIL' "${verify}" ||
+    fail 'GTK4 application launch failures do not retain unit and journal diagnostics'
+grep -Fq -- 'GTK4_APP_(DIAGNOSTIC|LAUNCH_FAIL)' "${host}" ||
+    fail 'bounded GTK4 application diagnostics are absent from the compact summary'
+(
+    eval "$(sed -n '/^verify_user_manager_graphical_environment() {/,/^}/p' "${verify}")"
+    manager_environment=$'XDG_CURRENT_DESKTOP=GNOME\nXDG_SESSION_TYPE=wayland\nWAYLAND_DISPLAY=wayland-1'
+    # shellcheck disable=SC2329 # Invoked indirectly by the extracted verifier helper above.
+    run_in_user_session() { printf '%s\n' "${manager_environment}"; }
+    verify_user_manager_graphical_environment 1000 ||
+        fail 'valid real user-manager graphical environment was rejected'
+    manager_environment=$'XDG_SESSION_TYPE=wayland\nWAYLAND_DISPLAY=wayland-1'
+    if verify_user_manager_graphical_environment 1000; then
+        fail 'missing GNOME desktop environment was accepted for graphical app launch'
+    fi
+    manager_environment=$'XDG_CURRENT_DESKTOP=GNOME\nXDG_SESSION_TYPE=wayland'
+    if verify_user_manager_graphical_environment 1000; then
+        fail 'missing Wayland display environment was accepted for graphical app launch'
+    fi
+)
 grep -Fq -- 'installed_package_record_exact' "${verify}" ||
     fail 'package assertions do not reject provider-only pacman query matches'
 if grep -Eq 'pacman -Q (arch-linux-colloid-gtk3|arch-linux-colloid-gtk)([[:space:]]|$)' "${verify}"; then

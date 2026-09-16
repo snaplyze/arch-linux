@@ -1703,15 +1703,63 @@ user_executable_running() {
     return 1
 }
 
+verify_user_manager_graphical_environment() {
+    local uid="$1" environment desktop session_type wayland_display
+    environment="$(run_in_user_session "${uid}" systemctl --user show-environment)"
+    desktop="$(awk -F= '$1 == "XDG_CURRENT_DESKTOP" { print substr($0, index($0, "=") + 1); count++ }
+        END { if (count != 1) exit 1 }' <<<"${environment}")" || return 1
+    session_type="$(awk -F= '$1 == "XDG_SESSION_TYPE" { print substr($0, index($0, "=") + 1); count++ }
+        END { if (count != 1) exit 1 }' <<<"${environment}")" || return 1
+    wayland_display="$(awk -F= '$1 == "WAYLAND_DISPLAY" { print substr($0, index($0, "=") + 1); count++ }
+        END { if (count != 1) exit 1 }' <<<"${environment}")" || return 1
+    [[ ":${desktop}:" == *:GNOME:* ]] &&
+        [ "${session_type}" = wayland ] &&
+        [[ "${wayland_display}" =~ ^[A-Za-z0-9._-]+$ ]]
+}
+
+emit_user_app_diagnostics() {
+    local uid="$1" executable="$2" diagnostics line
+    diagnostics="$(run_in_user_session "${uid}" journalctl --user --no-pager --output=cat \
+        --lines=40 "_EXE=${executable}" 2>/dev/null || true)"
+    if [ -n "${diagnostics}" ]; then
+        while IFS= read -r line; do
+            printf 'GTK4_APP_DIAGNOSTIC executable=%s phase=%s message=%s\n' \
+                "${executable}" "${phase}" "${line}" >&2
+        done <<<"${diagnostics}"
+    fi
+}
+
 launch_and_wait_for_user_app() {
-    local uid="$1" executable="$2" deadline=$((SECONDS + 60))
+    local uid="$1" executable="$2" deadline=$((SECONDS + 60)) unit state diagnostics line
+    local launch_status=0
     shift 2
     [ -x "${executable}" ]
-    run_in_user_session "${uid}" "${executable}" "$@" >/dev/null 2>&1 &
-    while [ "${SECONDS}" -lt "${deadline}" ]; do
-        user_executable_running "${uid}" "${executable}" && return 0
-        sleep 1
-    done
+    user_executable_running "${uid}" "${executable}" && return 0
+    unit="arch-linux-qemu-${phase}-${executable##*/}"
+    if run_in_user_session "${uid}" systemd-run --user --quiet --collect \
+        --property=Type=exec --unit="${unit}" "${executable}" "$@"; then
+        while [ "${SECONDS}" -lt "${deadline}" ]; do
+            user_executable_running "${uid}" "${executable}" && return 0
+            sleep 1
+        done
+    else
+        launch_status=$?
+    fi
+    state="$(run_in_user_session "${uid}" systemctl --user show "${unit}.service" \
+        --property=LoadState --property=ActiveState --property=SubState \
+        --property=Result --property=ExecMainStatus 2>&1 || true)"
+    diagnostics="$(run_in_user_session "${uid}" journalctl --user --unit="${unit}.service" \
+        --no-pager --output=cat --lines=40 2>&1 || true)"
+    printf 'GTK4_APP_LAUNCH_FAIL executable=%s unit=%s phase=%s category=summary start_status=%s\n' \
+        "${executable}" "${unit}.service" "${phase}" "${launch_status}" >&2
+    while IFS= read -r line; do
+        printf 'GTK4_APP_LAUNCH_FAIL executable=%s unit=%s phase=%s category=state message=%s\n' \
+            "${executable}" "${unit}.service" "${phase}" "${line}" >&2
+    done <<<"${state}"
+    while IFS= read -r line; do
+        printf 'GTK4_APP_LAUNCH_FAIL executable=%s unit=%s phase=%s category=journal message=%s\n' \
+            "${executable}" "${unit}.service" "${phase}" "${line}" >&2
+    done <<<"${diagnostics}"
     return 1
 }
 
@@ -1719,11 +1767,16 @@ run_gtk4_app_smoke() {
     local scheme="$1" uid
     uid="$(id -u "${username}")"
     wait_for_user_session >/dev/null
+    verify_user_manager_graphical_environment "${uid}"
     run_in_user_session "${uid}" gsettings set org.gnome.desktop.interface color-scheme "${scheme}"
     launch_and_wait_for_user_app "${uid}" /usr/bin/nautilus --new-window
     launch_and_wait_for_user_app "${uid}" /usr/bin/ptyxis
     launch_and_wait_for_user_app "${uid}" /usr/bin/gnome-control-center
     launch_and_wait_for_user_app "${uid}" /usr/bin/gnome-boxes
+    emit_user_app_diagnostics "${uid}" /usr/bin/nautilus
+    emit_user_app_diagnostics "${uid}" /usr/bin/ptyxis
+    emit_user_app_diagnostics "${uid}" /usr/bin/gnome-control-center
+    emit_user_app_diagnostics "${uid}" /usr/bin/gnome-boxes
     [ "$(run_in_user_session "${uid}" gsettings get org.gnome.desktop.interface color-scheme)" = \
         "'${scheme}'" ]
     [ "$(run_in_user_session "${uid}" /usr/lib/arch-linux-marble-profile/gtk4-session status)" = active ]
