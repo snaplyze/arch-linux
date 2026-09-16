@@ -111,8 +111,8 @@ EXPECTED_SOURCE_ALIASES = {
     "arch-linux-marble-gdm": [
         "Marble-shell-filled-50.zip",
         "Marble-source-df788bc3d9d2147bcdeaedb907b90ced64f0ad48.tar.gz",
-        "gnome-shell-1_50.4-1-x86_64.pkg.tar.zst",
-        "GNOME-Shell-source-dcda6594b153aa179d92cc62e2414d84a43ab82c.tar.gz",
+        "gnome-shell-1_50.5-1-x86_64.pkg.tar.zst",
+        "GNOME-Shell-source-dd8bec9326c2416e7b65b8bc9db4e62126a4fe8b.tar.gz",
         "SPDX-LGPL-2.1-only-c4a7237ec8f4654e867546f9f409749300f1bf4c.txt",
         "build-combined-css.py",
         "verify-license-provenance.py",

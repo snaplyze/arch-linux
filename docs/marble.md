@@ -34,6 +34,9 @@ database, systemd drop-in input, hooks and licenses below project paths. It does
 distribution Shell gresource, GDM/PAM files, `/etc/dconf`, `/var/lib/gdm`, user homes,
 `/usr/share/icons/default` or GTK4/libadwaita CSS.
 
+The current GDM resource baseline is Arch GNOME Shell `1:50.5-1`; its upstream source and
+package hashes are recorded in the [maintenance inputs](maintenance.md#gnome-shell-505-compatibility-inputs).
+
 Activation requires exact GNOME resource, service, session, vendor-dconf and asset hashes; trusted
 root ownership/modes; a safe service-readable path chain; successful GLib overlay lookup; and the
 expected one-key dconf result. An administrator-defined GDM dconf profile is authoritative and keeps

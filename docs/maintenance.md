@@ -91,6 +91,19 @@ tag (peeled for annotated tags), not an unrelated default-branch HEAD. A configu
 endpoint is checked separately, so newer releases still produce an advisory. Missing tags and
 network errors remain visible; none of these checks changes the accepted inputs.
 
+### GNOME Shell 50.5 compatibility inputs
+
+The current Marble GDM compatibility source uses Arch GNOME Shell `1:50.5-1` and upstream
+GNOME Shell tag `50.5`, commit `dd8bec9326c2416e7b65b8bc9db4e62126a4fe8b`. The reviewed
+package SHA-256 is `bd564f61a97fe0a0eacc3a2dd27e679186da04d52197a4a285567f6181f299e5`;
+the pinned upstream archive SHA-256 is
+`098c2123bb18ba8970c84a9b21908070cc534e5cd646412dd448f4eb3c0da543`.
+The package recipe and advisory source inventory bind these exact inputs.
+
+The recorded GNOME Shell 50.4 results below and in the September ISO baseline remain historical
+results for their original package bytes. They do not establish 50.5 compatibility. The updated
+candidate requires a fresh package build and Stock/Marble QEMU acceptance with the new exact inputs.
+
 ### Reviewed extension update: Just Perfection 37
 
 The 1.0.1 installer source pins Just Perfection 37 after the 2026-09-06 review of

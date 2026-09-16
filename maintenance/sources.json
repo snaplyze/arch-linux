@@ -5,7 +5,7 @@
     {
       "id": "arch:gnome-shell",
       "source": "https://archlinux.org/packages/extra/x86_64/gnome-shell/json/",
-      "acceptedVersion": "1:50.4-1",
+      "acceptedVersion": "1:50.5-1",
       "acceptedMajor": 50,
       "impact": "Stock + Marble real-QEMU before accepting an update."
     },
@@ -194,11 +194,11 @@
       "impact": "Focused source/package review and the relevant Stock/Marble scenario."
     },
     {
-      "id": "upstream:gnome-shell-50.4",
+      "id": "upstream:gnome-shell-50.5",
       "git": "https://github.com/GNOME/gnome-shell.git",
-      "acceptedTag": "50.4",
-      "acceptedCommit": "dcda6594b153aa179d92cc62e2414d84a43ab82c",
-      "acceptedArchiveSha256": "6bdb992cf20b35e37c5d803197124dd7ba6acd69ffa99decd126ade79adfff20",
+      "acceptedTag": "50.5",
+      "acceptedCommit": "dd8bec9326c2416e7b65b8bc9db4e62126a4fe8b",
+      "acceptedArchiveSha256": "098c2123bb18ba8970c84a9b21908070cc534e5cd646412dd448f4eb3c0da543",
       "impact": "Stock + Marble real-QEMU before accepting an update."
     }
   ],
@@ -225,13 +225,13 @@
     },
     {
       "package": "arch-linux-marble-gdm",
-      "source": "gnome-shell-1_50.4-1-x86_64.pkg.tar.zst::https://archive.archlinux.org/packages/g/gnome-shell/gnome-shell-1:50.4-1-x86_64.pkg.tar.zst",
-      "sha256": "c0dddf681d3d9c4799e92f816a4c56152a5be85fdb7604a7dd491e6e77a3b9e3"
+      "source": "gnome-shell-1_50.5-1-x86_64.pkg.tar.zst::https://archive.archlinux.org/packages/g/gnome-shell/gnome-shell-1:50.5-1-x86_64.pkg.tar.zst",
+      "sha256": "bd564f61a97fe0a0eacc3a2dd27e679186da04d52197a4a285567f6181f299e5"
     },
     {
       "package": "arch-linux-marble-gdm",
-      "source": "GNOME-Shell-source-dcda6594b153aa179d92cc62e2414d84a43ab82c.tar.gz::https://github.com/GNOME/gnome-shell/archive/dcda6594b153aa179d92cc62e2414d84a43ab82c.tar.gz",
-      "sha256": "6bdb992cf20b35e37c5d803197124dd7ba6acd69ffa99decd126ade79adfff20"
+      "source": "GNOME-Shell-source-dd8bec9326c2416e7b65b8bc9db4e62126a4fe8b.tar.gz::https://github.com/GNOME/gnome-shell/archive/dd8bec9326c2416e7b65b8bc9db4e62126a4fe8b.tar.gz",
+      "sha256": "098c2123bb18ba8970c84a9b21908070cc534e5cd646412dd448f4eb3c0da543"
     },
     {
       "package": "arch-linux-marble-gdm",

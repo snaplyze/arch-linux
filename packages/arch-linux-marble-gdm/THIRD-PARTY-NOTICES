@@ -22,8 +22,8 @@ GNOME Shell and GNOME Shell Sass
 --------------------------------
 
 The Stock CSS prepended to the Marble CSS is extracted from Arch Linux package gnome-shell
-1:50.4-1. That package corresponds to GNOME Shell tag 50.4 and exact commit
-dcda6594b153aa179d92cc62e2414d84a43ab82c. GNOME Shell and GNOME Shell Sass are distributed
+1:50.5-1. That package corresponds to GNOME Shell tag 50.5 and exact commit
+dd8bec9326c2416e7b65b8bc9db4e62126a4fe8b. GNOME Shell and GNOME Shell Sass are distributed
 under GNU GPL version 2 or later. Their exact license texts from that commit are installed as
 COPYING-GNOME-Shell and COPYING-GNOME-Shell-Sass.
 
