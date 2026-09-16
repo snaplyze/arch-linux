@@ -65,6 +65,11 @@ exact-14 Phase-A and exact-18 finalized closures. Release-host acceptance additi
 
 ## QEMU acceptance
 
+The Ubuntu release runners explicitly install `libarchive-tools`, which provides
+[`bsdtar`](https://manpages.ubuntu.com/manpages/noble/man1/bsdtar.1.html), and check its
+availability before both staged and public VM acceptance. The harness uses it to inspect
+signed package metadata during legacy Marble migration.
+
 Do not report QEMU PASS unless all of these are real and fresh:
 
 - `qemu-system-x86_64`;
