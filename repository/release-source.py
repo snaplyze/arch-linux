@@ -144,8 +144,19 @@ def transformed_tree(root: Path, main: str, version: str) -> str:
         revisions[package] = revision
         changes[pkgbuild_name] = entries[pkgbuild_name][0], replace_once(
             pkgbuild, b"pkgrel=" + matches[0] + b"\n", f"pkgrel={revision}\n".encode(), "PKGBUILD revision")
-        changes[srcinfo_name] = entries[srcinfo_name][0], replace_once(
+        updated_srcinfo = replace_once(
             srcinfo, f"\tpkgrel = {current}\n".encode(), f"\tpkgrel = {revision}\n".encode(), "SRCINFO revision")
+        # A renamed package may provide its former name at its own full version.
+        # Keep only explicitly version-bound aliases in sync with makepkg output.
+        for alias in re.findall(rb'"([a-z0-9+._-]+)=\$\{pkgver\}-\$\{pkgrel\}"', pkgbuild):
+            versions = re.findall(rb"^\tpkgver = (\S+)$", srcinfo, re.M)
+            if len(versions) != 1:
+                raise ValueError("version-bound provides require one pkgver")
+            prefix = b"\tprovides = " + alias + b"=" + versions[0] + b"-"
+            updated_srcinfo = replace_once(updated_srcinfo,
+                prefix + str(current).encode() + b"\n",
+                prefix + str(revision).encode() + b"\n", "version-bound provides")
+        changes[srcinfo_name] = entries[srcinfo_name][0], updated_srcinfo
     origin = {"schema": 1, "transformSchema": 1, "mainCommit": main,
               "mainTree": oid(root, f"{main}^{{tree}}"), "releaseVersion": version,
               "transformerSha256": hashlib.sha256(transformer).hexdigest(), "packageRevisions": revisions}

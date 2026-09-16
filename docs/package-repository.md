@@ -9,7 +9,7 @@ not dependent on repository availability.
 
 1. `arch-linux-keyring`
 2. `arch-linux-marble-shell`
-3. `arch-linux-colloid-gtk3`
+3. `arch-linux-colloid-gtk`
 4. `arch-linux-colloid-icons`
 5. `arch-linux-marble-profile`
 6. `arch-linux-marble-gdm`

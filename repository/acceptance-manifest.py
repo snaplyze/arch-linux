@@ -74,7 +74,7 @@ EXPECTED_ASSERTIONS = {
         "accepted-iso-exact-installer", "encrypted-btrfs-systemdboot-marble-optin",
         "experimental-gdm-stock-fallback", "graphical-plymouth-unlock",
         "gdm-user-password-no-autologin", "first-gdm-login-wayland", "marble-shell-active",
-        "colloid-gtk3-icons-bibata-gtk4-stock", "user-themes-extension-profile",
+        "colloid-gtk3-gtk4-icons-bibata", "user-themes-extension-profile",
         "gdm-process-scoped-overlays", "user-shell-overlay-isolation", "vendor-paths-clean",
         "project-packages-qkk-clean", "lock-password-unlock", "update-hooks-safe",
         "reboot-plymouth-gdm-reactivation", "second-gdm-login-wayland",

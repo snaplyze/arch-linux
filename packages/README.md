@@ -8,7 +8,7 @@ PKGBUILDs are built only by an unprivileged temporary user.
 
 - `arch-linux-keyring`: installs the public project trust inputs and pacman repository policy.
 - `arch-linux-marble-shell`: pinned Marble GNOME Shell assets.
-- `arch-linux-colloid-gtk3`: pinned GTK3 theme assets.
+- `arch-linux-colloid-gtk`: pinned GTK3, GTK4 and libadwaita theme assets; replaces `arch-linux-colloid-gtk3`.
 - `arch-linux-colloid-icons`: pinned icon theme assets.
 - `arch-linux-marble-profile`: user-session profile, compatibility checks and Stock fallback.
 - `arch-linux-marble-gdm`: separate opt-in GDM Shell process overlay.

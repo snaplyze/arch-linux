@@ -993,6 +993,10 @@ verify_stock_session() {
     icon_theme="$(run_in_user_session "${uid}" /usr/bin/gsettings get org.gnome.desktop.interface icon-theme)"
     [ "${cursor_theme}" = "'Bibata-Modern-Classic'" ]
     [ "${gtk_theme}" = "'Adwaita'" ]
+    [ ! -e /usr/share/themes/Colloid-Dark ]
+    [ ! -e /usr/share/arch-linux-marble/gtk4 ]
+    [ ! -e "/home/${username}/.config/gtk-4.0/gtk.css" ]
+    [ ! -e "/home/${username}/.config/gtk-4.0/gtk-dark.css" ]
     [ "${icon_theme}" = "'Adwaita'" ]
     [ -d /usr/share/icons/Bibata-Modern-Classic/cursors ]
     [ "$(sed -n '1p' /etc/dconf/db/local.d/06-cursor)" = '[org/gnome/desktop/interface]' ]
@@ -1014,7 +1018,7 @@ marble_project_packages() {
     printf '%s\n' \
         arch-linux-keyring \
         arch-linux-marble-shell \
-        arch-linux-colloid-gtk3 \
+        arch-linux-colloid-gtk \
         arch-linux-colloid-icons \
         arch-linux-marble-profile
     if marble_gdm_enabled; then
@@ -1289,7 +1293,7 @@ verify_marble_packages() {
     done
     qkk="$(verify_package_qkk_zero "${packages[@]}")"
     project_paths="$(pacman -Qlq "${packages[@]}")"
-    if grep -Eq '(^|/)(home|root)/|(^|/)gtk-4\.0/|(^|/)usr/share/icons/default(/|$)|icon-theme\.cache$|gnome-shell-theme\.gresource$|(^|/)usr/share/(gdm|gdm3)(/|$)|(^|/)etc/(gdm|gdm3)(/|$)|(^|/)var/lib/gdm(/|$)' \
+    if grep -Eq '(^|/)(home|root)/|(^|/)usr/share/icons/default(/|$)|icon-theme\.cache$|gnome-shell-theme\.gresource$|(^|/)usr/share/(gdm|gdm3)(/|$)|(^|/)etc/(gdm|gdm3)(/|$)|(^|/)var/lib/gdm(/|$)' \
         <<<"${project_paths}"; then
         return 1
     fi
@@ -1297,9 +1301,11 @@ verify_marble_packages() {
     [ "$(readlink -- /usr/share/themes/ArchLinux-Marble-Blue-Filled-Dark)" = \
         /usr/share/arch-linux-marble/shell/50.0.0/Marble-blue-dark ]
     [ -f /usr/share/themes/Colloid-Dark/gtk-3.0/gtk.css ]
+    [ -f /usr/share/themes/Colloid-Dark/gtk-4.0/gtk.css ]
+    [ -f /usr/share/arch-linux-marble/gtk4/gtk.css ]
+    (cd /usr/share/arch-linux-marble/gtk4 && sha256sum --check --status assets.sha256)
+    if pacman -Q arch-linux-colloid-gtk3 >/dev/null 2>&1; then return 1; fi
     [ -f /usr/share/icons/Colloid-Dark/index.theme ]
-    [ -z "$(find /usr/share/arch-linux-marble \
-        -type f -path '*/gtk-4.0/*' -print -quit)" ]
     if marble_gdm_enabled; then
         [ -z "$(find /usr/share/arch-linux-marble-gdm -type f -path '*/gtk-4.0/*' -print -quit)" ]
     else
@@ -1433,6 +1439,8 @@ verify_marble_greeter() {
     removed)
         [ -z "$(pacman -Qq | grep '^arch-linux-' || true)" ]
         [ ! -e /usr/share/arch-linux-marble ] && [ ! -e /usr/share/arch-linux-marble-gdm ]
+        [ ! -e "/home/${username}/.config/gtk-4.0/gtk.css" ]
+        [ ! -e "/home/${username}/.config/gtk-4.0/gtk-dark.css" ]
         verify_package_qkk_zero gnome-shell gdm >/dev/null
         verify_stock_gdm_process_without_project "${greeter_session}"
         ;;
@@ -1479,6 +1487,8 @@ verify_marble_user_session() {
         enabled_extensions="$(wait_for_enabled_extensions "${uid}" "${expected_extensions}")"
         [ "${enabled_extensions}" = "${expected_extensions}" ]
         [ "${gtk_theme}" = "'Colloid-Dark'" ]
+        [ "$(run_in_user_session "${uid}" /usr/lib/arch-linux-marble-profile/gtk4-session status)" = active ]
+        run_in_user_session "${uid}" systemctl --user is-active --quiet arch-linux-marble-gtk4.service
         [ "${icon_theme}" = "'Colloid-Dark'" ]
         [ "$(run_in_user_session "${uid}" gsettings get org.gnome.desktop.interface color-scheme)" = \
             "'prefer-dark'" ]
@@ -1499,6 +1509,8 @@ verify_marble_user_session() {
         [ "${icon_theme}" = "'Adwaita'" ]
         [ -z "$(pacman -Qq | grep '^arch-linux-' || true)" ]
         [ ! -e /usr/share/arch-linux-marble ] && [ ! -e /usr/share/arch-linux-marble-gdm ]
+        [ ! -e "/home/${username}/.config/gtk-4.0/gtk.css" ]
+        [ ! -e "/home/${username}/.config/gtk-4.0/gtk-dark.css" ]
         verify_package_qkk_zero gnome-shell gdm >/dev/null
     fi
     while IFS= read -r extension_uuid; do
@@ -1678,6 +1690,8 @@ run_marble_phase() {
         pacman -Rns --noconfirm "${expected_profile[@]}"
         [ -z "$(pacman -Qq | grep '^arch-linux-' || true)" ]
         [ ! -e /usr/share/arch-linux-marble ] && [ ! -e /usr/share/arch-linux-marble-gdm ]
+        [ ! -e "/home/${username}/.config/gtk-4.0/gtk.css" ]
+        [ ! -e "/home/${username}/.config/gtk-4.0/gtk-dark.css" ]
         verify_package_qkk_zero gnome-shell gdm >/dev/null
         restart_gdm_after_profile_transition
         emit_marble_action_pass project-packages-removed-stock

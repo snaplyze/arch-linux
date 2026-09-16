@@ -71,7 +71,7 @@ verify lock/unlock, reboot and `pacman -Syu`. GDM authentication is password-onl
 
 Choose `marble` only after Stock has been offered. The installer bootstraps the public project
 certificate and strict signed repository, then installs the Marble Shell, Colloid GTK3/icons and
-compatibility profile. GTK4/libadwaita CSS stays Stock.
+compatibility profile. Marble automatically applies Colloid GTK4/libadwaita CSS at GNOME login; Stock keeps standard styling.
 
 The next prompt separately offers Stock GDM first or `marble-experimental`. Experimental GDM is
 accepted only for exact reviewed GNOME inputs; any ordinary compatibility mismatch leaves Stock GDM.

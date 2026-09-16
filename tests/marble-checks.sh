@@ -11,6 +11,8 @@ mkdir -p -- "$profile_root/usr/share/arch-linux-marble"
 printf '50\n' >"$profile_root/usr/share/arch-linux-marble/supported-gnome-majors"
 ARCH_LINUX_MARBLE_TEST_ROOT="$profile_root" \
 ARCH_LINUX_MARBLE_TEST_GNOME_PKGVER='1:50.4-1' \
+ARCH_LINUX_MARBLE_TEST_GTK_PKGVER='1:4.22.5-1' \
+ARCH_LINUX_MARBLE_TEST_ADW_PKGVER='1:1.9.3-1' \
 PROFILE_HELPER="$repo_root/packages/arch-linux-marble-profile/update-compatibility" \
 bash -euo pipefail <<'BASH'
 source "$PROFILE_HELPER"
@@ -19,12 +21,26 @@ main
 [ -L "$shell_alias" ]
 [ "$(readlink -- "$shell_alias")" = "$shell_payload" ]
 [ -f "$dconf_defaults" ]
+[ -f "${root_prefix}/var/lib/arch-linux-marble/gtk4-enabled" ]
 main # package upgrade/reconcile is idempotent
 [ -L "$shell_alias" ] && [ -f "$dconf_defaults" ]
 main --remove
 [ ! -e "$shell_alias" ] && [ ! -L "$shell_alias" ] && [ ! -e "$dconf_defaults" ]
+[ ! -e "${root_prefix}/var/lib/arch-linux-marble/gtk4-enabled" ]
 main # reinstall restores package-owned defaults
 [ -L "$shell_alias" ] && [ -f "$dconf_defaults" ]
+ARCH_LINUX_MARBLE_TEST_GTK_PKGVER='1:4.24.0-1'
+main
+[ ! -e "${root_prefix}/var/lib/arch-linux-marble/gtk4-enabled" ]
+[ ! -e "$dconf_defaults" ]
+ARCH_LINUX_MARBLE_TEST_GTK_PKGVER='1:4.22.5-1'
+main
+[ -f "${root_prefix}/var/lib/arch-linux-marble/gtk4-enabled" ]
+ARCH_LINUX_MARBLE_TEST_ADW_PKGVER='1:1.10.0-1'
+main
+[ ! -e "${root_prefix}/var/lib/arch-linux-marble/gtk4-enabled" ]
+ARCH_LINUX_MARBLE_TEST_ADW_PKGVER='1:1.9.3-1'
+main
 ARCH_LINUX_MARBLE_TEST_GNOME_PKGVER='1:51.0-1'
 main # unsupported GNOME fails safely to Stock
 [ ! -e "$shell_alias" ] && [ ! -L "$shell_alias" ] && [ ! -e "$dconf_defaults" ]

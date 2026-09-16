@@ -2052,16 +2052,16 @@ stock_summary="$(print_summary)"
 grep -qF 'appearance:  Stock GNOME' <<<"$stock_summary"
 grep -qF 'GDM Shell: Stock' <<<"$stock_summary"
 grep -qF 'GTK4/libadwaita CSS: Stock' <<<"$stock_summary"
-if grep -qF 'Marble Shell + Colloid GTK3/icons' <<<"$stock_summary"; then
+if grep -qF 'Marble Shell + Colloid GTK3/GTK4/libadwaita/icons' <<<"$stock_summary"; then
     echo 'Stock summary included Marble appearance details' >&2
     exit 1
 fi
 ARCH_LINUX_GNOME_THEME_PROFILE='marble'
 ARCH_LINUX_GDM_THEME_PROFILE='stock'
 marble_stock_gdm_summary="$(print_summary)"
-grep -qF 'appearance:  Marble Shell + Colloid GTK3/icons' <<<"$marble_stock_gdm_summary"
+grep -qF 'appearance:  Marble Shell + Colloid GTK3/GTK4/libadwaita/icons' <<<"$marble_stock_gdm_summary"
 grep -qF 'GDM Shell: Stock (default)' <<<"$marble_stock_gdm_summary"
-grep -qF 'GTK4/libadwaita CSS stays Stock; the Colloid icon default is global' <<<"$marble_stock_gdm_summary"
+grep -qF 'GTK4/libadwaita: Colloid, enabled automatically at GNOME login' <<<"$marble_stock_gdm_summary"
 if grep -qF 'GDM Shell: matching Marble theme' <<<"$marble_stock_gdm_summary"; then
     echo 'Stock GDM summary included the experimental GDM choice' >&2
     exit 1
@@ -2073,9 +2073,9 @@ fi
 
 ARCH_LINUX_GDM_THEME_PROFILE='marble-experimental'
 marble_gdm_summary="$(print_summary)"
-grep -qF 'appearance:  Marble Shell + Colloid GTK3/icons' <<<"$marble_gdm_summary"
+grep -qF 'appearance:  Marble Shell + Colloid GTK3/GTK4/libadwaita/icons' <<<"$marble_gdm_summary"
 grep -qF 'GDM Shell: matching Marble theme + Colloid icons (experimental; GNOME 50 only)' <<<"$marble_gdm_summary"
-grep -qF 'GTK4/libadwaita CSS stays Stock; the Colloid icon default is global' <<<"$marble_gdm_summary"
+grep -qF 'GTK4/libadwaita: Colloid, enabled automatically at GNOME login' <<<"$marble_gdm_summary"
 if grep -qF 'GDM Shell: Stock (default)' <<<"$marble_gdm_summary"; then
     echo 'experimental GDM summary reported Stock GDM' >&2
     exit 1

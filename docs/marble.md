@@ -12,9 +12,9 @@ TTY and Stock installations do not bootstrap the Marble package repository.
 
 Marble desktop is an explicit opt-in delivered by native packages from the strict signed project
 repository. It applies the reviewed Marble blue/filled/dark GNOME Shell theme, Colloid Dark GTK3
-theme and Colloid icon theme. Official User Themes is added to the editable extension list.
+theme, Colloid GTK4/libadwaita system-color stylesheet and Colloid icon theme. Official User Themes is added to the editable extension list.
 
-The desktop profile does not install GTK4/libadwaita CSS, replace system fonts, lock user dconf,
+The desktop profile does not replace system fonts, lock user dconf,
 change the Bibata cursor or write another package's files. Its compatibility helper exposes project
 defaults only for an explicitly supported GNOME major with exact reviewed asset hashes. A mismatch
 removes only those project defaults and leaves packages installed and updateable with Stock active.
@@ -57,3 +57,22 @@ Acceptance requires the QEMU scenarios in [testing.md](testing.md) and current r
 - [GDM password](images/marble-gdm-password.png)
 - [Marble desktop](images/marble-desktop.png)
 - [Marble lock screen](images/marble-lock-screen.png)
+
+## GTK4/libadwaita and existing installations
+
+`arch-linux-colloid-gtk` replaces `arch-linux-colloid-gtk3` and contains GTK3, GTK4 and
+libadwaita assets from the same pinned source. The Marble profile requires the new package.
+Stock GNOME does not install either theme package or activate user CSS.
+
+The GNOME user service applies the packaged stylesheet before session applications start.
+It replaces `gtk.css` and `gtk-dark.css` under `$XDG_CONFIG_HOME/gtk-4.0` (normally
+`~/.config/gtk-4.0`) **without backups**, including existing custom styles. It replaces
+symlinks themselves, not their targets; unrelated files such as `servers` are preserved.
+On logout, profile deactivation or removal it removes only its own unchanged CSS wrappers.
+Previous custom styles are not restored. Light/dark switching follows system colors.
+
+Existing Marble systems receive the same configuration through `pacman -Syu` followed by
+logout/login; new users receive it on first GNOME login. GTK 4.22.x/libadwaita 1.9.x with
+GNOME 50 are initially supported. Unsupported combinations disable the project defaults.
+Use `/usr/lib/arch-linux-marble-profile/gtk4-session status` in the user session to inspect
+activation. No global `GTK_THEME` override or automatic Flatpak permission changes are used.

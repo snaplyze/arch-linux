@@ -204,8 +204,8 @@
   ],
   "packageSources": [
     {
-      "package": "arch-linux-colloid-gtk3",
-      "source": "arch-linux-colloid-gtk3-6c2dc65865628bda9fdc8157a30cd5eda6fd41f9.tar.gz::https://github.com/vinceliuice/Colloid-gtk-theme/archive/6c2dc65865628bda9fdc8157a30cd5eda6fd41f9.tar.gz",
+      "package": "arch-linux-colloid-gtk",
+      "source": "arch-linux-colloid-gtk-6c2dc65865628bda9fdc8157a30cd5eda6fd41f9.tar.gz::https://github.com/vinceliuice/Colloid-gtk-theme/archive/6c2dc65865628bda9fdc8157a30cd5eda6fd41f9.tar.gz",
       "sha256": "bab6d8903f1eec46e48c7cf10f262e39ea19ce3d731f1d6204e330ec928a0a29"
     },
     {

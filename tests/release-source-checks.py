@@ -81,6 +81,19 @@ class ReleaseSourceChecks(unittest.TestCase):
         self.assertNotIn(b"1.0.2", bootstrap)
         self.assertIn("pkgrel=4", self.git("show", f"{identity['source_commit']}:packages/arch-linux-keyring/PKGBUILD"))
 
+    def test_revision_updates_versioned_legacy_package_provides(self) -> None:
+        pkg = self.root / "packages/arch-linux-keyring/PKGBUILD"
+        pkg.write_text(pkg.read_text() + 'provides=("legacy-keyring=${pkgver}-${pkgrel}")\n')
+        info = self.root / "packages/arch-linux-keyring/.SRCINFO"
+        info.write_text(info.read_text() + '\tprovides = legacy-keyring=1.0.0-2\n')
+        self.git("add", ".")
+        self.git("commit", "-m", "review versioned migration")
+        self.main = self.git("rev-parse", "HEAD")
+        identity = self.prepare("1.0.3")
+        generated = self.git("show", f"{identity['source_commit']}:packages/arch-linux-keyring/.SRCINFO")
+        self.assertIn("provides = legacy-keyring=1.0.0-4", generated)
+        self.assertNotIn("provides = legacy-keyring=1.0.0-2", generated)
+
     def test_modified_bytes_modes_or_origin_are_rejected(self) -> None:
         identity = self.prepare()
         release = identity["source_commit"]

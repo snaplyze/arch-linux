@@ -2841,7 +2841,7 @@ select_gnome_theme_profile() {
     fi
 
     if [ "$ARCH_LINUX_GNOME_THEME_PROFILE" = "marble" ]; then
-        gum_property "GNOME Appearance" "Marble Shell + Colloid GTK3/icons (GTK4/libadwaita CSS stays Stock)"
+        gum_property "GNOME Appearance" "Marble Shell + Colloid GTK3/GTK4/libadwaita/icons"
     else
         gum_property "GNOME Appearance" "Stock"
     fi
@@ -4898,7 +4898,7 @@ chroot_rollback_marble_bootstrap() {
         "$MARBLE_GDM_PACKAGE" \
         arch-linux-keyring \
         arch-linux-marble-shell \
-        arch-linux-colloid-gtk3 \
+        arch-linux-colloid-gtk \
         arch-linux-colloid-icons; do
         if arch-chroot /mnt pacman -Q -- "$managed_package" >/dev/null 2>&1; then
             managed_package_installed='true'
@@ -7211,13 +7211,13 @@ print_summary() {
     if [ "$ARCH_LINUX_DESKTOP_ENABLED" = "true" ]; then
         gum join "$(gum_white "• Desktop: ")" "$(gum_green --bold "GNOME")" "$(gum_white ", terminal: ")" "$(gum_green --bold "Ptyxis")"
         if [ "$ARCH_LINUX_GNOME_THEME_PROFILE" = "marble" ]; then
-            gum join "$(gum_white "  • appearance: ")" "$(gum_green --bold "Marble Shell + Colloid GTK3/icons")"
+            gum join "$(gum_white "  • appearance: ")" "$(gum_green --bold "Marble Shell + Colloid GTK3/GTK4/libadwaita/icons")"
             if [ "$ARCH_LINUX_GDM_THEME_PROFILE" = "marble-experimental" ]; then
                 gum_white "  • GDM Shell: matching Marble theme + Colloid icons (experimental; GNOME 50 only)"
             else
                 gum_white "  • GDM Shell: Stock (default)"
             fi
-            gum_white "  • GTK4/libadwaita CSS stays Stock; the Colloid icon default is global"
+            gum_white "  • GTK4/libadwaita: Colloid, enabled automatically at GNOME login"
             gum_white "  • Bibata and all seven existing extensions stay enabled"
             gum_white "  • unsupported GNOME majors normally fall back to Stock Shell/GDM during pacman -Syu"
             gum_white "  • an unsafe failure to remove our active GDM link aborts before package changes"

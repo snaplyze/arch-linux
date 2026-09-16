@@ -1432,8 +1432,8 @@ run_marble_acceptance() {
         'the first real gdm-password authentication reached the exact vmtest GNOME Wayland session'
     record_assertion marble-shell-active \
         'the supported Marble blue dark Shell alias and effective User Themes setting were active'
-    record_assertion colloid-gtk3-icons-bibata-gtk4-stock \
-        'Colloid Dark GTK3 and icons plus Bibata were effective while project GTK4/libadwaita CSS remained absent'
+    record_assertion colloid-gtk3-gtk4-icons-bibata \
+        'Colloid GTK3 and GTK4/libadwaita plus icons and Bibata were effective'
     record_assertion user-themes-extension-profile \
         'the official User Themes extension joined the seven editable Stock extensions for an exact 8/8 enabled profile'
     if [[ "${scenario_id}" = *-stock-gdm ]]; then

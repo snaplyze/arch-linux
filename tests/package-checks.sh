@@ -111,7 +111,7 @@ for mutation in ("missing", "symlink", "hardlink", "duplicate", "relative", "sin
 profile_dependencies = [
     "arch-linux-keyring>=1.0.0",
     "arch-linux-marble-shell>=50.0.0",
-    "arch-linux-colloid-gtk3>=20260808",
+    "arch-linux-colloid-gtk>=20260808-5",
     "arch-linux-colloid-icons>=20260817",
     "bash",
     "coreutils",
@@ -120,6 +120,9 @@ profile_dependencies = [
     "gnome-shell-extensions",
     "grep",
     "pacman",
+    "python",
+    "systemd",
+    "util-linux",
 ]
 
 
@@ -199,6 +202,9 @@ def write_profile(name, mutation="positive"):
         "usr/share/licenses/arch-linux-marble-profile/LICENSE-project":
             (profile / "LICENSE-project").read_bytes(),
     }
+    files["usr/lib/arch-linux-marble-profile/gtk4-session"] = (profile / "gtk4-session").read_bytes()
+    files["usr/lib/systemd/user/arch-linux-marble-gtk4.service"] = (profile / "arch-linux-marble-gtk4.service").read_bytes()
+    service_link = "usr/lib/systemd/user/gnome-session-pre.target.wants/arch-linux-marble-gtk4.service"
     if mutation == "hook":
         files["usr/share/libalpm/hooks/90-arch-linux-marble-profile.hook"] += b"# changed\n"
     if mutation == "license":
@@ -210,9 +216,10 @@ def write_profile(name, mutation="positive"):
         del files[link_path]
 
     with tarfile.open(output / f"{name}.tar", "w", format=tarfile.PAX_FORMAT) as archive:
-        add_parents(archive, files | ({link_path: b""} if mutation == "link" else {}))
+        add_parents(archive, files | {service_link: b""} | ({link_path: b""} if mutation == "link" else {}))
+        add_link(archive, service_link, "../arch-linux-marble-gtk4.service")
         for path, data in sorted(files.items()):
-            mode = 0o755 if path == "usr/lib/arch-linux-marble-profile/update-compatibility" else 0o644
+            mode = 0o755 if path in {"usr/lib/arch-linux-marble-profile/update-compatibility", "usr/lib/arch-linux-marble-profile/gtk4-session"} else 0o644
             uid = 1000 if mutation == "owner" and path.endswith("LICENSE-project") else 0
             if mutation == "mode" and path.endswith("90-arch-linux-marble-profile.hook"):
                 mode = 0o600

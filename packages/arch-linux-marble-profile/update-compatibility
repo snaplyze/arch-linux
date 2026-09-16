@@ -22,6 +22,25 @@ readonly icon_index_sha256='ac13f2559b25ff50af1bbcad7cc75a2bbffca7a24de0dfde790a
 readonly supported_majors="${profile_root}/supported-gnome-majors"
 readonly dconf_db="${root_prefix}/etc/dconf/db/local"
 readonly dconf_defaults="${dconf_db}.d/05-arch-linux-marble-profile"
+readonly gtk4_root="${profile_root}/gtk4"
+readonly gtk4_manifest_sha256='718bb29a28acdf6ed3d7d10c033a4ecd01c0d4ba88eeebd50384988bbd470582'
+readonly gtk4_enabled="${root_prefix}/var/lib/arch-linux-marble/gtk4-enabled"
+
+gtk_libraries_supported() {
+    local gtk adw
+    if [ -n "${root_prefix}" ]; then
+        gtk="${ARCH_LINUX_MARBLE_TEST_GTK_PKGVER:-}"
+        adw="${ARCH_LINUX_MARBLE_TEST_ADW_PKGVER:-}"
+    else
+        gtk="$(/usr/bin/pacman -Q gtk4)" || return 1
+        adw="$(/usr/bin/pacman -Q libadwaita)" || return 1
+        gtk="${gtk#* }"
+        adw="${adw#* }"
+    fi
+    gtk="${gtk#*:}"
+    adw="${adw#*:}"
+    [[ "$gtk" =~ ^4\.22\.[0-9]+- ]] && [[ "$adw" =~ ^1\.9\.[0-9]+- ]]
+}
 
 gnome_major_from_pkgver() {
     local pkgver="${1#*:}"
@@ -73,6 +92,10 @@ compile_defaults() {
 
 deactivate_profile() {
     local status=0
+    /usr/bin/rm -f -- "${gtk4_enabled}"
+    if [ -z "${root_prefix}" ] && [ -x /usr/lib/arch-linux-marble-profile/gtk4-session ]; then
+        /usr/lib/arch-linux-marble-profile/gtk4-session remove-all || status=1
+    fi
     remove_owned_alias || status=1
     /usr/bin/rm -f -- "${dconf_defaults}"
     compile_defaults
@@ -84,9 +107,12 @@ validate_assets() {
     [ -f "${gtk_css}" ] || return 1
     [ -f "${icon_index}" ] || return 1
     echo "${shell_css_sha256}  ${shell_payload}/gnome-shell/gnome-shell.css" | \
-        /usr/bin/sha256sum --check --status
-    echo "${gtk_css_sha256}  ${gtk_css}" | /usr/bin/sha256sum --check --status
-    echo "${icon_index_sha256}  ${icon_index}" | /usr/bin/sha256sum --check --status
+        /usr/bin/sha256sum --check --status || return 1
+    echo "${gtk_css_sha256}  ${gtk_css}" | /usr/bin/sha256sum --check --status || return 1
+    echo "${icon_index_sha256}  ${icon_index}" | /usr/bin/sha256sum --check --status || return 1
+    [ -f "${gtk4_root}/assets.sha256" ] && [ ! -L "${gtk4_root}/assets.sha256" ] || return 1
+    echo "${gtk4_manifest_sha256}  ${gtk4_root}/assets.sha256" | /usr/bin/sha256sum --check --status || return 1
+    (cd "${gtk4_root}" && /usr/bin/sha256sum --check --status assets.sha256)
 }
 
 activate_profile() {
@@ -95,8 +121,7 @@ activate_profile() {
         "$(/usr/bin/dirname -- "${dconf_defaults}")"
 
     if ! remove_owned_alias; then
-        /usr/bin/rm -f -- "${dconf_defaults}"
-        compile_defaults
+        deactivate_profile || true
         return 1
     fi
     alias_tmp="${shell_alias}.new.$$"
@@ -133,6 +158,12 @@ EOF
     /usr/bin/chmod 0644 "${defaults_tmp}"
     /usr/bin/mv -f -- "${defaults_tmp}" "${dconf_defaults}"
     compile_defaults
+    /usr/bin/install -d -m0755 "$(/usr/bin/dirname -- "${gtk4_enabled}")"
+    local marker_tmp
+    marker_tmp="$(/usr/bin/mktemp "${gtk4_enabled}.XXXXXX")"
+    printf '%s\n' 'Marble GTK4 enabled' >"${marker_tmp}"
+    /usr/bin/chmod 0644 "${marker_tmp}"
+    /usr/bin/mv -fT -- "${marker_tmp}" "${gtk4_enabled}"
 }
 
 main() {
@@ -147,8 +178,8 @@ main() {
 
     local gnome_major
     if ! gnome_major="$(installed_gnome_major)" || [ ! -f "${supported_majors}" ] || \
-        ! /usr/bin/grep -Fxq -- "${gnome_major}" "${supported_majors}"; then
-        printf 'Marble profile disabled: installed GNOME major is unsupported or unknown.\n' >&2
+        ! /usr/bin/grep -Fxq -- "${gnome_major}" "${supported_majors}" || ! gtk_libraries_supported; then
+        printf 'Marble profile disabled: installed GNOME/GTK/libadwaita combination is unsupported or unknown.\n' >&2
         deactivate_profile
         return 0
     fi
