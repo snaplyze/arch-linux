@@ -38,6 +38,26 @@ grep -Fq -- "source_tree=\"\$(git -C \"\${repository_root}\" rev-parse \"refs/ta
     "${host}" || fail 'public release tree is not recorded separately from harness tree'
 grep -Fq -- 'verify-release-assets.sh' "${host}" ||
     fail 'staged source-bound snapshot verifier is absent'
+for legacy_option in --legacy-release-assets --legacy-release-version --legacy-snapshot-sha256; do
+    grep -Fq -- "${legacy_option}" "${host}" ||
+        fail "legacy migration input is absent: ${legacy_option}"
+done
+grep -Fq -- 'prepare_legacy_repository_input' "${host}" ||
+    fail 'legacy signed repository validation is absent'
+if ! grep -Fq -- 'legacy-install' "${host}" || ! grep -Fq -- 'migration-update' "${host}"; then
+    fail 'legacy-to-candidate package transition is absent'
+fi
+if ! grep -Fq -- 'fresh-user-login' "${host}" || ! grep -Fq -- 'return-user-login' "${host}"; then
+    fail 'second ordinary user GDM round trip is absent'
+fi
+grep -Fq -- 'gtk4-app-smoke' "${verify}" ||
+    fail 'GTK4/libadwaita application smoke phase is absent'
+grep -Fq -- '/run/arch-linux-qemu-gdm-profile' "${verify}" ||
+    fail 'fresh-user login does not install an effective test-owned GDM profile'
+grep -Fq -- 'legacy-repository-manifest.json | legacy-repository-manifest.json.sig' "${host}" ||
+    fail 'legacy signed manifest evidence is not retained explicitly'
+grep -Fq -- 'legacy-extracted' "${host}" ||
+    fail 'legacy extraction scratch is not removed by finalization'
 grep -Fq -- '"sourceCommit"' "${verify}" ||
     fail 'public repository manifest does not bind its source commit'
 grep -Fq -- '"sourceTree"' "${verify}" ||

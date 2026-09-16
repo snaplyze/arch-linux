@@ -14,6 +14,7 @@ import re
 import stat
 import subprocess
 import tarfile
+import tempfile
 from typing import Callable
 
 
@@ -73,6 +74,8 @@ EXPECTED_ASSERTIONS = {
     SCENARIOS[2]: (
         "accepted-iso-exact-installer", "encrypted-btrfs-systemdboot-marble-optin",
         "experimental-gdm-stock-fallback", "graphical-plymouth-unlock",
+        "legacy-signed-package-migration", "fresh-user-gdm-gtk4-activation",
+        "gtk4-libadwaita-light-dark-smoke",
         "gdm-user-password-no-autologin", "first-gdm-login-wayland", "marble-shell-active",
         "colloid-gtk3-gtk4-icons-bibata", "user-themes-extension-profile",
         "gdm-process-scoped-overlays", "user-shell-overlay-isolation", "vendor-paths-clean",
@@ -398,7 +401,8 @@ def snapshot_contract(root: Path, version: str, commit: str, tree: str,
         "manifestSignatureSha256": sha256_bytes(signature_raw),
         "installerSha256": manifest["installerSha256"],
         "packageSetSha256": manifest["packageSetSha256"],
-        "publicKeySha256": phase_key_hash, "primaryFingerprint": primary,
+        "publicKeySha256": phase_key_hash, "publicKeyRaw": (root / "arch-linux.gpg").read_bytes(),
+        "primaryFingerprint": primary,
         "signingFingerprint": signing,
         "databaseSha256": object_map["arch-linux.db.tar.gz"]["sha256"],
         "databaseSignatureSha256": object_map["arch-linux.db.tar.gz.sig"]["sha256"],
@@ -626,7 +630,8 @@ def expected_run_names(read: Callable[[str, int], bytes], scenario: str) -> tupl
         fail("QEMU diagnostic screenshot closure differs")
     top = set(RUN_FILES)
     if scenario == SCENARIOS[2]:
-        top.add("repository-runtime.sha256")
+        top.update({"repository-runtime.sha256", "evidence/legacy-repository-manifest.json",
+                    "evidence/legacy-repository-manifest.json.sig"})
     names = top | {f"evidence/{name}" for name in EVIDENCE_FIXED | set(screenshots)}
     return names, result
 
@@ -692,9 +697,81 @@ def single_sha256_row(raw: bytes, suffix: str, run_id: str, label: str) -> tuple
     return match.group(1), match.group(2)
 
 
+def validate_legacy_manifest(read: Callable[[str, int], bytes], identity: dict[str, str],
+                             contract: dict[str, object]) -> None:
+    raw = read("evidence/legacy-repository-manifest.json", MAX_JSON)
+    signature = read("evidence/legacy-repository-manifest.json.sig", MAX_JSON)
+    if sha256_bytes(raw) != identity["legacy_manifest_sha256"]:
+        fail("Marble legacy manifest hash differs")
+    manifest = canonical_json_bytes(raw, "legacy repository manifest")
+    exact_keys(manifest, SNAPSHOT_MANIFEST_KEYS, "legacy repository manifest")
+    if (manifest.get("schema") != 2 or manifest.get("repository") != "arch-linux" or
+            manifest.get("architecture") != "x86_64" or
+            manifest.get("releaseVersion") != identity["legacy_release_version"] or
+            manifest.get("sourceCommit") != identity["legacy_source_commit"] or
+            manifest.get("sourceTree") != identity["legacy_source_tree"] or
+            not exact_int(manifest.get("sourceDateEpoch"), 1)):
+        fail("Marble legacy manifest identity differs")
+    for key in ("installerSha256", "packageSetSha256", "buildMetadataSha256", "unsignedManifestSha256"):
+        value = manifest.get(key)
+        if not isinstance(value, str) or HEX64.fullmatch(value) is None or value == "0" * 64:
+            fail("Marble legacy manifest source hash differs")
+    records = manifest.get("files")
+    if not isinstance(records, list):
+        fail("Marble legacy manifest object closure differs")
+    objects = {}
+    for item in records:
+        exact_keys(item, {"name", "sha256", "size"}, "legacy manifest object")
+        name, digest, size = item.get("name"), item.get("sha256"), item.get("size")
+        if (not isinstance(name, str) or SAFE_NAME.fullmatch(name) is None or name in objects or
+                not isinstance(digest, str) or HEX64.fullmatch(digest) is None or
+                digest == "0" * 64 or not exact_int(size, 1)):
+            fail("Marble legacy manifest object differs")
+        objects[name] = item
+    packages = {"arch-linux-keyring", "arch-linux-marble-profile", "arch-linux-marble-shell",
+                "arch-linux-marble-gdm", "arch-linux-colloid-gtk3", "arch-linux-colloid-icons"}
+    package_files = []
+    for package in sorted(packages):
+        matches = [name for name in objects if re.fullmatch(
+            re.escape(package) + r"-[A-Za-z0-9.+_~]+-[0-9]+-(?:any|x86_64)\.pkg\.tar\.zst", name)]
+        if len(matches) != 1:
+            fail("Marble legacy package closure differs")
+        filename = matches[0]
+        version = filename[len(package) + 1:].rsplit("-", 1)[0]
+        field = {"arch-linux-marble-profile": "legacy_profile_version",
+                 "arch-linux-colloid-gtk3": "legacy_gtk3_version"}.get(package)
+        if field and version != identity[field]:
+            fail("Marble legacy package version binding differs")
+        package_files.append(filename)
+    fixed = {"arch-linux.db", "arch-linux.db.sig", "arch-linux.db.tar.gz", "arch-linux.db.tar.gz.sig",
+             "arch-linux.files", "arch-linux.files.sig", "arch-linux.files.tar.gz", "arch-linux.files.tar.gz.sig",
+             "arch-linux.gpg", "primary-fingerprint", "signing-subkey-fingerprint"}
+    if list(objects) != sorted(fixed | set(package_files) | {name + ".sig" for name in package_files}):
+        fail("Marble legacy repository exact object closure differs")
+    current = {item["name"]: item for item in contract["objects"]}
+    for name in ("arch-linux.gpg", "primary-fingerprint", "signing-subkey-fingerprint"):
+        if objects[name] != current[name]:
+            fail("Marble legacy trust binding differs")
+    with tempfile.TemporaryDirectory(prefix="arch-linux-legacy-manifest-") as temporary:
+        root = Path(temporary)
+        (root / "public.gpg").write_bytes(contract["publicKeyRaw"])
+        (root / "manifest.json").write_bytes(raw)
+        (root / "manifest.sig").write_bytes(signature)
+        checked = subprocess.run(["gpgv", "--homedir", temporary, "--status-fd", "1", "--keyring",
+                                  str(root / "public.gpg"), "--", str(root / "manifest.sig"),
+                                  str(root / "manifest.json")], capture_output=True, check=False)
+    status = checked.stdout.decode("ascii", errors="replace").splitlines()
+    valid = [line.split() for line in status if line.startswith("[GNUPG:] VALIDSIG ")]
+    rejected = re.compile(r"\[GNUPG:\] (?:BADSIG|ERRSIG|EXPKEYSIG|REVKEYSIG|EXPSIG)\b")
+    if (checked.returncode or len(valid) != 1 or len(valid[0]) < 12 or
+            valid[0][2] != contract["signingFingerprint"] or valid[0][-1] != contract["primaryFingerprint"] or
+            any(rejected.match(line) for line in status)):
+        fail("Marble legacy manifest signature differs")
+
+
 def validate_identity_record(raw: bytes, result: dict[str, object], scenario: str, run_id: str,
                              version: str, expected: dict[str, str], contract: dict[str, object],
-                             bootstrap_sha256: str) -> None:
+                             bootstrap_sha256: str, read: Callable[[str, int], bytes]) -> None:
     try:
         lines = raw.decode("utf-8").splitlines()
     except UnicodeDecodeError as error:
@@ -750,6 +827,23 @@ def validate_identity_record(raw: bytes, result: dict[str, object], scenario: st
         if port > 65535:
             fail("Marble repository runtime port is out of range")
         cursor += 1
+        legacy = {}
+        patterns = {
+            "legacy_release_version": VERSION, "legacy_snapshot_sha256": HEX64,
+            "legacy_source_commit": HEX40, "legacy_source_tree": HEX40,
+            "legacy_manifest_sha256": HEX64,
+            "legacy_profile_version": re.compile(r"[A-Za-z0-9][A-Za-z0-9.+_:~-]*"),
+            "legacy_gtk3_version": re.compile(r"[A-Za-z0-9][A-Za-z0-9.+_:~-]*"),
+        }
+        for key, pattern in patterns.items():
+            if cursor >= len(lines) or not lines[cursor].startswith(key + "="):
+                fail("Marble legacy identity row closure differs")
+            value = lines[cursor].split("=", 1)[1]
+            if pattern.fullmatch(value) is None or value in ("0" * 40, "0" * 64):
+                fail("Marble legacy identity field differs")
+            legacy[key] = value
+            cursor += 1
+        validate_legacy_manifest(read, legacy, contract)
     if cursor != len(lines):
         fail("QEMU identity contains an unexpected row")
     if re.fullmatch(rf"ALI100{serial_letters[scenario]}[A-F0-9]{{12}}", str(result["targetSerial"])) is None:
@@ -919,7 +1013,7 @@ def run_record(read: Callable[[str, int], bytes],
         fail("QEMU exact scenario assertion sequence differs")
     validate_repository_objects(result, read, contract)
     validate_identity_record(read("identity.txt", MAX_TEXT), result, scenario, run_id, version,
-                             expected, contract, bootstrap_sha256)
+                             expected, contract, bootstrap_sha256, read)
     marker_values = validate_runtime_markers(read, result, scenario, run_id)
     for field, value in expected.items():
         if result.get(field) != value:

@@ -963,13 +963,30 @@ final_assets="$work/final-assets"
 cp -a -- "$assets" "$final_assets"
 evidence_name=arch-linux-acceptance-evidence-1.0.0.tar.zst
 acceptance_name=arch-linux-acceptance-1.0.0.json
+legacy_manifest="$work/legacy-repository-manifest.json"
+python3 - "$snapshot/repository-manifest.json" "$legacy_manifest" <<'PY_LEGACY'
+import hashlib, json, pathlib, sys
+manifest = json.loads(pathlib.Path(sys.argv[1]).read_bytes())
+manifest['releaseVersion'] = '0.9.0'
+manifest['sourceCommit'] = 'a' * 40
+manifest['sourceTree'] = 'b' * 40
+records = [item for item in manifest['files'] if '.pkg.tar.zst' not in item['name']]
+for package in ('arch-linux-keyring', 'arch-linux-marble-profile', 'arch-linux-marble-shell',
+                'arch-linux-marble-gdm', 'arch-linux-colloid-gtk3', 'arch-linux-colloid-icons'):
+    for suffix in ('.pkg.tar.zst', '.pkg.tar.zst.sig'):
+        name = package + '-0.9.0-1-any' + suffix
+        records.append({'name': name, 'sha256': hashlib.sha256(name.encode()).hexdigest(), 'size': 100})
+manifest['files'] = sorted(records, key=lambda item: item['name'])
+pathlib.Path(sys.argv[2]).write_text(json.dumps(manifest, sort_keys=True, separators=(',', ':')) + '\n')
+PY_LEGACY
+sign_file "$key_home" "$signing" "$legacy_manifest" "$legacy_manifest.sig"
 evidence_root="$work/final-evidence-stage/evidence"
 mkdir -p -- "$evidence_root"
 python3 -B - "$evidence_root" "$source_commit" "$source_tree" "$build_metadata_hash" \
     "$unsigned_manifest_hash" "$(sha256sum --binary -- "$assets/$archive" | awk '{print $1}')" \
     "$(sha256sum --binary -- "$assets/RELEASE-SHA256SUMS" | awk '{print $1}')" \
     "$snapshot/repository-manifest.json" "$snapshot/repository-manifest.json.sig" \
-    "$assets" "$fixture_project" <<'PY'
+    "$assets" "$fixture_project" "$legacy_manifest" <<'PY'
 from __future__ import annotations
 import gzip, hashlib, importlib.util, json, os, pathlib, sys
 
@@ -979,6 +996,8 @@ repository_manifest=pathlib.Path(sys.argv[8]).read_bytes()
 repository_signature=pathlib.Path(sys.argv[9]).read_bytes()
 assets=pathlib.Path(sys.argv[10])
 source=pathlib.Path(sys.argv[11])
+legacy_manifest=pathlib.Path(sys.argv[12]).read_bytes()
+legacy_signature=pathlib.Path(sys.argv[12] + '.sig').read_bytes()
 spec=importlib.util.spec_from_file_location('acceptance_manifest_fixture',source/'repository/acceptance-manifest.py')
 am=importlib.util.module_from_spec(spec); spec.loader.exec_module(am)
 scenarios=(
@@ -1112,7 +1131,15 @@ for index,(scenario,prefix,serial_code) in enumerate(scenarios,1):
     identity_text+=''.join(
         f"repository_object_sha256={item['sha256']} name={item['name']} size={item['size']}\n"
         for item in objects)
-    if prefix=='marble': identity_text+='repository_server_port=43210\n'
+    if prefix=='marble':
+        write(evidence/'legacy-repository-manifest.json',legacy_manifest)
+        write(evidence/'legacy-repository-manifest.json.sig',legacy_signature)
+        identity_text+='repository_server_port=43210\n'
+        legacy_rows = [('legacy_release_version','0.9.0'),('legacy_snapshot_sha256',digest(b'legacy archive')),
+                       ('legacy_source_commit','a'*40),('legacy_source_tree','b'*40),
+                       ('legacy_manifest_sha256',digest(legacy_manifest)),
+                       ('legacy_profile_version','0.9.0-1'),('legacy_gtk3_version','0.9.0-1')]
+        identity_text+=''.join(f'{key}={value}\n' for key,value in legacy_rows)
     write(run/'identity.txt',identity_text.encode())
     result_raw=encoded(result)
     write(run/'result.json',result_raw)
@@ -1161,6 +1188,22 @@ for scenario, _, _ in scenarios:
         ('missing runtime identity', {name: value for name, value in payloads.items()
                                       if name != 'evidence/postreboot-qemu.identity'}),
     ]
+    if scenario == am.SCENARIOS[2]:
+        for key, value in (('legacy_manifest_sha256', 'f'*64), ('legacy_source_commit', 'f'*40),
+                           ('legacy_profile_version', '0.8.0-1'), ('legacy_snapshot_sha256', 'invalid')):
+            lines = payloads['identity.txt'].decode().splitlines()
+            changed = '\n'.join(key + '=' + value if line.startswith(key + '=') else line
+                                for line in lines) + '\n'
+            negatives.append(('legacy identity ' + key, payloads | {'identity.txt': changed.encode()}))
+        negatives += [
+            ('legacy signature', payloads | {'evidence/legacy-repository-manifest.json.sig': repository_signature}),
+            ('missing legacy manifest', {name:value for name,value in payloads.items()
+                                        if name != 'evidence/legacy-repository-manifest.json'}),
+            ('extra legacy identity', payloads | {'identity.txt':payloads['identity.txt'] + b'legacy_extra=1\n'}),
+        ]
+    else:
+        negatives.append(('foreign legacy evidence', payloads |
+                          {'evidence/legacy-repository-manifest.json':legacy_manifest}))
     if result['screenshots']:
         image = 'evidence/' + result['screenshots'][0]
         negatives.append(('malformed diagnostic PPM', payloads | {image: b'P6\n16 16\n255\nshort'}))

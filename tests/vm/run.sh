@@ -24,6 +24,14 @@ output_parent=''
 input_mode=''
 release_assets=''
 release_version=''
+legacy_release_assets=''
+legacy_release_version=''
+legacy_snapshot_sha256=''
+legacy_source_commit='-'
+legacy_source_tree='-'
+legacy_manifest_sha256='-'
+legacy_profile_version='-'
+legacy_gtk3_version='-'
 target_disk_metadata='absent'
 snapshot_sha256=''
 build_metadata_sha256=''
@@ -99,6 +107,8 @@ usage() {
         '       --iso ABSOLUTE_PATH --iso-sha256 SHA256' \
         '       --output-root ABSOLUTE_PRIVATE_DIRECTORY' \
         '       --mode staged --release-assets ABSOLUTE_DIRECTORY --release-version VERSION' \
+        '       --legacy-release-assets ABSOLUTE_DIRECTORY --legacy-release-version VERSION' \
+        '       --legacy-snapshot-sha256 SHA256 (required for the main staged Marble scenario)' \
         '       [--target-disk-metadata absent|identified]' \
         '       --snapshot-sha256 SHA256 --build-metadata-sha256 SHA256 --unsigned-manifest-sha256 SHA256' \
         '   or: --mode public --release-version VERSION --snapshot-sha256 SHA256' \
@@ -261,6 +271,7 @@ compact_run_evidence() {
         case "${basename}" in
         *.ppm | scenario.log.gz | final-qemu-img-check.txt | no-qemu-process.txt | \
             repository-manifest.json | repository-manifest.json.sig | repository-objects.tsv | \
+            legacy-repository-manifest.json | legacy-repository-manifest.json.sig | \
             firstboot-qemu.identity | postreboot-qemu.identity | preseal-harness-check.txt) ;;
         *) rm -f -- "${candidate}" || return 1 ;;
         esac
@@ -277,6 +288,9 @@ remove_heavy_run_inputs() {
         "${run_root}/repository.contract" "${run_root}/public.contract" || return 1
     remove_exact_run_tree "${run_root}/payload" || return 1
     remove_exact_run_tree "${run_root}/repository" || return 1
+    if [ -e "${run_root}/legacy-extracted" ] || [ -L "${run_root}/legacy-extracted" ]; then
+        remove_exact_run_tree "${run_root}/legacy-extracted" || return 1
+    fi
 }
 
 enforce_evidence_budget() {
@@ -1028,6 +1042,126 @@ prepare_signed_repository_input() {
         "${repository_server_root}/repo/x86_64/repository-manifest.json.sig"
 }
 
+prepare_legacy_repository_input() {
+    local archive archive_name extracted repo manifest build file expected_hash actual_names expected_names
+    local package package_name package_version package_info
+    local -a required_assets package_files
+    archive_name="arch-linux-repository-${legacy_release_version}.tar.zst"
+    archive="${legacy_release_assets}/${archive_name}"
+    required_assets=(
+        BUILD-METADATA.json RELEASE-SHA256SUMS RELEASE-SHA256SUMS.sig UNSIGNED-SHA256SUMS
+        arch-linux.gpg primary-fingerprint signing-subkey-fingerprint
+        "${archive_name}" "${archive_name}.sha256" "${archive_name}.sig"
+    )
+    expected_names="$(printf '%s\n' "${required_assets[@]}" | LC_ALL=C sort)"
+    actual_names="$(find "${legacy_release_assets}" -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort)"
+    [ "${actual_names}" = "${expected_names}" ] || die 'legacy release asset closure differs'
+    [ -z "$(find "${legacy_release_assets}" -mindepth 1 \( -type d -o -type l -o ! -type f \) -print -quit)" ] ||
+        die 'legacy release assets contain a directory, link or special object'
+    for file in arch-linux.gpg primary-fingerprint signing-subkey-fingerprint; do
+        cmp -s -- "${legacy_release_assets}/${file}" "${repository_root}/repository/trust/${file}" ||
+            die "legacy release trust differs: ${file}"
+    done
+    verify_retained_manifest_signature "${legacy_release_assets}/RELEASE-SHA256SUMS" \
+        "${legacy_release_assets}/RELEASE-SHA256SUMS.sig"
+    verify_retained_manifest_signature "${archive}" "${archive}.sig"
+    for file in BUILD-METADATA.json UNSIGNED-SHA256SUMS arch-linux.gpg \
+        primary-fingerprint signing-subkey-fingerprint "${archive_name}" \
+        "${archive_name}.sha256" "${archive_name}.sig"; do
+        expected_hash="$(awk -v expected="*${file}" '$2 == expected { print $1; count++ } \
+            END { if (count != 1) exit 1 }' "${legacy_release_assets}/RELEASE-SHA256SUMS")" ||
+            die "legacy signed sums omit ${file}"
+        [ "$(sha256sum --binary -- "${legacy_release_assets}/${file}" | awk '{ print $1 }')" = \
+            "${expected_hash}" ] || die "legacy release asset digest differs: ${file}"
+    done
+    [ "$(sha256sum --binary -- "${archive}" | awk '{ print $1 }')" = \
+        "${legacy_snapshot_sha256}" ] || die 'legacy snapshot SHA-256 differs'
+    [ "$(cat -- "${archive}.sha256")" = "${legacy_snapshot_sha256} *${archive_name}" ] ||
+        die 'legacy snapshot checksum sidecar differs'
+
+    extracted="${run_root}/legacy-extracted"
+    python3 "${repository_root}/repository/safe-extract-snapshot.py" "${archive}" "${extracted}"
+    repo="${extracted}/repo/x86_64"
+    manifest="${repo}/repository-manifest.json"
+    build="${legacy_release_assets}/BUILD-METADATA.json"
+    verify_retained_manifest_signature "${manifest}" "${manifest}.sig"
+    python3 - "${build}" "${manifest}" "${repo}" "${legacy_release_version}" <<'PY'
+import hashlib, json, pathlib, sys
+build_path, manifest_path, repo_path = map(pathlib.Path, sys.argv[1:4])
+version = sys.argv[4]
+build_raw = build_path.read_bytes(); build = json.loads(build_raw)
+manifest_raw = manifest_path.read_bytes(); manifest = json.loads(manifest_raw)
+canonical = lambda value: (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
+if build_raw != canonical(build) or manifest_raw != canonical(manifest): raise SystemExit("legacy JSON is not canonical")
+expected_packages = {
+    "arch-linux-colloid-gtk3", "arch-linux-colloid-icons", "arch-linux-keyring",
+    "arch-linux-marble-gdm", "arch-linux-marble-profile", "arch-linux-marble-shell",
+}
+package_files = build.get("packages")
+if build.get("schema") != 2 or not isinstance(package_files, list) or len(package_files) != 6:
+    raise SystemExit("legacy build metadata schema differs")
+def package_name(filename):
+    matches = [name for name in expected_packages if filename.startswith(name + "-") and filename.endswith(".pkg.tar.zst")]
+    if len(matches) != 1: raise SystemExit("legacy package name differs")
+    return matches[0]
+if {package_name(name) for name in package_files} != expected_packages:
+    raise SystemExit("legacy package closure differs")
+if manifest.get("schema") != 2 or manifest.get("releaseVersion") != version:
+    raise SystemExit("legacy manifest version differs")
+for key in ("sourceCommit", "sourceTree", "installerSha256", "packageSetSha256", "sourceDateEpoch", "unsignedManifestSha256"):
+    if manifest.get(key) != build.get(key): raise SystemExit("legacy manifest/build identity differs")
+files = manifest.get("files")
+if not isinstance(files, list): raise SystemExit("legacy manifest files differ")
+entries = {entry.get("name"): entry for entry in files if isinstance(entry, dict)}
+if len(entries) != len(files): raise SystemExit("legacy manifest names repeat")
+actual = {path.name for path in repo_path.iterdir() if path.is_file()}
+if actual != set(entries) | {"repository-manifest.json", "repository-manifest.json.sig"}:
+    raise SystemExit("legacy repository closure differs")
+for name, entry in entries.items():
+    path = repo_path / name
+    data = path.read_bytes()
+    if entry.get("size") != len(data) or entry.get("sha256") != hashlib.sha256(data).hexdigest():
+        raise SystemExit("legacy repository object differs: " + name)
+for name in package_files:
+    if name not in entries or name + ".sig" not in entries: raise SystemExit("legacy package signature is absent")
+PY
+    mapfile -t package_files < <(python3 - "${build}" <<'PY'
+import json, pathlib, sys
+data=json.loads(pathlib.Path(sys.argv[1]).read_bytes())
+print(data["sourceCommit"]); print(data["sourceTree"]); print(*data["packages"], sep="\n")
+PY
+    )
+    legacy_source_commit="${package_files[0]}"
+    legacy_source_tree="${package_files[1]}"
+    package_files=("${package_files[@]:2}")
+    for file in "${package_files[@]}"; do
+        verify_retained_manifest_signature "${repo}/${file}" "${repo}/${file}.sig"
+        package_info="$(bsdtar -xOf "${repo}/${file}" .PKGINFO)"
+        package_name="$(awk -F ' = ' '$1 == "pkgname" { print $2; count++ } END { if (count != 1) exit 1 }' \
+            <<<"${package_info}")"
+        package_version="$(awk -F ' = ' '$1 == "pkgver" { print $2; count++ } END { if (count != 1) exit 1 }' \
+            <<<"${package_info}")"
+        case "${package_name}" in
+        arch-linux-marble-profile) legacy_profile_version="${package_version}" ;;
+        arch-linux-colloid-gtk3) legacy_gtk3_version="${package_version}" ;;
+        esac
+    done
+    for file in arch-linux.db arch-linux.db.tar.gz arch-linux.files arch-linux.files.tar.gz; do
+        verify_retained_manifest_signature "${repo}/${file}" "${repo}/${file}.sig"
+    done
+    cmp -s -- "${repo}/arch-linux.db" "${repo}/arch-linux.db.tar.gz"
+    cmp -s -- "${repo}/arch-linux.db.sig" "${repo}/arch-linux.db.tar.gz.sig"
+    cmp -s -- "${repo}/arch-linux.files" "${repo}/arch-linux.files.tar.gz"
+    cmp -s -- "${repo}/arch-linux.files.sig" "${repo}/arch-linux.files.tar.gz.sig"
+    [ "${legacy_profile_version}" != - ] && [ "${legacy_gtk3_version}" != - ] ||
+        die 'legacy migration packages are absent'
+    legacy_manifest_sha256="$(sha256sum --binary -- "${manifest}" | awk '{ print $1 }')"
+    install -m0444 -- "${manifest}" "${evidence}/legacy-repository-manifest.json"
+    install -m0444 -- "${manifest}.sig" "${evidence}/legacy-repository-manifest.json.sig"
+    mv -- "${extracted}/repo" "${repository_server_root}/legacy"
+    rmdir -- "${extracted}"
+}
+
 start_marble_repository_runtime() {
     local ca_sha server_url key_url readback_key
     repository_ca_private_key="${runtime_dir}/repository-ca.key"
@@ -1321,12 +1455,16 @@ qga_verify() {
         --arg package_set_sha256 "${repository_package_set_sha256}" \
         --arg build_metadata_sha256 "${build_metadata_sha256}" \
         --arg unsigned_manifest_sha256 "${unsigned_manifest_sha256}" \
-        --arg public_key_sha256 "${repository_public_key_sha256}" '
+        --arg public_key_sha256 "${repository_public_key_sha256}" \
+        --arg legacy_release_version "${legacy_release_version:--}" \
+        --arg legacy_profile_version "${legacy_profile_version:--}" \
+        --arg legacy_gtk3_version "${legacy_gtk3_version:--}" '
         {execute:"guest-exec",arguments:{path:"/usr/bin/bash","capture-output":true,
           arg:["-c",$script,"minimal-verify",$phase,$serial,$vendor,$model,$username,$scenario,$run_id,
             $repository_primary,$repository_signing,$input_mode,$release_version,$target_disk_metadata,$pages_url,$public_key_url,
             $snapshot_sha256,$source_commit,$source_tree,$installer_sha256,$package_set_sha256,
-            $build_metadata_sha256,$unsigned_manifest_sha256,$public_key_sha256]}}')"
+            $build_metadata_sha256,$unsigned_manifest_sha256,$public_key_sha256,
+            $legacy_release_version,$legacy_profile_version,$legacy_gtk3_version]}}')"
     printf '%s\n' "${request}" | jq -cS . >"${evidence}/${stem}.request.json"
     start="$(qga_call "${request}")" || die "QGA verification did not start: ${phase}"
     printf '%s\n' "${start}" | jq -cS . >"${evidence}/${stem}.start.json"
@@ -1334,7 +1472,7 @@ qga_verify() {
         die "QGA verification PID is invalid: ${phase}"
     status_request="$(jq -cn --argjson pid "${guest_pid}" \
         '{execute:"guest-exec-status",arguments:{pid:$pid}}')"
-    [ "${phase}" = update ] && attempts=3600
+    { [ "${phase}" = update ] || [ "${phase}" = migration-update ]; } && attempts=3600
     for ((attempt = 0; attempt < attempts; attempt++)); do
         if status_response="$(qga_call "${status_request}")" &&
             jq -e '.return.exited == true' <<<"${status_response}" >/dev/null; then
@@ -1402,6 +1540,17 @@ marble_gdm_login() {
     qga_verify "${phase}" "${stem}-login"
 }
 
+marble_named_gdm_login() {
+    local phase="$1" stem="$2" account="$3"
+    sleep 3
+    hmp_request type "${account}"
+    sleep 1
+    hmp_type_password
+    printf 'phase=%s\ntransport=hmp-virtual-keyboard\nusername=%s\ncredential_length=48\nsubmit_key=enter\nsecret_recorded=no\n' \
+        "${phase}" "${account}" >"${evidence}/${stem}-login-input.txt"
+    qga_verify "${phase}" "${stem}-login"
+}
+
 run_marble_acceptance() {
     local first_boot_id post_boot_id
 
@@ -1424,7 +1573,28 @@ run_marble_acceptance() {
     record_assertion graphical-plymouth-unlock \
         'virtual-keyboard LUKS unlock reached GDM without repair; any screenshot is diagnostic only'
 
-    marble_gdm_login firstlogin firstboot firstboot-gdm-password
+    if [ "${input_mode}" = staged ] && \
+        [ "${scenario_id}" = marble-gnome-btrfs-luks2-plymouth-systemdboot ]; then
+        qga_verify legacy-install migration-legacy-install
+        marble_gdm_login legacy-login migration-legacy
+        qga_verify migration-update migration-candidate-update
+        marble_gdm_login migrated-login migration-candidate
+        qga_verify gtk4-app-smoke-light gtk4-app-smoke-light
+        capture_screen gtk4-app-smoke-light
+        qga_verify gtk4-app-smoke-dark gtk4-app-smoke-dark
+        capture_screen gtk4-app-smoke-dark
+        qga_verify fresh-user-prepare fresh-user-prepare
+        marble_named_gdm_login fresh-user-login fresh-user marblefresh
+        marble_named_gdm_login return-user-login return-user vmtest
+        record_assertion legacy-signed-package-migration \
+            'signed legacy profile and GTK3 packages ran in a real session, then candidate pacman -Syu replaced GTK3 with the unified package before another GDM login'
+        record_assertion fresh-user-gdm-gtk4-activation \
+            'a newly created ordinary user authenticated through GDM and received automatic owned GTK4 CSS and an active user service before returning to the original user'
+        record_assertion gtk4-libadwaita-light-dark-smoke \
+            'Nautilus, Ptyxis, Settings and Boxes launched in the real session under light and dark color-scheme states; screenshots are diagnostic and do not prove visual equivalence'
+    else
+        marble_gdm_login firstlogin firstboot firstboot-gdm-password
+    fi
     capture_screen firstboot-desktop
     record_assertion gdm-user-password-no-autologin \
         'the real Wayland GDM greeter required password authentication with autologin disabled'
@@ -1729,6 +1899,9 @@ main() {
         --mode) [ "$#" -ge 2 ] || { usage; exit 2; }; input_mode="$2"; shift 2 ;;
         --release-assets) [ "$#" -ge 2 ] || { usage; exit 2; }; release_assets="$2"; shift 2 ;;
         --release-version) [ "$#" -ge 2 ] || { usage; exit 2; }; release_version="$2"; shift 2 ;;
+        --legacy-release-assets) [ "$#" -ge 2 ] || { usage; exit 2; }; legacy_release_assets="$2"; shift 2 ;;
+        --legacy-release-version) [ "$#" -ge 2 ] || { usage; exit 2; }; legacy_release_version="$2"; shift 2 ;;
+        --legacy-snapshot-sha256) [ "$#" -ge 2 ] || { usage; exit 2; }; legacy_snapshot_sha256="$2"; shift 2 ;;
         --target-disk-metadata) [ "$#" -ge 2 ] || { usage; exit 2; }; target_disk_metadata="$2"; shift 2 ;;
         --snapshot-sha256) [ "$#" -ge 2 ] || { usage; exit 2; }; snapshot_sha256="$2"; shift 2 ;;
         --build-metadata-sha256) [ "$#" -ge 2 ] || { usage; exit 2; }; build_metadata_sha256="$2"; shift 2 ;;
@@ -1741,7 +1914,7 @@ main() {
         esac
     done
 
-    for command_name in awk base64 bash cmp curl du find genisoimage git gpgv grep gzip install jq openssl \
+    for command_name in awk base64 bash bsdtar cmp curl du find genisoimage git gpgv grep gzip install jq openssl \
         python3 qemu-img qemu-system-x86_64 readlink sed sha256sum sort stat; do
         require_command "${command_name}"
     done
@@ -1776,6 +1949,20 @@ main() {
             die 'public key URL differs from the immutable Release asset'
         [ "${pages_url}" = "https://snaplyze.github.io/arch-linux/repo/\$arch" ] ||
             die 'public Pages repository URL differs'
+    fi
+    if [ "${input_mode}" = staged ] && \
+        [ "${scenario_id}" = marble-gnome-btrfs-luks2-plymouth-systemdboot ]; then
+        [ -n "${legacy_release_assets}" ] && [ -n "${legacy_release_version}" ] &&
+            [ -n "${legacy_snapshot_sha256}" ] ||
+            die 'main staged Marble acceptance requires all legacy release inputs'
+        [[ "${legacy_release_assets}" = /* ]] && [ -d "${legacy_release_assets}" ] &&
+            [ ! -L "${legacy_release_assets}" ] || die 'legacy release assets directory is unsafe'
+        [[ "${legacy_release_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
+            die 'legacy release version is malformed'
+        [[ "${legacy_snapshot_sha256}" =~ ^[a-f0-9]{64}$ ]] ||
+            die 'legacy snapshot SHA-256 is malformed'
+    elif [ -n "${legacy_release_assets}${legacy_release_version}${legacy_snapshot_sha256}" ]; then
+        die 'legacy release inputs are limited to the main staged Marble scenario'
     fi
     [[ "${iso_sha256}" =~ ^[a-f0-9]{64}$ ]] || die 'accepted ISO SHA-256 is malformed'
     [ -f "${iso_path}" ] && [ ! -L "${iso_path}" ] || die 'accepted ISO is not a regular non-symlink file'
@@ -1849,6 +2036,9 @@ main() {
     if [ "${input_mode}" = staged ]; then
         verify_staged_release_input
         prepare_signed_repository_input
+        if [ "${scenario_id}" = marble-gnome-btrfs-luks2-plymouth-systemdboot ]; then
+            prepare_legacy_repository_input
+        fi
         snapshot_verification='INDEPENDENT_PASS'
     else
         load_release_trust "${repository_root}/repository/trust"
@@ -1870,6 +2060,12 @@ main() {
     [ "${input_mode}" != staged ] || append_repository_identity
     if [ "${input_mode}" = staged ] && is_marble_scenario; then
         printf 'repository_server_port=%s\n' "${repository_server_port}" >>"${run_root}/identity.txt"
+        if [ "${scenario_id}" = marble-gnome-btrfs-luks2-plymouth-systemdboot ]; then
+            printf 'legacy_release_version=%s\nlegacy_snapshot_sha256=%s\nlegacy_source_commit=%s\nlegacy_source_tree=%s\nlegacy_manifest_sha256=%s\nlegacy_profile_version=%s\nlegacy_gtk3_version=%s\n' \
+                "${legacy_release_version}" "${legacy_snapshot_sha256}" "${legacy_source_commit}" \
+                "${legacy_source_tree}" "${legacy_manifest_sha256}" \
+                "${legacy_profile_version}" "${legacy_gtk3_version}" >>"${run_root}/identity.txt"
+        fi
     elif [ "${input_mode}" = public ]; then
         printf 'bootstrap_url=%s\ninstaller_url=%s\npublic_key_url=%s\npages_url=%s\n' \
             "${bootstrap_url}" "${installer_url}" "${public_key_url}" "${pages_url}" \

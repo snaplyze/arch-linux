@@ -15,7 +15,7 @@ guest_error() {
 }
 trap 'guest_error "$LINENO" "$BASH_COMMAND"' ERR
 
-[ "$#" -eq 22 ] || { printf 'usage: verify.sh PHASE SERIAL VENDOR MODEL USERNAME SCENARIO RUN_ID REPOSITORY_PRIMARY REPOSITORY_SIGNING INPUT_MODE RELEASE_VERSION TARGET_DISK_METADATA PAGES_URL PUBLIC_KEY_URL SNAPSHOT_SHA256 SOURCE_COMMIT SOURCE_TREE INSTALLER_SHA256 PACKAGE_SET_SHA256 BUILD_METADATA_SHA256 UNSIGNED_MANIFEST_SHA256 PUBLIC_KEY_SHA256\n' >&2; exit 2; }
+[ "$#" -eq 25 ] || { printf 'usage: verify.sh PHASE SERIAL VENDOR MODEL USERNAME SCENARIO RUN_ID REPOSITORY_PRIMARY REPOSITORY_SIGNING INPUT_MODE RELEASE_VERSION TARGET_DISK_METADATA PAGES_URL PUBLIC_KEY_URL SNAPSHOT_SHA256 SOURCE_COMMIT SOURCE_TREE INSTALLER_SHA256 PACKAGE_SET_SHA256 BUILD_METADATA_SHA256 UNSIGNED_MANIFEST_SHA256 PUBLIC_KEY_SHA256 LEGACY_RELEASE_VERSION LEGACY_PROFILE_VERSION LEGACY_GTK3_VERSION\n' >&2; exit 2; }
 readonly phase="$1" expected_serial="$2" expected_vendor="$3" expected_model="$4"
 readonly username="$5" scenario="$6" run_id="$7" repository_primary="$8"
 readonly repository_signing="$9" input_mode="${10}" release_version="${11}"
@@ -23,6 +23,7 @@ readonly target_disk_metadata="${12}" pages_url="${13}" public_key_url="${14}"
 readonly snapshot_sha256="${15}" source_commit="${16}" source_tree="${17}"
 readonly installer_sha256="${18}" package_set_sha256="${19}"
 readonly build_metadata_sha256="${20}" unsigned_manifest_sha256="${21}" public_key_sha256="${22}"
+readonly legacy_release_version="${23}" legacy_profile_version="${24}" legacy_gtk3_version="${25}"
 case "${scenario}" in
 minimal-ext4-systemdboot)
     marker_prefix='MINIMAL'
@@ -77,6 +78,9 @@ marble-gnome-btrfs-luks2-plymouth-systemdboot)
     marker_prefix='MARBLE'
     case "${phase}" in
     prelogin | firstlogin | lock | unlock | update | postreboot-prelogin | secondlogin | \
+        legacy-install | legacy-login | migration-update | migrated-login | \
+        gtk4-app-smoke-light | gtk4-app-smoke-dark | fresh-user-prepare | \
+        fresh-user-login | return-user-login | \
         incompatible-fixture | incompatible-prelogin | incompatible-login | restore-marble | \
         restored-prelogin | restored-login | remove-marble | removed-prelogin | removed-login | \
         reinstall-marble | reinstalled-prelogin | reinstalled-login) ;;
@@ -121,6 +125,13 @@ done
 case "${input_mode}" in
 staged)
     [ "${pages_url}" = - ] && [ "${public_key_url}" = - ]
+    if [ "${scenario}" = marble-gnome-btrfs-luks2-plymouth-systemdboot ]; then
+        [[ "${legacy_release_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+        [[ "${legacy_profile_version}" =~ ^[A-Za-z0-9.+:_-]+$ ]]
+        [[ "${legacy_gtk3_version}" =~ ^[A-Za-z0-9.+:_-]+$ ]]
+    else
+        [ "${legacy_release_version}${legacy_profile_version}${legacy_gtk3_version}" = --- ]
+    fi
     ;;
 public)
     [ "${scenario}" = marble-gnome-btrfs-luks2-plymouth-systemdboot ]
@@ -130,6 +141,7 @@ public)
     esac
     [ "${pages_url}" = "https://snaplyze.github.io/arch-linux/repo/\$arch" ]
     [ "${public_key_url}" = "https://github.com/snaplyze/arch-linux/releases/download/${release_version}/arch-linux.gpg" ]
+    [ "${legacy_release_version}${legacy_profile_version}${legacy_gtk3_version}" = --- ]
     ;;
 *) exit 2 ;;
 esac
@@ -301,9 +313,14 @@ wait_for_graphical_stack() {
 }
 
 wait_for_user_session() {
+    wait_for_named_user_session "${username}"
+}
+
+wait_for_named_user_session() {
+    local account="$1"
     local deadline=$((SECONDS + 300)) candidate=''
     while [ "${SECONDS}" -lt "${deadline}" ]; do
-        candidate="$(find_session user "${username}" gdm-password 2>/dev/null || true)"
+        candidate="$(find_session user "${account}" gdm-password 2>/dev/null || true)"
         if [ -n "${candidate}" ] && [ "$(session_property "${candidate}" Type)" = wayland ] &&
             [ "$(session_property "${candidate}" State)" = active ] &&
             [ "$(session_property "${candidate}" Remote)" = no ] &&
@@ -330,11 +347,17 @@ wait_for_gnome_shell() {
 }
 
 run_in_user_session() {
-    local uid="$1" gid
+    local uid="$1"
     shift
-    gid="$(id -g "${username}")"
+    run_in_named_user_session "${uid}" "${username}" "$@"
+}
+
+run_in_named_user_session() {
+    local uid="$1" account="$2" gid
+    shift 2
+    gid="$(id -g "${account}")"
     /usr/bin/setpriv --reuid="${uid}" --regid="${gid}" --init-groups /usr/bin/env \
-        HOME="/home/${username}" USER="${username}" LOGNAME="${username}" \
+        HOME="/home/${account}" USER="${account}" LOGNAME="${account}" \
         XDG_RUNTIME_DIR="/run/user/${uid}" \
         DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${uid}/bus" \
         "$@"
@@ -1564,6 +1587,219 @@ emit_marble_action_pass() {
         "${run_id}" "${scenario}" "${phase}" "${boot_id}" "${detail}"
 }
 
+wait_for_named_user_logout() {
+    local account="$1" deadline=$((SECONDS + 180))
+    while [ "${SECONDS}" -lt "${deadline}" ]; do
+        if ! session_name_exists "${account}"; then
+            wait_for_greeter >/dev/null
+            return 0
+        fi
+        sleep 1
+    done
+    return 1
+}
+
+legacy_repository_file='/etc/pacman.d/arch-linux-marble-repository.conf'
+legacy_candidate_repository='/var/lib/arch-linux-marble/migration-candidate-repository.conf'
+legacy_candidate_packages='/var/lib/arch-linux-marble/migration-candidate-packages.txt'
+
+install_legacy_migration_packages() {
+    local candidate_server legacy_server package info
+    [ "${input_mode}" = staged ]
+    [ "${scenario}" = marble-gnome-btrfs-luks2-plymouth-systemdboot ]
+    [ ! -e "${legacy_candidate_repository}" ] && [ ! -e "${legacy_candidate_packages}" ]
+    install -Dm0600 -- "${legacy_repository_file}" "${legacy_candidate_repository}"
+    while IFS= read -r package; do pacman -Q -- "${package}"; done < <(marble_project_packages) |
+        LC_ALL=C sort >"${legacy_candidate_packages}"
+    candidate_server="$(awk '$1 == "Server" && $2 == "=" { print $3; count++ } END { if (count != 1) exit 1 }' \
+        "${legacy_repository_file}")"
+    legacy_server="${candidate_server/\/repo\/\$arch/\/legacy\/\$arch}"
+    [ "${legacy_server}" != "${candidate_server}" ]
+    printf '%s\n[%s]\n%s\nServer = %s\n' \
+        '# Temporary verified legacy repository for migration acceptance' \
+        arch-linux 'SigLevel = PackageRequired DatabaseRequired TrustedOnly' "${legacy_server}" \
+        >"${legacy_repository_file}"
+    pacman -Rdd --noconfirm arch-linux-marble-profile arch-linux-colloid-gtk
+    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+        pacman -Syy --noconfirm --disable-download-timeout \
+        arch-linux-marble-profile arch-linux-colloid-gtk3
+    [ "$(pacman -Q arch-linux-marble-profile | awk '{ print $2 }')" = "${legacy_profile_version}" ]
+    [ "$(pacman -Q arch-linux-colloid-gtk3 | awk '{ print $2 }')" = "${legacy_gtk3_version}" ]
+    if pacman -Q arch-linux-colloid-gtk >/dev/null 2>&1; then return 1; fi
+    for package in arch-linux-marble-profile arch-linux-colloid-gtk3; do
+        info="$(pacman -Qi -- "${package}")"
+        grep -Eq '^Validated By[[:space:]]*:[[:space:]]*Signature([[:space:]]|$)' <<<"${info}"
+    done
+    emit_marble_action_pass legacy-signed-profile-and-gtk3-installed
+}
+
+verify_legacy_user_session() {
+    local session uid
+    verify_common >/dev/null
+    session="$(wait_for_user_session)"
+    uid="$(id -u "${username}")"
+    [ "$(session_property "${session}" User)" = "${uid}" ]
+    [ "$(session_property "${session}" Service)" = gdm-password ]
+    [ "$(session_property "${session}" Type)" = wayland ]
+    [ "$(pacman -Q arch-linux-marble-profile | awk '{ print $2 }')" = "${legacy_profile_version}" ]
+    [ "$(pacman -Q arch-linux-colloid-gtk3 | awk '{ print $2 }')" = "${legacy_gtk3_version}" ]
+    if pacman -Q arch-linux-colloid-gtk >/dev/null 2>&1; then return 1; fi
+    [ "$(run_in_user_session "${uid}" gsettings get org.gnome.desktop.interface gtk-theme)" = \
+        "'Colloid-Dark'" ]
+    [ ! -e "/home/${username}/.config/gtk-4.0/gtk.css" ]
+    [ ! -e "/home/${username}/.config/gtk-4.0/gtk-dark.css" ]
+    emit_marble_action_pass legacy-real-gdm-wayland-session
+}
+
+update_legacy_session_to_candidate() {
+    local uid info
+    [ -f "${legacy_candidate_repository}" ] && [ -f "${legacy_candidate_packages}" ]
+    install -m0644 -- "${legacy_candidate_repository}" "${legacy_repository_file}"
+    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+        pacman -Syyu --noconfirm --disable-download-timeout
+    while IFS= read -r package; do pacman -Q -- "${package}"; done < <(marble_project_packages) |
+        LC_ALL=C sort | cmp -s -- - "${legacy_candidate_packages}"
+    pacman -Q arch-linux-colloid-gtk >/dev/null
+    if pacman -Q arch-linux-colloid-gtk3 >/dev/null 2>&1; then return 1; fi
+    info="$(pacman -Qi -- arch-linux-marble-profile)"
+    grep -Eq '^Depends On[[:space:]]*:.*arch-linux-colloid-gtk' <<<"${info}"
+    verify_marble_packages
+    uid="$(id -u "${username}")"
+    run_in_user_session "${uid}" /usr/bin/gnome-session-quit --logout --no-prompt
+    wait_for_named_user_logout "${username}"
+    emit_marble_action_pass legacy-to-candidate-syu-and-logout
+}
+
+user_executable_running() {
+    local uid="$1" expected="$2" process owner executable
+    for process in /proc/[0-9]*; do
+        owner="$(stat -c %u -- "${process}" 2>/dev/null || true)"
+        [ "${owner}" = "${uid}" ] || continue
+        executable="$(readlink -f -- "${process}/exe" 2>/dev/null || true)"
+        [ "${executable}" = "${expected}" ] && return 0
+    done
+    return 1
+}
+
+launch_and_wait_for_user_app() {
+    local uid="$1" executable="$2" deadline=$((SECONDS + 60))
+    shift 2
+    [ -x "${executable}" ]
+    run_in_user_session "${uid}" "${executable}" "$@" >/dev/null 2>&1 &
+    while [ "${SECONDS}" -lt "${deadline}" ]; do
+        user_executable_running "${uid}" "${executable}" && return 0
+        sleep 1
+    done
+    return 1
+}
+
+run_gtk4_app_smoke() {
+    local scheme="$1" uid
+    uid="$(id -u "${username}")"
+    wait_for_user_session >/dev/null
+    run_in_user_session "${uid}" gsettings set org.gnome.desktop.interface color-scheme "${scheme}"
+    launch_and_wait_for_user_app "${uid}" /usr/bin/nautilus --new-window
+    launch_and_wait_for_user_app "${uid}" /usr/bin/ptyxis
+    launch_and_wait_for_user_app "${uid}" /usr/bin/gnome-control-center
+    launch_and_wait_for_user_app "${uid}" /usr/bin/gnome-boxes
+    [ "$(run_in_user_session "${uid}" gsettings get org.gnome.desktop.interface color-scheme)" = \
+        "'${scheme}'" ]
+    [ "$(run_in_user_session "${uid}" /usr/lib/arch-linux-marble-profile/gtk4-session status)" = active ]
+    run_in_user_session "${uid}" systemctl --user is-active --quiet arch-linux-marble-gtk4.service
+    emit_marble_action_pass "gtk4-app-smoke-${scheme}-functional-rendering-not-visually-verified"
+}
+
+prepare_fresh_marble_user() {
+    local account=marblefresh
+    local uid password_hash greeter_session shell_pid environment
+    local profile='/run/arch-linux-qemu-gdm-profile'
+    local database='/run/arch-linux-qemu-gdm-db'
+    local keyfiles='/run/arch-linux-qemu-gdm-db.d'
+    local dropin='/run/systemd/user/org.gnome.Shell@gdm.service.d/99-arch-linux-qemu-login.conf'
+    [ ! -e "/home/${account}" ]
+    [ ! -e "${profile}" ] && [ ! -e "${database}" ] && [ ! -e "${keyfiles}" ] && [ ! -e "${dropin}" ]
+    useradd --create-home --user-group --shell /bin/bash marblefresh
+    password_hash="$(getent shadow "${username}" | awk -F: 'NR == 1 { print $2 }')"
+    [ -n "${password_hash}" ] && [[ "${password_hash}" != '!'* ]]
+    printf '%s:%s\n' marblefresh "${password_hash}" | chpasswd --encrypted
+    password_hash=''
+    install -d -m0755 -- "${keyfiles}" "${dropin%/*}"
+    printf '%s\n%s\n' '[org/gnome/login-screen]' 'disable-user-list=true' >"${keyfiles}/login-screen"
+    chmod 0644 -- "${keyfiles}/login-screen"
+    dconf compile "${database}" "${keyfiles}"
+    chmod 0644 -- "${database}"
+    printf '%s\n' \
+        'user-db:user' \
+        "file-db:${database}" \
+        'file-db:/usr/share/arch-linux-marble-gdm/50.0.0/dconf/colloid-gdm-defaults' \
+        'file-db:/usr/share/gdm/greeter-dconf-defaults' >"${profile}"
+    chmod 0644 -- "${profile}"
+    printf '%s\n%s\n' '[Service]' "Environment=DCONF_PROFILE=${profile}" >"${dropin}"
+    chmod 0644 -- "${dropin}"
+    /usr/share/libalpm/scripts/systemd-hook daemon-reload-user
+    uid="$(id -u "${username}")"
+    run_in_user_session "${uid}" /usr/bin/gnome-session-quit --logout --no-prompt
+    wait_for_named_user_logout "${username}"
+    greeter_session="$(wait_for_greeter)"
+    shell_pid="$(gdm_shell_pid "${greeter_session}")"
+    environment="$(tr '\0' '\n' <"/proc/${shell_pid}/environ")"
+    grep -qx "DCONF_PROFILE=${profile}" <<<"${environment}"
+    [ "$(DCONF_PROFILE="${profile}" XDG_CONFIG_HOME=/dev/null \
+        gsettings get org.gnome.login-screen disable-user-list)" = true ]
+    emit_marble_action_pass fresh-user-created-with-password-user-list-disabled
+}
+
+verify_fresh_marble_user_and_logout() {
+    local account=marblefresh session uid shell_pid css expected_css
+    session="$(wait_for_named_user_session "${account}")"
+    uid="$(id -u "${account}")"
+    [ "$(session_property "${session}" User)" = "${uid}" ]
+    [ "$(session_property "${session}" Service)" = gdm-password ]
+    [ "$(session_property "${session}" Type)" = wayland ]
+    shell_pid="$(wait_for_gnome_shell "${uid}")"
+    if tr '\0' '\n' <"/proc/${shell_pid}/environ" |
+        grep -Eq '^(G_RESOURCE_OVERLAYS|DCONF_PROFILE)='; then
+        return 1
+    fi
+    [ "$(run_in_named_user_session "${uid}" "${account}" gsettings get org.gnome.desktop.interface gtk-theme)" = \
+        "'Colloid-Dark'" ]
+    [ "$(run_in_named_user_session "${uid}" "${account}" /usr/lib/arch-linux-marble-profile/gtk4-session status)" = active ]
+    run_in_named_user_session "${uid}" "${account}" systemctl --user is-active --quiet arch-linux-marble-gtk4.service
+    expected_css='@import url("file:///usr/share/arch-linux-marble/gtk4/gtk.css");'
+    for css in "/home/${account}/.config/gtk-4.0/gtk.css" \
+        "/home/${account}/.config/gtk-4.0/gtk-dark.css"; do
+        [ -f "${css}" ] && [ ! -L "${css}" ]
+        [ "$(cat -- "${css}")" = "${expected_css}" ]
+        [ "$(stat -c %u -- "${css}")" = "${uid}" ]
+    done
+    run_in_named_user_session "${uid}" "${account}" /usr/bin/gnome-session-quit --logout --no-prompt
+    wait_for_named_user_logout "${account}"
+    emit_marble_action_pass fresh-user-real-gdm-login-automatic-gtk4-active
+}
+
+cleanup_fresh_marble_user() {
+    local account=marblefresh
+    local uid deadline
+    local profile='/run/arch-linux-qemu-gdm-profile'
+    local database='/run/arch-linux-qemu-gdm-db'
+    local keyfiles='/run/arch-linux-qemu-gdm-db.d'
+    local dropin='/run/systemd/user/org.gnome.Shell@gdm.service.d/99-arch-linux-qemu-login.conf'
+    verify_marble_user_session marble
+    rm -f -- "${dropin}" "${profile}" "${database}" "${keyfiles}/login-screen"
+    rmdir -- "${keyfiles}"
+    rmdir -- "${dropin%/*}" 2>/dev/null || true
+    /usr/share/libalpm/scripts/systemd-hook daemon-reload-user
+    uid="$(id -u marblefresh)"
+    loginctl terminate-user marblefresh 2>/dev/null || true
+    deadline=$((SECONDS + 60))
+    while [ "${SECONDS}" -lt "${deadline}" ] && pgrep -u "${uid}" >/dev/null 2>&1; do
+        sleep 1
+    done
+    if pgrep -u "${uid}" >/dev/null 2>&1; then return 1; fi
+    userdel --remove marblefresh
+    [ ! -e "/home/${account}" ]
+}
+
 run_lock_phase() {
     # /run exists in the installed OS; the live ISO's bootstrap directory does not.
     local state_file="/run/arch-linux-qemu-lock-${run_id}.state" session_id shell_pid uid boot_id deadline
@@ -1639,8 +1875,32 @@ run_marble_phase() {
     removed-prelogin)
         verify_marble_greeter removed
         ;;
-    firstlogin | secondlogin | restored-login | reinstalled-login)
+    firstlogin | secondlogin | migrated-login | restored-login | reinstalled-login)
         verify_marble_user_session marble
+        ;;
+    legacy-install)
+        install_legacy_migration_packages
+        ;;
+    legacy-login)
+        verify_legacy_user_session
+        ;;
+    migration-update)
+        update_legacy_session_to_candidate
+        ;;
+    gtk4-app-smoke-light)
+        run_gtk4_app_smoke default
+        ;;
+    gtk4-app-smoke-dark)
+        run_gtk4_app_smoke prefer-dark
+        ;;
+    fresh-user-prepare)
+        prepare_fresh_marble_user
+        ;;
+    fresh-user-login)
+        verify_fresh_marble_user_and_logout
+        ;;
+    return-user-login)
+        cleanup_fresh_marble_user
         ;;
     incompatible-login)
         verify_marble_user_session fallback

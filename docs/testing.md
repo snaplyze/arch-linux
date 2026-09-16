@@ -85,26 +85,27 @@ Keep source, package and actual VM results distinct.
 
 ## Marble GTK migration acceptance
 
-The regular VM update phase starts from the candidate package set. It does not prove
-replacement of the legacy `arch-linux-colloid-gtk3` package. Before releasing this migration:
+The main staged Marble VM scenario requires the signed legacy release fixture recorded in
+`tests/vm/legacy-marble-release.json`, in addition to the candidate snapshot. The host authenticates
+both repositories before use. The guest records the fresh candidate package set, installs the
+legacy profile and GTK3 theme from the strict signed repository, enters a real GDM session, then
+runs `pacman -Syu` against the candidate and logs in again. It checks replacement of
+`arch-linux-colloid-gtk3`, package-version parity, the packaged GTK4 hashes and active session CSS.
+This is a real package migration from legacy profile/theme state; it does not rerun the old
+installer or claim coverage of every customization on an existing workstation.
 
-1. Install the previous signed Marble release in a disposable VM; record its exact source,
-   package versions and snapshot identities. Start a real GNOME session.
-2. Update that VM against the independently verified signed candidate snapshot using the
-   normal `pacman -Syu` transaction. Confirm replacement by `arch-linux-colloid-gtk`, absence
-   of the legacy package, and no missing profile dependency. Log out and log in through GDM.
-3. Compare `pacman -Q` for the six project packages, the packaged GTK4 manifest/hash checks,
-   `gtk4-session status` and the user service status with a fresh candidate Marble VM.
-4. Log into a newly created ordinary user through GDM and confirm automatic activation.
-   Inspect Nautilus, Ptyxis, Settings, file dialogs and Boxes in light and dark modes.
-   Record rendering observations separately from package and service assertions.
-5. Exercise profile removal, reinstall and unsupported-library fallback; confirm owned CSS
-   is removed while user-modified CSS and unrelated GTK settings survive. Check Stock has
-   neither Colloid package nor project CSS imports.
+The scenario also creates a new ordinary user, authenticates through GDM with virtual keyboard
+input, checks automatic GTK4 activation and returns to the original user. Light/dark application
+startup checks cover Nautilus, Ptyxis, Settings and Boxes; optional captures are diagnostic aids.
+Process startup alone does not establish correct rendering. Inspect the captures or the live VM
+for styling defects before claiming visual acceptance.
 
-Keep this evidence bound to both signed snapshots and the actual harness/source identities.
-Until these steps execute, report migration/session/rendering acceptance as
-`NOT_RUN_ENVIRONMENT`, even when source tests and package builds pass.
+Existing lifecycle phases cover removal, reinstall and GDM fallback; source tests separately
+exercise unsupported GTK/libadwaita fallback, edited CSS preservation and unrelated GTK settings.
+Stock checks require absence of Colloid packages and project CSS imports. Keep these evidence
+layers distinct and bind results to the exact candidate, legacy fixture and harness identities.
+Until each check executes, report it as `NOT_RUN_ENVIRONMENT`; source tests and builds alone do
+not establish migration, real-session or visual acceptance. See [VM commands](../tests/vm/README.md).
 
 ## Release/public acceptance
 

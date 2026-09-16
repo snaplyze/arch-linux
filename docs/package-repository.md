@@ -24,7 +24,9 @@ while IFS= read -r package; do
 done < repository/package-set
 ```
 
-The Colloid icon input is `20260829-1`; the GTK3 input and GDM-critical icon hashes are unchanged.
+The Colloid icon input is `20260829-1`; the pinned GTK upstream source and GDM-critical icon hashes
+are unchanged. `arch-linux-colloid-gtk` packages GTK3, GTK4 and libadwaita assets together and
+replaces the legacy `arch-linux-colloid-gtk3` package during normal updates.
 See the [review and delivery boundary](maintenance.md#colloid-and-gum-review-september-2026).
 The historical `1.0.1` snapshot and its package-delivery evidence remain records of their original
 inputs; its retired release/tag objects are not a current Pages publication reference. An unsigned

@@ -341,12 +341,29 @@ jobs:
           install -d -m0700 "${RUNNER_TEMP}/qemu-evidence"
           bash tests/vm/preflight.sh --scenario "${SCENARIO}" --iso "${iso}" --iso-sha256 "${iso_hash}" \
             --output-root "${RUNNER_TEMP}/qemu-evidence"
+          legacy_args=()
+          if [ "${SCENARIO}" = marble-gnome-btrfs-luks2-plymouth-systemdboot ]; then
+            legacy_version="$(jq -r .version tests/vm/legacy-marble-release.json)"
+            legacy_hash="$(jq -r .snapshotSha256 tests/vm/legacy-marble-release.json)"
+            legacy_assets="${RUNNER_TEMP}/legacy-phase-a"
+            install -d -m0700 "${legacy_assets}"
+            legacy_archive="arch-linux-repository-${legacy_version}.tar.zst"
+            for name in BUILD-METADATA.json RELEASE-SHA256SUMS RELEASE-SHA256SUMS.sig \
+              UNSIGNED-SHA256SUMS arch-linux.gpg primary-fingerprint signing-subkey-fingerprint \
+              "${legacy_archive}" "${legacy_archive}.sha256" "${legacy_archive}.sig"; do
+              curl --proto '=https' --tlsv1.2 --fail --location --retry 3 \
+                --output "${legacy_assets}/${name}" \
+                "https://github.com/snaplyze/arch-linux/releases/download/${legacy_version}/${name}"
+            done
+            legacy_args=(--legacy-release-assets "${legacy_assets}"
+              --legacy-release-version "${legacy_version}" --legacy-snapshot-sha256 "${legacy_hash}")
+          fi
           bash tests/vm/run.sh "${SCENARIO}" --mode staged \
             --iso "${iso}" --iso-sha256 "${iso_hash}" \
             --output-root "${RUNNER_TEMP}/qemu-evidence" \
             --release-assets "${RUNNER_TEMP}/phase-a" --release-version "${RELEASE_VERSION}" \
             --snapshot-sha256 "${SNAPSHOT_SHA256}" --build-metadata-sha256 "${BUILD_METADATA_SHA256}" \
-            --unsigned-manifest-sha256 "${UNSIGNED_MANIFEST_SHA256}"
+            --unsigned-manifest-sha256 "${UNSIGNED_MANIFEST_SHA256}" "${legacy_args[@]}"
 
       - name: Package compact completed or failed evidence
         if: always()

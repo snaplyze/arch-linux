@@ -48,8 +48,20 @@ common=(
 )
 bash tests/vm/run.sh minimal-ext4-systemdboot "${common[@]}"
 bash tests/vm/run.sh stock-gnome-btrfs-luks2-plymouth-grub "${common[@]}"
-bash tests/vm/run.sh marble-gnome-btrfs-luks2-plymouth-systemdboot "${common[@]}"
+bash tests/vm/run.sh marble-gnome-btrfs-luks2-plymouth-systemdboot "${common[@]}" \
+  --legacy-release-assets "$LEGACY_RELEASE_ASSETS" \
+  --legacy-release-version "$(jq -r .version tests/vm/legacy-marble-release.json)" \
+  --legacy-snapshot-sha256 "$(jq -r .snapshotSha256 tests/vm/legacy-marble-release.json)"
 ```
+
+The main staged Marble case additionally requires the ten public legacy assets from the immutable
+release recorded in `legacy-marble-release.json`: build metadata, unsigned manifest, signed
+`RELEASE-SHA256SUMS`, the three public trust files, and the repository archive with its checksum and
+signature. Place only those files in `$LEGACY_RELEASE_ASSETS`. The harness verifies their signatures,
+hashes and exact file set before using the old profile and GTK3 packages. It compares the migrated
+package set with the fresh candidate, then tests a new ordinary user's real GDM login and light/dark
+application startup. This establishes package migration; it does not rerun the old installer or
+prove visual equivalence from process checks. The release workflow downloads these same inputs.
 
 The same staged arguments also support these complementary cases:
 
@@ -150,3 +162,12 @@ the checkout.
 When a functional check fails, diagnose and fix the cause and rerun the affected scenario with fresh
 VM state. Do not reuse an old PASS for changed source or packages. Run the complementary cases above
 before claiming coverage of those options; support in the CLI is not an executed VM PASS.
+
+## Unified Colloid GTK acceptance
+
+Stock assertions require no Colloid theme packages or project GTK4 CSS imports. Marble assertions
+check the unified `arch-linux-colloid-gtk` package, reviewed GTK4 payload and automatic user service
+activation. These checks do not establish legacy package replacement or application rendering.
+Run the separate [GTK migration acceptance](../../docs/testing.md#marble-gtk-migration-acceptance)
+against previous and candidate signed snapshots, including fresh-versus-upgraded parity, a new user
+login and light/dark application observations. Record unexecuted checks as `NOT_RUN_ENVIRONMENT`.

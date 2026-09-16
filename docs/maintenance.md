@@ -186,8 +186,12 @@ documentation changes. It is not a new signed snapshot, Gum2 test or installer r
 Colloid GTK stays at `6c2dc65865628bda9fdc8157a30cd5eda6fd41f9`: the complete diff to
 [`fe11342f37f124f1b29d44cf33e9a06053f4bba2`](https://github.com/vinceliuice/Colloid-gtk-theme/commit/fe11342f37f124f1b29d44cf33e9a06053f4bba2)
 only changes Cinnamon styling and adds a standalone GTK4 switcher. Neither is packaged
-or invoked by our GTK3 recipe; GTK3 inputs, build scripts and license are unchanged.
-The switcher is not introduced into installed systems. GTK4/libadwaita stays Stock.
+or invoked by the project. The unified `arch-linux-colloid-gtk` recipe now builds GTK3,
+GTK4 and libadwaita assets from the retained pin. The project profile activates the
+packaged stylesheet automatically before GNOME session applications start; the upstream
+switcher is not introduced into installed systems. Stock retains distribution styling.
+The historical icon acceptance above does not prove this GTK migration; see the separate
+[migration acceptance requirements](testing.md#marble-gtk-migration-acceptance).
 
 Gum stays at `0.17.0` after review of [v2.0.0](https://github.com/charmbracelet/gum/releases/tag/v2.0.0).
 The new official x86-64 archive and Sigstore checksum bundle were verified. Real controlling-PTY

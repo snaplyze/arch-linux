@@ -4,7 +4,7 @@
 
 Stock GNOME is always the first and default appearance choice. It includes the product's functional
 GNOME baseline—Ptyxis, Bibata, locale-aware Formats, layouts and the reviewed extension profile—while
-retaining distribution Shell, GDM, GTK4/libadwaita CSS and package-owned resources. Bibata is the
+retaining distribution Shell, GDM, GTK3/GTK4/libadwaita styling and package-owned resources. Bibata is the
 product's editable cursor default; it does not replace distribution-owned cursor files.
 TTY and Stock installations do not bootstrap the Marble package repository.
 
@@ -12,7 +12,8 @@ TTY and Stock installations do not bootstrap the Marble package repository.
 
 Marble desktop is an explicit opt-in delivered by native packages from the strict signed project
 repository. It applies the reviewed Marble blue/filled/dark GNOME Shell theme, Colloid Dark GTK3
-theme, Colloid GTK4/libadwaita system-color stylesheet and Colloid icon theme. Official User Themes is added to the editable extension list.
+theme, Colloid GTK4/libadwaita system-color stylesheet and Colloid icon theme. Official User Themes
+is added to the editable extension list.
 
 The desktop profile does not replace system fonts, lock user dconf,
 change the Bibata cursor or write another package's files. Its compatibility helper exposes project
@@ -64,7 +65,8 @@ Acceptance requires the QEMU scenarios in [testing.md](testing.md) and current r
 libadwaita assets from the same pinned source. The Marble profile requires the new package.
 Stock GNOME does not install either theme package or activate user CSS.
 
-The GNOME user service applies the packaged stylesheet before session applications start.
+The GNOME user service `arch-linux-marble-gtk4.service` applies the packaged stylesheet before
+`gnome-session-pre.target`, so session applications start with the profile already active.
 It replaces `gtk.css` and `gtk-dark.css` under `$XDG_CONFIG_HOME/gtk-4.0` (normally
 `~/.config/gtk-4.0`) **without backups**, including existing custom styles. It replaces
 symlinks themselves, not their targets; unrelated files such as `servers` are preserved.
