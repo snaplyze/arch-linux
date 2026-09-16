@@ -10,6 +10,9 @@ statuses: `EXECUTED_PASS`, `EXECUTED_FAIL`, `REVIEWED_ONLY`, `NOT_RUN_ENVIRONMEN
 bash tests/source-tests.sh
 ```
 
+The package-migration checks require `vercmp`. On Ubuntu 24.04 it is supplied by
+`makepkg`; the CI dependency setup installs that package explicitly.
+
 It executes:
 
 - Bash syntax and installer version smoke;
