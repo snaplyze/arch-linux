@@ -52,6 +52,30 @@ if ! grep -Fq -- 'fresh-user-login' "${host}" || ! grep -Fq -- 'return-user-logi
 fi
 grep -Fq -- 'gtk4-app-smoke' "${verify}" ||
     fail 'GTK4/libadwaita application smoke phase is absent'
+grep -Fq -- 'installed_package_record_exact' "${verify}" ||
+    fail 'package assertions do not reject provider-only pacman query matches'
+if grep -Eq 'pacman -Q (arch-linux-colloid-gtk3|arch-linux-colloid-gtk)([[:space:]]|$)' "${verify}"; then
+    fail 'migration package assertion still accepts pacman provider resolution'
+fi
+(
+    eval "$(sed -n '/^installed_package_record_exact() {/,/^}/p; /^installed_package_version_exact() {/,/^}/p; /^package_installed_exact() {/,/^}/p' "${verify}")"
+    # shellcheck disable=SC2329 # Invoked indirectly by the extracted verifier helpers above.
+    pacman() {
+        [ "$1" = -Q ] && [ "$2" = -- ]
+        case "$3" in
+        arch-linux-colloid-gtk3) printf '%s\n' 'arch-linux-colloid-gtk 20260808-5' ;;
+        arch-linux-colloid-gtk) printf '%s\n' 'arch-linux-colloid-gtk 20260808-5' ;;
+        *) return 1 ;;
+        esac
+    }
+    if package_installed_exact arch-linux-colloid-gtk3; then
+        fail 'exact-name helper accepted a provider returned by pacman -Q'
+    fi
+    package_installed_exact arch-linux-colloid-gtk ||
+        fail 'exact-name helper rejected the installed package name'
+    [ "$(installed_package_version_exact arch-linux-colloid-gtk)" = 20260808-5 ] ||
+        fail 'exact-name helper did not return the exact package version'
+)
 grep -Fq -- '/run/arch-linux-qemu-gdm-profile' "${verify}" ||
     fail 'fresh-user login does not install an effective test-owned GDM profile'
 grep -Fq -- 'legacy-repository-manifest.json | legacy-repository-manifest.json.sig' "${host}" ||

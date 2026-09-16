@@ -1049,6 +1049,24 @@ marble_project_packages() {
     fi
 }
 
+installed_package_record_exact() {
+    local expected="$1" record
+    record="$(pacman -Q -- "${expected}")" || return 1
+    [ "${record%% *}" = "${expected}" ] || return 1
+    [ "$(awk '{ print NF }' <<<"${record}")" -eq 2 ] || return 1
+    printf '%s\n' "${record}"
+}
+
+installed_package_version_exact() {
+    local record
+    record="$(installed_package_record_exact "$1")" || return 1
+    printf '%s\n' "${record#* }"
+}
+
+package_installed_exact() {
+    installed_package_record_exact "$1" >/dev/null
+}
+
 public_repository_policy_scope_valid() {
     local repository_file="$1" pacman_conf="$2"
     [ -f "${repository_file}" ] && [ -f "${pacman_conf}" ] || return 1
@@ -1093,7 +1111,9 @@ verify_public_repository_contract() {
         return 1
     fi
     while IFS= read -r package; do
+        package_installed_exact "${package}"
         info="$(pacman -Qi -- "${package}")"
+        grep -Eq "^Name[[:space:]]*:[[:space:]]*${package}$" <<<"${info}"
         grep -Eq '^Validated By[[:space:]]*:[[:space:]]*Signature([[:space:]]|$)' <<<"${info}"
     done < <(marble_project_packages)
     printf 'MARBLE_PUBLIC_REPOSITORY_POLICY_PASS run_id=%s phase=%s server=pages package_signatures=required database_signatures=required private_key=absent\n' \
@@ -1312,7 +1332,7 @@ verify_marble_packages() {
     local -a packages=()
     mapfile -t packages < <(marble_project_packages)
     for package in "${packages[@]}"; do
-        pacman -Q -- "${package}" >/dev/null
+        package_installed_exact "${package}"
     done
     qkk="$(verify_package_qkk_zero "${packages[@]}")"
     project_paths="$(pacman -Qlq "${packages[@]}")"
@@ -1327,12 +1347,12 @@ verify_marble_packages() {
     [ -f /usr/share/themes/Colloid-Dark/gtk-4.0/gtk.css ]
     [ -f /usr/share/arch-linux-marble/gtk4/gtk.css ]
     (cd /usr/share/arch-linux-marble/gtk4 && sha256sum --check --status assets.sha256)
-    if pacman -Q arch-linux-colloid-gtk3 >/dev/null 2>&1; then return 1; fi
+    if package_installed_exact arch-linux-colloid-gtk3; then return 1; fi
     [ -f /usr/share/icons/Colloid-Dark/index.theme ]
     if marble_gdm_enabled; then
         [ -z "$(find /usr/share/arch-linux-marble-gdm -type f -path '*/gtk-4.0/*' -print -quit)" ]
     else
-        if pacman -Q arch-linux-marble-gdm >/dev/null 2>&1; then return 1; fi
+        if package_installed_exact arch-linux-marble-gdm; then return 1; fi
         [ ! -e /usr/share/arch-linux-marble-gdm ]
     fi
     printf 'MARBLE_QEMU_PROJECT_QKK run_id=%s phase=%s\n%s\n' "${run_id}" "${phase}" "${qkk}"
@@ -1609,7 +1629,7 @@ install_legacy_migration_packages() {
     [ "${scenario}" = marble-gnome-btrfs-luks2-plymouth-systemdboot ]
     [ ! -e "${legacy_candidate_repository}" ] && [ ! -e "${legacy_candidate_packages}" ]
     install -Dm0600 -- "${legacy_repository_file}" "${legacy_candidate_repository}"
-    while IFS= read -r package; do pacman -Q -- "${package}"; done < <(marble_project_packages) |
+    while IFS= read -r package; do installed_package_record_exact "${package}"; done < <(marble_project_packages) |
         LC_ALL=C sort >"${legacy_candidate_packages}"
     candidate_server="$(awk '$1 == "Server" && $2 == "=" { print $3; count++ } END { if (count != 1) exit 1 }' \
         "${legacy_repository_file}")"
@@ -1623,11 +1643,13 @@ install_legacy_migration_packages() {
     SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
         pacman -Syy --noconfirm --disable-download-timeout \
         arch-linux-marble-profile arch-linux-colloid-gtk3
-    [ "$(pacman -Q arch-linux-marble-profile | awk '{ print $2 }')" = "${legacy_profile_version}" ]
-    [ "$(pacman -Q arch-linux-colloid-gtk3 | awk '{ print $2 }')" = "${legacy_gtk3_version}" ]
-    if pacman -Q arch-linux-colloid-gtk >/dev/null 2>&1; then return 1; fi
+    [ "$(installed_package_version_exact arch-linux-marble-profile)" = "${legacy_profile_version}" ]
+    [ "$(installed_package_version_exact arch-linux-colloid-gtk3)" = "${legacy_gtk3_version}" ]
+    if package_installed_exact arch-linux-colloid-gtk; then return 1; fi
     for package in arch-linux-marble-profile arch-linux-colloid-gtk3; do
+        package_installed_exact "${package}"
         info="$(pacman -Qi -- "${package}")"
+        grep -Eq "^Name[[:space:]]*:[[:space:]]*${package}$" <<<"${info}"
         grep -Eq '^Validated By[[:space:]]*:[[:space:]]*Signature([[:space:]]|$)' <<<"${info}"
     done
     emit_marble_action_pass legacy-signed-profile-and-gtk3-installed
@@ -1641,9 +1663,9 @@ verify_legacy_user_session() {
     [ "$(session_property "${session}" User)" = "${uid}" ]
     [ "$(session_property "${session}" Service)" = gdm-password ]
     [ "$(session_property "${session}" Type)" = wayland ]
-    [ "$(pacman -Q arch-linux-marble-profile | awk '{ print $2 }')" = "${legacy_profile_version}" ]
-    [ "$(pacman -Q arch-linux-colloid-gtk3 | awk '{ print $2 }')" = "${legacy_gtk3_version}" ]
-    if pacman -Q arch-linux-colloid-gtk >/dev/null 2>&1; then return 1; fi
+    [ "$(installed_package_version_exact arch-linux-marble-profile)" = "${legacy_profile_version}" ]
+    [ "$(installed_package_version_exact arch-linux-colloid-gtk3)" = "${legacy_gtk3_version}" ]
+    if package_installed_exact arch-linux-colloid-gtk; then return 1; fi
     [ "$(run_in_user_session "${uid}" gsettings get org.gnome.desktop.interface gtk-theme)" = \
         "'Colloid-Dark'" ]
     [ ! -e "/home/${username}/.config/gtk-4.0/gtk.css" ]
@@ -1657,10 +1679,10 @@ update_legacy_session_to_candidate() {
     install -m0644 -- "${legacy_candidate_repository}" "${legacy_repository_file}"
     SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
         pacman -Syyu --noconfirm --disable-download-timeout
-    while IFS= read -r package; do pacman -Q -- "${package}"; done < <(marble_project_packages) |
+    while IFS= read -r package; do installed_package_record_exact "${package}"; done < <(marble_project_packages) |
         LC_ALL=C sort | cmp -s -- - "${legacy_candidate_packages}"
-    pacman -Q arch-linux-colloid-gtk >/dev/null
-    if pacman -Q arch-linux-colloid-gtk3 >/dev/null 2>&1; then return 1; fi
+    package_installed_exact arch-linux-colloid-gtk
+    if package_installed_exact arch-linux-colloid-gtk3; then return 1; fi
     info="$(pacman -Qi -- arch-linux-marble-profile)"
     grep -Eq '^Depends On[[:space:]]*:.*arch-linux-colloid-gtk' <<<"${info}"
     verify_marble_packages
