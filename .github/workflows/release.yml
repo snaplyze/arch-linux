@@ -314,7 +314,8 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends \
-            qemu-system-x86 qemu-utils ovmf genisoimage jq gnupg zstd openssl
+            qemu-system-x86 qemu-utils ovmf genisoimage jq gnupg zstd openssl libarchive-tools
+          command -v bsdtar
           sudo chmod ugo+rw /dev/kvm
           sudo install -d -m0700 -o "$(id -u)" -g "$(id -g)" "/run/user/$(id -u)"
 
@@ -772,7 +773,8 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends \
-            qemu-system-x86 qemu-utils ovmf genisoimage jq gnupg zstd openssl
+            qemu-system-x86 qemu-utils ovmf genisoimage jq gnupg zstd openssl libarchive-tools
+          command -v bsdtar
           sudo chmod ugo+rw /dev/kvm
           sudo install -d -m0700 -o "$(id -u)" -g "$(id -g)" "/run/user/$(id -u)"
 
