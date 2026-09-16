@@ -35,6 +35,12 @@ repository/build-packages.sh "$ARTIFACT_DIR/unsigned"
 repository/verify-unsigned-build.sh "$ARTIFACT_DIR/unsigned"
 ```
 
+For a reproducibility comparison, give both independent disposable build environments the same
+absolute `WORK_DIR` (for example, a missing `build-work` directory below each temporary builder's
+home). The builder refuses an existing workspace and removes its own workspace on exit. Without
+this setting, random temporary paths enter makepkg's `.BUILDINFO` and make archive hashes differ
+even when installed payloads are identical.
+
 The scheduled A+B comparison is advisory:
 
 ```bash

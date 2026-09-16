@@ -983,9 +983,39 @@ repository_manifest_signature="$snapshot_output/repository/repository-manifest.j
 [ -f "$repository_manifest" ] && [ ! -L "$repository_manifest" ] &&
     [ -f "$repository_manifest_signature" ] && [ ! -L "$repository_manifest_signature" ] ||
     fail 'snapshot repository manifest closure is absent'
+# The finalizer requires retained, genuinely signed legacy manifest evidence for Marble.
+# These are synthetic package records signed only by this gate's disposable fixture key.
+legacy_manifest="$work/legacy-repository-manifest.json"
+/usr/bin/python3 -I -B - "$repository_manifest" "$legacy_manifest" <<'PY_LEGACY'
+import hashlib, json, pathlib, sys
+manifest = json.loads(pathlib.Path(sys.argv[1]).read_bytes())
+manifest['releaseVersion'] = '0.9.0'
+manifest['sourceCommit'] = 'a' * 40
+manifest['sourceTree'] = 'b' * 40
+records = [item for item in manifest['files'] if '.pkg.tar.zst' not in item['name']]
+for package in ('arch-linux-keyring', 'arch-linux-marble-profile', 'arch-linux-marble-shell',
+                'arch-linux-marble-gdm', 'arch-linux-colloid-gtk3', 'arch-linux-colloid-icons'):
+    for suffix in ('.pkg.tar.zst', '.pkg.tar.zst.sig'):
+        name = package + '-0.9.0-1-any' + suffix
+        records.append({'name': name, 'sha256': hashlib.sha256(name.encode()).hexdigest(), 'size': 100})
+manifest['files'] = sorted(records, key=lambda item: item['name'])
+pathlib.Path(sys.argv[2]).write_text(json.dumps(manifest, sort_keys=True, separators=(',', ':')) + '\n')
+PY_LEGACY
+/usr/bin/chmod 0644 -- "$legacy_manifest"
+signing_gpg "$signing_home" --batch --no-options --pinentry-mode loopback \
+    --passphrase-file "$passphrase_file" --local-user "${signing}!" \
+    --output - --detach-sign -- "$legacy_manifest" >"$legacy_manifest.sig"
+/usr/bin/chmod 0644 -- "$legacy_manifest.sig"
+stop_home_agent "$signing_home"
+for attempt in {1..100}; do
+    [ -z "$(uid_processes "$signing_uid")" ] && break
+    /usr/bin/sleep 0.05
+done
+[ -z "$(uid_processes "$signing_uid")" ] || fail 'legacy fixture signing left an account process'
 /usr/bin/python3 -I -B - "$qemu_root" "$fixture_commit" "$fixture_tree" \
     "$build_hash" "$unsigned_hash" "$snapshot_hash" "$release_manifest_hash" \
-    "$repository_manifest" "$repository_manifest_signature" "$phase_a" "$fixture_source" <<'PY'
+    "$repository_manifest" "$repository_manifest_signature" "$phase_a" "$fixture_source" \
+    "$legacy_manifest" <<'PY'
 from __future__ import annotations
 
 import gzip
@@ -1002,6 +1032,8 @@ repository_manifest = Path(sys.argv[8]).read_bytes()
 repository_signature = Path(sys.argv[9]).read_bytes()
 assets = Path(sys.argv[10])
 source = Path(sys.argv[11])
+legacy_manifest = Path(sys.argv[12]).read_bytes()
+legacy_signature = Path(sys.argv[12] + '.sig').read_bytes()
 spec = importlib.util.spec_from_file_location(
     'acceptance_manifest_fixture', source / 'repository/acceptance-manifest.py')
 if spec is None or spec.loader is None:
@@ -1203,7 +1235,17 @@ for index, (scenario, prefix, serial_code) in enumerate(scenarios, 1):
         f"repository_object_sha256={item['sha256']} name={item['name']} size={item['size']}\n"
         for item in objects)
     if prefix == 'marble':
+        write(evidence / 'legacy-repository-manifest.json', legacy_manifest)
+        write(evidence / 'legacy-repository-manifest.json.sig', legacy_signature)
         identity_text += 'repository_server_port=43210\n'
+        legacy_rows = [
+            ('legacy_release_version', '0.9.0'),
+            ('legacy_snapshot_sha256', digest(b'legacy archive')),
+            ('legacy_source_commit', 'a' * 40), ('legacy_source_tree', 'b' * 40),
+            ('legacy_manifest_sha256', digest(legacy_manifest)),
+            ('legacy_profile_version', '0.9.0-1'), ('legacy_gtk3_version', '0.9.0-1'),
+        ]
+        identity_text += ''.join(f'{key}={value}\n' for key, value in legacy_rows)
     write(run / 'identity.txt', identity_text.encode())
     result_raw = encoded(result)
     write(run / 'result.json', result_raw)
