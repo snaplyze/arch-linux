@@ -1,7 +1,7 @@
 pkgbase = arch-linux-colloid-gtk
 	pkgdesc = Reviewed Colloid GTK 3, GTK 4 and libadwaita theme for the arch-linux Marble profile
 	pkgver = 20260808
-	pkgrel = 5
+	pkgrel = 9
 	url = https://github.com/vinceliuice/Colloid-gtk-theme
 	arch = any
 	license = GPL-3.0-only
@@ -9,7 +9,7 @@ pkgbase = arch-linux-colloid-gtk
 	depends = gtk3
 	depends = gtk4
 	depends = libadwaita
-	provides = arch-linux-colloid-gtk3=20260808-5
+	provides = arch-linux-colloid-gtk3=20260808-9
 	conflicts = arch-linux-colloid-gtk3
 	replaces = arch-linux-colloid-gtk3
 	options = !strip

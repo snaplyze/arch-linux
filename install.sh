@@ -11,8 +11,8 @@ set -o pipefail
 IFS=$' \t\n'
 umask 077
 
-readonly BOOTSTRAP_VERSION='1.0.2'
-readonly BOOTSTRAP_RELEASE_URL='https://github.com/snaplyze/arch-linux/releases/download/1.0.2'
+readonly BOOTSTRAP_VERSION='1.0.5'
+readonly BOOTSTRAP_RELEASE_URL='https://github.com/snaplyze/arch-linux/releases/download/1.0.5'
 readonly BOOTSTRAP_CERTIFICATE_SHA256='8959dfd96fd94349d505f18a6d3ef0a3bfcd9fad53291343388f787f9dbb9c6f'
 readonly BOOTSTRAP_PRIMARY_FINGERPRINT='9C603F25F83F4B0F4745D790D97919282A24E748'
 readonly BOOTSTRAP_SIGNING_SUBKEY_FINGERPRINT='B294D26BDAD5469EE334B0453DA0736C98322CCA'
