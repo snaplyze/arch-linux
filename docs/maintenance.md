@@ -102,7 +102,8 @@ The package recipe and advisory source inventory bind these exact inputs.
 
 The recorded GNOME Shell 50.4 results below and in the September ISO baseline remain historical
 results for their original package bytes. They do not establish 50.5 compatibility. The updated
-candidate requires a fresh package build and Stock/Marble QEMU acceptance with the new exact inputs.
+inputs passed fresh builds and Stock/Marble QEMU acceptance in release 1.0.4; see the
+[release evidence](validation.md#verified-release-104). Future input changes require new acceptance.
 
 ### Reviewed extension update: Just Perfection 37
 
@@ -217,14 +218,14 @@ deliberately adapt these wrappers and test the changed installer in a VM; changi
 version/hash/size would not preserve the existing UI. Do not force colors globally into selected
 values or logs. No Gum 2.0 installer acceptance is claimed.
 
-Source acceptance and delivery are separate. The updated icons are now delivered by the
-verified, offline-signed 1.0.1 snapshot on Pages. A separate fresh public VM installed the six
+Source acceptance and delivery are separate. The following delivery record is historical: the
+then-updated icons were delivered by the verified, offline-signed 1.0.1 snapshot on Pages. A separate fresh public VM installed the six
 original signed 1.0.0 packages, then upgraded all six to the exact new versions and hashes through
 normal `pacman -Syu`, with unchanged signature policy and clean package integrity. The actual
 1.0.0 installer also verified, replaced itself and restarted into immutable 1.0.1. See the
 [historical release summary](release-process.md#historical-101-evidence-retired); earlier unsigned compatibility results above
 are not relabeled as release acceptance. An installer release is not required solely for a
-profile/icon package change. Never replace published 1.0.0 assets. Platform-enforced
+profile/icon package change. Never replace published release assets. Platform-enforced
 immutability for future releases is a separate [publication setting](release-process.md#release-immutability).
 Keep genuine upstream advisories visible even when review concludes that the accepted pin
 should not change.

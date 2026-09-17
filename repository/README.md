@@ -13,7 +13,7 @@ repository. It deliberately separates unsigned building, authorized signing and 
 - `verify-unsigned-build.sh`: exact unsigned artifact closure and package metadata.
 - `compare-package-builds.sh`: advisory A+B byte comparison.
 - `seal-offline-signing-code.py`: root-only exact-tree sealer and static-launcher builder.
-- `offline-signing-launcher.c`: sole production signing entry, compiled into the sealed closure.
+- `offline-signing-launcher.c`: sole host-local production signing entry, compiled into the sealed closure.
 - `run-offline-signing.sh` and `offline-signing-namespace.sh`: descriptor and full-namespace boundary.
 - `offline-sign-release.sh`: exact-14 Phase-A snapshot signer.
 - `offline-finalize-release.sh`: byte-preserving exact-18 acceptance finalizer.

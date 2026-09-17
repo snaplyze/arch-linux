@@ -9,9 +9,7 @@ LINK=re.compile(r"\[[^\]]+\]\(([^)]+)\)")
 def fail(message: str) -> NoReturn:
     raise SystemExit(f"documentation check failed: {message}")
 
-markdown=sorted(ROOT.glob('*.md'))+sorted((ROOT/'docs').rglob('*.md'))+[
-    ROOT/'repository/README.md', ROOT/'packages/README.md'
-]
+markdown=sorted(path for path in ROOT.rglob('*.md') if '.git' not in path.relative_to(ROOT).parts)
 seen=set()
 for path in markdown:
     if path in seen or not path.is_file(): continue
@@ -42,8 +40,22 @@ for literal in (
     if literal not in readme: fail(f"README lacks {literal!r}")
 for command_path in re.findall(r'`((?:repository|tests|maintenance)/[A-Za-z0-9_./-]+(?:\.sh|\.py))', readme):
     if not (ROOT/command_path).is_file(): fail(f"README names missing command: {command_path}")
+# Installation examples may pin a verified published release while main retains an older
+# source version floor. Compare the examples to each other and to the recorded changelog.
+bootstrap_pattern=r'https://raw[.]githubusercontent[.]com/snaplyze/arch-linux/([0-9]+[.][0-9]+[.][0-9]+)/install[.]sh'
+documented_pins=[]
+for path in (ROOT/'README.md', ROOT/'docs/installation.md'):
+    pins=set(re.findall(bootstrap_pattern, path.read_text(encoding='utf-8')))
+    if len(pins) != 1:
+        fail(f'{path.relative_to(ROOT)} must name one immutable installation example version')
+    documented_pins.append(pins.pop())
+if len(set(documented_pins)) != 1:
+    fail('README and installation guide pin different release examples')
+if not re.search(r'^## ' + re.escape(documented_pins[0]) + r'(?:\s|$)',
+                 (ROOT/'CHANGELOG.md').read_text(encoding='utf-8'), re.M):
+    fail('installation example has no recorded changelog release')
 for literal in (
-    f'{release_version}/install.sh', 'snapshot', 'finalize', 'ARCH_LINUX_SIGNING_KEY',
+    'snapshot', 'finalize', 'ARCH_LINUX_SIGNING_KEY',
     'ARCH_LINUX_SIGNING_PASSPHRASE', 'release-environment',
     'latest published immutable GitHub Release',
 ):

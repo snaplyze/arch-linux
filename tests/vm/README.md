@@ -168,6 +168,9 @@ before claiming coverage of those options; support in the CLI is not an executed
 Stock assertions require no Colloid theme packages or project GTK4 CSS imports. Marble assertions
 check the unified `arch-linux-colloid-gtk` package, reviewed GTK4 payload and automatic user service
 activation. These checks do not establish legacy package replacement or application rendering.
-Run the separate [GTK migration acceptance](../../docs/testing.md#marble-gtk-migration-acceptance)
-against previous and candidate signed snapshots, including fresh-versus-upgraded parity, a new user
-login and light/dark application observations. Record unexecuted checks as `NOT_RUN_ENVIRONMENT`.
+The main staged Marble scenario additionally runs
+[GTK migration acceptance](../../docs/testing.md#marble-gtk-migration-acceptance) against the
+previous and candidate signed snapshots, including fresh-versus-upgraded parity, a new user login
+and light/dark application startup. The public-only scenario does not repeat those staged migration
+checks. Neither scenario provides exhaustive visual certification. Record unexecuted checks as
+`NOT_RUN_ENVIRONMENT`.

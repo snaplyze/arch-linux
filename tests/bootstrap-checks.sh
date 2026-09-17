@@ -15,8 +15,12 @@ EXPECTED_PRIMARY='9C603F25F83F4B0F4745D790D97919282A24E748'
 EXPECTED_SIGNER='B294D26BDAD5469EE334B0453DA0736C98322CCA'
 EXPECTED_VERSION="$(bash "$ROOT_DIR/arch-linux-installer.sh" --version)"
 [[ "$EXPECTED_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
-EXPECTED_README_COMMAND="curl -fsS https://raw.githubusercontent.com/snaplyze/arch-linux/${EXPECTED_VERSION}/install.sh | bash"
-EXPECTED_VERIFY_COMMAND="curl -fsS https://raw.githubusercontent.com/snaplyze/arch-linux/${EXPECTED_VERSION}/install.sh | bash -s -- --verify-only"
+# Published installation examples are independent of main's internal source version floor.
+# docs-checks.py also binds this pin to the installation guide and a changelog release.
+DOCUMENTED_VERSION="$(sed -nE 's@^curl -fsS https://raw.githubusercontent.com/snaplyze/arch-linux/([0-9]+\.[0-9]+\.[0-9]+)/install\.sh \| bash$@\1@p' "$README")"
+[[ "$DOCUMENTED_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+EXPECTED_README_COMMAND="curl -fsS https://raw.githubusercontent.com/snaplyze/arch-linux/${DOCUMENTED_VERSION}/install.sh | bash"
+EXPECTED_VERIFY_COMMAND="curl -fsS https://raw.githubusercontent.com/snaplyze/arch-linux/${DOCUMENTED_VERSION}/install.sh | bash -s -- --verify-only"
 
 test_root="$(mktemp -d -- /tmp/arch-linux-bootstrap-checks.XXXXXXXXXX)"
 chmod 0700 -- "$test_root"

@@ -7,22 +7,24 @@ and both fresh-install and dual-boot paths.
 
 ## Supported platform
 
-Use release `1.0.2` from the official Arch Linux x86_64 installation ISO, booted in UEFI mode with
+Use a published immutable release from the official Arch Linux x86_64 installation ISO, booted in UEFI mode with
 Secure Boot disabled and working network access. Legacy BIOS and non-x86_64 platforms are outside
 the supported boundary. Back up all important data before starting: a fresh installation can erase
 the selected physical disk.
 
 ## Release-pinned bootstrap
 
-Run the immutable release bootstrap from the Arch ISO:
+The commands below pin the verified release **1.0.4** (2026-09-17). Run its immutable
+bootstrap from the Arch ISO:
 
 ```bash
-curl -fsS https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.2/install.sh | bash
+curl -fsS https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.4/install.sh | bash
 ```
 
-This source-floor command is valid once the exact `1.0.2` tag is published. Before then, use the
-release-pinned command in the [latest published immutable GitHub Release](https://github.com/snaplyze/arch-linux/releases),
-not a bootstrap from `main`.
+For a newer version, use the release-pinned command in the
+[latest published immutable GitHub Release](https://github.com/snaplyze/arch-linux/releases).
+These examples remain pinned to the recorded 1.0.4 baseline; they do not track `main` or
+a moving latest-download URL. See the [release evidence](docs/validation.md#verified-release-104).
 
 The bootstrap is release-pinned. It downloads the installer, its SHA-256 file, detached signature
 and `arch-linux.gpg`; validates the exact public-certificate digest and fingerprints; rejects secret
@@ -30,7 +32,7 @@ key packets; then launches only the verified installer bytes from a private root
 For a verification-only run:
 
 ```bash
-curl -fsS https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.2/install.sh | bash -s -- --verify-only
+curl -fsS https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.4/install.sh | bash -s -- --verify-only
 ```
 
 The certificate fingerprints must also be compared through an independently trusted channel. HTTPS,
@@ -65,7 +67,8 @@ project package repository is unavailable.
 
 ## Versioning and maintenance policy
 
-Installer changes after `1.0.0` are released as `1.0.1`, `1.0.2` and later SemVer versions. Arch
+Installer changes use immutable SemVer releases. The [changelog](CHANGELOG.md) records
+released changes; a source commit alone is not a published release. Arch
 Linux itself continues to update through normal `pacman -Syu`. Marble/profile-only changes bump the
 owning package's `pkgrel` and are delivered through the signed Pages repository; they do not require
 a new installer release.

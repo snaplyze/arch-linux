@@ -81,6 +81,11 @@ that transaction fails before any project package is committed. Once a project p
 the authenticated repository and trust path are retained so the package can be updated or removed;
 the installer does not leave an unsigned or unauthenticated bridge.
 
+The Marble profile also manages per-user GTK4/libadwaita CSS through a service ordered before
+`gnome-session-pre.target`. Pacman supplies system-owned assets; the service replaces user CSS
+without backups and cleans up only unchanged project wrappers. Its activation, compatibility and
+removal rules are described in the [Marble lifecycle](marble.md#gtk4libadwaita-and-existing-installations).
+
 For Btrfs with GRUB, the core stage builds the systemd initramfs with mkinitcpio's `sd-volatile`
 contract. It configures grub-btrfs snapshot entries with `systemd.volatile=overlay` and read-only
 root flags, so a selected snapshot is mounted as the lower layer while writes go to a temporary
