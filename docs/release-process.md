@@ -25,6 +25,13 @@ available current release. The installer offers self-updates only from a release
 `immutable: true`. Release-pinned bootstrap verification and platform-enforced release immutability
 are separate properties.
 
+## Verified publication record
+
+Release 1.0.4 has completed immutable publication, Pages verification and public VM acceptance.
+The [validation record](validation.md#verified-release-104) links its exact source identities,
+signed evidence and workflow. Older results below remain historical and do not validate a later
+source candidate.
+
 ## Historical 1.0.1 evidence (retired)
 
 The former `1.0.1` release was published on 2026-09-06 with `immutable: true`. Before retirement,

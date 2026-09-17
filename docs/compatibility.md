@@ -8,7 +8,8 @@
 | Minimal TTY | Current Arch package set on x86_64 UEFI | Not applicable. |
 | Stock GNOME | Current Arch stable GNOME/GDM/Wayland packages | Stock remains the graphical baseline. |
 | Marble desktop | GNOME majors listed by `packages/arch-linux-marble-profile/supported-gnome-majors` with exact reviewed assets | Remove only Marble defaults; use Stock. |
-| Experimental Marble GDM | Exact GNOME resource/service/session/vendor-dconf hashes accepted by its compatibility data | Keep the project overlay inactive and use Stock GDM. |
+| Marble GTK4/libadwaita | GNOME 50, GTK 4.22.x and libadwaita 1.9.x with reviewed packaged CSS/assets | Deactivate project defaults and remove only unchanged project CSS wrappers. |
+| Experimental Marble GDM | Reviewed GNOME Shell `1:50.5-1` resource and exact service/session/vendor-dconf hashes | Keep the project overlay inactive and use Stock GDM. |
 | Filesystems | Btrfs or ext4; optional LUKS2 root | Stop on validation or mount failure. |
 | Boot | GRUB or systemd-boot on UEFI | Stop before installation when UEFI prerequisites fail. |
 | Dual boot | Existing vfat ESP and distinct root partition on the selected disk | Stop before formatting on any identity mismatch. |
@@ -24,8 +25,10 @@ only exact reviewed GNOME and asset inputs enable project defaults. Unknown vers
 return the effective appearance to Stock while leaving system updates available.
 
 GNOME extension compatibility is evaluated per extension. A package being installed does not prove
-that its metadata or runtime supports a new GNOME major. The accepted matrix in
-[validation.md](validation.md) records actual active extensions for the release under test.
+that its metadata or runtime supports a new GNOME major. The signed VM evidence linked from
+[validation.md](validation.md#verified-release-104) records the checks for the verified release.
+The staged Marble scenario checks the eight enabled profile extensions, including User Themes;
+this does not establish support for a future GNOME major.
 
 ## Hardware and virtual machines
 

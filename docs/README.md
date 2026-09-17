@@ -12,5 +12,6 @@
 - [Maintenance](maintenance.md)
 - [Validation and evidence](validation.md)
 
-Only current product behavior and commands belong here. Historical status reports, workstation
-setup, release-candidate evidence and local runner instructions are intentionally excluded.
+Current product behavior and commands belong here. Verified release summaries link to their exact
+published evidence; explicitly labelled historical reviews retain their original scope. Raw logs,
+release-candidate artifacts, workstation setup and local runner state remain outside the source tree.
