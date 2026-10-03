@@ -96,7 +96,7 @@ import sys
 import tempfile
 source = Path(sys.argv[1]).read_text()
 body = re.search(r'^prove_dual_boot_collision_refusal\(\) \{\n.*?^\}', source, re.M | re.S).group(0)
-for outcome in ('refused', 'accepted', 'root-changed', 'esp-changed'):
+for outcome in ('refused', 'accepted', 'root-changed', 'esp-changed', 'missing-password', 'wrong-password', 'wrong-refusal-cause', 'timeout', 'neighbor-check-failed', 'esp-read-failed'):
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         esp = root / 'esp-files'
@@ -111,26 +111,38 @@ for outcome in ('refused', 'accepted', 'root-changed', 'esp-changed'):
             path.write_bytes(b'fixture')
         (root / 'esp').write_bytes(b'ESP partition bytes')
         (root / 'target-root').write_bytes(b'root partition bytes')
+        if outcome == 'esp-read-failed':
+            (root / 'esp').unlink()
+        # Execute the producer's real timeout/env/Bash command through a bounded installer fixture.
+        # Its input prerequisite catches /dev/null and suppressed serial prompts in the producer.
+        (root / 'arch-linux-installer.sh').write_text(r'''#!/usr/bin/env bash
+set -euo pipefail
+[ "${FORCE}" = true ] && [ "${DEBUG}" = false ]
+printf '+ Enter Password\n'
+IFS= read -r first || exit 113
+printf '+ Enter Password again\n'
+IFS= read -r second || exit 113
+[ -n "$first" ] && [ "$first" = "$second" ] || exit 114
+printf 'FIXTURE_PASSWORD_PREREQUISITE_PASSED\n'
+case "${COLLISION_FIXTURE_OUTCOME}" in
+accepted) exit 0 ;;
+timeout) exit 124 ;;
+root-changed) printf mutation > target-root ;;
+esp-changed) printf mutation > esp ;;
+wrong-refusal-cause) printf 'unrelated failure\n' > installer.log; exit 1 ;;
+esac
+printf 'Dual-boot ESP collision or unsafe ancestor\n' > installer.log
+exit 1
+''')
         program = 'set -euo pipefail\n' + body + r'''
 work_root="$1"
 outcome="$2"
 declare -A IDENTITY=([INPUT_MODE]=staged [SCENARIO]=minimal-dualboot-ext4-systemdboot [RUN_ID]=fixture)
 partition_name() { if [ "$2" = 1 ]; then echo "$work_root/esp"; else echo "$work_root/target-root"; fi; }
 fail() { echo "$*" >&2; exit 1; }
-check_dual_boot_neighbor() { :; }
-timeout() {
-    if [ "$1" = --signal=TERM ]; then
-        printf 'Dual-boot ESP collision or unsafe ancestor\n' >"$work_root/installer.log"
-        case "$outcome" in
-        accepted) return 0 ;;
-        root-changed) echo mutation >"$work_root/target-root" ;;
-        esp-changed) echo mutation >"$work_root/esp" ;;
-        esac
-        return 1
-    fi
-    shift
-    "$@"
-}
+check_dual_boot_neighbor() { [ "$outcome" != neighbor-check-failed ]; }
+export COLLISION_FIXTURE_OUTCOME="$outcome"
+
 mount() { cp -a "$work_root/esp-files/." "$3/"; }
 umount() {
     rm -rf -- "$work_root/esp-files"
@@ -141,15 +153,35 @@ umount() {
 prove_dual_boot_collision_refusal /fixture/target
 '''
         result = subprocess.run(['bash', '-c', program, 'collision-fixture', tmp, outcome],
-                                capture_output=True, text=True, timeout=10)
+                                capture_output=True, text=True, timeout=10,
+                                input="" if outcome == 'missing-password' else
+                                      "public mock input\ndifferent public mock input\n" if outcome == 'wrong-password' else
+                                      "public mock input\npublic mock input\n")
         assert (result.returncode == 0) == (outcome == 'refused'), result.stderr
+        lines = result.stdout.splitlines()
+        ready = 'MINIMAL_QEMU_COLLISION_PROBE_READY run_id=fixture scenario=minimal-dualboot-ext4-systemdboot'
+        if outcome == 'esp-read-failed':
+            assert ready not in lines and '+ Enter Password' not in lines, result.stdout
+        else:
+            assert lines.count(ready) == 1, result.stdout
+            assert lines.index(ready) < lines.index('+ Enter Password'), result.stdout
+            exit_marker = next(line for line in lines if line.startswith('MINIMAL_QEMU_COLLISION_PROBE_EXIT '))
+            assert lines.index('+ Enter Password') < lines.index(exit_marker)
+            assert exit_marker.endswith('status=113' if outcome == 'missing-password' else
+                                        'status=114' if outcome == 'wrong-password' else
+                                        'status=124' if outcome == 'timeout' else
+                                        'status=0' if outcome == 'accepted' else 'status=1')
         if outcome == 'refused':
+            proof = next(line for line in lines if line.startswith('MINIMAL_QEMU_ESP_COLLISION_REFUSAL_PASS '))
+            assert lines.index('+ Enter Password again') < lines.index('FIXTURE_PASSWORD_PREREQUISITE_PASSED') < lines.index(proof)
+            assert 'public mock input' not in result.stdout + result.stderr
             assert 'MINIMAL_QEMU_ESP_COLLISION_REFUSAL_PASS' in result.stdout
             assert not (esp / 'EFI/systemd').exists()
             assert not (esp / 'EFI/BOOT').exists()
             assert not (esp / 'vmlinuz-linux').exists()
             assert not (esp / 'loader/entries/main.conf').exists()
         else:
+            assert 'MINIMAL_QEMU_ESP_COLLISION_REFUSAL_PASS' not in result.stdout
             assert (esp / 'loader/entries/main.conf').exists()
         for name in ('EFI/ali-neighbor/vmlinuz-linux', 'loader/entries/neighbor.conf', 'loader/entries.srel'):
             assert (esp / name).read_bytes() == b'fixture'

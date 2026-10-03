@@ -15,7 +15,7 @@ guest_error() {
 }
 trap 'guest_error "$LINENO" "$BASH_COMMAND"' ERR
 
-{ [ "$#" -eq 25 ] || [ "$#" -eq 26 ]; } || { printf 'usage: verify.sh PHASE SERIAL VENDOR MODEL USERNAME SCENARIO RUN_ID REPOSITORY_PRIMARY REPOSITORY_SIGNING INPUT_MODE RELEASE_VERSION TARGET_DISK_METADATA PAGES_URL PUBLIC_KEY_URL SNAPSHOT_SHA256 SOURCE_COMMIT SOURCE_TREE INSTALLER_SHA256 PACKAGE_SET_SHA256 BUILD_METADATA_SHA256 UNSIGNED_MANIFEST_SHA256 PUBLIC_KEY_SHA256 LEGACY_RELEASE_VERSION LEGACY_PROFILE_VERSION LEGACY_GTK3_VERSION [MEDIA_QUALIFICATION]\n' >&2; exit 2; }
+{ [ "$#" -eq 25 ] || [ "$#" -eq 26 ] || [ "$#" -eq 27 ]; } || { printf 'usage: verify.sh PHASE SERIAL VENDOR MODEL USERNAME SCENARIO RUN_ID REPOSITORY_PRIMARY REPOSITORY_SIGNING INPUT_MODE RELEASE_VERSION TARGET_DISK_METADATA PAGES_URL PUBLIC_KEY_URL SNAPSHOT_SHA256 SOURCE_COMMIT SOURCE_TREE INSTALLER_SHA256 PACKAGE_SET_SHA256 BUILD_METADATA_SHA256 UNSIGNED_MANIFEST_SHA256 PUBLIC_KEY_SHA256 LEGACY_RELEASE_VERSION LEGACY_PROFILE_VERSION LEGACY_GTK3_VERSION [MEDIA_QUALIFICATION [GDM_WORKER_BASELINE]]\n' >&2; exit 2; }
 readonly phase="$1" expected_serial="$2" expected_vendor="$3" expected_model="$4"
 readonly username="$5" scenario="$6" run_id="$7" repository_primary="$8"
 readonly repository_signing="$9" input_mode="${10}" release_version="${11}"
@@ -24,6 +24,7 @@ readonly snapshot_sha256="${15}" source_commit="${16}" source_tree="${17}"
 readonly installer_sha256="${18}" package_set_sha256="${19}"
 readonly build_metadata_sha256="${20}" unsigned_manifest_sha256="${21}" public_key_sha256="${22}"
 readonly media_qualification="${26:-false}"
+readonly gdm_worker_baseline="${27:--}"
 readonly legacy_release_version="${23}" legacy_profile_version="${24}" legacy_gtk3_version="${25}"
 case "${scenario}" in
 minimal-ext4-systemdboot)
@@ -42,35 +43,35 @@ minimal-dualboot-ext4-systemdboot)
     ;;
 stock-gnome-ext4-systemdboot)
     marker_prefix='STOCK'
-    case "${phase}" in media-readback-prepare | prelogin | firstlogin | lock | unlock | update | postreboot-prelogin | secondlogin) ;; *) exit 2 ;; esac
+    case "${phase}" in gdm-activation-baseline | gdm-activation-check | media-readback-prepare | prelogin | firstlogin | lock | unlock | update | postreboot-prelogin | secondlogin) ;; *) exit 2 ;; esac
     [[ "${expected_serial}" =~ ^ALI100S[A-F0-9]{12}$ ]]
     [[ "${expected_model}" =~ ^ALI_STK_[A-F0-9]{8}$ ]]
     [[ "${run_id}" =~ ^stock-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}$ ]]
     ;;
 stock-gnome-btrfs-systemdboot)
     marker_prefix='BTRFS'
-    case "${phase}" in prelogin | firstlogin | lock | unlock | update | postreboot-prelogin | secondlogin) ;; *) exit 2 ;; esac
+    case "${phase}" in gdm-activation-baseline | gdm-activation-check | prelogin | firstlogin | lock | unlock | update | postreboot-prelogin | secondlogin) ;; *) exit 2 ;; esac
     [[ "${expected_serial}" =~ ^ALI100B[A-F0-9]{12}$ ]]
     [[ "${expected_model}" =~ ^ALI_BTR_[A-F0-9]{8}$ ]]
     [[ "${run_id}" =~ ^btrfs-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}$ ]]
     ;;
 stock-gnome-btrfs-grub)
     marker_prefix='GRUB'
-    case "${phase}" in prelogin | firstlogin | lock | unlock | update | postreboot-prelogin | secondlogin | snapshot-prepare | snapshot-prelogin | snapshot-login | snapshot-cleanup) ;; *) exit 2 ;; esac
+    case "${phase}" in gdm-activation-baseline | gdm-activation-check | prelogin | firstlogin | lock | unlock | update | postreboot-prelogin | secondlogin | snapshot-prepare | snapshot-prelogin | snapshot-login | snapshot-cleanup) ;; *) exit 2 ;; esac
     [[ "${expected_serial}" =~ ^ALI100G[A-F0-9]{12}$ ]]
     [[ "${expected_model}" =~ ^ALI_GRB_[A-F0-9]{8}$ ]]
     [[ "${run_id}" =~ ^grub-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}$ ]]
     ;;
 stock-gnome-btrfs-luks2-plymouth-systemdboot)
     marker_prefix='LUKS'
-    case "${phase}" in prelogin | firstlogin | lock | unlock | update | postreboot-prelogin | secondlogin) ;; *) exit 2 ;; esac
+    case "${phase}" in gdm-activation-baseline | gdm-activation-check | prelogin | firstlogin | lock | unlock | update | postreboot-prelogin | secondlogin) ;; *) exit 2 ;; esac
     [[ "${expected_serial}" =~ ^ALI100L[A-F0-9]{12}$ ]]
     [[ "${expected_model}" =~ ^ALI_LUK_[A-F0-9]{8}$ ]]
     [[ "${run_id}" =~ ^luks-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}$ ]]
     ;;
 stock-gnome-btrfs-luks2-plymouth-grub)
     marker_prefix='LUKSGRUB'
-    case "${phase}" in prelogin | firstlogin | lock | unlock | update | postreboot-prelogin | secondlogin) ;; *) exit 2 ;; esac
+    case "${phase}" in gdm-activation-baseline | gdm-activation-check | prelogin | firstlogin | lock | unlock | update | postreboot-prelogin | secondlogin) ;; *) exit 2 ;; esac
     [[ "${expected_serial}" =~ ^ALI100G[A-F0-9]{12}$ ]]
     [[ "${expected_model}" =~ ^ALI_GRB_[A-F0-9]{8}$ ]]
     [[ "${run_id}" =~ ^luksgrub-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}$ ]]
@@ -78,7 +79,7 @@ stock-gnome-btrfs-luks2-plymouth-grub)
 marble-gnome-btrfs-luks2-plymouth-systemdboot)
     marker_prefix='MARBLE'
     case "${phase}" in
-    prelogin | firstlogin | lock | unlock | update | postreboot-prelogin | secondlogin | \
+    gdm-activation-baseline | gdm-activation-check | prelogin | firstlogin | lock | unlock | update | postreboot-prelogin | secondlogin | \
         legacy-install | legacy-login | migration-update | migrated-login | \
         gtk4-app-smoke-light | gtk4-app-smoke-dark | fresh-user-prepare | \
         fresh-user-login | fresh-user-logout | return-user-login | \
@@ -96,7 +97,7 @@ marble-gnome-btrfs-luks2-plymouth-systemdboot)
 marble-gnome-btrfs-luks2-plymouth-systemdboot-stock-gdm)
     marker_prefix='MARBLE'
     case "${phase}" in
-    prelogin | firstlogin | lock | unlock | update | postreboot-prelogin | secondlogin | \
+    gdm-activation-baseline | gdm-activation-check | prelogin | firstlogin | lock | unlock | update | postreboot-prelogin | secondlogin | \
         helper-failure | helper-restored-prelogin | helper-restored-login | \
         deactivate-gdm | deactivated-prelogin | deactivated-login | \
         incompatible-fixture | incompatible-prelogin | incompatible-login | restore-marble | \
@@ -147,7 +148,7 @@ public)
     *) exit 2 ;;
     esac
     case "${phase}" in
-    media-readback-prepare | firstboot | postreboot | prelogin | firstlogin | lock | unlock | update | postreboot-prelogin | secondlogin) ;;
+    gdm-activation-baseline | gdm-activation-check | media-readback-prepare | firstboot | postreboot | prelogin | firstlogin | lock | unlock | update | postreboot-prelogin | secondlogin) ;;
     *) exit 2 ;;
     esac
     [ "${pages_url}" = "https://snaplyze.github.io/arch-linux/repo/\$arch" ]
@@ -321,6 +322,112 @@ wait_for_graphical_stack() {
         sleep 1
     done
     return 1
+}
+
+gdm_password_worker_inventory() {
+    python3 - "$@" <<'GDM_WORKER_PY'
+import os
+import re
+import sys
+from pathlib import Path
+proc, worker, daemon_text, group, daemon_exe = sys.argv[1:]
+proc = Path(proc)
+daemon = int(daemon_text)
+if daemon <= 1 or not group.startswith("/") or ".." in group.split("/"):
+    raise ValueError("invalid GDM daemon identity")
+worker_identity = os.stat(worker)
+def record(pid):
+    base = proc / str(pid)
+    data = (base / "stat").read_text()
+    fields = data.rsplit(") ", 1)[1].split()
+    if int(data.split(" ", 1)[0]) != pid or len(fields) < 20:
+        raise ValueError("invalid process stat")
+    uid = re.search(r"^Uid:\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*$", (base / "status").read_text(), re.M)
+    groups = [line[3:] for line in (base / "cgroup").read_text().splitlines() if line.startswith("0::")]
+    if uid is None or [int(item) for item in uid.groups()] != [0, 0, 0, 0] or len(groups) != 1:
+        raise ValueError("GDM process owner or cgroup differs")
+    if groups[0] != group and not groups[0].startswith(group + "/"):
+        raise ValueError("GDM process is outside its unit")
+    executable = os.stat(base / "exe")
+    return (int(fields[1]), int(fields[19]), groups[0], os.readlink(base / "exe"),
+            executable.st_dev, executable.st_ino)
+before = record(daemon)
+if before[3] != daemon_exe:
+    raise ValueError("GDM daemon executable differs")
+found = []
+for index, base in enumerate(proc.iterdir()):
+    if index > 8192: raise ValueError("process inventory limit")
+    if not base.name.isdecimal(): continue
+    try:
+        with (base / "cmdline").open("rb") as stream:
+            argv0 = stream.read(8192).split(b"\0", 1)[0]
+        if argv0 != b"gdm-session-worker [pam/gdm-password]": continue
+        pid = int(base.name)
+        identity = record(pid)
+        if identity[0] != daemon: raise ValueError("password worker ancestry differs")
+        if identity[3] != worker: raise ValueError("password worker executable differs")
+        if identity[4:] != (worker_identity.st_dev, worker_identity.st_ino):
+            raise ValueError("password worker executable identity differs")
+        if record(pid) != identity: raise ValueError("password worker identity changed")
+        found.append((pid, identity[1]))
+    except FileNotFoundError:
+        continue
+if record(daemon) != before: raise ValueError("GDM daemon identity changed")
+if len(found) > 32: raise ValueError("password worker inventory limit")
+print(str(daemon) + "." + str(before[1]), ",".join(str(pid) + "." + str(start) for pid, start in sorted(found)) or "none")
+GDM_WORKER_PY
+}
+
+gdm_activation_probe() {
+    local daemon daemon_exe group worker inventory identity workers activation greeter baseline_id worker_id new_worker=none
+    local new_count=0
+    local -a baseline_ids=() worker_ids=()
+    [ "${phase}" = gdm-activation-baseline ] || [ "${phase}" = gdm-activation-check ] || return 1
+    systemctl is-active --quiet gdm.service graphical.target || return 1
+    greeter="$(find_session greeter gdm-greeter gdm-launch-environment)" || return 1
+    [[ "${greeter}" =~ ^[A-Za-z0-9_-]+$ ]] || return 1
+    [ "$(session_property "${greeter}" Type)" = wayland ] &&
+        [ "$(session_property "${greeter}" State)" = active ] &&
+        [ "$(session_property "${greeter}" Remote)" = no ] || return 1
+    ! session_name_exists "${username}" || return 1
+    daemon="$(systemctl show gdm.service --property=MainPID --value)" || return 1
+    group="$(systemctl show gdm.service --property=ControlGroup --value)" || return 1
+    daemon_exe="$(readlink -e -- "/proc/${daemon}/exe")" || return 1
+    [ "$(pacman -Qqo -- "${daemon_exe}")" = gdm ] || return 1
+    [ "$(stat -Lc '%u:%g' -- "${daemon_exe}")" = '0:0' ] || return 1
+    [ -z "$(find "${daemon_exe}" -perm /022 -print)" ] || return 1
+    [[ "${daemon}" =~ ^[1-9][0-9]*$ ]] || return 1
+    worker="$(pacman -Qlq gdm | awk '/\/gdm-session-worker$/ {path=$0; count++} END {if(count!=1) exit 1; print path}')" || return 1
+    [[ "${worker}" = /* ]] && [ -f "${worker}" ] && [ ! -L "${worker}" ] || return 1
+    [ "$(stat -Lc '%u:%g:%h' -- "${worker}")" = '0:0:1' ] || return 1
+    [ -z "$(find "${worker}" -perm /022 -print)" ] || return 1
+    inventory="$(gdm_password_worker_inventory /proc "${worker}" "${daemon}" "${group}" "${daemon_exe}")" || return 1
+    read -r identity workers <<<"${inventory}"
+    activation=baseline
+    if [ "${phase}" = gdm-activation-check ]; then
+        [[ "${gdm_worker_baseline}" = none || "${gdm_worker_baseline}" =~ ^[1-9][0-9]*\.[1-9][0-9]*(,[1-9][0-9]*\.[1-9][0-9]*)*$ ]] || return 1
+        [ "${#gdm_worker_baseline}" -le 2048 ] || return 1
+        IFS=, read -ra baseline_ids <<<"${gdm_worker_baseline}"
+        IFS=, read -ra worker_ids <<<"${workers}"
+        for worker_id in "${worker_ids[@]}"; do
+            [ "${worker_id}" != none ] || continue
+            for baseline_id in "${baseline_ids[@]}"; do
+                [ "${worker_id}" != "${baseline_id}" ] || break
+            done
+            [ "${worker_id}" != "${baseline_id}" ] || continue
+            new_count=$((new_count + 1))
+            new_worker="${worker_id}"
+        done
+        [ "${new_count}" -le 1 ] || {
+            printf 'GDM_ACTIVATION_DIAGNOSTIC run_id=%s phase=%s ambiguous_new_workers=%s\n' "${run_id}" "${phase}" "${new_count}" >&2
+            return 1
+        }
+        activation=pending
+        [ "${new_count}" -eq 0 ] || activation=started
+    fi
+    printf 'GDM_ACTIVATION_DIAGNOSTIC run_id=%s phase=%s daemon=%s greeter=%s worker_ids=%s new_worker=%s activation=%s\n' \
+        "${run_id}" "${phase}" "${identity}" "${greeter}" "${workers}" "${new_worker}" "${activation}"
+    emit_runtime_action_pass gdm-password-conversation-probe
 }
 
 wait_for_user_session() {
@@ -766,7 +873,7 @@ import re
 import shlex
 import sys
 from pathlib import Path
-main, generated, uuid, subvol = sys.argv[1:]
+main, generated, uuid, subvol, device, partuuid = sys.argv[1:]
 headers = re.compile(r"^\s*(submenu|menuentry)\s+(.*)\{\s*$")
 def walk(path):
     stack = []
@@ -802,13 +909,14 @@ for stack, lines in entries.items():
     args = linux[0][2:]
     roots = [arg for arg in args if arg.startswith("root=")]
     flags = [arg for arg in args if arg.startswith("rootflags=")]
-    if roots != ["root=UUID=" + uuid] or len(flags) != 1: continue
+    if len(roots) != 1 or roots[0] not in {"root=" + device, "root=UUID=" + uuid, "root=PARTUUID=" + partuuid} or len(flags) != 1: continue
     subvols = [flag for flag in flags[0][10:].split(",") if flag.startswith("subvol=")]
     if subvols != ["subvol=" + subvol]: continue
     if args.count("systemd.volatile=overlay") != 1: continue
     if linux[0][1] != "/vmlinuz-linux" or initrd[0][-1] != "/initramfs-linux.img": continue
     if any(".." in part or not part.startswith("/") for part in initrd[0][1:]): continue
     accepted.append(next(iter(outer)) + ">" + ">".join(title for _, title in stack))
+print("SNAPSHOT_ENTRY_DIAGNOSTIC accepted=" + str(len(accepted)) + " entries=" + str(len(entries)) + " expected_device=" + device + " uuid=" + uuid + " partuuid=" + partuuid, file=sys.stderr)
 if len(accepted) != 1: raise ValueError("exact snapshot boot entry absent or ambiguous")
 print(accepted[0])
 SNAPSHOT_ENTRY_PY
@@ -822,9 +930,24 @@ snapshot_lowerdir_matches() {
     case ",${options}," in *,ro,*) ;; *) return 1 ;; esac
 }
 
+snapshot_root_argument_matches() {
+    local arguments_text="$1" device="$2" uuid="$3" partuuid="$4" argument count=0
+    local -a arguments=()
+    read -ra arguments <<<"${arguments_text}"
+    for argument in "${arguments[@]}"; do
+        case "${argument}" in
+        root=*)
+            count=$((count + 1))
+            case "${argument}" in "root=${device}" | "root=UUID=${uuid}" | "root=PARTUUID=${partuuid}") ;; *) return 1 ;; esac
+            ;;
+        esac
+    done
+    [ "${count}" -eq 1 ]
+}
+
 prepare_snapshot_boot() {
     local subvol="@snapshots/qa-${run_id}" path="/.snapshots/qa-${run_id}"
-    local state="/boot/qa-snapshot-${run_id}.state" uuid entry
+    local state="/boot/qa-snapshot-${run_id}.state" uuid entry device partuuid target
     [ "${scenario}" = stock-gnome-btrfs-grub ]
     verify_common >/dev/null
     verify_btrfs_contract
@@ -833,28 +956,35 @@ prepare_snapshot_boot() {
     install -d -m0700 /var/lib/arch-linux-vm
     [ ! -e /var/lib/arch-linux-vm/snapshot-marker ] || return 1
     printf '%s\n' "${run_id}" >/var/lib/arch-linux-vm/snapshot-marker
-    uuid="$(findmnt -nro UUID --target /)"
-    [[ "${uuid}" =~ ^[a-fA-F0-9-]{36}$ ]]
-    printf 'run_id=%s\nsubvol=%s\nroot_uuid=%s\nnormal_boot_id=%s\n' \
-        "${run_id}" "${subvol}" "${uuid}" "$(cat /proc/sys/kernel/random/boot_id)" >"${state}"
+    target="$(find_target)" || return 1
+    device="$(mounted_source_device /)" || return 1
+    [ "${device}" = "$(partition_name "${target}" 2)" ] && [ -b "${device}" ] || return 1
+    uuid="$(blkid -s UUID -o value -- "${device}")" || return 1
+    partuuid="$(blkid -s PARTUUID -o value -- "${device}")" || return 1
+    [[ "${uuid}" =~ ^[a-fA-F0-9-]{36}$ ]] && [[ "${partuuid}" =~ ^[a-fA-F0-9-]{36}$ ]] || return 1
+    [ "$(findmnt -nro UUID --target /)" = "${uuid}" ] || return 1
+    printf 'run_id=%s\nsubvol=%s\nroot_uuid=%s\nnormal_boot_id=%s\nroot_device=%s\nroot_partuuid=%s\n' \
+        "${run_id}" "${subvol}" "${uuid}" "$(cat /proc/sys/kernel/random/boot_id)" "${device}" "${partuuid}" >"${state}"
     btrfs subvolume snapshot -r / "${path}"
     [ "$(btrfs property get -ts "${path}" ro)" = ro=true ]
     # Discover the entry using the installed production grub-btrfs generator.
     grub-mkconfig -o /boot/grub/grub.cfg
     grub-script-check /boot/grub/grub.cfg
     grub-script-check /boot/grub/grub-btrfs.cfg
-    entry="$(select_snapshot_grub_entry /boot/grub/grub.cfg /boot/grub/grub-btrfs.cfg "${uuid}" "${subvol}")"
+    entry="$(select_snapshot_grub_entry /boot/grub/grub.cfg /boot/grub/grub-btrfs.cfg "${uuid}" "${subvol}" "${device}" "${partuuid}")"
+    [ "$(blkid -s UUID -o value -- "${device}")" = "${uuid}" ] &&
+        [ "$(blkid -s PARTUUID -o value -- "${device}")" = "${partuuid}" ] || return 1
     grub-reboot "${entry}"
     emit_runtime_action_pass snapshot-production-entry-selected
 }
 
 verify_snapshot_runtime() {
     local state="/boot/qa-snapshot-${run_id}.state" subvol="@snapshots/qa-${run_id}"
-    local options lower uuid cmdline target source
+    local options lower uuid cmdline target source device partuuid
     [ "${scenario}" = stock-gnome-btrfs-grub ] || return 1
     [ -f "${state}" ] && [ ! -L "${state}" ] || return 1
     [ "$(stat -Lc '%u:%a:%h' -- "${state}")" = '0:600:1' ] || return 1
-    [ "$(wc -l <"${state}")" -eq 4 ] || return 1
+    [ "$(wc -l <"${state}")" -eq 6 ] || return 1
     grep -qxF "run_id=${run_id}" "${state}" || return 1
     grep -qxF "subvol=${subvol}" "${state}" || return 1
     uuid="$(sed -n 's/^root_uuid=//p' "${state}")"
@@ -872,9 +1002,16 @@ verify_snapshot_runtime() {
     target="$(find_target)"
     [ "${source}" = "$(partition_name "${target}" 2)" ] || return 1
     cmdline="$(cat /proc/cmdline)"
-    require_prefixed_kernel_argument_once "${cmdline}" root= "root=UUID=${uuid}" || return 1
+    device="$(sed -n 's/^root_device=//p' "${state}")"
+    partuuid="$(sed -n 's/^root_partuuid=//p' "${state}")"
+    [ "${device}" = "${source}" ] && [ -b "${device}" ] || return 1
+    [[ "${partuuid}" =~ ^[a-fA-F0-9-]{36}$ ]] || return 1
+    [ "$(blkid -s UUID -o value -- "${device}")" = "${uuid}" ] &&
+        [ "$(blkid -s PARTUUID -o value -- "${device}")" = "${partuuid}" ] || return 1
+    snapshot_root_argument_matches "${cmdline}" "${device}" "${uuid}" "${partuuid}" || return 1
     require_kernel_argument_once "${cmdline}" systemd.volatile=overlay || return 1
     options="$(tr ' ' '\n' <<<"${cmdline}" | sed -n 's/^rootflags=//p')"
+    require_prefixed_kernel_argument_once "${cmdline}" rootflags= "rootflags=${options}" || return 1
     [ "$(tr ',' '\n' <<<"${options}" | sed -n 's/^subvol=//p')" = "${subvol}" ] || return 1
     verify_kernel_initramfs_pair /boot/initramfs-linux.img || return 1
     verify_grub_efi_target || return 1
@@ -2445,6 +2582,11 @@ verify_dual_boot_phase() {
     printf 'MINIMAL_QEMU_GUEST_PASS run_id=%s scenario=%s phase=%s boot_id=%s target=%s neighbor=preserved\n' \
         "${run_id}" "${scenario}" "${phase}" "${boot_id}" "${target}"
 }
+
+if [ "${phase}" = gdm-activation-baseline ] || [ "${phase}" = gdm-activation-check ]; then
+    gdm_activation_probe
+    exit 0
+fi
 
 if [ "${phase}" = media-readback-prepare ]; then
     prepare_media_readback

@@ -209,12 +209,18 @@ prove_dual_boot_collision_refusal() {
     # Hash complete accepted partition bytes, including off-prefix filesystem metadata.
     esp_before="$(timeout 300 sha256sum --binary -- "${esp}" | awk '{print $1}')"
     root_before="$(timeout 600 sha256sum --binary -- "${root}" | awk '{print $1}')"
+    # The full installer still requires its runtime-only password in force mode. Keep the
+    # inherited serial TTY visible so the host can complete this separate probe handshake.
+    printf 'MINIMAL_QEMU_COLLISION_PROBE_READY run_id=%s scenario=minimal-dualboot-ext4-systemdboot\n' \
+        "${IDENTITY[RUN_ID]}"
     (
         cd -- "${work_root}"
         umask 022
         timeout --signal=TERM --kill-after=15 900 /usr/bin/env FORCE=true DEBUG=false \
-            /usr/bin/bash ./arch-linux-installer.sh </dev/null
-    ) >"${work_root}/collision-refusal.log" 2>&1 || status=$?
+            /usr/bin/bash ./arch-linux-installer.sh
+    ) || status=$?
+    printf 'MINIMAL_QEMU_COLLISION_PROBE_EXIT run_id=%s scenario=minimal-dualboot-ext4-systemdboot status=%s\n' \
+        "${IDENTITY[RUN_ID]}" "${status}"
     [ "${status}" -eq 1 ] || fail 'colliding ESP did not produce the expected installer refusal'
     grep -Fq 'Dual-boot ESP collision or unsafe ancestor' "${work_root}/installer.log" ||
         fail 'installer failure did not prove ESP collision refusal'
@@ -240,7 +246,7 @@ prove_dual_boot_collision_refusal() {
     umount -- "${probe_mount}"
     rmdir -- "${probe_mount}"
     check_dual_boot_neighbor "${target}"
-    rm -f -- "${work_root}/collision-refusal.log" "${work_root}/installer.log"
+    rm -f -- "${work_root}/installer.log"
 }
 
 install_dual_boot_neighbor_proof() {

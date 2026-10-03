@@ -137,13 +137,176 @@ wait_qga(){ :; }
             main = Path(tmp) / "grub.cfg"; entries = Path(tmp) / "grub-btrfs.cfg"
             main.write_text("submenu 'Arch snapshots' {\nconfigfile ${prefix}/grub-btrfs.cfg\n}\n")
             entries.write_text("submenu 'snapshot fixture' {\nmenuentry 'linux' {\nlinux /vmlinuz-linux root=" + root + " rootflags=" + rootflags + " systemd.volatile=overlay\ninitrd " + image + "\n}\n}\n")
-            command = body + "\nselect_snapshot_grub_entry '" + str(main) + "' '" + str(entries) + "' fixture @snapshots/qa-fixture\n"
+            command = body + "\nselect_snapshot_grub_entry '" + str(main) + "' '" + str(entries) + "' fixture @snapshots/qa-fixture /dev/vda2 partuuid\n"
             return subprocess.run(["bash", "-c", command], capture_output=True, text=True, timeout=5)
+    def test_snapshot_production_device_root(self):
+        result = self.snapshot_entry(root="/dev/vda2")
+        self.assertEqual(result.returncode, 0, result.stderr)
+    def test_snapshot_root_argument_identity(self):
+        body = function("snapshot_root_argument_matches")
+        for argument, expected in (("root=/dev/vda2", 0), ("root=UUID=fixture", 0),
+                                   ("root=PARTUUID=partuuid", 0), ("root=/dev/vda3", 1),
+                                   ("root=UUID=wrong", 1), ("root=/dev/vda2 root=UUID=fixture", 1)):
+            result = subprocess.run(["bash", "-c", body + "\nsnapshot_root_argument_matches \"$1\" /dev/vda2 fixture partuuid", "snapshot-root-fixture", argument], capture_output=True, timeout=5)
+            self.assertEqual(result.returncode, expected)
+
+    def gdm_inventory(self, case="valid"):
+        body = function("gdm_password_worker_inventory")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); proc = root / "proc"; proc.mkdir()
+            daemon = root / "gdm"; daemon.write_text("daemon")
+            worker = root / "gdm-session-worker"; worker.write_text("worker")
+            for pid, parent, start, executable in ((10, 1, 100, daemon), (20, 10, 200, worker)):
+                base = proc / str(pid); base.mkdir()
+                tail = ["S", str(parent)] + ["0"] * 17 + [str(start)]
+                (base / "stat").write_text(str(pid) + " (gdm-session-wor) " + " ".join(tail))
+                (base / "status").write_text("Uid:\t0\t0\t0\t0\n")
+                (base / "cgroup").write_text("0::/system.slice/gdm.service\n")
+                (base / "cmdline").write_bytes(("gdm" if pid == 10 else "gdm-session-worker [pam/gdm-password]").encode() + b"\0")
+                (base / "exe").symlink_to(executable)
+            base = proc / "20"
+            if case == "owner": (base / "status").write_text("Uid:\t1000\t1000\t1000\t1000\n")
+            if case == "cgroup": (base / "cgroup").write_text("0::/foreign.service\n")
+            if case == "ancestor": (base / "stat").write_text("20 (gdm-session-wor) " + " ".join(["S", "30"] + ["0"] * 17 + ["200"]))
+            if case == "executable": (base / "exe").unlink(); (base / "exe").symlink_to(daemon)
+            if case == "other-pam": (base / "cmdline").write_bytes(b"gdm-session-worker [pam/gdm-launch-environment]\0")
+            command = body + "\ngdm_password_worker_inventory \"$1\" \"$2\" 10 /system.slice/gdm.service \"$3\"\n"
+            return subprocess.run(["bash", "-c", command, "gdm-proc-fixture", str(proc), str(worker), str(daemon)], capture_output=True, text=True, timeout=5)
+
+    def test_gdm_actual_worker_inventory_and_truncated_comm(self):
+        result = self.gdm_inventory()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "10.100 20.200")
+        self.assertEqual(self.gdm_inventory("other-pam").stdout.strip(), "10.100 none")
+
+    def test_gdm_worker_owner_executable_ancestry_and_cgroup(self):
+        for case in ("owner", "cgroup", "ancestor", "executable"):
+            with self.subTest(case=case): self.assertNotEqual(self.gdm_inventory(case).returncode, 0)
+
+    def test_normal_gdm_routes_use_activation_guard(self):
+        host = (ROOT / "tests/vm/run.sh").read_text()
+        self.assertIn("activate_gdm_password_conversation firstboot", host)
+        self.assertIn("activate_gdm_password_conversation postreboot", host)
+        self.assertIn("activate_gdm_password_conversation snapshot", host)
+        body = re.search(r"^marble_gdm_login\(\) \{\n.*?^\}", host, re.M | re.S).group(0)
+        for status in (0, 1):
+            with tempfile.TemporaryDirectory() as temporary:
+                script = "set -euo pipefail\nevidence=\"$1\"\nactivate_gdm_password_conversation(){ return " + str(status) + "; }\nhmp_type_password(){ printf 'PASSWORD_SENT\n'; }\nqga_verify(){ :; }\n" + body + "\nmarble_gdm_login firstlogin fixture\n"
+                result = subprocess.run(["bash", "-c", script, "login-guard-fixture", temporary], capture_output=True, text=True, timeout=5)
+                self.assertEqual(result.returncode, status)
+                self.assertEqual("PASSWORD_SENT" in result.stdout, status == 0)
+
+    def test_gdm_activation_evidence_is_exact_and_unambiguous(self):
+        host = (ROOT / "tests/vm/run.sh").read_text()
+        body = re.search(r"^parse_gdm_activation_evidence\(\) \{\n.*?^\}", host, re.M | re.S).group(0)
+        line = "GDM_ACTIVATION_DIAGNOSTIC run_id=fixture phase=gdm-activation-check daemon=10.100 greeter=c1 worker_ids=20.200 new_worker=20.200 activation=started\n"
+        for content, expected in ((line, 0), (line * 2, 1), (line.replace("run_id=fixture", "run_id=other"), 1), (line.replace("new_worker=20.200", "new_worker=none"), 1)):
+            with tempfile.TemporaryDirectory() as temporary:
+                file = Path(temporary) / "probe.stdout"; file.write_text(content)
+                result = subprocess.run(["bash", "-c", "set -euo pipefail\nrun_id=fixture\n" + body + "\nparse_gdm_activation_evidence \"$1\" gdm-activation-check\n", "gdm-marker-fixture", str(file)], capture_output=True, timeout=5)
+                self.assertEqual(result.returncode, expected)
+
+    def snapshot_runtime(self, argument="root=/dev/vda2", changed=""):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); state = root / "snapshot.state"; lower = root / "lower"; lower.mkdir()
+            marker = lower / "var/lib/arch-linux-vm/snapshot-marker"; marker.parent.mkdir(parents=True); marker.write_text("fixture")
+            uuid = "11111111-1111-1111-1111-111111111111"; partuuid = "22222222-2222-2222-2222-222222222222"
+            state.write_text("run_id=fixture\nsubvol=@snapshots/qa-fixture\nroot_uuid=" + uuid + "\nnormal_boot_id=33333333-3333-3333-3333-333333333333\nroot_device=/dev/vda2\nroot_partuuid=" + partuuid + "\n")
+            commandline = root / "cmdline"; commandline.write_text(argument.replace("uuid", uuid).replace("part-id", partuuid) + " rootflags=subvol=@snapshots/qa-fixture systemd.volatile=overlay")
+            body = "\n".join(function(name) for name in ("snapshot_root_argument_matches", "snapshot_lowerdir_matches", "require_kernel_argument_once", "require_prefixed_kernel_argument_once", "verify_snapshot_runtime"))
+            body = body.replace('/boot/qa-snapshot-${run_id}.state', str(state)).replace('/proc/cmdline', str(commandline))
+            script = r'''set -euo pipefail
+run_id=fixture scenario=stock-gnome-btrfs-grub
+fixture_lower=$1
+fixture_uuid=$2
+fixture_partuuid=$3
+changed=$4
+[(){ if [[ "$*" = '-b /dev/vda2 ]' ]]; then return 0; fi; builtin [ "$@"; }
+stat(){ printf '0:600:1'; }
+findmnt(){
+    case "$*" in
+        *FSTYPE*'target /') printf overlay;;
+        *FSTYPE*) printf btrfs;;
+        *FSROOT*) printf /@snapshots/qa-fixture;;
+        *OPTIONS*'target /') printf 'lowerdir=%s' "$fixture_lower";;
+        *OPTIONS*) printf ro;;
+        *UUID*) if [ "$changed" = lower-uuid ]; then printf wrong; else printf '%s' "$fixture_uuid"; fi;;
+    esac
+}
+btrfs(){ printf ro=true; }
+mounted_source_device(){ if [ "$changed" = device ]; then printf /dev/vda3; else printf /dev/vda2; fi; }
+find_target(){ printf /dev/vda; }
+partition_name(){ printf /dev/vda2; }
+blkid(){
+    if [[ "$*" = *PARTUUID* ]]; then
+        if [ "$changed" = partuuid ]; then printf wrong; else printf '%s' "$fixture_partuuid"; fi
+    else
+        if [ "$changed" = uuid ]; then printf wrong; else printf '%s' "$fixture_uuid"; fi
+    fi
+}
+verify_kernel_initramfs_pair(){ [ "$changed" != modules ]; }
+verify_grub_efi_target(){ :; }
+verify_grub_package_integrity(){ :; }
+systemctl(){ :; }
+nm-online(){ :; }
+''' + body + "\nverify_snapshot_runtime\n"
+            return subprocess.run(["bash", "-c", script, "snapshot-runtime-fixture", str(lower), uuid, partuuid, changed], capture_output=True, text=True, timeout=5)
+
+    def test_actual_snapshot_runtime_accepts_proven_root_forms(self):
+        for argument in ("root=/dev/vda2", "root=UUID=uuid", "root=PARTUUID=part-id"):
+            with self.subTest(argument=argument):
+                result = self.snapshot_runtime(argument)
+                self.assertEqual(result.returncode, 0, result.stderr)
+    def test_actual_snapshot_runtime_rejects_root_identity_and_module_changes(self):
+        for changed in ("device", "uuid", "partuuid", "lower-uuid", "modules"):
+            with self.subTest(changed=changed): self.assertNotEqual(self.snapshot_runtime(changed=changed).returncode, 0)
+        for argument in ("root=/dev/vda3", "root=/dev/vda2 root=UUID=uuid"):
+            with self.subTest(argument=argument): self.assertNotEqual(self.snapshot_runtime(argument).returncode, 0)
+
+    def test_guarded_gdm_activation_withholds_password_until_new_stable_worker(self):
+        host = (ROOT / "tests/vm/run.sh").read_text()
+        body = re.search(r"^activate_gdm_password_conversation\(\) \{\n.*?^\}", host, re.M | re.S).group(0)
+        for outcome, expected in (("delayed", 0), ("never", 1), ("ambiguous", 1), ("changed", 1)):
+            script = r'''set -euo pipefail
+outcome=$1
+checks=0
+last_boot_id=boot
+qga_verify() {
+    last_gdm_daemon_identity=1.10
+    last_gdm_greeter_session=c1
+    if [ "$1" = gdm-activation-baseline ]; then
+        last_gdm_worker_ids=none
+        last_gdm_activation_status=baseline
+    else
+        checks=$((checks+1))
+        last_gdm_activation_status=pending
+        last_gdm_worker_ids=none
+        last_gdm_new_worker_identity=none
+        if [ "$outcome" = ambiguous ]; then return 1; fi
+        if [ "$outcome" != never ] && [ "$checks" -ge 3 ]; then
+            last_gdm_activation_status=started
+            last_gdm_worker_ids=2.20
+            last_gdm_new_worker_identity=2.20
+            if [ "$outcome" = changed ] && [ "$checks" -ge 4 ]; then last_gdm_worker_ids=3.30; last_gdm_new_worker_identity=3.30; fi
+        fi
+    fi
+}
+hmp_request(){ printf 'ACTIVATION_KEY\n'; }
+sleep(){ :; }
+die(){ return 1; }
+''' + body + "\nactivate_gdm_password_conversation fixture\nprintf 'PASSWORD_ALLOWED\n'\n"
+            result = subprocess.run(["bash", "-c", script, "gdm-activation-fixture", outcome], capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, expected, result.stderr)
+            self.assertEqual("PASSWORD_ALLOWED" in result.stdout, expected == 0)
+            self.assertLessEqual(result.stdout.count("ACTIVATION_KEY"), 30)
+
     def test_snapshot_entry_exact(self):
         result = self.snapshot_entry(); self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "Arch snapshots>snapshot fixture>linux")
     def test_snapshot_wrong_entry(self): self.assertNotEqual(self.snapshot_entry(rootflags="subvol=@").returncode, 0)
-    def test_snapshot_wrong_device(self): self.assertNotEqual(self.snapshot_entry(root="UUID=other").returncode, 0)
+    def test_snapshot_wrong_device(self):
+        for root in ("UUID=other", "/dev/vda3", "PARTUUID=other", "/dev/vda2 root=UUID=fixture"):
+            with self.subTest(root=root): self.assertNotEqual(self.snapshot_entry(root=root).returncode, 0)
     def test_snapshot_wrong_image(self): self.assertNotEqual(self.snapshot_entry(image="/initramfs-other.img").returncode, 0)
     def test_snapshot_lowerdir_identity(self):
         body = function("snapshot_lowerdir_matches")
@@ -185,6 +348,7 @@ wait_qga(){ :; }
 hmp_request(){ :; }
 sleep(){ :; }
 hmp_type_password(){ :; }
+activate_gdm_password_conversation(){ :; }
 record_assertion(){ :; }
 die(){ return 1; }
 """ + body + "\nrun_snapshot_acceptance\n"
@@ -261,6 +425,120 @@ die(){ return 1; }
                     self.assertIn("PAIR_CHECKED:/boot/initramfs-linux.img", result.stdout)
                     self.assertEqual(result.returncode, pair_status, result.stderr)
                     self.assertEqual("PASS:" in result.stdout, pair_status == 0)
+
+    def host_function(self, name):
+        return re.search(r"^" + name + r"\(\) \{\n.*?^\}", (ROOT / "tests/vm/run.sh").read_text(), re.M | re.S).group(0)
+
+    def test_stage_password_prompt_rejects_stale_and_duplicate_marker(self):
+        body = self.host_function("serial_stage_password_ready")
+        marker = "MINIMAL_QEMU_COLLISION_PROBE_READY run_id=fixture scenario=minimal-dualboot-ext4-systemdboot"
+        for content, expected in (("Enter Password\n" + marker + "\n", 1),
+                                  (marker + "\r\nEnter Password", 0),
+                                  ("Enter Password\n" + marker + "\nEnter Password", 0),
+                                  (marker + "\n" + marker + "\nEnter Password", 2),
+                                  (marker + "wrong\nEnter Password", 1)):
+            with self.subTest(content=content), tempfile.TemporaryDirectory() as tmp:
+                log = Path(tmp) / "serial.log"; log.write_text(content)
+                result = subprocess.run(["bash", "-c", body + '\nserial_stage_password_ready "$1" "$2"', "fixture", str(log), marker], capture_output=True, text=True)
+                self.assertEqual(result.returncode, expected, result.stderr)
+
+    def test_stage_prompt_accepts_actual_complete_ready_contract(self):
+        body = self.host_function("serial_stage_password_ready")
+        producer = (ROOT / "tests/vm/guest/bootstrap.sh").read_text()
+        fmt = re.search(r"printf '(%s_QEMU_READY[^']+)'", producer).group(1)
+        values = ["MINIMAL", "fixture", "minimal-ext4-systemdboot", "public", "a" * 40, "b" * 40] + [letter * 64 for letter in "cdef"]
+        line = subprocess.run(["bash", "-c", 'printf "$1" "${@:2}"', "producer", fmt, *values], capture_output=True, text=True, check=True).stdout
+        marker = "MINIMAL_QEMU_READY run_id=fixture scenario=minimal-ext4-systemdboot"
+        setup = "input_mode=public source_commit=" + "a" * 40 + " source_tree=" + "b" * 40
+        setup += " installer_sha256=" + "c" * 64 + " harness_sha256=" + "d" * 64 + " iso_sha256=" + "e" * 64 + " snapshot_sha256=" + "f" * 64 + "\n"
+        for content, expected in ((line + "Enter Password", 0),
+                                  ("Enter Password\n" + line, 1),
+                                  (line + line + "Enter Password", 2),
+                                  (line.replace("run_id=fixture", "run_id=fixture-other") + "Enter Password", 1),
+                                  (line.replace("scenario=minimal-ext4-systemdboot", "scenario=minimal-ext4-systemdboot-other") + "Enter Password", 1),
+                                  ("WRONG_" + line + "Enter Password", 1),
+                                  (line.replace("input_mode=public", "input_mode=staged") + "Enter Password", 1),
+                                  (marker + "\nEnter Password", 1)):
+            with self.subTest(content=content[:120]), tempfile.TemporaryDirectory() as tmp:
+                log = Path(tmp) / "serial.log"; log.write_text(content)
+                result = subprocess.run(["bash", "-c", setup + body + '\nserial_stage_password_ready "$1" "$2"', "fixture", str(log), marker], capture_output=True, text=True)
+                self.assertEqual(result.returncode, expected, result.stderr)
+
+    def test_installer_two_stage_credentials_only_for_dualboot(self):
+        body = self.host_function("deliver_installer_credentials")
+        for scenario, count in (("minimal-dualboot-ext4-systemdboot", 2), ("minimal-ext4-systemdboot", 1)):
+            script = 'set -euo pipefail\nscenario_id=' + scenario + ' marker_prefix=MINIMAL run_id=fixture evidence=/fixture bootstrap_timeout=1800\n'
+            script += 'die(){ exit 1; }; wait_for_marker(){ printf "MARKER:%s\\n" "$2"; }; wait_for_stage_password(){ printf "PROMPT:%s\\n" "$2"; }; send_password(){ printf "DELIVERY\\n"; };\n'
+            result = subprocess.run(["bash", "-c", script + body + "\ndeliver_installer_credentials"], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.count("DELIVERY"), count)
+            self.assertEqual(result.stdout.count("PROMPT:"), count)
+            if count == 2:
+                self.assertLess(result.stdout.index("COLLISION_PROBE_READY"), result.stdout.index("MINIMAL_QEMU_READY"))
+
+    def test_password_sender_keeps_only_dualboot_first_channel_open(self):
+        body = self.host_function("send_password")
+        for scenario, expected in (("minimal-dualboot-ext4-systemdboot", "OPEN\nCLOSED\n"), ("minimal-ext4-systemdboot", "CLOSED\n")):
+            with tempfile.TemporaryDirectory() as tmp:
+                output = Path(tmp) / "private-input"
+                script = 'set -euo pipefail\nscenario_id=' + scenario + ' serial_credential_deliveries=0 runtime_password=' + 'a' * 48 + '\nserial_bridge_pid=$$\ndie(){ exit 1; }\nexec {serial_bridge_input_fd}>"$1"\n'
+                script += body + '\nsend_password\nif [ -n "$serial_bridge_input_fd" ]; then printf "OPEN\\n"; send_password; fi\n[ -z "$serial_bridge_input_fd" ] && printf "CLOSED\\n"\n'
+                result = subprocess.run(["bash", "-c", script, "fixture", str(output)], capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, expected)
+                self.assertEqual(len(output.read_text().splitlines()), 2 if "OPEN" in expected else 1)
+
+    def test_stage_prompt_failure_withholds_password(self):
+        body = self.host_function("deliver_installer_credentials")
+        for scenario in ("minimal-dualboot-ext4-systemdboot", "minimal-ext4-systemdboot"):
+            script = 'set -euo pipefail\nscenario_id=' + scenario + ' marker_prefix=MINIMAL run_id=fixture evidence=/fixture bootstrap_timeout=1\n'
+            script += 'die(){ exit 1; }; wait_for_marker(){ return 0; }; wait_for_stage_password(){ return 1; }; send_password(){ printf "PASSWORD_SENT\\n"; };\n'
+            result = subprocess.run(["bash", "-c", script + body + "\ndeliver_installer_credentials"], capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertNotIn("PASSWORD_SENT", result.stdout)
+
+    def test_protected_serial_bridge_delivery_limits(self):
+        import os, socket
+        host = self.host_function("start_serial_bridge")
+        code = host.split("3<<'PY'\n", 1)[1].split("\nPY", 1)[0]
+        for limit, records, expected, deliveries in ((2, [b"a" * 48, b"b" * 48], 0, 4),
+                                                    (1, [b"a" * 48], 0, 2),
+                                                    (2, [b"a" * 48, b"z" * 48], 1, 2),
+                                                    (2, [b"a" * 48, b"b" * 48, b"c" * 48], 1, 4),
+                                                    (1, [b"a" * 48 + b"\ntrailing"], 1, 0)):
+            with self.subTest(limit=limit, records=len(records)), tempfile.TemporaryDirectory() as tmp:
+                path = str(Path(tmp) / "socket"); log = str(Path(tmp) / "serial.log")
+                server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM); server.bind(path); server.listen(1)
+                proc = subprocess.Popen(["python3", "-c", code, path, str(os.getpid()), log, str(limit)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                connection, _ = server.accept(); connection.settimeout(4)
+                try:
+                    self.assertEqual(proc.stdout.readline(), b"SERIAL_BRIDGE_READY\n")
+                    received = b""
+                    for index, record in enumerate(records):
+                        try:
+                            proc.stdin.write(record + b"\n"); proc.stdin.flush()
+                        except BrokenPipeError:
+                            break
+                        needed = 98 if index < limit and len(record) == 48 and set(record) <= set(b"0123456789abcdef") else 0
+                        while needed and len(received) < (index + 1) * 98:
+                            part = connection.recv(1024)
+                            if not part: break
+                            received += part
+                        if not needed: break
+                    try: proc.stdin.close()
+                    except BrokenPipeError: pass
+                    proc.stdin = None
+                    if expected == 0:
+                        connection.shutdown(socket.SHUT_WR)
+                    _, stderr = proc.communicate(timeout=5)
+                    self.assertEqual(proc.returncode, expected, stderr)
+                    self.assertEqual(received.count(b"\r"), deliveries)
+                    self.assertNotIn(b"a" * 48, Path(log).read_bytes())
+                finally:
+                    connection.close(); server.close()
+                    if proc.poll() is None:
+                        proc.kill()
+                    proc.communicate(timeout=5)
 
     def test_upgrade_before_reboot(self): self.assertEqual(self.kernel(phase="update", running="old"), 0)
     def test_stale_running_release(self): self.assertNotEqual(self.kernel(running="old"), 0)
