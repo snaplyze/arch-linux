@@ -278,6 +278,60 @@ remove_secret_bearing_evidence() {
         -size -16777217c -print0)
 }
 
+capture_snapshot_boot_failure() {
+    # Scrub the exact runtime credential before inspecting any owned serial bytes.
+    # Emit fixed classifications, never raw lines, paths, environment or argv.
+    remove_secret_bearing_evidence || return 1
+    python3 - "${evidence}/snapshot-serial.log" "${evidence}/snapshot-boot-diagnostic.txt" <<'BOOT_DIAGNOSTIC_PY'
+import io
+import os
+import re
+import stat
+import sys
+serial, output = sys.argv[1:]
+state = "missing"
+data = b""
+try:
+    fd = os.open(serial, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+except FileNotFoundError:
+    pass
+except OSError:
+    state = "unavailable"
+else:
+    with os.fdopen(fd, "rb") as source:
+        info = os.fstat(source.fileno())
+        if not stat.S_ISREG(info.st_mode):
+            state = "nonregular"
+        elif info.st_size > 16 * 1024 * 1024:
+            state = "oversize"
+        else:
+            data = source.read(16 * 1024 * 1024 + 1)
+            state = "inspected" if len(data) <= 16 * 1024 * 1024 else "oversize"
+            if state != "inspected": data = b""
+patterns = (
+    ("kernel-panic", rb"Kernel panic - not syncing"),
+    ("root-mount-failed", rb"VFS: Unable to mount root fs"),
+    ("initrd-root-mount-failed", rb"(?:Failed to mount|Dependency failed for) (?:/sysroot|Sysroot|Root File System)"),
+    ("volatile-root-failed", rb"(?:Failed|failed)[^\n]{0,160}systemd-volatile-root(?:\.service)?"),
+    ("guest-agent-failed", rb"(?:Failed|failed)[^\n]{0,160}(?:qemu-guest-agent|QEMU Guest Agent)"),
+    ("emergency-mode", rb"(?:You are in emergency mode|Entering emergency mode)"),
+)
+lines = ["QEMU_BOOT_DIAGNOSTIC schema=1 phase=snapshot reason=qga-not-ready serial=" + state]
+for number, line in enumerate(io.BytesIO(data), 1):
+    for code, pattern in patterns:
+        if re.search(pattern, line):
+            lines.append("QEMU_BOOT_DIAGNOSTIC event=" + str(number) + " code=" + code)
+            break
+    if len(lines) == 33: break
+# At most 33 fixed-format lines and 4096 bytes; no untrusted text is emitted.
+text = "\n".join(lines) + "\n"
+assert len(text.encode()) <= 4096
+with open(output, "x", encoding="ascii") as target:
+    target.write(text)
+print(lines[0])
+BOOT_DIAGNOSTIC_PY
+}
+
 compact_run_evidence() {
     local candidate basename summary
     [ -d "${evidence}" ] && [ ! -L "${evidence}" ] || return 0
@@ -288,7 +342,7 @@ compact_run_evidence() {
         case "${candidate}" in
         *.ppm | *.request.json | *.start.json | *.status.json) continue ;;
         esac
-        grep -aEh '^[[:space:]]*([A-Z]+_QEMU_(READY|INSTALLER_EXIT|INSTALL_COMPLETE|NEIGHBOR_PRESERVED|ESP_COLLISION_REFUSAL_PASS|COLLISION_PROBE_READY|COLLISION_PROBE_EXIT|FAIL|GUEST_PASS|GUEST_FAIL)|QEMU_HOST_FAIL|QEMU_DIAGNOSTIC_WARNING:|SCREENSHOT_WARNING:|GTK4_APP_(DIAGNOSTIC|LAUNCH_FAIL)|GTK4_SESSION_DIAGNOSTIC|SNAPSHOT_ENTRY_DIAGNOSTIC|GDM_ACTIVATION_DIAGNOSTIC|exit_status=|qemu-img|signed repository checks passed|release asset checks passed)' \
+        grep -aEh '^[[:space:]]*([A-Z]+_QEMU_(READY|INSTALLER_EXIT|INSTALL_COMPLETE|NEIGHBOR_PRESERVED|ESP_COLLISION_REFUSAL_PASS|COLLISION_PROBE_READY|COLLISION_PROBE_EXIT|FAIL|GUEST_PASS|GUEST_FAIL)|QEMU_HOST_FAIL|QEMU_DIAGNOSTIC_WARNING:|SCREENSHOT_WARNING:|GTK4_APP_(DIAGNOSTIC|LAUNCH_FAIL)|GTK4_SESSION_DIAGNOSTIC|SNAPSHOT_ENTRY_DIAGNOSTIC|QEMU_BOOT_DIAGNOSTIC|GDM_ACTIVATION_DIAGNOSTIC|exit_status=|qemu-img|signed repository checks passed|release asset checks passed)' \
             "${candidate}" 2>/dev/null || true
     done < <(find "${evidence}" -maxdepth 1 -type f -print0 | LC_ALL=C sort -z) |
         awk 'NR <= 2000 { print substr($0, 1, 4096) }' >>"${summary}" || return 1
@@ -301,7 +355,8 @@ compact_run_evidence() {
         *.ppm | scenario.log.gz | final-qemu-img-check.txt | no-qemu-process.txt | \
             repository-manifest.json | repository-manifest.json.sig | repository-objects.tsv | \
             legacy-repository-manifest.json | legacy-repository-manifest.json.sig | \
-            firstboot-qemu.identity | postreboot-qemu.identity | preseal-harness-check.txt) ;;
+            firstboot-qemu.identity | postreboot-qemu.identity | snapshot-qemu.identity | \
+            snapshot-boot-diagnostic.txt | preseal-harness-check.txt) ;;
         *) rm -f -- "${candidate}" || return 1 ;;
         esac
     done < <(find "${evidence}" -maxdepth 1 -type f -print0)
@@ -1585,9 +1640,10 @@ capture_public_repository_evidence() {
 qga_verify() {
     local phase="$1" stem="$2"
     local request start guest_pid status_request status_response=''
-    local guest_script stdout_file stderr_file attempts=900
-    guest_script="$(<"${script_dir}/guest/verify.sh")"
-    request="$(jq -cn --arg script "${guest_script}" --arg phase "${phase}" \
+    local stdout_file stderr_file attempts=900
+    # Carry source bytes through QGA stdin, keeping exec arguments small. The fixed
+    # loader reads FD 3 as its script and gives diagnostic commands /dev/null stdin.
+    request="$(jq -cn --rawfile script "${script_dir}/guest/verify.sh" --arg phase "${phase}" \
         --arg serial "${target_serial}" --arg vendor SNAPLYZE --arg model "${target_model}" \
         --arg username vmtest --arg scenario "${scenario_id}" --arg run_id "${run_id}" \
         --arg repository_primary "${repository_primary_fingerprint}" \
@@ -1606,7 +1662,8 @@ qga_verify() {
         --arg legacy_gtk3_version "${legacy_gtk3_version:--}" --arg media_qualification "${media_qualification}" \
         --arg gdm_worker_baseline "${gdm_worker_baseline:--}" '
         {execute:"guest-exec",arguments:{path:"/usr/bin/bash","capture-output":true,
-          arg:["-c",$script,"minimal-verify",$phase,$serial,$vendor,$model,$username,$scenario,$run_id,
+          "input-data":($script | @base64),
+          arg:["-c","exec 3<&0 </dev/null; exec /usr/bin/bash /dev/fd/3 \"$@\"","minimal-verify",$phase,$serial,$vendor,$model,$username,$scenario,$run_id,
             $repository_primary,$repository_signing,$input_mode,$release_version,$target_disk_metadata,$pages_url,$public_key_url,
             $snapshot_sha256,$source_commit,$source_tree,$installer_sha256,$package_set_sha256,
             $build_metadata_sha256,$unsigned_manifest_sha256,$public_key_sha256,
@@ -1917,7 +1974,12 @@ run_snapshot_acceptance() {
     schedule_transition reboot snapshot-select
     wait_qemu_exit snapshot-select-reboot 300
     launch_qemu snapshot false
-    wait_qga || die 'snapshot boot guest agent did not become ready'
+    if ! wait_qga; then
+        # Optional display evidence precedes any snapshot login/password delivery.
+        capture_screen snapshot-qga-timeout || true
+        capture_snapshot_boot_failure || die 'snapshot boot diagnostic capture failed'
+        die 'snapshot boot guest agent did not become ready'
+    fi
     qga_verify snapshot-prelogin snapshot-prelogin
     [ "${post_boot_id}" != "${last_boot_id}" ] || die 'snapshot boot did not change boot identity'
     snapshot_boot_id="${last_boot_id}"

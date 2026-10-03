@@ -325,88 +325,127 @@ wait_for_graphical_stack() {
 }
 
 gdm_password_worker_inventory() {
-    python3 - "$@" <<'GDM_WORKER_PY'
+    python3 - "$@" "${run_id:-unknown}" "${phase:-unknown}" <<'GDM_WORKER_PY'
 import os
 import re
 import sys
 from pathlib import Path
-proc, worker, daemon_text, group, daemon_exe = sys.argv[1:]
-proc = Path(proc)
-daemon = int(daemon_text)
-if daemon <= 1 or not group.startswith("/") or ".." in group.split("/"):
-    raise ValueError("invalid GDM daemon identity")
-worker_identity = os.stat(worker)
-def record(pid):
-    base = proc / str(pid)
-    data = (base / "stat").read_text()
-    fields = data.rsplit(") ", 1)[1].split()
-    if int(data.split(" ", 1)[0]) != pid or len(fields) < 20:
-        raise ValueError("invalid process stat")
-    uid = re.search(r"^Uid:\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*$", (base / "status").read_text(), re.M)
-    groups = [line[3:] for line in (base / "cgroup").read_text().splitlines() if line.startswith("0::")]
-    if uid is None or [int(item) for item in uid.groups()] != [0, 0, 0, 0] or len(groups) != 1:
-        raise ValueError("GDM process owner or cgroup differs")
-    if groups[0] != group and not groups[0].startswith(group + "/"):
-        raise ValueError("GDM process is outside its unit")
-    executable = os.stat(base / "exe")
-    return (int(fields[1]), int(fields[19]), groups[0], os.readlink(base / "exe"),
-            executable.st_dev, executable.st_ino)
-before = record(daemon)
-if before[3] != daemon_exe:
-    raise ValueError("GDM daemon executable differs")
-found = []
-for index, base in enumerate(proc.iterdir()):
-    if index > 8192: raise ValueError("process inventory limit")
-    if not base.name.isdecimal(): continue
-    try:
-        with (base / "cmdline").open("rb") as stream:
-            argv0 = stream.read(8192).split(b"\0", 1)[0]
-        if argv0 != b"gdm-session-worker [pam/gdm-password]": continue
-        pid = int(base.name)
-        identity = record(pid)
-        if identity[0] != daemon: raise ValueError("password worker ancestry differs")
-        if identity[3] != worker: raise ValueError("password worker executable differs")
-        if identity[4:] != (worker_identity.st_dev, worker_identity.st_ino):
-            raise ValueError("password worker executable identity differs")
-        if record(pid) != identity: raise ValueError("password worker identity changed")
-        found.append((pid, identity[1]))
-    except FileNotFoundError:
-        continue
-if record(daemon) != before: raise ValueError("GDM daemon identity changed")
-if len(found) > 32: raise ValueError("password worker inventory limit")
-print(str(daemon) + "." + str(before[1]), ",".join(str(pid) + "." + str(start) for pid, start in sorted(found)) or "none")
+proc, worker, daemon_text, group, daemon_exe, run_id, phase = sys.argv[1:]
+class GuardError(Exception):
+    pass
+
+def inventory(proc, worker, daemon_text, group, daemon_exe):
+    proc = Path(proc)
+    daemon = int(daemon_text)
+    if daemon <= 1 or not group.startswith("/") or ".." in group.split("/"):
+        raise GuardError("daemon-identity")
+    worker_identity = os.stat(worker)
+    def record(pid):
+        base = proc / str(pid)
+        data = (base / "stat").read_text()
+        fields = data.rsplit(") ", 1)[1].split()
+        if int(data.split(" ", 1)[0]) != pid or len(fields) < 20:
+            raise GuardError("process-stat")
+        uid = re.search(r"^Uid:\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*$", (base / "status").read_text(), re.M)
+        groups = [line[3:] for line in (base / "cgroup").read_text().splitlines() if line.startswith("0::")]
+        if uid is None or [int(item) for item in uid.groups()] != [0, 0, 0, 0] :
+            raise GuardError("process-owner")
+        if len(groups) != 1:
+            raise GuardError("process-cgroup")
+        if groups[0] != group and not groups[0].startswith(group + "/"):
+            raise GuardError("process-cgroup")
+        executable = os.stat(base / "exe")
+        return (int(fields[1]), int(fields[19]), groups[0], os.readlink(base / "exe"),
+                executable.st_dev, executable.st_ino)
+    before = record(daemon)
+    if before[3] != daemon_exe:
+        raise GuardError("daemon-executable")
+    found = []
+    for index, base in enumerate(proc.iterdir()):
+        if index > 8192: raise GuardError("inventory-limit")
+        if not base.name.isdecimal(): continue
+        try:
+            with (base / "cmdline").open("rb") as stream:
+                argv0 = stream.read(8192).split(b"\0", 1)[0]
+            if argv0 != b"gdm-session-worker [pam/gdm-password]": continue
+            pid = int(base.name)
+            identity = record(pid)
+            if identity[0] != daemon: raise GuardError("worker-ancestry")
+            if identity[3] != worker: raise GuardError("worker-executable")
+            if identity[4:] != (worker_identity.st_dev, worker_identity.st_ino):
+                raise GuardError("worker-executable-identity")
+            if record(pid) != identity: raise GuardError("worker-identity-changed")
+            found.append((pid, identity[1]))
+        except FileNotFoundError:
+            continue
+    if record(daemon) != before: raise GuardError("daemon-identity-changed")
+    if len(found) > 32: raise GuardError("worker-limit")
+    print(str(daemon) + "." + str(before[1]), ",".join(str(pid) + "." + str(start) for pid, start in sorted(found)) or "none")
+try:
+    inventory(proc, worker, daemon_text, group, daemon_exe)
+except GuardError as error:
+    reason = error.args[0]
+except (OSError, ValueError, IndexError, TypeError):
+    reason = "readback-uncertain"
+else:
+    raise SystemExit(0)
+if re.fullmatch(r"[A-Za-z0-9_-]{1,128}", run_id) is None:
+    run_id = "unknown"
+if re.fullmatch(r"[A-Za-z0-9_-]{1,64}", phase) is None:
+    phase = "unknown"
+print("GDM_ACTIVATION_DIAGNOSTIC run_id=" + run_id + " phase=" + phase +
+      " step=worker-inventory reason=" + reason, file=sys.stderr)
+raise SystemExit(1)
+
 GDM_WORKER_PY
 }
 
+gdm_activation_failure() {
+    printf 'GDM_ACTIVATION_DIAGNOSTIC run_id=%s phase=%s step=%s reason=%s\n' \
+        "${run_id}" "${phase}" "$1" "$2" >&2
+}
+
 gdm_activation_probe() {
-    local daemon daemon_exe group worker inventory identity workers activation greeter baseline_id worker_id new_worker=none
+    local daemon daemon_exe group worker inventory identity workers activation greeter baseline_id worker_id new_worker=none permissions
     local new_count=0
     local -a baseline_ids=() worker_ids=()
-    [ "${phase}" = gdm-activation-baseline ] || [ "${phase}" = gdm-activation-check ] || return 1
-    systemctl is-active --quiet gdm.service graphical.target || return 1
-    greeter="$(find_session greeter gdm-greeter gdm-launch-environment)" || return 1
-    [[ "${greeter}" =~ ^[A-Za-z0-9_-]+$ ]] || return 1
-    [ "$(session_property "${greeter}" Type)" = wayland ] &&
-        [ "$(session_property "${greeter}" State)" = active ] &&
-        [ "$(session_property "${greeter}" Remote)" = no ] || return 1
-    ! session_name_exists "${username}" || return 1
-    daemon="$(systemctl show gdm.service --property=MainPID --value)" || return 1
-    group="$(systemctl show gdm.service --property=ControlGroup --value)" || return 1
-    daemon_exe="$(readlink -e -- "/proc/${daemon}/exe")" || return 1
-    [ "$(pacman -Qqo -- "${daemon_exe}")" = gdm ] || return 1
-    [ "$(stat -Lc '%u:%g' -- "${daemon_exe}")" = '0:0' ] || return 1
-    [ -z "$(find "${daemon_exe}" -perm /022 -print)" ] || return 1
-    [[ "${daemon}" =~ ^[1-9][0-9]*$ ]] || return 1
-    worker="$(pacman -Qlq gdm | awk '/\/gdm-session-worker$/ {path=$0; count++} END {if(count!=1) exit 1; print path}')" || return 1
-    [[ "${worker}" = /* ]] && [ -f "${worker}" ] && [ ! -L "${worker}" ] || return 1
-    [ "$(stat -Lc '%u:%g:%h' -- "${worker}")" = '0:0:1' ] || return 1
-    [ -z "$(find "${worker}" -perm /022 -print)" ] || return 1
-    inventory="$(gdm_password_worker_inventory /proc "${worker}" "${daemon}" "${group}" "${daemon_exe}")" || return 1
-    read -r identity workers <<<"${inventory}"
+    [ "${phase}" = gdm-activation-baseline ] || [ "${phase}" = gdm-activation-check ] || { gdm_activation_failure phase unsupported; return 1; }
+    if [ "${phase}" = gdm-activation-baseline ]; then
+        # Only initial baseline capture waits for a legitimate greeter startup.
+        greeter="$(wait_for_greeter)" || { gdm_activation_failure greeter-ready timeout; return 1; }
+    else
+        greeter="$(find_session greeter gdm-greeter gdm-launch-environment)" || {
+            gdm_activation_failure greeter-session readback-uncertain; return 1;
+        }
+    fi
+    systemctl is-active --quiet gdm.service || { gdm_activation_failure gdm-service inactive; return 1; }
+    systemctl is-active --quiet graphical.target || { gdm_activation_failure graphical-target inactive; return 1; }
+    [[ "${greeter}" =~ ^[A-Za-z0-9_-]+$ ]] || { gdm_activation_failure greeter-session invalid; return 1; }
+    [ "$(session_property "${greeter}" Type)" = wayland ] || { gdm_activation_failure greeter-type not-wayland; return 1; }
+    [ "$(session_property "${greeter}" State)" = active ] || { gdm_activation_failure greeter-state not-active; return 1; }
+    [ "$(session_property "${greeter}" Remote)" = no ] || { gdm_activation_failure greeter-remote not-local; return 1; }
+    ! session_name_exists "${username}" || { gdm_activation_failure target-session already-present; return 1; }
+    daemon="$(systemctl show gdm.service --property=MainPID --value)" || { gdm_activation_failure daemon-pid readback-uncertain; return 1; }
+    [[ "${daemon}" =~ ^[1-9][0-9]*$ ]] || { gdm_activation_failure daemon-pid invalid; return 1; }
+    group="$(systemctl show gdm.service --property=ControlGroup --value)" || { gdm_activation_failure daemon-cgroup readback-uncertain; return 1; }
+    daemon_exe="$(readlink -e -- "/proc/${daemon}/exe")" || { gdm_activation_failure daemon-executable readback-uncertain; return 1; }
+    [ "$(pacman -Qqo -- "${daemon_exe}")" = gdm ] || { gdm_activation_failure daemon-package not-gdm; return 1; }
+    [ "$(stat -Lc '%u:%g' -- "${daemon_exe}")" = '0:0' ] || { gdm_activation_failure daemon-owner not-root; return 1; }
+    permissions="$(find "${daemon_exe}" -perm /022 -print)" || { gdm_activation_failure daemon-permissions readback-uncertain; return 1; }
+    [ -z "${permissions}" ] || { gdm_activation_failure daemon-permissions writable; return 1; }
+    worker="$(pacman -Qlq gdm | awk '/\/gdm-session-worker$/ {path=$0; count++} END {if(count!=1) exit 1; print path}')" || { gdm_activation_failure worker-package ambiguous-or-missing; return 1; }
+    [[ "${worker}" = /* ]] && [ -f "${worker}" ] && [ ! -L "${worker}" ] || { gdm_activation_failure worker-path not-canonical-regular; return 1; }
+    [ "$(stat -Lc '%u:%g:%h' -- "${worker}")" = '0:0:1' ] || { gdm_activation_failure worker-metadata owner-or-link-count; return 1; }
+    permissions="$(find "${worker}" -perm /022 -print)" || { gdm_activation_failure worker-permissions readback-uncertain; return 1; }
+    [ -z "${permissions}" ] || { gdm_activation_failure worker-permissions writable; return 1; }
+    inventory="$(gdm_password_worker_inventory /proc "${worker}" "${daemon}" "${group}" "${daemon_exe}")" || { gdm_activation_failure worker-inventory rejected; return 1; }
+    read -r identity workers <<<"${inventory}" || { gdm_activation_failure worker-inventory invalid-output; return 1; }
     activation=baseline
     if [ "${phase}" = gdm-activation-check ]; then
-        [[ "${gdm_worker_baseline}" = none || "${gdm_worker_baseline}" =~ ^[1-9][0-9]*\.[1-9][0-9]*(,[1-9][0-9]*\.[1-9][0-9]*)*$ ]] || return 1
-        [ "${#gdm_worker_baseline}" -le 2048 ] || return 1
+        [[ "${gdm_worker_baseline}" = none || "${gdm_worker_baseline}" =~ ^[1-9][0-9]*\.[1-9][0-9]*(,[1-9][0-9]*\.[1-9][0-9]*)*$ ]] || {
+            gdm_activation_failure worker-baseline invalid; return 1;
+        }
+        [ "${#gdm_worker_baseline}" -le 2048 ] || { gdm_activation_failure worker-baseline limit; return 1; }
         IFS=, read -ra baseline_ids <<<"${gdm_worker_baseline}"
         IFS=, read -ra worker_ids <<<"${workers}"
         for worker_id in "${worker_ids[@]}"; do
@@ -419,7 +458,7 @@ gdm_activation_probe() {
             new_worker="${worker_id}"
         done
         [ "${new_count}" -le 1 ] || {
-            printf 'GDM_ACTIVATION_DIAGNOSTIC run_id=%s phase=%s ambiguous_new_workers=%s\n' "${run_id}" "${phase}" "${new_count}" >&2
+            gdm_activation_failure worker-ambiguity multiple-new-workers
             return 1
         }
         activation=pending
@@ -2548,8 +2587,21 @@ verify_dual_boot_preservation() {
             verify_neighbor_readback "${proof_root}/neighbor-identities.txt" \
                 "${proof_root}/neighbor.sha256" / "${esp}" "${neighbor}"
         else
+            # The installed ESP is already mounted RW. A second block-device RO
+            # mount conflicts with its superblock; give only our readback bind RO.
+            [ "$(mounted_source_device /boot)" = "${esp}" ]
+            [ "$(findmnt -nro FSTYPE --target /boot)" = vfat ]
+            [ "$(findmnt -nro FSROOT --target /boot)" = / ]
             mount -o ro,noload -- "${neighbor}" "${neighbor_mount}"
-            mount -o ro -- "${esp}" "${neighbor_mount}/boot"
+            mount --bind -- /boot "${neighbor_mount}/boot"
+            mount -o remount,bind,ro -- "${neighbor_mount}/boot"
+            [ "$(mounted_source_device "${neighbor_mount}/boot")" = "${esp}" ]
+            [ "$(findmnt -nro FSTYPE --target "${neighbor_mount}/boot")" = vfat ]
+            [ "$(findmnt -nro FSROOT --target "${neighbor_mount}/boot")" = / ]
+            case ",$(findmnt -nro VFS-OPTIONS --target "${neighbor_mount}/boot")," in
+                *,ro,*) ;;
+                *) return 1 ;;
+            esac
             proof_root=/var/lib/arch-linux-vm
             verify_neighbor_readback "${proof_root}/neighbor-identities.txt" \
                 "${proof_root}/neighbor.sha256" "${neighbor_mount}" "${esp}" "${neighbor}"

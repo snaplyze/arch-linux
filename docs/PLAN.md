@@ -337,10 +337,10 @@ regression → affected tests → independent review where material → status u
 | MON-01 | P2 | none | DONE | Dated advisory coverage of boot/desktop inputs |
 | UP-01 | P3 | MON-01 | DONE | Reviewed external-source decisions and synchronized metadata |
 | ARCH-01 | P2 | ISO qualification independent; corrected-candidate tests after SAFE-01…03, UP-01 | DONE | Owner-reviewed October ISO after actual Minimal/Stock PASS; corrected-child runtime remains RELEASE-01 |
-| QA-01 | P2 | SAFE-01…03, TRUST-01/02, CONFIG-01, RECOVERY-01, UP-01 | DONE | Focused snapshot/GDM/dualboot harness regressions and stable independent review PASS; fresh actual child remains RELEASE-01 |
+| QA-01 | P2 | SAFE-01…03, TRUST-01/02, CONFIG-01, RECOVERY-01, UP-01 | IN_PROGRESS | Second child6PASS/3FAIL; neighbor fix frozen, GDM diagnostics/wait and large-script transport fix pending; snapshot-boot diagnosis active |
 | DOC-01 | P3 | Corrected selector and source behavior prose; final release records under RELEASE-01 | DONE | UI copy and final behavior docs; prose correction is not product fix |
-| GATE-01 | P1 | all above | IN_PROGRESS | Historical00cde4f source/build/5guest PASS preserved; new QA corrections require fresh exact candidate |
-| RELEASE-01 | final | GATE-01 | IN_PROGRESS | PR51/main74c18c9 first child 6VM PASS/3FAIL, publication skipped; corrected candidate/new child/public acceptance pending |
+| GATE-01 | P1 | all above | IN_PROGRESS | Exact85e36c2 PASS retained; new neighbor harness correction requires fresh affected candidate gates |
+| RELEASE-01 | final | GATE-01 | IN_PROGRESS | PR52/main38cc6e6 child failed6PASS/3FAIL; final18/tag/Pages/public skipped; focused corrected candidate in progress |
 
 GATE-01 depends on preceding source/pre-merge deliverables only. DELIVERY-01 closes at reviewed
 source/design/regression acceptance; actual package-only publication requires separately defined
@@ -626,7 +626,7 @@ testing/validation/maintenance/release process, installer appearance choice text
 Dependencies: every preceding source/pre-merge task accepted; no unresolved P1 or deferred
 pre-merge-required tests. Production-child/post-publication gates are RELEASE-01 obligations.
 
-- [x] Recheck main/origin/dirty/index and ownership; stable independent security review of final changes.
+- [ ] Recheck main/origin/dirty/index and ownership; stable independent security review of final changes.
   No simulated independent review. Resolve material findings and rerun affected checks after correction.
 - [ ] Run `bash tests/source-tests.sh` and `git diff --check` on final candidate; bind commit/tree and
   canonical mode-and-byte source SHA-256, package inputs, tool versions and selected ISO.
@@ -635,7 +635,7 @@ pre-merge-required tests. Production-child/post-publication gates are RELEASE-01
 - [ ] Build once canonically as disposable unprivileged builder and independently verify unsigned outputs.
   Do not create production signing authority to satisfy a pre-merge check. Record clean-build environment
   and preliminary checks; they do not transfer to the later deterministic release child.
-- [ ] Verify all mandatory child source/build/signing/VM gates are implemented and block finalization
+- [x] Verify all mandatory child source/build/signing/VM gates are implemented and block finalization
   on failure. Record bounded resources before execution. Production Phase A/exact-18 and authoritative
   VM execution belong to RELEASE-01 after main delivery, before tag/publication where applicable.
 - [ ] Freeze evidence for exact inputs; any source correction invalidates affected downstream PASS.
@@ -646,13 +646,13 @@ pre-merge-required tests. Production-child/post-publication gates are RELEASE-01
 Target: `snaplyze/arch-linux`, protected main and its configured `release.yml`/Pages target.
 Owner requested this as the end of the plan. Do not publish during review/planning.
 
-- [ ] Confirm GATE-01 and authorization/resources for this candidate. Main requires PR; current
-  contract requires an explicit owner exception for switching a PR branch in this checkout.
-  Request that exception only when a concrete accepted result is ready to deliver; no bypass/force push.
-- [ ] Commit only owned reviewed paths; deliver through required Source checks and squash PR merge.
+- [ ] Confirm fresh GATE-01 and resources for the next candidate. Owner exception for a ready PR
+  branch in this checkout, adopted baseline commits and required merge is already granted;
+  preserve protected-main requirements and exact accepted input bindings.
+- [ ] Commit reviewed authorized paths; deliver through required Source checks and squash PR merge.
   Return this same checkout to main and fast-forward only. This is delivery to main, not a rejected
   direct-push attempt and not another development clone.
-- [ ] Let configured `release.yml` derive/test/build/sign the version-only child from accepted main.
+- [ ] Let configured `release.yml` derive/test/build/sign a fresh version-only child from accepted main.
   Do not create a competing manual tag/release; let pipeline select unused SemVer and annotated tag.
   Current latest is 1.0.5; do not hardcode 1.0.6 before querying live inventory.
 - [ ] Require successful child source/build/signing, three staged plus supplemental gates before
@@ -1090,3 +1090,127 @@ main74c18c9/index empty/exact six dirty paths/no untracked source. QA source acc
 fresh frozen-candidate build/root gates, ready PR/new automatic child/allnine VM/final18/public
 acceptance remain. Goal ACTIVE. Guest-runner preflight meets resources, generated-only ANSI
 footer parser fixed with wrong/duplicate/missing-summary rejection; no historical receipt changed.
+
+Corrected GATE accepted exact85e36c241957090b77c2c1c0de111021ad3b3039/tree
+4c7df65e727ae7066fd64271c69159849f57fcf7/canonicalSHA
+1a1ec5f6a33d449c8215406f1e37ccefc7d01f7d2b890ad884044fce2fbb46a7. Clean
+source-harness-clean-13.log EXIT0/fullnamespace14+18/none; stable independent review PASS.
+Canonical sixpackage build and fresh independent readonly-output verification EXIT0,
+gate-build.jwr9gzlq. MetadataSHA8d1c8d9b4459d6d5a715520201bd4680b8d988092ce725db3c97f451315a53cd;
+unsignedSHA671b5a271049b38a33cd014e01693b730e24a3a0bd6565f8d93a5667f7f2ea89. First generated
+container lacked dconf (EXIT4); provisional retrieval stopped/reaped137 to complete canonical
+dependency preflight; both historical attempts retained, no source change. Final containers removed.
+Actual guest gate-release-host-85e36c2 first provisioning failed on slow official Python signature
+retrieval before any acceptance command. Fresh retry1 ordinary verified retrieval succeeded;
+misplaced guest-only timeout directive was ignored, not credited as mitigation. Allfive native
+commands EXIT0/exactonce requiredmarkers; sourceidentity before/after equal, wrapper0, cleanpowerdown,
+both qemu-img checks and exactownedcleanup PASS. Root independently checked logs/receipt hash map/
+identities/removedpaths. Receipt gate-release-host-85e36c2-retry1/evidence/receipt.json retained.
+No source/pin/mirror/trust/host setting changed during environment correction. GATE01 DONE.
+
+PR52 https://github.com/snaplyze/arch-linux/pull/52 Sourcechecks37142521407 SUCCESS; squashmerge
+38cc6e6d7d3581fffa23ce45ab44b6c641e036c6 at2026-10-03T18:02:17Z, treeexact4c7df65e.
+Candidate85 preserved local/remote deliver/vm-handshakes-20261003; localmain safely aligned to
+verified preserved originbase74c while on PRbranch, then returned main and FFonly to mergedmain.
+No forcepush/reset/clean/stash/extra checkout. Newmain CI/configured automatic Release pending.
+This is later local checkpoint prose; accepted candidate/build/guest results retain exact85 binding.
+New deterministic child must independently pass source/build/signing/allnine realVM/final18/public
+acceptance. First child6PASS3FAIL/skippedpublication remains historical, not relabeled. Goal ACTIVE.
+
+MainCI37142717508 SUCCESS; new configured Release37142858691 automatic prepareSUCCESS,
+unused1.0.6 selected live. Exactchild3d560f304cd8a7ee49555b80721588c62d379b55/tree
+d152706d87da62cb05510e5bcd729e68f2158f4f/canonicalSHA
+c104048e1eeb465ddce08dbf9eb56c9aca7d6e429541b1533d63846aa7baf50e. Publicnonsecret sourcebundle
+SHAeef6ffe932fc52f58bf8e8f1c7ba0c5740231121c7b63855bf4336003e3ceb76 verified outside source;
+no localchildcheckout/restore. Rootwatcher74469 logs release-37142858691-watch.log. Buildactive;
+PhaseA/9VM/final18/publicacceptance pending. monitoring boundedindependent freshPhaseA proof,
+root owns results/PLAN/integration; priorfailedrun37136479088 unchanged. GoalACTIVE.
+
+Freshchild prepare/build/independentreadback/snapshot jobs SUCCESS. PhaseA exact14 independently
+PASS; receipt release-37142858691-phase-a-receipt.json SHA
+49259cb8ed3a0cfaba422fee3b45e0a659415f032ea8fe8ec699ea7f75cd2f89. Root checkedactual14
+filename/mode/size/hash map, child/main/source identity and sixpackage metadata bindings.
+BuildmetadataSHAf72b4e44567d82f13f216f0d56acd4d63bd4671c7b416769b6bdd6ecd3c5780c;
+unsignedSHA32fbaba5fc8dc2c1020d8b5c1288d772205c32817598242384fe3b3a5ad152cb;
+snapshotmanifestSHAe24160a453931dfa820a6d04c74fd471070a4b9723db2e68b04c056db54a528c;
+snapshotarchiveSHAa79cbf5ec98985a23e4a025746ee36a1cd58eae49cfc6b6c8ce208dfe06b2a98.
+Cryptographic/publiccertificate/productionDB/6payload APIs and deterministicversion-only source
+derivation PASS; no childcheckout/downloadedcode executed, no source-bound wholevalidator run
+against another tree. Allnine actualVM active; no verdict transferred from firstfailedchild.
+Final18/tag/Pages/publicacceptance pending; GoalACTIVE.
+
+FreshactualMinimal PASS14 on exact3d560f3 snapshot/ISO/harness, resultnativebytes preserved.
+Freshdualboot FAIL12 atpostreboot afterfixedcollision/passwordstage andactualinstallation;
+no old0assertionFAIL relabeling. Rootchecked source/tree/build/unsigned/snapshot/manifest/ISO
+and immutable-main sevenfileharnessdigest against downloaded nativeartifact origins. Independent
+archive_limits boundedreadonly diagnosis assigned onlynewpostrebootcause; othereightVMs continue,
+no cancellation orchanged-inputrerun. Finalization/publication remainblocked by actualdualbootFAIL.
+Receipt under release-37142858691-vm, currentqueue RELEASE01; GoalACTIVE.
+
+Dualbootnewcause verified: native neighbor-select line2552 exits32 mountingESP read-only a
+second time while acceptedESP alreadyRW at/boot. InstalledOS postreboot/collision checksPASS;
+neighbor selection/boot NOT_TESTED. LinuxRO/RWsuperblock mismatch explains EBUSY, but retained
+stderr/errno absent, so mechanism is supportedinference; actualhelper model RED32 reproduced.
+Archive_limits nowsolewriter guestverify+harnesschecks for validatedownedRO bind of accepted
+existing/boot, exactFSROOT/source/readonly proof, preserved primarymount and6hash/identity/cleanup
+checks. storage_guards boundedreadonly diagnosis of freshMarbleFAIL4firstboot separately;
+useimmutablemain38 baseline, no overlappingwriter. QA/GATE reopened onlynewchangedpremises;
+exact85 evidence and newMinimal14/StockBtrfs21PASS retained honestly. No newchildPASS transfer.
+RemainingVMs continue; no unchangedretry/cancellation/prematurepublication. GoalACTIVE.
+
+Neighborfix stable in guestverify+harnesschecks: actualoldorchestration RED32 then12GREEN
+cases preserve original /boot mount, exactaccepted source/vfat/FSROOT/, ownedRO bind/recheck/
+cleanup failure semantics and all6hash/UUID/PARTUUID readback. Syntax/ShellCheck/harness/runtime51
+PASS, actualcorrectedneighborboot stillNOT_RUN. Archivefinished; guestverifyownership transferred
+to storage for GDM area only, preserve neighborfix. FreshMarble actualprelogin andlegacy-install
+PASS, then gdm-activation-baseline FAIL genericdispatch2587. Compaction removedrawreason, so
+guard subcause unknown/productdefect notestablished. Actualhelperfixtures show legitimateopening
+greeter and securitymetadatafailure indistinguishable; add boundednonsecretper-guarddiagnostics.
+Independentlyreproduced one-shot baseline readiness defect will use existingbounded300s
+wait_for_greeter beforecapture; checkphase/identity/security rejection remainstrict and password
+withheld. No fieldfocus claim/autologin/pixelproof. NextactualVM decideshistoricalguardcause if
+itrecurs. Storage solewriter guestverify/run/runtime, rootPLAN. GATE checklist reset onlyaffected
+review/source/build/guest/freeze; exact85 PASS remains historical. GoalACTIVE.
+
+Combined neighbor/GDM slice frozen in guestverify/harnesschecks/runtimechecks only; run.sh
+unchanged61243a67. GDM actual-helper newtests RED12failures then expandedruntime54PASS;
+initial inventory refactor shadow caught/fixed beforefreeze. Baseline waits existing300s legitimate
+activegreeter contract; laterchecks immediate/anchoredstrict, everyguard fixednonsecretstep/reason,
+inventory failures controlledwithoutarbitrarytracebacks. Worker metadata/UID/parent/exe/cgroup/
+startidentity/security retained; no password onfailedprobe. Neighborfunction unchanged across
+writerhandoff SHA3341dac96a6eaeff8b5184ab96140fc6e416469aa9812db725fe7bbf67a498f6.
+Stable guestverify9bb61f28/runtime8f50ff1e/harnesscheckse4194359; runtime54/harnessneighbor12/
+actions-release16/syntax/ShellCheck/diffPASS. monitoring bounded independent stable3file review;
+rootfreshfullsource thenexactcandidatebuild/guest/readyPR/newchild pending. Secondchild currently
+6actualPASS2FAIL, oneGRUB stillrunning; no newVM verdict transferred/oldinputretry. GoalACTIVE.
+
+Secondchild37142858691 terminalFAIL, actual9 native scenario evidence independently bound to
+3d560f3/tree/digests/ISO/immutable-main sevenfileharness:6PASS3FAIL. NewStockext4 PASS21,
+StockBtrfsGRUB FAIL20 snapshot-boot (snapshotprepare advanced; newcause investigation),
+dualboot FAIL12 postreboot neighborreadback, Marbleoptin FAIL4 baselineguard unknown.
+Final18/tag/draft/Pages/publish/publicVM actuallySKIPPED; public1.0.5 unchanged. No failedrun
+retry/publication/changedinputs. Fullsource-neighbor-gdm-14 EXIT1: real jq E2BIG transport
+defect, verify133542B exceeds Linux128KiB singleargv; staticfixture correctly rejects.
+Transport correction frozen: --rawfile hostread + documentedQGA input-data base64, fixed
+small FD3 loader gives guest childstdin /dev/null and preserves27args/exactscriptbytes.
+Actual>128KiB regressions RED E2BIG and rawfile-only missingstdin, runtime55/static unchanged/
+harnessneighbor12/actions16/syntax/ShellCheck/diffPASS; actualVM NOT_RUN. NewGRUB failure
+proved snapshot-prepare accepted1entry/PASS20, then actualsnapshotQEMU QGA300 timeout; guest
+bootcauseUNKNOWN because compactor discardedserial/stderr/identity. Archive solewriter
+run.sh+harnesschecks bounded sanitized bootdiagnostics/compactionregression, guest/runtime
+frozen. Nextbuild recipe gate-build.aNHF629V preparedonlyNOT_RUN; exactcandidate andresourceGO
+required. RootPLAN/Git/integration. GATE/QA/RELEASE remainIN_PROGRESS;
+all exact85 evidence historical only, no newPASS transfer. GoalACTIVE.
+
+Focused correction combinedslice stable: verifiedownedRO ESPbind + GDM boundedgreeterbaseline/
+controlledreason diagnostics + completepublicscript QGA stdintransport + snapshotsafe fixedboot
+classifications/identity and optionalscreenshot ontimeout. Stableindependentmonitoring reviewPASS;
+actualproduction fixtures runtime55/neighbor12/bootdiagnostics6, syntax/ShellCheck/diffPASS.
+Fullsource-neighbor-gdm-snapshot-15 EXIT0 includes exactfullnamespace10/signerpassed/14+18/none
+and allrequiredsourcePASS. Currentsource-byte hashes run0dfa6f6a/guest9bb61f28/runtimec67dc0b4/
+harnessa4e9fbcb; static89a107d7 unchanged. Docscheckpoint nowrecords source15 and resets onlynew
+RELEASE candidate steps, priorPR51/52/childfailures preserved. Root explicitfivepathcommit +clean
+fullsource16, exactfreshcanonicalbuild and5realguestgates next. Snapshotguestcause remainsUNKNOWN;
+newdiagnostic evidence actualVM NOT_RUN. No product/bootsetting change inferredfromtimeout.
+Preparedbuild gate-build.aNHF629V and guest gate-release-host-next.l955b_49 NOT_RUN, waitfrozen
+identity/resourceGO. All15-ID finite scope retained;12DONE, QA/GATE/RELEASE IN_PROGRESS. GoalACTIVE.
