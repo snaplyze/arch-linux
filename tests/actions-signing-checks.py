@@ -3,14 +3,19 @@
 
 from __future__ import annotations
 
+import ast
+import gzip
+import hashlib
 import importlib.util
 import io
 import os
 from pathlib import Path
 import re
+import runpy
 import shlex
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 from unittest import mock
@@ -23,6 +28,105 @@ NAMESPACES = ROOT / "repository/prepare-actions-namespaces.sh"
 
 
 class AdapterChecks(unittest.TestCase):
+    def test_publication_fixture_consumes_actual_sealer_required_closure(self) -> None:
+        source = (ROOT / "tests/publication-root-check.sh").read_text()
+        fragment = 'fixture_source="$work/fixture-source"\n' + source.split(
+            'fixture_source="$work/fixture-source"\n', 1)[1].split(
+            'PYTHONDONTWRITEBYTECODE=1 PACKAGE_FIXTURE_OUTPUT_DIR=', 1)[0]
+        # Exercise the fixture's actual installers and verifier wrapper, without host-root
+        # ownership changes. Everything written is inside this disposable test fixture.
+        fragment = fragment.replace("/usr/bin/install", "fixture_install")
+        setup = r'''set -euo pipefail
+work=$1
+repo_root=$2
+fixture_public="$repo_root/repository/trust/arch-linux.gpg"
+primary="$(cat "$repo_root/repository/trust/primary-fingerprint")"
+signing="$(cat "$repo_root/repository/trust/signing-subkey-fingerprint")"
+fixture_install() {
+    local args=()
+    while [ "$#" -gt 0 ]; do
+        case "$1" in -o|-g) shift 2 ;; *) args+=("$1"); shift ;; esac
+    done
+    /usr/bin/install "${args[@]}"
+}
+'''
+        with tempfile.TemporaryDirectory(prefix="publication-source-closure-") as temporary:
+            completed = subprocess.run(["bash", "-c", setup + fragment,
+                                        "publication-closure-fixture", temporary, str(ROOT)],
+                                       capture_output=True, timeout=10, check=False)
+            self.assertEqual(completed.returncode, 0, completed.stderr.decode())
+            fixture = Path(temporary) / "fixture-source"
+            files = {str(path.relative_to(fixture)) for path in fixture.rglob("*") if path.is_file()}
+            sealer = ROOT / "repository/seal-offline-signing-code.py"
+            tree = ast.parse(sealer.read_text(), filename=str(sealer))
+            # Run the production gate itself against the assembled fixture inventory.
+            # Do not mirror its required paths in this regression.
+            assignment = next(node for node in ast.walk(tree) if isinstance(node, ast.Assign)
+                              and any(isinstance(target, ast.Name) and target.id == "required"
+                                      for target in node.targets))
+            gate = next(node for node in ast.walk(tree) if isinstance(node, ast.If)
+                        and node.lineno > assignment.end_lineno
+                        and "required.issubset(files)" in ast.unparse(node.test))
+            code = compile(ast.Module(body=[assignment, gate], type_ignores=[]), str(sealer), "exec")
+            exec(code, {"files": files, "fail": self.fail})
+            verifier = fixture / "repository/verify-database-metadata.py"
+            self.assertEqual(verifier.read_bytes(), (ROOT / "repository/verify-database-metadata.py").read_bytes())
+            self.assertEqual(verifier.stat().st_mode & 0o777, 0o755)
+            canonical = ROOT / "repository/verify-package-metadata.py"
+            actual_lstat = Path.lstat
+            def mapped_owner(path, *args, **kwargs):
+                info = actual_lstat(path, *args, **kwargs)
+                if path == canonical:
+                    attributes = list(info)
+                    attributes[4] = attributes[5] = 0
+                    return os.stat_result(attributes)
+                return info
+            with mock.patch.object(Path, "lstat", mapped_owner), \
+                    mock.patch("os.execv", side_effect=AssertionError("import attempted CLI execv")):
+                database = runpy.run_path(str(verifier))
+            metadata = database["metadata"]
+            self.assertEqual(metadata.ROOT, ROOT)
+            self.assertTrue(callable(metadata.run_zstd_bounded))
+            stream = io.BytesIO()
+            with tarfile.open(fileobj=stream, mode="w") as archive:
+                directory = tarfile.TarInfo("fixture-1-1")
+                directory.type = tarfile.DIRTYPE
+                archive.addfile(directory)
+                content = b"%NAME%\nfixture\n\n"
+                member = tarfile.TarInfo("fixture-1-1/desc")
+                member.size = len(content)
+                archive.addfile(member, io.BytesIO(content))
+            archive_path = Path(temporary) / "fixture.db.tar.gz"
+            archive_path.write_bytes(gzip.compress(stream.getvalue()))
+            self.assertEqual(database["database_records"](archive_path, 1, False),
+                             {"fixture-1-1": {"desc": content}})
+            wrapper = fixture / "repository/verify-package-metadata.py"
+            rejected_hash = mock.Mock()
+            rejected_hash.hexdigest.return_value = "0" * 64
+            with mock.patch.object(Path, "lstat", mapped_owner), \
+                    mock.patch.object(hashlib, "sha256", return_value=rejected_hash), \
+                    self.assertRaisesRegex(SystemExit, "fixture verifier hash differs"):
+                runpy.run_path(str(wrapper))
+            def foreign_owner(path, *args, **kwargs):
+                info = mapped_owner(path, *args, **kwargs)
+                if path == canonical:
+                    attributes = list(info)
+                    attributes[4] = attributes[5] = 1
+                    return os.stat_result(attributes)
+                return info
+            with mock.patch.object(Path, "lstat", foreign_owner), \
+                    self.assertRaisesRegex(SystemExit, "fixture verifier owner"):
+                runpy.run_path(str(wrapper))
+            arguments = ["--verify-package", "fixture.pkg.tar.zst", "arch-linux-marble-profile"]
+            with mock.patch.object(Path, "lstat", mapped_owner), \
+                    mock.patch.object(sys, "argv", [str(wrapper), *arguments]), \
+                    mock.patch("os.execv", side_effect=RuntimeError("CLI forwarded")) as execute, \
+                    self.assertRaisesRegex(RuntimeError, "CLI forwarded"):
+                runpy.run_path(str(wrapper), run_name="__main__")
+            execute.assert_called_once_with("/usr/bin/python3",
+                                            ["/usr/bin/python3", "-I", str(canonical), *arguments])
+
+
     def test_publication_agent_watcher_skips_processes_that_disappear_during_read(self) -> None:
         source = (ROOT / "tests/publication-root-check.sh").read_text()
         start = source.index("(\n    for attempt in {1..2000}; do")

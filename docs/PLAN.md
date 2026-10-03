@@ -960,3 +960,41 @@ Accepted ISO affected verification: source-accepted-iso-7.log EXIT0, exact repos
 fullnamespace/scenarios10/signerpassed/14+18/deferrednone; maintenance-accepted-iso.log EXIT0,
 docs29 and diff checks PASS after checklist prose updates. These are pre-freeze results;
 next clean candidate gets an exact-tree source receipt and fresh canonicalbuild/root gates.
+
+Owner-reviewed ISO candidate eb10c615be0bce36d3ed58676ff0e7700ca94d41, tree
+fef6d8d02506154504622eca9247b370d6e4173a, canonicalSHA
+c129cb275f8cfaea57e6d4e7358cb89c299670a976ba347932a291071c6f8012.
+Narrow independent pin/provenance review PASS; source-clean-iso-8.log EXIT0 on clean candidate
+with exact fullnamespace14+18/deferrednone. First realguest1b release-host results: repository
+ordinary/full PASS0; keyring ordinary/privileged PASS0, exact required markers. Publication
+FAIL1 reproduced after initial accepted-input sealing succeeded: its synthetic fixture omits
+new mandatory repository/verify-database-metadata.py, so sealer rejects incomplete closure.
+No compiler/production-key cause. storage_guards owns only publication fixture + useful
+actions-signing regression; root owns PLAN. Preserve first failures, fresh exactcandidate
+source/build/root gates after fix; no affected PASS transferred. Entire GATE/RELEASE incomplete.
+
+First release-host evidence accepted honestly: gate-release-host-1b45bba/evidence/receipt.json
+records real installedguest statuses0/0/1/0/0, exact identitybefore/afterequal, strictfourPASS
+markers and preceding chroot failures separately. Cleanpowerdown, both qemu-img checks and
+ownprocess absence verified; worker removed only recorded disks/raw/VARS/kernel/initrd/ISO/
+inputarchive. No mandatory VM remains from that attempt. Related publication fixture wrapper
+was CLI-only; new DB verifier imports its bounded API. Focused correction preserves canonical
+hash/owner/mode/nlink/identity checks and exposes only verified captured Python code on import;
+actual API integration and wrong-input regressions required before new exactcandidate VM.
+
+Publication fixture correction frozen in tests/publication-root-check.sh and
+tests/actions-signing-checks.py only: genuine mandatory DB verifier copied; existing metadata
+wrapper retains CLIexecv and canonical owner/mode/nlink/identity/hash checks, runpy exposes
+the already captured hash-verified code with canonical__file__/nonmainname. RED incomplete
+requiredclosure and RED importedwrapperCLI reproduced, then GREEN realDBrecords/boundedAPI/
+wronghash/wrongowner/unchangedCLI. Focused13testsPASS with2expectedrootonlySKIP; Bashsyntax/
+ShellCheck/diffPASS. Independent stable review and fullsource/currentcandidate VM remain
+required; no root-publication PASS claimed from source/mock checks.
+
+Publication fixture independent narrow review PASS on stable2filehashes, no material finding.
+Full source-publication-fixture-9.log EXIT0 exactfullnamespace14+18/deferrednone. Only final
+checkpoint prose follows that full run; docs29/diff rechecked before commit. Next frozen
+candidate receives clean fullsource receipt, fresh canonicalunprivilegedbuild+independent
+verification and allfive actual release-host guest gates. Reusable guest recipe now installs
+linux+parted, provisions immutableRO source, realguestboots before gates (no chroot gates).
+Retain exacthistorical1b0/0/1/0/0; acceptance is incomplete until new publication succeeds.
