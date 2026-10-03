@@ -342,7 +342,7 @@ compact_run_evidence() {
         case "${candidate}" in
         *.ppm | *.request.json | *.start.json | *.status.json) continue ;;
         esac
-        grep -aEh '^[[:space:]]*([A-Z]+_QEMU_(READY|INSTALLER_EXIT|INSTALL_COMPLETE|NEIGHBOR_PRESERVED|ESP_COLLISION_REFUSAL_PASS|COLLISION_PROBE_READY|COLLISION_PROBE_EXIT|FAIL|GUEST_PASS|GUEST_FAIL)|QEMU_HOST_FAIL|QEMU_DIAGNOSTIC_WARNING:|SCREENSHOT_WARNING:|GTK4_APP_(DIAGNOSTIC|LAUNCH_FAIL)|GTK4_SESSION_DIAGNOSTIC|SNAPSHOT_ENTRY_DIAGNOSTIC|QEMU_BOOT_DIAGNOSTIC|GDM_ACTIVATION_DIAGNOSTIC|exit_status=|qemu-img|signed repository checks passed|release asset checks passed)' \
+        grep -aEh '^[[:space:]]*([A-Z]+_QEMU_(READY|INSTALLER_EXIT|INSTALL_COMPLETE|NEIGHBOR_PRESERVED|ESP_COLLISION_REFUSAL_PASS|COLLISION_PROBE_READY|COLLISION_PROBE_EXIT|FAIL|GUEST_PASS|GUEST_FAIL)|QEMU_HOST_FAIL|QEMU_DIAGNOSTIC_WARNING:|SCREENSHOT_WARNING:|GTK4_APP_(DIAGNOSTIC|LAUNCH_FAIL)|GTK4_SESSION_DIAGNOSTIC|SNAPSHOT_ENTRY_DIAGNOSTIC|QEMU_BOOT_DIAGNOSTIC|GNOME_EXTENSION_DIAGNOSTIC|GDM_ACTIVATION_DIAGNOSTIC|exit_status=|qemu-img|signed repository checks passed|release asset checks passed)' \
             "${candidate}" 2>/dev/null || true
     done < <(find "${evidence}" -maxdepth 1 -type f -print0 | LC_ALL=C sort -z) |
         awk 'NR <= 2000 { print substr($0, 1, 4096) }' >>"${summary}" || return 1

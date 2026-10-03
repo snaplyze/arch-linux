@@ -131,14 +131,122 @@ wait_qga(){ :; }
         lines = result.stdout.splitlines()
         expected = ["verify:helper-failure", "verify:helper-restored-prelogin", "login:helper-restored-login", "verify:deactivate-gdm", "verify:deactivated-prelogin", "login:deactivated-login"]
         self.assertEqual([line for line in lines if line in expected], expected)
-    def snapshot_entry(self, rootflags="subvol=@snapshots/qa-fixture", root="UUID=fixture", image="/initramfs-linux.img"):
+    def snapshot_entry(self, rootflags="subvol=@snapshots/qa-fixture", root="UUID=fixture", image="/initramfs-linux.img", inner=False):
         body = function("select_snapshot_grub_entry")
         with tempfile.TemporaryDirectory() as tmp:
             main = Path(tmp) / "grub.cfg"; entries = Path(tmp) / "grub-btrfs.cfg"
             main.write_text("submenu 'Arch snapshots' {\nconfigfile ${prefix}/grub-btrfs.cfg\n}\n")
             entries.write_text("submenu 'snapshot fixture' {\nmenuentry 'linux' {\nlinux /vmlinuz-linux root=" + root + " rootflags=" + rootflags + " systemd.volatile=overlay\ninitrd " + image + "\n}\n}\n")
-            command = body + "\nselect_snapshot_grub_entry '" + str(main) + "' '" + str(entries) + "' fixture @snapshots/qa-fixture /dev/vda2 partuuid\n"
+            command = body + "\nselect_snapshot_grub_entry '" + str(main) + "' '" + str(entries) + "' fixture @snapshots/qa-fixture /dev/vda2 partuuid" + (" --inner" if inner else "") + "\n"
             return subprocess.run(["bash", "-c", command], capture_output=True, text=True, timeout=5)
+    def selector_fixture(self, case="success"):
+        self.assertTrue("create_snapshot_selector() {" in VERIFY.read_text(), "run-owned one-shot selector absent")
+        body = function("create_snapshot_selector") + "\n" + function("remove_snapshot_selector")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); grub = root / "grub.d"; grub.mkdir()
+            run = "grub-20261003T193308Z-eb295d38"
+            fragment = grub / ("42_qa_snapshot_" + run)
+            state = root / "state"
+            inner = "snapshot fixture>  vmlinuz-linux & initramfs-linux.img"
+            if case == "existing": fragment.write_text("unrelated")
+            if case == "symlink": fragment.symlink_to(root / "absent")
+            if case == "invalid": inner = "snapshot'; halt; '"
+            if case == "invalid-run": run = "../../foreign"
+            body = body.replace("/etc/grub.d", str(grub))
+            script = "set -Eeuo pipefail\nrun_id=\"$1\"\nstat(){ printf '0:755:1'; }\n" + body + "\nsha=$(create_snapshot_selector \"$2\")\nprintf 'selector_sha256=%s\\n' \"$sha\" >\"$3\"\n"
+            if case == "changed": script += "printf altered >>\"$4\"\n"
+            if case == "cleanup-failure": script += "rm(){ return 1; }\n"
+            script += "cat -- \"$4\"\nremove_snapshot_selector \"$3\"\n"
+            result = subprocess.run(["bash", "-c", script, "fixture", run, inner, str(state), str(fragment)], capture_output=True, text=True, timeout=5)
+            remains = fragment.exists() or fragment.is_symlink()
+            if case == "existing": self.assertEqual(fragment.read_text(), "unrelated")
+            return result, remains
+
+    def test_snapshot_selector_exported_configfile_context(self):
+        result, remains = self.selector_fixture()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(remains)
+        # Model GRUB's actual fresh configfile context: only exported variables survive.
+        text = result.stdout
+        default = re.search(r"set default='([^']+)'", text).group(1)
+        outer_context = {"default": default, "timeout": "0"}
+        exported = set(re.search(r"export ([^\n]+)", text).group(1).split())
+        configfile_context = {key: value for key, value in outer_context.items() if key in exported}
+        self.assertEqual(configfile_context, outer_context)
+        self.assertEqual(configfile_context["default"].split(">"), ["snapshot fixture", "  vmlinuz-linux & initramfs-linux.img"])
+        self.assertIn('configfile "${prefix}/grub-btrfs.cfg"', text)
+        self.assertNotRegex(text, r"(?m)^\s*(?:linux|initrd) ")
+        self.assertNotIn("timeout", {key: value for key, value in outer_context.items() if key in set()})
+
+    def test_snapshot_selector_refuses_invalid_or_existing_files(self):
+        for case in ("existing", "symlink", "invalid", "invalid-run", "changed", "cleanup-failure"):
+            with self.subTest(case=case):
+                result, remains = self.selector_fixture(case)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                if case in ("existing", "symlink", "changed", "cleanup-failure"): self.assertTrue(remains)
+
+    def test_snapshot_selector_production_regeneration_binding(self):
+        for case in ("success", "cfg-changed", "regeneration-failure", "syntax-failure"):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp); (root / "grub.d").mkdir(); (root / "boot/grub").mkdir(parents=True)
+                cfg = root / "boot/grub/grub-btrfs.cfg"; cfg.write_text("unchanged production snapshot entries\n")
+                state = root / "state"; state.write_text("run_id=grub-20261003T193308Z-eb295d38\n")
+                body = "\n".join(function(name) for name in ("create_snapshot_selector", "install_snapshot_selector", "remove_snapshot_selector"))
+                body = body.replace("/etc/grub.d", str(root / "grub.d")).replace("/boot/grub", str(root / "boot/grub"))
+                script = """set -Eeuo pipefail
+run_id=grub-20261003T193308Z-eb295d38
+stat(){ printf '0:755:1'; }
+grub-mkconfig(){
+    [ "$1" = -o ] && [ "$2" = "$fixture_root/boot/grub/grub.cfg" ]
+    [ "$fixture_case" != regeneration-failure ] || return 9
+    if [ "$fixture_case" = cfg-changed ]; then printf changed >>"$fixture_root/boot/grub/grub-btrfs.cfg"; fi
+    printf main >"$2"
+}
+grub-script-check(){ [ "$fixture_case" != syntax-failure ]; }
+""" + body + "\ninstall_snapshot_selector \"$fixture_root/state\" 'snapshot fixture>linux'\nremove_snapshot_selector \"$fixture_root/state\"\n"
+                import os
+                result = subprocess.run(["bash", "-c", script], env=dict(os.environ, fixture_root=tmp, fixture_case=case), capture_output=True, text=True, timeout=5)
+                self.assertEqual(result.returncode == 0, case == "success", result.stderr)
+                self.assertEqual(cfg.read_text(), "unchanged production snapshot entries\n" + ("changed" if case == "cfg-changed" else ""))
+                self.assertIn("production_cfg_sha256=", state.read_text())
+                self.assertEqual(any((root / "grub.d").iterdir()), case != "success")
+
+    def test_snapshot_cleanup_preserves_failure_and_owned_boundary(self):
+        for case in ("success", "changed-fragment", "regeneration-failure"):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp); (root / "grub.d").mkdir(); (root / "boot").mkdir(); (root / "snapshots").mkdir()
+                run = "grub-20261003T193308Z-eb295d38"
+                marker = root / "snapshots" / ("qa-" + run) / "var/lib/arch-linux-vm/snapshot-marker"
+                marker.parent.mkdir(parents=True); marker.write_text(run)
+                live_marker = root / "var/lib/arch-linux-vm/snapshot-marker"; live_marker.parent.mkdir(parents=True); live_marker.write_text(run)
+                state = root / "boot" / ("qa-snapshot-" + run + ".state")
+                body = "\n".join(function(name) for name in ("create_snapshot_selector", "remove_snapshot_selector", "cleanup_snapshot_boot"))
+                body = body.replace("/etc/grub.d", str(root / "grub.d")).replace("/.snapshots", str(root / "snapshots")).replace("/boot/", str(root / "boot") + "/")
+                # Replace only the live marker literal; snapshot marker remains below owned path.
+                body = body.replace('"${state}" /var/lib/arch-linux-vm/snapshot-marker', '\"${state}\" ' + str(live_marker))
+                script = """set -Eeuo pipefail
+scenario=stock-gnome-btrfs-grub run_id=grub-20261003T193308Z-eb295d38
+stat(){ printf '0:755:1'; }
+findmnt(){ printf /@; }
+btrfs(){ if [ "$1" = property ]; then printf ro=true; else printf deleted >"$fixture_root/deleted"; fi; }
+grub-mkconfig(){ [ "$fixture_case" != regeneration-failure ]; }
+verify_common(){ :; }
+verify_btrfs_contract(){ :; }
+emit_runtime_action_pass(){ printf RESTORED; }
+""" + body + "\nsha=$(create_snapshot_selector 'snapshot fixture>linux')\nprintf 'run_id=%s\\nselector_sha256=%s\\n' \"$run_id\" \"$sha\" >\"$fixture_state\"\n"
+                if case == "changed-fragment": script += "printf changed >>\"$fixture_root/grub.d/42_qa_snapshot_$run_id\"\n"
+                script += "cleanup_snapshot_boot\n"
+                import os
+                result = subprocess.run(["bash", "-c", script], env=dict(os.environ, fixture_root=tmp, fixture_case=case, fixture_state=str(state)), capture_output=True, text=True, timeout=5)
+                self.assertEqual(result.returncode == 0, case == "success", result.stderr)
+                self.assertEqual("RESTORED" in result.stdout, case == "success")
+                if case == "changed-fragment": self.assertFalse((root / "deleted").exists())
+
+    def test_snapshot_selector_inner_path_has_no_configfile_outer(self):
+        result = self.snapshot_entry(inner=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "snapshot fixture>linux")
+
     def test_snapshot_production_device_root(self):
         result = self.snapshot_entry(root="/dev/vda2")
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -257,6 +365,93 @@ emit_runtime_action_pass(){ printf 'ACTION_PASS:%s
             self.assertNotIn("Traceback", result.stderr)
             self.assertNotIn("/tmp/", result.stderr)
 
+    def extension_wait(self, case="exact", disabled="false", info="ERROR"):
+        text = VERIFY.read_text()
+        names = ["emit_extension_timeout_diagnostic", "wait_for_enabled_extensions"]
+        body = "\n".join(function(name) for name in names if re.search(r"^" + name + r"\(\)", text, re.M))
+        expected = "blur-my-shell@aunetx\ncaffeine@patapon.info"
+        with tempfile.TemporaryDirectory() as tmp:
+            counter = Path(tmp) / "counter"; counter.write_text("0")
+            script = 'set -euo pipefail\nrun_id=fixture phase=return-user-login fixture_expected="$1" fixture_case="$2" fixture_disabled="$3" fixture_counter="$4" fixture_info="$5"\n'
+            script += r"""
+run_in_user_session(){
+    if [[ "$*" = *gnome-extensions*info* ]]; then
+        printf 'Name: SECRET_INFO_NAME\nPath: /private/SECRET_INFO_PATH\nError: SECRET_INFO_ERROR\n'
+        [ "$fixture_info" != query-failed ] || return 7
+        printf '  State: %s\n' "$fixture_info"; return 0
+    fi
+    if [[ "$*" = *disable-user-extensions* ]]; then
+        printf '%s
+' "$fixture_disabled"; return 0
+    fi
+    printf '%s
+' "$(( $(cat "$fixture_counter") + 1 ))" > "$fixture_counter"
+    case "$fixture_case" in
+      query-failure) printf 'SECRET_QUERY_ERROR
+' >&2; return 7;;
+      missing) printf 'blur-my-shell@aunetx
+';;
+      unexpected) printf '%s
+SECRET_UNKNOWN_EXTENSION
+' "$fixture_expected";;
+      duplicate) printf '%s
+caffeine@patapon.info
+' "$fixture_expected";;
+      delayed) if [ "$(cat "$fixture_counter")" -lt 2 ]; then printf 'blur-my-shell@aunetx
+'; else printf '%s
+' "$fixture_expected"; fi;;
+      *) printf '%s
+' "$fixture_expected";;
+    esac
+}
+sleep(){ if [ "$fixture_case" != delayed ]; then SECONDS=$((SECONDS+181)); fi; }
+"""
+            script += body + '\nwait_for_enabled_extensions 1000 "$fixture_expected"\n'
+            return subprocess.run(["bash", "-c", script, "fixture", expected, case, disabled, str(counter), info], capture_output=True, text=True, timeout=5)
+
+    def test_extension_timeout_reports_only_finite_known_states(self):
+        for info, state in (("ERROR", "error"), ("DISABLED", "disabled"), ("ACTIVE", "enabled"),
+                            ("OUT OF DATE", "out-of-date"), ("INITIALIZED", "initialized"),
+                            ("query-failed", "unavailable"), ("ERROR SECRET_INFO_STATE", "unknown")):
+            with self.subTest(info=info):
+                result = self.extension_wait(case="missing", info=info)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(result.stderr.count(" state=" + state + "\n"), 8, result.stderr)
+                self.assertNotIn("SECRET_INFO", result.stderr)
+                self.assertNotIn("/private", result.stderr)
+
+    def test_extension_wait_exact_and_delayed_positives(self):
+        for case in ("exact", "delayed"):
+            result = self.extension_wait(case)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, "blur-my-shell@aunetx\ncaffeine@patapon.info")
+            self.assertNotIn("GNOME_EXTENSION_DIAGNOSTIC", result.stderr)
+
+    def test_extension_timeout_distinguishes_failures_and_redacts_unknown_data(self):
+        for case, reason, field in (("missing", "enabled-set-mismatch", "missing_known_count=1"),
+                                    ("unexpected", "enabled-set-mismatch", "unexpected_count=1"),
+                                    ("duplicate", "enabled-set-mismatch", "duplicate_count=1"),
+                                    ("query-failure", "query-failed", "actual_count=0")):
+            with self.subTest(case=case):
+                result = self.extension_wait(case)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(result.stdout, "")
+                self.assertIn("reason=" + reason, result.stderr)
+                self.assertIn(field, result.stderr)
+                self.assertIn("expected_count=2", result.stderr)
+                self.assertIn("disabled_user_extensions=false", result.stderr)
+                self.assertIn("known_extension=caffeine@patapon.info expected=yes", result.stderr)
+                self.assertNotIn("SECRET_", result.stderr)
+                self.assertNotIn("/tmp/", result.stderr)
+                self.assertLessEqual(len(result.stderr.splitlines()), 9)
+                self.assertLess(len(result.stderr), 4096)
+
+    def test_extension_timeout_disabled_flag_is_a_fixed_enum(self):
+        for raw, expected in (("true", "true"), ("false", "false"), ("SECRET_ARBITRARY_STATE", "unavailable")):
+            result = self.extension_wait("missing", raw)
+            self.assertIn("disabled_user_extensions=" + expected, result.stderr)
+            self.assertNotIn("SECRET_", result.stderr)
+
     def test_normal_gdm_routes_use_activation_guard(self):
         host = (ROOT / "tests/vm/run.sh").read_text()
         self.assertIn("activate_gdm_password_conversation firstboot", host)
@@ -285,7 +480,7 @@ emit_runtime_action_pass(){ printf 'ACTION_PASS:%s
             root = Path(temporary); state = root / "snapshot.state"; lower = root / "lower"; lower.mkdir()
             marker = lower / "var/lib/arch-linux-vm/snapshot-marker"; marker.parent.mkdir(parents=True); marker.write_text("fixture")
             uuid = "11111111-1111-1111-1111-111111111111"; partuuid = "22222222-2222-2222-2222-222222222222"
-            state.write_text("run_id=fixture\nsubvol=@snapshots/qa-fixture\nroot_uuid=" + uuid + "\nnormal_boot_id=33333333-3333-3333-3333-333333333333\nroot_device=/dev/vda2\nroot_partuuid=" + partuuid + "\n")
+            state.write_text("run_id=fixture\nsubvol=@snapshots/qa-fixture\nroot_uuid=" + uuid + "\nnormal_boot_id=33333333-3333-3333-3333-333333333333\nroot_device=/dev/vda2\nroot_partuuid=" + partuuid + "\nselector_sha256=" + "a" * 64 + "\nproduction_cfg_sha256=" + "b" * 64 + "\n")
             commandline = root / "cmdline"; commandline.write_text(argument.replace("uuid", uuid).replace("part-id", partuuid) + " rootflags=subvol=@snapshots/qa-fixture systemd.volatile=overlay")
             body = "\n".join(function(name) for name in ("snapshot_root_argument_matches", "snapshot_lowerdir_matches", "require_kernel_argument_once", "require_prefixed_kernel_argument_once", "verify_snapshot_runtime"))
             body = body.replace('/boot/qa-snapshot-${run_id}.state', str(state)).replace('/proc/cmdline', str(commandline))
@@ -297,6 +492,7 @@ fixture_partuuid=$3
 changed=$4
 [(){ if [[ "$*" = '-b /dev/vda2 ]' ]]; then return 0; fi; builtin [ "$@"; }
 stat(){ printf '0:600:1'; }
+sha256sum(){ printf '%s fixture' bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb; }
 findmnt(){
     case "$*" in
         *FSTYPE*'target /') printf overlay;;

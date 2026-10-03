@@ -602,16 +602,89 @@ SHORTCUTS
         "${run_id}" "${phase}"
 }
 
+emit_extension_timeout_diagnostic() {
+    local uid="$1" expected="$2" actual="$3" query_status="$4"
+    local reason=enabled-set-mismatch disabled=unavailable value id line expected_flag enabled_flag state
+    local expected_count=0 actual_count=0 missing_known_count=0 unexpected_count=0 duplicate_count=0 i j found
+    local -a expected_ids=() actual_ids=() known_ids=(
+        appindicatorsupport@rgcjonas.gmail.com blur-my-shell@aunetx caffeine@patapon.info
+        clipboard-indicator@tudmotu.com dash-to-dock@micxgx.gmail.com
+        just-perfection-desktop@just-perfection no-screenshot-box@screenshot
+        user-theme@gnome-shell-extensions.gcampax.github.com
+    )
+    [ "${query_status}" -eq 0 ] || reason=query-failed
+    while IFS= read -r line; do
+        [ -z "${line}" ] || expected_ids+=("${line}")
+    done <<<"${expected}"
+    while IFS= read -r line; do
+        [ -z "${line}" ] || actual_ids+=("${line}")
+    done <<<"${actual}"
+    expected_count="${#expected_ids[@]}" actual_count="${#actual_ids[@]}"
+    for ((i = 0; i < actual_count; i++)); do
+        found=no
+        for line in "${expected_ids[@]}"; do
+            [ "${actual_ids[i]}" != "${line}" ] || found=yes
+        done
+        [ "${found}" = yes ] || unexpected_count=$((unexpected_count + 1))
+        for ((j = 0; j < i; j++)); do
+            if [ "${actual_ids[i]}" = "${actual_ids[j]}" ]; then
+                duplicate_count=$((duplicate_count + 1))
+                break
+            fi
+        done
+    done
+    for id in "${known_ids[@]}"; do
+        expected_flag=no enabled_flag=no
+        for line in "${expected_ids[@]}"; do [ "${line}" != "${id}" ] || expected_flag=yes; done
+        for line in "${actual_ids[@]}"; do [ "${line}" != "${id}" ] || enabled_flag=yes; done
+        if [ "${expected_flag}" = yes ] && [ "${enabled_flag}" = no ]; then
+            missing_known_count=$((missing_known_count + 1))
+        fi
+    done
+    if value="$(run_in_user_session "${uid}" /usr/bin/timeout 5 /usr/bin/gsettings get \
+        org.gnome.shell disable-user-extensions 2>/dev/null)"; then
+        case "${value}" in true | false) disabled="${value}" ;; esac
+    fi
+    printf 'GNOME_EXTENSION_DIAGNOSTIC run_id=%s phase=%s reason=%s expected_count=%s actual_count=%s missing_known_count=%s unexpected_count=%s duplicate_count=%s disabled_user_extensions=%s\n' \
+        "${run_id}" "${phase}" "${reason}" "${expected_count}" "${actual_count}" \
+        "${missing_known_count}" "${unexpected_count}" "${duplicate_count}" "${disabled}" >&2
+    # Only this fixed public allowlist is emitted; unknown query output stays private.
+    for id in "${known_ids[@]}"; do
+        expected_flag=no enabled_flag=no
+        for line in "${expected_ids[@]}"; do [ "${line}" != "${id}" ] || expected_flag=yes; done
+        for line in "${actual_ids[@]}"; do [ "${line}" != "${id}" ] || enabled_flag=yes; done
+        state=unavailable
+        if value="$(run_in_user_session "${uid}" /usr/bin/timeout 5 /usr/bin/gnome-extensions info "${id}" 2>/dev/null)"; then
+            value="$(sed -n 's/^[[:space:]]*State:[[:space:]]*\([A-Z _-]*\)[[:space:]]*$/\1/p' <<<"${value}" | sed 's/[[:space:]]*$//')"
+            case "${value}" in
+            ENABLED | ACTIVE) state=enabled ;;
+            DISABLED | INACTIVE) state=disabled ;;
+            ERROR) state=error ;;
+            'OUT OF DATE' | OUT-OF-DATE | OUT_OF_DATE) state=out-of-date ;;
+            INITIALIZED | LOADED) state=initialized ;;
+            *) state=unknown ;;
+            esac
+        fi
+        printf 'GNOME_EXTENSION_DIAGNOSTIC run_id=%s phase=%s known_extension=%s expected=%s enabled=%s state=%s\n' \
+            "${run_id}" "${phase}" "${id}" "${expected_flag}" "${enabled_flag}" "${state}" >&2
+    done
+}
+
 wait_for_enabled_extensions() {
-    local uid="$1" expected="$2" deadline=$((SECONDS + 180)) actual=''
+    local uid="$1" expected="$2" deadline=$((SECONDS + 180)) actual='' query_status=1
     while [ "${SECONDS}" -lt "${deadline}" ]; do
-        if actual="$(run_in_user_session "${uid}" /usr/bin/gnome-extensions list --enabled 2>/dev/null | LC_ALL=C sort)" &&
-            [ "${actual}" = "${expected}" ]; then
-            printf '%s' "${actual}"
-            return 0
+        if actual="$(run_in_user_session "${uid}" /usr/bin/gnome-extensions list --enabled 2>/dev/null | LC_ALL=C sort)"; then
+            query_status=0
+            if [ "${actual}" = "${expected}" ]; then
+                printf '%s' "${actual}"
+                return 0
+            fi
+        else
+            query_status=$?
         fi
         sleep 1
     done
+    emit_extension_timeout_diagnostic "${uid}" "${expected}" "${actual}" "${query_status}"
     return 1
 }
 
@@ -912,7 +985,9 @@ import re
 import shlex
 import sys
 from pathlib import Path
-main, generated, uuid, subvol, device, partuuid = sys.argv[1:]
+main, generated, uuid, subvol, device, partuuid = sys.argv[1:7]
+inner_only = sys.argv[7:] == ["--inner"]
+if sys.argv[7:] and not inner_only: raise ValueError("unknown snapshot selector mode")
 headers = re.compile(r"^\s*(submenu|menuentry)\s+(.*)\{\s*$")
 def walk(path):
     stack = []
@@ -954,7 +1029,8 @@ for stack, lines in entries.items():
     if args.count("systemd.volatile=overlay") != 1: continue
     if linux[0][1] != "/vmlinuz-linux" or initrd[0][-1] != "/initramfs-linux.img": continue
     if any(".." in part or not part.startswith("/") for part in initrd[0][1:]): continue
-    accepted.append(next(iter(outer)) + ">" + ">".join(title for _, title in stack))
+    inner = ">".join(title for _, title in stack)
+    accepted.append(inner if inner_only else next(iter(outer)) + ">" + inner)
 print("SNAPSHOT_ENTRY_DIAGNOSTIC accepted=" + str(len(accepted)) + " entries=" + str(len(entries)) + " expected_device=" + device + " uuid=" + uuid + " partuuid=" + partuuid, file=sys.stderr)
 if len(accepted) != 1: raise ValueError("exact snapshot boot entry absent or ambiguous")
 print(accepted[0])
@@ -984,10 +1060,73 @@ snapshot_root_argument_matches() {
     [ "${count}" -eq 1 ]
 }
 
+create_snapshot_selector() {
+    local inner="$1"
+    python3 - "${run_id}" "${inner}" <<'SNAPSHOT_SELECTOR_PY'
+import hashlib
+import os
+from pathlib import Path
+import re
+import sys
+run, inner = sys.argv[1:]
+if not re.fullmatch(r"grub-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}", run):
+    raise ValueError("invalid snapshot selector run identity")
+if not re.fullmatch(r"[ -~]{1,1024}", inner) or any(c in inner for c in "'\"\\$`;"):
+    raise ValueError("unsafe snapshot selector title")
+if len(inner.split(">")) < 2 or any(not part.strip() for part in inner.split(">")):
+    raise ValueError("snapshot selector hierarchy absent")
+parent = Path("/etc/grub.d")
+if not parent.is_dir() or any(part.is_symlink() for part in (parent, *parent.parents)):
+    raise ValueError("unsafe snapshot selector directory")
+fragment = parent / ("42_qa_snapshot_" + run)
+text = ("#!/bin/sh\nexec tail -n +3 \"$0\"\n"
+        + "menuentry 'QA snapshot " + run + "' --id 'qa-snapshot-" + run + "' {\n"
+        + "    set default='" + inner + "'\n    set timeout=0\n"
+        + "    export default timeout\n"
+        + '    configfile "${prefix}/grub-btrfs.cfg"\n}\n')
+data = text.encode("ascii")
+fd = os.open(fragment, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o700)
+with os.fdopen(fd, "wb") as output:
+    output.write(data)
+    output.flush()
+    os.fchmod(output.fileno(), 0o755)
+print(hashlib.sha256(data).hexdigest())
+SNAPSHOT_SELECTOR_PY
+}
+
+install_snapshot_selector() {
+    local state="$1" entry="$2" cfg_sha selector_sha
+    [ -f /boot/grub/grub-btrfs.cfg ] && [ ! -L /boot/grub/grub-btrfs.cfg ] || return 1
+    cfg_sha="$(sha256sum -- /boot/grub/grub-btrfs.cfg | awk '{print $1}')"
+    selector_sha="$(create_snapshot_selector "${entry}")" || return 1
+    printf 'selector_sha256=%s\nproduction_cfg_sha256=%s\n' "${selector_sha}" "${cfg_sha}" >>"${state}"
+    # Only the run-owned wrapper is added; production snapshot entries stay byte-identical.
+    grub-mkconfig -o /boot/grub/grub.cfg || return 1
+    grub-script-check /boot/grub/grub.cfg || return 1
+    grub-script-check /boot/grub/grub-btrfs.cfg || return 1
+    [ "$(sha256sum -- /boot/grub/grub-btrfs.cfg | awk '{print $1}')" = "${cfg_sha}" ] || return 1
+    printf 'SNAPSHOT_ENTRY_DIAGNOSTIC wrapper=owned cfg_sha256=%s selector_sha256=%s\n'         "${cfg_sha}" "${selector_sha}" >&2
+}
+
+remove_snapshot_selector() {
+    local state="$1" fragment="/etc/grub.d/42_qa_snapshot_${run_id}" expected
+    [[ "${run_id}" =~ ^grub-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}$ ]] || return 1
+    [ -f "${fragment}" ] && [ ! -L "${fragment}" ] || return 1
+    [ "$(stat -Lc '%u:%a:%h' -- "${fragment}")" = 0:755:1 ] || return 1
+    [ "$(grep -c '^selector_sha256=' "${state}")" -eq 1 ] || return 1
+    expected="$(sed -n 's/^selector_sha256=//p' "${state}")"
+    [[ "${expected}" =~ ^[a-f0-9]{64}$ ]] || return 1
+    [ "$(sha256sum -- "${fragment}" | awk '{print $1}')" = "${expected}" ] || return 1
+    rm -- "${fragment}" || return 1
+}
+
 prepare_snapshot_boot() {
     local subvol="@snapshots/qa-${run_id}" path="/.snapshots/qa-${run_id}"
     local state="/boot/qa-snapshot-${run_id}.state" uuid entry device partuuid target
     [ "${scenario}" = stock-gnome-btrfs-grub ]
+    [[ "${run_id}" =~ ^grub-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}$ ]] || return 1
+    [ ! -e "/etc/grub.d/42_qa_snapshot_${run_id}" ] &&
+        [ ! -L "/etc/grub.d/42_qa_snapshot_${run_id}" ] || return 1
     verify_common >/dev/null
     verify_btrfs_contract
     [ ! -e "${path}" ] && [ ! -L "${path}" ] || return 1
@@ -1010,10 +1149,11 @@ prepare_snapshot_boot() {
     grub-mkconfig -o /boot/grub/grub.cfg
     grub-script-check /boot/grub/grub.cfg
     grub-script-check /boot/grub/grub-btrfs.cfg
-    entry="$(select_snapshot_grub_entry /boot/grub/grub.cfg /boot/grub/grub-btrfs.cfg "${uuid}" "${subvol}" "${device}" "${partuuid}")"
+    entry="$(select_snapshot_grub_entry /boot/grub/grub.cfg /boot/grub/grub-btrfs.cfg "${uuid}" "${subvol}" "${device}" "${partuuid}" --inner)"
+    install_snapshot_selector "${state}" "${entry}" || return 1
     [ "$(blkid -s UUID -o value -- "${device}")" = "${uuid}" ] &&
         [ "$(blkid -s PARTUUID -o value -- "${device}")" = "${partuuid}" ] || return 1
-    grub-reboot "${entry}"
+    grub-reboot "qa-snapshot-${run_id}"
     emit_runtime_action_pass snapshot-production-entry-selected
 }
 
@@ -1023,9 +1163,12 @@ verify_snapshot_runtime() {
     [ "${scenario}" = stock-gnome-btrfs-grub ] || return 1
     [ -f "${state}" ] && [ ! -L "${state}" ] || return 1
     [ "$(stat -Lc '%u:%a:%h' -- "${state}")" = '0:600:1' ] || return 1
-    [ "$(wc -l <"${state}")" -eq 6 ] || return 1
+    [ "$(wc -l <"${state}")" -eq 8 ] || return 1
     grep -qxF "run_id=${run_id}" "${state}" || return 1
     grep -qxF "subvol=${subvol}" "${state}" || return 1
+    [ "$(grep -c '^production_cfg_sha256=' "${state}")" -eq 1 ] || return 1
+    [ "$(sha256sum -- /boot/grub/grub-btrfs.cfg | awk '{print $1}')" = \
+        "$(sed -n 's/^production_cfg_sha256=//p' "${state}")" ] || return 1
     uuid="$(sed -n 's/^root_uuid=//p' "${state}")"
     [[ "${uuid}" =~ ^[a-fA-F0-9-]{36}$ ]] || return 1
     [ "$(sed -n 's/^normal_boot_id=//p' "${state}")" != "$(cat /proc/sys/kernel/random/boot_id)" ] || return 1
@@ -1070,6 +1213,7 @@ cleanup_snapshot_boot() {
     [ "$(btrfs property get -ts "${path}" ro)" = ro=true ]
     [ -f "${state}" ] && [ ! -L "${state}" ] || return 1
     grep -qxF "run_id=${run_id}" "${state}"
+    remove_snapshot_selector "${state}" || return 1
     btrfs subvolume delete -- "${path}"
     rm -- "${state}" /var/lib/arch-linux-vm/snapshot-marker
     grub-mkconfig -o /boot/grub/grub.cfg
