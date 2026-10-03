@@ -19,8 +19,9 @@ outside the support boundary.
 
 The supported boundary is a requirement, not evidence that every combination was executed.
 See [audit coverage and findings](PLAN.md#review-findings): F-01/F-02 for guard failure paths,
-F-03 for shared ESP files and F-05 for supplemental VM acceptance. Accepted ISO remains
-`2026.09.01`; availability of `2026.10.01` is advisory until ARCH-01 qualifies it.
+F-03 for shared ESP files and F-05 for supplemental VM acceptance. Accepted ISO is `2026.10.01`, reviewed by the owner after fresh Minimal and Stock
+GNOME qualification with unchanged public 1.0.5. This media result does not accept the
+corrected product candidate; its staged runtime gates remain under RELEASE-01.
 
 ## GNOME update rules
 

@@ -40,7 +40,9 @@ QEMU/KVM/OVMF, GitHub Actions/Pages.
 - Не менять ключи/отпечатки/источники автоматически. Предложенные новые входы требуют
   человеческого review и соответствующих тестов до принятия.
 - Продуктовые проверки и артефакты не смешивать с настройкой агентов AS-1…AS-5.
-- Не stage/commit чужие изменения. Конфигурационные backup/recovery-механизмы не создавать.
+- Владелец явно разрешил включить все текущие изменения, включая чужой baseline, в commits.
+  Более поздние конкурентные правки сохранять и проверять отдельно; конфигурационные
+  backup/recovery-механизмы не создавать.
 - Не публиковать детали эксплуатируемых проблем в issues без координации по [SECURITY.md](../SECURITY.md).
 
 ## Baseline: 2026-10-02
@@ -334,8 +336,8 @@ regression → affected tests → independent review where material → status u
 | DELIVERY-01 | P2 | TRUST-02 | DONE | Compatible package-only delivery source/procedure |
 | MON-01 | P2 | none | DONE | Dated advisory coverage of boot/desktop inputs |
 | UP-01 | P3 | MON-01 | DONE | Reviewed external-source decisions and synchronized metadata |
-| ARCH-01 | P2 | ISO qualification independent; corrected-candidate tests after SAFE-01…03, UP-01 | IN_PROGRESS | Qualification of October media and runtime inputs |
-| QA-01 | P2 | SAFE-01…03, TRUST-01/02, CONFIG-01, RECOVERY-01, UP-01 | IN_PROGRESS | Regression tests and mandatory child VM gates implemented |
+| ARCH-01 | P2 | ISO qualification independent; corrected-candidate tests after SAFE-01…03, UP-01 | DONE | Owner-reviewed October ISO after actual Minimal/Stock PASS; corrected-child runtime remains RELEASE-01 |
+| QA-01 | P2 | SAFE-01…03, TRUST-01/02, CONFIG-01, RECOVERY-01, UP-01 | DONE | Regression tests and mandatory child VM gates implemented |
 | DOC-01 | P3 | Corrected selector and source behavior prose; final release records under RELEASE-01 | DONE | UI copy and final behavior docs; prose correction is not product fix |
 | GATE-01 | P1 | all above | IN_PROGRESS | Frozen, independently reviewed pre-merge source/unsigned-build candidate |
 | RELEASE-01 | final | GATE-01 | TODO | Main delivery, child build/signing/VM acceptance, tag/release and public readback |
@@ -573,14 +575,14 @@ for reproduced incompatibilities with regression tests.
 - [x] Add reviewed public-mode Minimal/Stock media-qualification support to the harness: current
   `run.sh` permits public mode only for Marble. Preserve independently downloaded verified old product
   bytes and separate product/harness identities; add routing regressions before using new scenarios.
-- [ ] Qualify exact 2026.10.01 image with Minimal and Stock real QEMU using the existing immutable
+- [x] Qualify exact 2026.10.01 image with Minimal and Stock real QEMU using the existing immutable
   1.0.5 bootstrap/installer and signed public inputs before changing accepted ISO state. Use fresh
   disks/VARS and bounded resources; these runs establish media qualification for that old product,
   not PASS of the corrected candidate. Rerun affected source checks after accepted-state change.
-- [ ] Add checks for current systemd/mkinitcpio (October 3: 262 / 42.2), LUKS password prompts, GRUB/systemd-boot, selected kernels,
+- [x] Add checks for current systemd/mkinitcpio (October 3: 262 / 42.2), LUKS password prompts, GRUB/systemd-boot, selected kernels,
   Btrfs snapshot boot/module pairing, full update and another boot. Add conditional TPM PCR guidance;
   execute corrected authoritative child coverage under RELEASE-01.
-- [ ] If GNOME 51 reaches stable during execution, requery packages and test Stock/fallback first;
+- [x] If GNOME 51 reaches stable during execution, requery packages and test Stock/fallback first;
   new Marble support requires reviewed assets/extension metadata/lifecycle/real GDM checks.
 
 ### QA-01 — behavioral and VM coverage
@@ -907,3 +909,54 @@ diagnostic and actual regression; review/test/newcleanharness commit before fres
 Old FAIL remains historical; no PASS or new pin accepted. Root release-host payload is prepared
 but not launched, must regenerate against final accepted tree. Current official observation at
 2026-10-03T14:59:45Z: GNOME50.5/GDM50.3, systemd262/mkinitcpio42.2; GNOME51 condition not met.
+
+QA media-tool correction accepted: independent narrow review no material finding,
+36 actual-helper/routing regressions PASS; full source-media-fix-6.log EXIT0/exact fullnamespace
+14+18 deferrednone. Committed harness1b45bbaf2cdf30f4e97f8bfcf9546272f055b376, tree
+c030057d45a4c81947f662b3bbbf08c908481b37, canonicalSHA
+d90ceb1247724305281a400aa17220f4398966d563d8535d0322267f18d59d36.
+Product installer/bootstrap/package/trust bytes remained unchanged by this correction.
+
+ARCH October media qualification ACTUAL PASS on the same1b45bba harness and unchanged
+public1.0.5 product61add3e0b2c20adbbdd425494eae02ddec0a3bac/treeb5ca51e80277d93541d00a305490ac818d629a33:
+Minimal minimal-20261003T151714Z-2c0c2415, Stock stock-20261003T152418Z-552739f5. Exact ISO
+684ded26c63240ff4a41e8c25ee84ea6da233f557364821f13d12c2b0a9059a5; signatures/public
+Release+Pages binding PASS. Minimal13assertions, Stock20assertions include firstboot/network,
+fullupdate/anotherboot/no failedunits/cleanpoweroff/qemu-img/ownedcleanup; Stock realGDM
+password+Wayland/lock-password-unlock/secondrealpasswordlogin PASS. Both owned disks/VARS/
+QEMU cleaned; compact retained evidence6,167,963B/9,242,126B outside source. Original failed
+Minimal remains a separate historical FAIL; it is not relabelled. Corrected product acceptance
+still belongs to RELEASE01's authoritative child, not these old-product media runs.
+
+Human ISO review requested only now with concrete validated patch outside source:
+proposed-accepted-arch-iso.patch/json; accepted pin remains2026.09.01 until owner decision.
+Commit-all-baseline and ready PR exception remain authorized, never request again.
+Independent mandatory release-host execution assigned archive_limits on immutable1b45bba
+input in fresh gate-release-host-1b45bba VM (4GiB/2vCPU/16GiBdisk, check RAM>=5GiB/free24GiB).
+This is the first actual release-host fixture/environment run, not a transferred final-candidate
+PASS. If accepted pin/docs changes finaltree, applicable final gates must bind that newtree.
+Root owns source/PLAN; worker guest-only fixture changes and exactownedcleanup, no production
+keys/hostpermissions/settings/Git/publication. Next: await exactrootfixtures and ISOdecision,
+apply only reviewed media state/docs → final stable candidate source/build/root gates → ready
+PRdelivery → configured release pipeline + publicacceptance. Entire goal remains incomplete.
+
+Owner explicitly accepted ISO2026.10.01 after both real qualification PASS results. Applied
+only proposed accepted-state JSON and targeted compatibility/maintenance prose; September
+baseline/history retained. Exact SHA684ded26c63240ff4a41e8c25ee84ea6da233f557364821f13d12c2b0a9059a5.
+Affected source checks and final candidate freeze are next; no pin approval remains pending.
+First five release-host fixture commands on immutable1b input exposed provisioning gaps:
+chroot blocks CLONE_NEWUSER; publication stdin boundary failed; parted/partprobe absent.
+Ordinary keyring PASS only. Preserve failed logs; archive_limits converts the same owned VM
+to real guest-root boot and adds guest-only parted, then repeats unchanged five commands.
+These are environment failures, not established source regressions or final GATE acceptance.
+
+ARCH pre-merge source/media deliverables accepted: runtime records actual systemd/mkinitcpio,
+checks installed kernel/initramfs/module pairing before update and after reboot, and retains
+LUKS/bootloader/Btrfs real-boot routes. Conditional TPM PCR guidance present. GNOME51 is not
+in stable at the recorded official observation; that conditional expansion is not triggered.
+Corrected-child execution remains mandatory RELEASE01 acceptance, not a transferred media PASS.
+
+Accepted ISO affected verification: source-accepted-iso-7.log EXIT0, exact repository
+fullnamespace/scenarios10/signerpassed/14+18/deferrednone; maintenance-accepted-iso.log EXIT0,
+docs29 and diff checks PASS after checklist prose updates. These are pre-freeze results;
+next clean candidate gets an exact-tree source receipt and fresh canonicalbuild/root gates.

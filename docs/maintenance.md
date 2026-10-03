@@ -56,8 +56,17 @@ python3 maintenance/check-arch-iso.py
 
 Updating accepted ISO state is a separate human-reviewed task. At minimum, a new ISO requires fresh
 Minimal TTY and Stock GNOME QEMU acceptance before the committed state changes.
-The committed input remains `2026.09.01`. The detector observed `2026.10.01` on October 2;
-see the registry for the fresh audit observation/status. This audit does not change accepted hashes.
+The committed input is `2026.10.01`, SHA-256
+`684ded26c63240ff4a41e8c25ee84ea6da233f557364821f13d12c2b0a9059a5`.
+The owner accepted this exact pin after official metadata, hash and trusted Arch signature
+verification and fresh Minimal/Stock qualification on October 3. The unchanged public 1.0.5
+product and harness commit `1b45bbaf2cdf30f4e97f8bfcf9546272f055b376` were bound separately.
+Minimal `minimal-20261003T151714Z-2c0c2415` passed 13 assertions; Stock
+`stock-20261003T152418Z-552739f5` passed 20, including real GDM password login, Wayland,
+lock/unlock, full update and repeat login after another boot. Both passed clean shutdown,
+`qemu-img check` and owned-resource cleanup. These are media qualification results, not
+acceptance of later installer changes. Compact evidence and the preceding diagnostic failure
+remain separately recorded in [the project registry](PLAN.md).
 
 The September 2026 baseline was reviewed with official ISO `2026.09.01` and installed GDM
 `50.3-1`, GNOME Shell `1:50.4-1`, Linux `7.2.3.arch1-2` and Ptyxis `50.1-1`. Fresh Minimal,
