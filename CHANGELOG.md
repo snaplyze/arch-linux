@@ -6,7 +6,15 @@ separately through the signed repository; see [package delivery](docs/package-re
 ## Unreleased
 
 - Refresh installation examples, release evidence, compatibility, signing policy and documentation
-  checks. Keep the verified 1.0.4 installation example separate from the source version floor.
+  checks. Keep the verified 1.0.5 installation example separate from the source version floor.
+
+## 1.0.5 — 2026-09-17
+
+- Record the immutable published release at commit `61add3e0b2c20adbbdd425494eae02ddec0a3bac`.
+  October public readback verified all 18 assets, their signatures and the signed Pages repository;
+  see [readback evidence](docs/validation.md#public-readback-of-release-105).
+- This entry records published bytes and historical acceptance. Current source corrections and
+  October media qualification require their own fresh acceptance.
 
 ## 1.0.4 — 2026-09-17
 

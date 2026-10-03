@@ -8,12 +8,16 @@ import os
 import pathlib
 import posixpath
 import re
+import resource
+import selectors
+import signal
 import shutil
 import stat
 import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import unicodedata
 from collections import defaultdict
 from typing import NoReturn
@@ -603,9 +607,121 @@ def verify_pkginfo(package: str, data: bytes) -> None:
             fail(f"{package}: .PKGINFO {field} differs")
 
 
+# Fixed policy, no caller/environment override. Six clean Arch inventory packages:
+# maxima 5,271,971 compressed / 61,429,760 expanded / 35,432,571 payload
+# bytes, 1,245,973 bytes/member, 41,216 entries, 1.196 seconds inspection.
+# Limits retain >=8x byte headroom, >=2x entry headroom and >=50x wall time.
+# Sparse formats are not emitted by this reviewed six-package build closure.
+MAX_COMPRESSED_BYTES = 128 * 1024 * 1024
+MAX_EXPANDED_BYTES = 512 * 1024 * 1024
+MAX_PAYLOAD_BYTES = 512 * 1024 * 1024
+MAX_MEMBER_BYTES = 32 * 1024 * 1024
+MAX_EXTENSION_BYTES = 1024 * 1024
+MAX_MEMBERS = 100_000
+MAX_INSPECTION_SECONDS = 60
+MAX_CHILD_MEMORY_BYTES = 512 * 1024 * 1024
+
+
+def inspection_time_remaining(deadline: float) -> float:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        fail("package inspection time limit exceeded")
+    return remaining
+
+
+class BoundedTarInfo(tarfile.TarInfo):
+    def _proc_member(self, archive):
+        # Count physical headers too, before PAX/GNU handlers read or recurse.
+        count = getattr(archive, "inspection_headers", 0) + 1
+        archive.inspection_headers = count
+        if count > MAX_MEMBERS:
+            fail("archive member count limit exceeded")
+        if self.type == tarfile.GNUTYPE_SPARSE:
+            fail("archive sparse format is forbidden")
+        if self.size < 0:
+            fail("archive member size limit exceeded")
+        extension = self.type in (tarfile.XHDTYPE, tarfile.XGLTYPE, tarfile.SOLARIS_XHDTYPE,
+                                  tarfile.GNUTYPE_LONGNAME,
+                                  tarfile.GNUTYPE_LONGLINK)
+        if extension:
+            if self.size > MAX_EXTENSION_BYTES:
+                fail("archive extension header size limit exceeded")
+            depth = getattr(archive, "inspection_extension_depth", 0) + 1
+            archive.inspection_extension_depth = depth
+            if depth > 16:
+                fail("archive extension header depth limit exceeded")
+        else:
+            archive.inspection_extension_depth = 0
+            if self.size > MAX_MEMBER_BYTES:
+                fail("archive member size limit exceeded")
+        return super()._proc_member(archive)
+
+    # PAX sparse maps are parsed by the extension handler after _proc_member.
+    # Reject all supported encodings before their auxiliary map allocation.
+    def _proc_gnusparse_00(self, next_member, raw_headers):
+        fail("archive sparse format is forbidden")
+
+    def _proc_gnusparse_01(self, next_member, pax_headers):
+        fail("archive sparse format is forbidden")
+
+    def _proc_gnusparse_10(self, next_member, pax_headers, archive):
+        fail("archive sparse format is forbidden")
+
+
+def child_resource_limits() -> None:
+    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    resource.setrlimit(resource.RLIMIT_AS, (MAX_CHILD_MEMORY_BYTES, MAX_CHILD_MEMORY_BYTES))
+    cpu_seconds = max(1, int(MAX_INSPECTION_SECONDS) + 1)
+    resource.setrlimit(resource.RLIMIT_CPU, (cpu_seconds, cpu_seconds))
+
+
+def run_zstd_bounded(command: list[str], deadline: float, output=None) -> int:
+    child = subprocess.Popen(command, stdin=subprocess.DEVNULL,
+                             stdout=subprocess.PIPE if output is not None else subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, start_new_session=True,
+                             preexec_fn=child_resource_limits)
+    try:
+        if output is not None:
+            expanded = 0
+            with selectors.DefaultSelector() as selector:
+                selector.register(child.stdout, selectors.EVENT_READ)
+                while True:
+                    ready = selector.select(inspection_time_remaining(deadline))
+                    if not ready:
+                        fail("package inspection time limit exceeded")
+                    chunk = os.read(child.stdout.fileno(), 64 * 1024)
+                    if not chunk:
+                        break
+                    expanded += len(chunk)
+                    if expanded > MAX_EXPANDED_BYTES:
+                        fail("archive expanded size limit exceeded")
+                    output.write(chunk)
+        try:
+            return child.wait(timeout=inspection_time_remaining(deadline))
+        except subprocess.TimeoutExpired:
+            fail("package inspection time limit exceeded")
+    finally:
+        # Reap on success, parser failure, timeout, signal, or output-size rejection.
+        try:
+            os.killpg(child.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        child.wait()
+        if child.stdout is not None:
+            child.stdout.close()
+
+
 def verify_package_tar(archive: tarfile.TarFile, package: str) -> None:
     members: dict[str, tarfile.TarInfo] = {}
-    for member in archive.getmembers():
+    payload_bytes = 0
+    for count, member in enumerate(archive, 1):
+        if count > MAX_MEMBERS:
+            fail("archive member count limit exceeded")
+        if member.size < 0 or member.size > MAX_MEMBER_BYTES:
+            fail("archive member size limit exceeded")
+        payload_bytes += member.size
+        if payload_bytes > MAX_PAYLOAD_BYTES:
+            fail("archive aggregate payload size limit exceeded")
         name = safe_member_name(member)
         if name in members:
             fail(f"duplicate archive path: {name}")
@@ -701,39 +817,43 @@ def verify_package_archive(path: pathlib.Path, package: str) -> None:
         fail(f"package archive is absent: {path}")
     if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
         fail(f"package archive is not a single-link regular file: {path}")
+    if info.st_size > MAX_COMPRESSED_BYTES:
+        fail("archive compressed size limit exceeded")
     with path.open("rb") as source:
         if source.read(4) != ZSTD_MAGIC:
             fail(f"package archive is not a Zstandard frame: {path}")
     zstd = shutil.which("zstd")
     if not zstd:
         fail("zstd is required for package payload verification")
-    tested = subprocess.run(
-        [zstd, "-q", "--test", "--", os.fspath(path)],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
-    if tested.returncode != 0:
-        fail(f"zstd integrity check failed for package archive: {path}")
+    deadline = time.monotonic() + MAX_INSPECTION_SECONDS
+    previous_handler = signal.getsignal(signal.SIGALRM)
+    previous_timer = signal.getitimer(signal.ITIMER_REAL)
 
-    with tempfile.TemporaryDirectory(prefix="arch-linux-package-", dir=os.environ.get("RUNNER_TEMP")) as work:
-        tar_path = pathlib.Path(work) / "payload.tar"
-        with tar_path.open("xb") as output:
-            decoded = subprocess.run(
-                [zstd, "-q", "-d", "-c", "--", os.fspath(path)],
-                stdin=subprocess.DEVNULL,
-                stdout=output,
-                stderr=subprocess.PIPE,
-                check=False,
-            )
-        if decoded.returncode != 0:
-            fail(f"cannot decompress package archive: {path}")
-        try:
-            with tarfile.open(tar_path, mode="r:") as archive:
-                verify_package_tar(archive, package)
-        except tarfile.TarError as error:
-            fail(f"invalid package tar stream: {error}")
+    def time_limit(_signum, _frame):
+        fail("package inspection time limit exceeded")
+
+    signal.signal(signal.SIGALRM, time_limit)
+    signal.setitimer(signal.ITIMER_REAL, MAX_INSPECTION_SECONDS)
+    try:
+        tested = run_zstd_bounded([zstd, "-q", "--test", "--", os.fspath(path)], deadline)
+        if tested != 0:
+            fail(f"zstd integrity check failed for package archive: {path}")
+        with tempfile.TemporaryDirectory(prefix="arch-linux-package-", dir=os.environ.get("RUNNER_TEMP")) as work:
+            tar_path = pathlib.Path(work) / "payload.tar"
+            with tar_path.open("xb") as output:
+                decoded = run_zstd_bounded(
+                    [zstd, "-q", "-d", "-c", "--", os.fspath(path)], deadline, output)
+            if decoded != 0:
+                fail(f"cannot decompress package archive: {path}")
+            try:
+                with tarfile.open(tar_path, mode="r:", tarinfo=BoundedTarInfo) as archive:
+                    verify_package_tar(archive, package)
+            except (tarfile.TarError, RecursionError) as error:
+                fail(f"invalid package tar stream: {error}")
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous_handler)
+        signal.setitimer(signal.ITIMER_REAL, *previous_timer)
     print(f"package payload checks passed: package={package} archive={path.name}")
 
 

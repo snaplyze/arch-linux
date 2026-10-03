@@ -1123,9 +1123,12 @@ unset ARCH_LINUX_QEMU_ACCEPTANCE ARCH_LINUX_QEMU_REPOSITORY_CONTRACT
     systemctl() { return 99; }
     getent() { return 99; }
     bootctl() { return 99; }
+    # This fixture isolates the phase's existing-OS identity checks. The full preservation
+    # helper has its own proof/hash and post-update regression fixtures.
+    verify_dual_boot_preservation() { :; }
     verify_dual_boot_phase >/dev/null
     neighbor_probe="$(declare -f verify_dual_boot_phase find_target mounted_source_device \
-        partition_name hostname cat systemctl getent bootctl)"
+        partition_name hostname cat systemctl getent bootctl verify_dual_boot_preservation)"
     for neighbor_mismatch in hostname root marker; do
         if /usr/bin/bash -c 'set -e
             eval "$1"
@@ -1498,6 +1501,12 @@ cp -- "$canonical_config" "$candidate"
 printf '%s\n' 'payload() { touch /tmp/should-not-run; }' >>"$candidate"
 expect_config_reject 'function definition' "$candidate" 'is not a KEY=VALUE record'
 
+for reserved_name in root bin daemon mail ftp http nobody archlinux-aur-builder alpm dbus systemd-coredump systemd-imds systemd-network systemd-oom systemd-journal-remote systemd-resolve systemd-timesync tss uuidd sys mem log smmsp proc games lock network floppy scanner power adm wheel empower utmp audio clock disk input kmem kvm lp optical render sgx storage tty uucp video users systemd-journal rfkill gdm avahi polkitd colord rtkit geoclue flatpak cups brltty brlapi git gnome-headless-session; do
+    candidate="${config_test_dir}/reserved-${reserved_name}.conf"
+    sed "s/^ARCH_LINUX_USERNAME=.*/ARCH_LINUX_USERNAME=${reserved_name}/" "$canonical_config" >"$candidate"
+    expect_config_reject "reserved ${reserved_name}" "$candidate" 'invalid value for ARCH_LINUX_USERNAME'
+done
+
 candidate="${config_test_dir}/timezone-traversal.conf"
 sed 's|^ARCH_LINUX_TIMEZONE=.*|ARCH_LINUX_TIMEZONE=Europe/../../etc|' "$canonical_config" >"$candidate"
 expect_config_reject 'timezone traversal' "$candidate" 'invalid value for ARCH_LINUX_TIMEZONE'
@@ -1770,6 +1779,44 @@ umask "$config_test_old_umask"
 command rm -rf -- "$config_test_dir"
 
 validate_properties
+
+# Reserved target/base accounts must fail parser, semantics and selectors before execution.
+for reserved_name in root bin daemon mail ftp http nobody archlinux-aur-builder alpm dbus systemd-coredump systemd-imds systemd-network systemd-oom systemd-journal-remote systemd-resolve systemd-timesync tss uuidd sys mem log smmsp proc games lock network floppy scanner power adm wheel empower utmp audio clock disk input kmem kvm lp optical render sgx storage tty uucp video users systemd-journal rfkill gdm avahi polkitd colord rtkit geoclue flatpak cups brltty brlapi git gnome-headless-session; do
+    if properties_value_is_valid ARCH_LINUX_USERNAME "$reserved_name"; then
+        echo "account safety: lexical validator accepted reserved $reserved_name" >&2; exit 1
+    fi
+    (
+        ARCH_LINUX_USERNAME="$reserved_name"
+        ! validate_properties || { echo "account safety: semantics accepted $reserved_name" >&2; exit 1; }
+    )
+    (
+        ARCH_LINUX_USERNAME=''
+        selector_saved=false
+        gum_input() { printf '%s' "$reserved_name"; }
+        gum_confirm() { :; }
+        gum_property() { :; }
+        properties_generate() { selector_saved=true; }
+        ! select_username || { echo "account safety: selector accepted $reserved_name" >&2; exit 1; }
+        [ "$selector_saved" = false ] && [ -z "$ARCH_LINUX_USERNAME" ]
+    )
+done
+(
+    target_passwd_status=2 target_group_status=2
+    arch-chroot() {
+        [ "$1" = /mnt ] && [ "$2" = getent ] || return 99
+        case "$3" in passwd) return "$target_passwd_status" ;; group) return "$target_group_status" ;; *) return 99 ;; esac
+    }
+    target_username_is_available archuser
+    for uncertain_status in 0 1 3 126 127; do
+        target_passwd_status="$uncertain_status" target_group_status=2
+        ! target_username_is_available archuser || { echo "account safety: uncertain or occupied passwd accepted" >&2; exit 1; }
+        target_passwd_status=2 target_group_status="$uncertain_status"
+        ! target_username_is_available archuser || { echo "account safety: uncertain or occupied group accepted" >&2; exit 1; }
+    done
+)
+for ordinary_name in archuser user-name ordinary_2; do
+    properties_value_is_valid ARCH_LINUX_USERNAME "$ordinary_name"
+done
 
 validation_report_file="$(mktemp)"
 rm -f -- "$validation_report_file"
@@ -2479,6 +2526,146 @@ fi
 sda2_start='2099200'
 ARCH_LINUX_ACCEPTED_TARGET_SNAPSHOT=''
 
+# Idle probes must distinguish valid empty state from failed or malformed inventories.
+(
+    ARCH_LINUX_DISK=/dev/fixture
+    probe_case=empty
+    swap_probe="${function_runtime_dir}/idle-swap"
+    : >"$swap_probe"
+    storage_path_belongs_to_disk() {
+        case "$probe_case" in mounted | swapfile) return 0 ;; membership-error) return 2 ;; *) return 1 ;; esac
+    }
+    function [ {
+        local -a args=("$@")
+        unset 'args[${#args[@]}-1]'
+        if command test "${#args[@]}" -eq 2 && command test "${args[1]}" = /dev/mapper/cryptroot; then
+            command test "$probe_case" = mapper
+            return
+        fi
+        command test "${args[@]}"
+    }
+    silent_report() { :; }
+    findmnt() {
+        case "$*" in
+        *'-M /mnt'*) [ "$probe_case" != mountpoint-error-one ] || { echo 'findmnt: operational error' >&2; return 1; }; [ "$probe_case" = occupied ] && { echo /dev/other; return 0; }; [ "$probe_case" != mountpoint-error ] || return 2; return 1 ;;
+        esac
+        [ "$probe_case" != mounts-error-one ] || { echo "findmnt: operational error" >&2; return 1; }
+        [ "$probe_case" != mounts-error ] || return 2
+        [ "$probe_case" != empty-no-match ] || return 1
+        case "$probe_case" in mounted | membership-error) echo /dev/fixture1 ;; esac
+        [ "$probe_case" != malformed-mount ] || { echo 'broken row'; return; }
+        return 0
+    }
+    swapon() {
+        [ "$probe_case" != swap-error ] || return 2
+        case "$probe_case" in swapfile) echo "$swap_probe" ;; malformed-swap) echo 'bad row' ;; esac
+        return 0
+    }
+    lsblk() {
+        [ "$probe_case" != topology-error ] || return 2
+        case "$probe_case" in
+        missing-disk) echo '/dev/else disk' ;;
+        malformed-topology) echo '/dev/fixture disk extra' ;;
+        holder) printf '/dev/fixture disk\n/dev/mapper/held crypt\n' ;;
+        *) echo '/dev/fixture disk' ;;
+        esac
+    }
+    target_storage_is_idle silent_report
+    probe_case=empty-no-match
+    target_storage_is_idle silent_report
+    for probe_case in mounts-error-one mountpoint-error-one mounts-error swap-error topology-error missing-disk malformed-topology malformed-mount holder occupied mapper mountpoint-error mounted swapfile malformed-swap membership-error; do
+        if target_storage_is_idle silent_report; then
+            echo "idle safety: accepted $probe_case" >&2
+            exit 1
+        fi
+    done
+)
+
+# Exercise actual membership helpers: a failed ancestry lookup cannot mean nonmembership,
+# and swapfiles are attributed through their backing mount source.
+(
+    probe_case=member
+    ARCH_LINUX_DISK=/dev/fixture
+    swap_fixture="${function_runtime_dir}/swapfile"
+    : >"$swap_fixture"
+    function [ {
+        local -a args=("$@")
+        unset 'args[${#args[@]}-1]'
+        if command test "${#args[@]}" -eq 2 && command test "${args[0]}" = -b; then
+            case "${args[1]}" in /dev/fixture | /dev/fixture1 | /dev/other | /dev/mapper/other-root) return 0 ;; *) return 1 ;; esac
+        fi
+        command test "${args[@]}"
+    }
+    block_canonical() { if [ "$1" = /dev/mapper/other-root ]; then printf /dev/dm-0; else printf '%s' "$1"; fi; }
+    lsblk() {
+        case "$probe_case" in
+        error) return 2 ;;
+        malformed) echo 'broken row' ;;
+        incomplete) echo /dev/fixture ;;
+        alias-nonmember) printf '/dev/dm-0\n/dev/other-disk\n' ;;
+        nonmember) echo /dev/other ;;
+        *) printf '/dev/fixture1\n/dev/fixture\n' ;;
+        esac
+    }
+    findmnt() { [ "$probe_case" != findmnt-error ] || return 2; echo /dev/fixture1; }
+    storage_path_belongs_to_disk "$swap_fixture" /dev/fixture
+    for probe_case in error malformed incomplete findmnt-error; do
+        result=0
+        storage_path_belongs_to_disk "$swap_fixture" /dev/fixture || result=$?
+        [ "$result" -eq 2 ] || { echo "membership safety: wrong result for $probe_case: $result" >&2; exit 1; }
+    done
+    probe_case=nonmember
+    result=0
+    block_belongs_to_disk /dev/other /dev/fixture || result=$?
+    [ "$result" -eq 1 ]
+    probe_case=alias-nonmember
+    result=0
+    block_belongs_to_disk /dev/mapper/other-root /dev/fixture || result=$?
+    [ "$result" -eq 1 ] || { echo "membership safety: unrelated mapper alias is not a proved nonmember" >&2; exit 1; }
+)
+
+# The real AUR scan uses temporary fixture views; mount adapters never touch host mounts.
+# A failing find with empty or partial output must reject empty/cleanup readback.
+(
+    scan_target="$(mktemp -d)"
+    trap 'command rm -rf -- "$scan_target"' EXIT
+    find_case=empty
+    findmnt() {
+        local last
+        for last; do :; done
+        case "$*" in
+        *'-o TARGET,ID,MAJ:MIN,FSTYPE,FSROOT,SOURCE'*) echo "$scan_target 10 1:1 ext4 / /dev/fixture" ;;
+        *'-o MAJ:MIN,FSTYPE,FSROOT,SOURCE'*) echo '1:1 ext4 / /dev/fixture' ;;
+        *'-o ID'*) case "$last" in "$scan_target") echo 10 ;; *) echo 11 ;; esac ;;
+        *'-o VFS-OPTIONS'*) echo ro,nosuid,nodev,noexec ;;
+        *) printf '%s\n' "$last" ;;
+        esac
+    }
+    mount() { :; }
+    umount() { :; }
+    stat() {
+        if [ "$1" = -Lc ] && [ "$2" = '%d:%i' ]; then echo '1:1'; else command stat "$@"; fi
+    }
+    find() {
+        case "$*" in *-delete*) return 0 ;; esac
+        case "$find_case" in
+        empty) return 0 ;;
+        no-output-error) return 2 ;;
+        partial-error) echo /partial; return 2 ;;
+        esac
+    }
+    for scan_mode in empty cleanup; do
+        find_case=empty
+        aur_builder_uid_scan_target_mounts "$scan_target" 12345 '' "$scan_mode"
+        for find_case in no-output-error partial-error; do
+            if aur_builder_uid_scan_target_mounts "$scan_target" 12345 '' "$scan_mode"; then
+                echo "AUR scan safety: accepted $scan_mode $find_case" >&2
+                exit 1
+            fi
+        done
+    done
+)
+
 # Two-phase storage markers exist before resource creation. An intent with no resource is removed;
 # an intent/active marker with an exact owned resource causes exact rollback; malformed markers do
 # not authorize cleanup.
@@ -2493,6 +2680,7 @@ ARCH_LINUX_ACCEPTED_TARGET_SNAPSHOT=''
     mount_present=false
     findmnt() { [ "$mount_present" = true ]; }
     target_mount_tree_is_owned() { [ "$mount_present" = true ]; }
+    assert_target_root_mounted() { [ "$mount_present" = true ]; }
     umount() { mount_present=false; : >"${storage_test_dir}/unmounted"; }
     cryptroot_belongs_to_target() { return 0; }
     cryptsetup() { [ "$1" = close ] && [ "$2" = -- ] && [ "$3" = cryptroot ]; : >"${storage_test_dir}/closed"; }
@@ -2508,8 +2696,8 @@ ARCH_LINUX_ACCEPTED_TARGET_SNAPSHOT=''
 
     rm -f -- "${storage_test_dir}/unmounted"
     mark_storage_intent "$TARGET_MOUNT_MARKER"
-    activate_storage_marker "$TARGET_MOUNT_MARKER"
     mount_present=true
+    activate_storage_marker "$TARGET_MOUNT_MARKER"
     installer_cleanup_created_storage
     [[ ! -e "$TARGET_MOUNT_MARKER" && -e "${storage_test_dir}/unmounted" ]]
 

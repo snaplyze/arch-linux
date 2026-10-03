@@ -17,6 +17,7 @@ python3 tests/desktop-package-checks.py
 python3 tests/installation-remediation-checks.py
 python3 tests/retained-multilib-checks.py
 bash tests/vm/harness-checks.sh
+python3 tests/vm/runtime-checks.py
 python3 tests/release-source-checks.py
 python3 tests/actions-release-checks.py
 python3 tests/actions-signing-checks.py

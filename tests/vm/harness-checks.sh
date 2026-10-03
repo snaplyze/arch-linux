@@ -30,6 +30,131 @@ grep -Fq -- "[[ \"\${IDENTITY[RELEASE_VERSION]}\" =~ ^[0-9]+\\.[0-9]+\\.[0-9]+\$
 grep -Fq -- "[[ \"\${release_version}\" =~ ^[0-9]+\\.[0-9]+\\.[0-9]+\$ ]]" "${verify}" ||
     fail 'guest verifier does not validate passed release version'
 
+# Execute host routing, including rejection of staged and nonqualification public combinations.
+# shellcheck disable=SC2034 # Inputs are consumed by the extracted production validator.
+(
+    mode_validator="$(sed -n '/^validate_vm_mode_scenario() {/,/^}/p' "${host}")"
+    [ -n "$mode_validator" ] || fail 'media qualification routing helper is missing'
+    eval "$mode_validator"
+    # shellcheck disable=SC2329
+    die() { return 1; }
+    for scenario_id in minimal-ext4-systemdboot stock-gnome-ext4-systemdboot; do
+        input_mode=public media_qualification=true
+        validate_vm_mode_scenario || fail 'public media qualification scenario was rejected'
+        media_qualification=false
+        if validate_vm_mode_scenario; then fail 'ordinary public mode accepted a media-only scenario'; fi
+        input_mode=staged media_qualification=true
+        if validate_vm_mode_scenario; then fail 'staged mode accepted media qualification'; fi
+    done
+    input_mode=public media_qualification=false
+    scenario_id=marble-gnome-btrfs-luks2-plymouth-systemdboot
+    validate_vm_mode_scenario || fail 'ordinary public Marble was rejected'
+    media_qualification=true
+    if validate_vm_mode_scenario; then fail 'qualification accepted Marble'; fi
+)
+
+# Exercise known firmware pairs with real temporary files; no host path is altered.
+python3 - "$host" "$preflight" <<'FIRMWARE_PY'
+from pathlib import Path
+import re
+import subprocess
+import sys
+import tempfile
+for script in sys.argv[1:]:
+    body = re.search(r'^select_ovmf_pair\(\) \{\n.*?^\}', Path(script).read_text(), re.M | re.S).group(0)
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        ubuntu = root / 'OVMF'
+        arch = root / 'edk2/x64'
+        ubuntu.mkdir()
+        arch.mkdir(parents=True)
+        def run():
+            program = ('set -euo pipefail\ndie(){ return 1; }\n' + body.replace('/usr/share', tmp) +
+                       '\nselect_ovmf_pair\nprintf "%s:%s" "$ovmf_code" "$ovmf_vars_template"\n')
+            return subprocess.run(['bash', '-c', program], capture_output=True, text=True, timeout=5)
+        assert run().returncode != 0
+        code = ubuntu / 'OVMF_CODE_4M.fd'
+        code.write_bytes(b'code')
+        (arch / 'OVMF_VARS.4m.fd').write_bytes(b'vars')
+        assert run().returncode != 0  # never mix distributions
+        (arch / 'OVMF_CODE.4m.fd').write_bytes(b'code')
+        assert run().stdout == str(arch / 'OVMF_CODE.4m.fd') + ':' + str(arch / 'OVMF_VARS.4m.fd')
+        (ubuntu / 'OVMF_VARS_4M.fd').symlink_to(arch / 'OVMF_VARS.4m.fd')
+        assert run().stdout.startswith(str(arch))  # refuse linked firmware
+        (ubuntu / 'OVMF_VARS_4M.fd').unlink()
+        (ubuntu / 'OVMF_VARS_4M.fd').write_bytes(b'vars')
+        assert run().stdout == str(code) + ':' + str(ubuntu / 'OVMF_VARS_4M.fd')
+FIRMWARE_PY
+
+# Exercise the disposable collision stage: require actual refusal plus unchanged complete
+# partition hashes, then remove only its generated writers and preserve isolated neighbor files.
+python3 - "$bootstrap" <<'COLLISION_PY'
+from pathlib import Path
+import re
+import subprocess
+import sys
+import tempfile
+source = Path(sys.argv[1]).read_text()
+body = re.search(r'^prove_dual_boot_collision_refusal\(\) \{\n.*?^\}', source, re.M | re.S).group(0)
+for outcome in ('refused', 'accepted', 'root-changed', 'esp-changed'):
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        esp = root / 'esp-files'
+        esp.mkdir()
+        for name in ('EFI/systemd/systemd-bootx64.efi', 'EFI/BOOT/BOOTX64.EFI',
+                     'vmlinuz-linux', 'initramfs-linux.img', 'loader/random-seed',
+                     'loader/loader.conf', 'loader/entries/main.conf',
+                     'EFI/ali-neighbor/vmlinuz-linux', 'loader/entries/neighbor.conf',
+                     'loader/entries.srel'):
+            path = esp / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b'fixture')
+        (root / 'esp').write_bytes(b'ESP partition bytes')
+        (root / 'target-root').write_bytes(b'root partition bytes')
+        program = 'set -euo pipefail\n' + body + r'''
+work_root="$1"
+outcome="$2"
+declare -A IDENTITY=([INPUT_MODE]=staged [SCENARIO]=minimal-dualboot-ext4-systemdboot [RUN_ID]=fixture)
+partition_name() { if [ "$2" = 1 ]; then echo "$work_root/esp"; else echo "$work_root/target-root"; fi; }
+fail() { echo "$*" >&2; exit 1; }
+check_dual_boot_neighbor() { :; }
+timeout() {
+    if [ "$1" = --signal=TERM ]; then
+        printf 'Dual-boot ESP collision or unsafe ancestor\n' >"$work_root/installer.log"
+        case "$outcome" in
+        accepted) return 0 ;;
+        root-changed) echo mutation >"$work_root/target-root" ;;
+        esp-changed) echo mutation >"$work_root/esp" ;;
+        esac
+        return 1
+    fi
+    shift
+    "$@"
+}
+mount() { cp -a "$work_root/esp-files/." "$3/"; }
+umount() {
+    rm -rf -- "$work_root/esp-files"
+    mkdir "$work_root/esp-files"
+    cp -a "$2/." "$work_root/esp-files/"
+    find "$2" -mindepth 1 -depth -delete
+}
+prove_dual_boot_collision_refusal /fixture/target
+'''
+        result = subprocess.run(['bash', '-c', program, 'collision-fixture', tmp, outcome],
+                                capture_output=True, text=True, timeout=10)
+        assert (result.returncode == 0) == (outcome == 'refused'), result.stderr
+        if outcome == 'refused':
+            assert 'MINIMAL_QEMU_ESP_COLLISION_REFUSAL_PASS' in result.stdout
+            assert not (esp / 'EFI/systemd').exists()
+            assert not (esp / 'EFI/BOOT').exists()
+            assert not (esp / 'vmlinuz-linux').exists()
+            assert not (esp / 'loader/entries/main.conf').exists()
+        else:
+            assert (esp / 'loader/entries/main.conf').exists()
+        for name in ('EFI/ali-neighbor/vmlinuz-linux', 'loader/entries/neighbor.conf', 'loader/entries.srel'):
+            assert (esp / name).read_bytes() == b'fixture'
+COLLISION_PY
+
 grep -Fq -- "refs/tags/\${release_version}" "${host}" ||
     fail 'public release tag is not bound to the passed version'
 grep -Fq -- "source_commit=\"\$(git -C \"\${repository_root}\" rev-parse \"refs/tags/\${release_version}^{commit}\")\"" \

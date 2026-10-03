@@ -61,7 +61,7 @@ healthy = {'status': 'healthy', 'automaticChanges': False}
 due = {'status': 'renewal-due', 'automaticChanges': False, 'expiresAt': '2027-08-24',
        'renewalStartsAt': '2027-02-25', 'signingFingerprint': signing}
 combine = advisory['combined_body']
-body, clean = combine('', healthy, 'Monthly check passed.\n', True)
+body, clean = combine('', healthy, 'Monthly check passed.\n- Observed UTC: `' + datetime.datetime.now(datetime.timezone.utc).isoformat() + '`\n', True)
 assert clean
 due_body, clean = combine(body, due, None)
 assert not clean and 'Monthly check passed.' in due_body and 'renewal-due' in due_body
@@ -181,6 +181,65 @@ with mock.patch.dict(network.__globals__, {'upstream_commit': lambda item: 'a'*4
     assert len(findings) == 1 and findings[0]['id'] == 'tagged:release' and findings[0]['detected'] == '50.5'
 assert advisory['body_for']({'findings': []}, 'mismatch', 'unchanged').count('both unsigned builds verified') == 1
 assert 'could not be determined' in advisory['body_for']({'findings': []}, 'error', 'unchanged')
+
+# MON-01: reports bind their observation time/source even when nothing changed.
+with tempfile.TemporaryDirectory(prefix='maintenance-dated-') as temporary:
+    report_path = pathlib.Path(temporary)/'source.json'
+    subprocess.run([sys.executable, str(ROOT/'maintenance/check-sources.py'), '--report', str(report_path)],
+                   check=True, stdout=subprocess.DEVNULL)
+    report = json.loads(report_path.read_text())
+    assert datetime.datetime.fromisoformat(report['observedAt']).utcoffset().total_seconds() == 0
+    assert report['sourceIdentity']['sha256'] == digest(sources)
+    assert report['status'] == 'validated'  # Offline validation is not an upstream observation.
+
+extension = {'id': 'extension:test', 'shellMajor': '50', 'acceptedVersionTag': 100,
+             'source': 'https://example.invalid/extension', 'impact': 'review'}
+ext_document = {section: [] for section in ('archPackages', 'tools', 'aurPins', 'upstreams')}
+ext_document['gnomeExtensions'] = [extension]
+for versions, expected in (({'50': {'pk': 100}, '51': {'pk': 200}}, []),
+                           ({'50': [{'pk': 100}, {'pk': 101}], '51': {'pk': 200}}, ['101']),
+                           ({'51': {'pk': 200}}, ['ERROR:']),
+                           ({'50': {'pk': 'invalid'}}, ['ERROR:']),
+                           ({'50': [{'pk': 100}, {'invalid': 101}]}, ['ERROR:'])):
+    observations = []
+    with mock.patch.dict(network.__globals__, {'fetch_json': lambda url: {'shell_version_map': versions}}):
+        findings = network(ext_document, observations)
+    assert [item['detected'].split(' ')[0] for item in findings] == expected
+    assert observations[0]['source'] == extension['source']
+    assert observations[0]['shellMajor'] == '50'
+
+now = datetime.datetime(2026, 10, 3, tzinfo=datetime.timezone.utc)
+monthly_report = {'observedAt': '2026-10-01T00:00:00+00:00',
+                  'sourceIdentity': {'path': 'maintenance/sources.json', 'sha256': 'a'*64},
+                  'status': 'unchanged', 'mode': 'network', 'findings': []}
+rendered = advisory['body_for'](monthly_report, 'match', 'unchanged')
+assert monthly_report['observedAt'] in rendered and 'a'*64 in rendered
+body, clean = combine('', healthy, rendered, True, now=now)
+assert clean and '2 days' in body
+preserved, clean = combine(body, due, None, now=now + datetime.timedelta(days=40))
+assert not clean and '42 days' in preserved and 'stale' in preserved
+assert rendered.rstrip() in preserved
+assert combine(preserved, healthy, None, now=now + datetime.timedelta(days=40))[1] is False
+legacy = 'Old undated result.\n' + advisory['MONTHLY_CLEAN']
+legacy_body, clean = combine(legacy, healthy, None, now=now)
+assert not clean and 'unknown' in legacy_body and 'Old undated result.' in legacy_body
+for report in ({'status': 'error', 'findings': []}, {}, monthly_report | {'mode': 'offline'}):
+    assert 'No advisory drift remains.' not in advisory['body_for'](report, 'match', 'unchanged')
+assert combine('', healthy, None, now=now)[1] is False
+for observed in ('not-a-date', '2026-10-04T00:00:00+00:00', '2026-10-01T00:00:00'):
+    dated = advisory['body_for'](monthly_report | {'observedAt': observed}, 'match', 'unchanged')
+    assert combine('', healthy, dated, True, now=now)[1] is False
+error_body = advisory['body_for'](monthly_report | {'status': 'error'}, 'match', 'unchanged')
+assert combine('', healthy, error_body, False, now=now)[1] is False
+required = {'linux', 'linux-lts', 'linux-zen', 'systemd', 'mkinitcpio', 'cryptsetup',
+            'grub', 'pacman', 'archlinux-keyring', 'gtk3', 'gtk4', 'libadwaita'}
+inputs = {item['id'].removeprefix('arch:'): item for item in json.loads(sources.read_text())['archPackages']}
+assert required <= inputs.keys()
+for name in required:
+    assert '-' in inputs[name]['acceptedVersion']
+for name in ('mkinitcpio', 'archlinux-keyring'):
+    assert '/core/any/' in inputs[name]['source']
+assert '/extra/x86_64/' in inputs['linux-zen']['source']
 
 # Exercise the real exclusive workspace allocator without running any PKGBUILD.
 with tempfile.TemporaryDirectory(prefix='maintenance-build-path-') as temporary:

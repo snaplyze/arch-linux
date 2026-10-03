@@ -327,27 +327,57 @@ the Pages artifact. The Pages job receives no signing secret or private material
 
 ### Package-only updates
 
-For a Marble/profile update, increment the owning package's `pkgrel` in a reviewed PR, regenerate
-`.SRCINFO`, test the change and merge it. Build and verify that exact main commit, then use the same
-authorized `snapshot` signing operation. Do not change the installer version or its published assets.
-Test package upgrade and the affected desktop behavior on an installed system.
+The source candidate provides an explicit package child; external package signing/publication is
+separately authorized and remains NOT_TESTED. Normal installer intent stays the default. A reviewed
+`repository/delivery-intent.json` with package intent suppresses the automatic installer release
+before version allocation; it does not grant package signing authority.
 
-Create a separate annotated `packages-YYYYMMDD.N` tag on that package source commit and a draft
-package Release named exactly as the tag. Upload the 14 verified Phase-A files. These are a signed
-package-update bundle; they do not certify or replace an installer release. Dispatch `pages.yml`
-on main with `deployment_kind=packages`, `package_tag`, its numeric `release_id`, the existing
-installer `release_version`, and the exact new source/build/snapshot hashes. The workflow requires
-the installer release to be published already, rejects changes to `install.sh` or the installer
-under that old version, and verifies all 14 files and package/database signatures before deployment.
+Package intent schema 1 has exactly `schema`, `kind`, `packageTag` and `published`. Set `kind` to
+`packages`, `packageTag` to `packages-YYYYMMDD.N`; `published` binds `releaseVersion`, numeric
+`releaseId`, `sourceCommit`, `sourceTree`, numeric `installerAssetId`, numeric `bootstrapAssetId`
+and the active signed `repositoryManifestSha256` plus `repositorySnapshotSha256`. Absence or exactly
+`{"schema":1,"kind":"installer"}` retains the existing installer route. Bind these identities from
+independently verified published inputs, not a proposed replacement repository.
 
-After HTTPS readback and a successful installed-system `pacman -Syu`, publish the package Release
-without replacing bytes. Explicitly exclude it from GitHub's Latest installer selection:
-`gh release edit "$PACKAGE_TAG" --draft=false --latest=false`. Confirm afterward that the
-repository's `/releases/latest` API still names the existing SemVer installer release, not the
-`packages-YYYYMMDD.N` tag. The installer updater intentionally accepts only SemVer release tags;
-a package-only release must not hide that installer from older clients. Do not rely on GitHub's
-[automatic Latest selection](https://cli.github.com/manual/gh_release_create).
-Future package updates use a new package tag. The configured release pipeline may sign and publish
-only its exact verified child after the reviewed merge; it never merges source or rotates a key. The
-normal `deployment_kind=release` path still requires the finalized 18-file installer release with
-its three functional VM results.
+The initial package mode keeps all six names, architectures, epochs and pkgvers and requires each
+pkgrel to increase above the active repository baseline. Review PKGBUILD/SRCINFO/provides together;
+missing revisions are rejected rather than generated. The reviewed clean main commit must normalize
+only its existing installer/bootstrap version literals to the exact bytes and modes of the existing
+annotated installer release. Any behavior change rejects package mode and needs a normal installer
+release first. Trust/keyring payload changes are also rejected.
+
+Prepare a private frozen public-input directory outside source with `release-api.json`, the active
+signed `repository-manifest.json`, published `arch-linux-installer.sh` and `install.sh` assets,
+`baseline-release-api.json` and the old `arch-linux-repository-<installer-version>.tar.zst`.
+The baseline Release is selected by the annotated tag of the active repository source: its
+package-origin tag for a prior package child, otherwise the installer SemVer. Its immutable
+API identity and old archive digest/size are verified; bounded archive inspection requires
+its manifest to equal the frozen active manifest bytes.
+Independently verify the release/signed repository before recording the intent. Git must contain
+its exact annotated SemVer tag and baseline source objects; commands do not fetch missing objects.
+From clean reviewed main, local preparation is:
+
+```bash
+python3 repository/release-source.py prepare-packages \
+  --main-commit "$PACKAGE_MAIN_COMMIT" --package-tag "$PACKAGE_TAG" \
+  --published-input-dir "$PUBLISHED_INPUT_DIR" --output-dir "$PACKAGE_SOURCE_OUTPUT"
+python3 repository/release-source.py verify-packages \
+  --main-commit "$PACKAGE_MAIN_COMMIT" --source-commit "$PACKAGE_SOURCE_COMMIT" \
+  --package-tag "$PACKAGE_TAG" --published-input-dir "$PUBLISHED_INPUT_DIR"
+```
+
+The deterministic child has exactly that reviewed main parent, changes only allowed version literals
+and adds `repository/package-origin.json`. Origin binds transformer, canonical source identities,
+installer/assets, active repository baseline and revision map. Preparation preserves canonical
+HEAD/index and emits identity plus source bundle outside source. Build the exact child only in an
+explicitly authorized immutable CI/build boundary using `restore-packages`, accepted bundle SHA256
+and frozen public inputs. Existing clean Git build/unsigned-verification guards remain unchanged;
+there is no self-verifying archive execution path or second editable development checkout.
+
+Future separately authorized package deployment uses an annotated package tag and exact signed
+14-file Phase-A bundle, verified installed-system upgrade and public readback. Pages package mode
+verifies child→reviewed-main provenance, published installer equality, active baseline and package
+signatures; it rechecks the baseline before deployment. Package tags must never become Latest:
+the Latest API must retain the existing SemVer installer. No package signing job or authority was
+added to `release.yml`. The normal installer path still requires exact18 finalized files and its
+core plus supplemental functional gates. See [DELIVERY-01 acceptance](../docs/PLAN.md#delivery-01--package-only-provenance-and-procedure).

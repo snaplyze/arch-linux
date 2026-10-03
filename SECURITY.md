@@ -19,6 +19,15 @@ revalidates them immediately before mutation, rejects busy or ambiguous devices 
 resources owned by the current run. PKGBUILDs execute under a disposable unprivileged account;
 verified package bytes cross into the root executor only after the builder exits.
 
+These are required boundaries. Published 1.0.5 has documented guard/error-path and shared-ESP
+gaps in [F-01–F-03](docs/PLAN.md#review-findings); historical acceptance does not certify those
+failure paths safe.
+Published 1.0.5 also retains an unsigned-inspection decompression resource risk
+([F-04](docs/PLAN.md#review-findings)). The source candidate implements fail-closed guard and
+bounded parser corrections with independent source review; corrected-child VM/release gates
+remain pending. No signing-authority bypass
+or execution of unsigned code was demonstrated by that resource-risk review.
+
 ## Trust bootstrap
 
 The release bootstrap pins the installer checksum, public-certificate digest, primary fingerprint

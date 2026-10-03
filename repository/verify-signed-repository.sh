@@ -18,61 +18,7 @@ USAGE
 inspect_database_archives() {
     local database="$1" files_archive="$2"
     shift 2
-    python3 - "$database" "$files_archive" "$@" <<'PY'
-from __future__ import annotations
-import pathlib, sys, tarfile
-
-def fail(message: str) -> None:
-    raise SystemExit(f'repository database check failed: {message}')
-
-def members(path: pathlib.Path):
-    seen=set()
-    with tarfile.open(path,'r:gz') as stream:
-        result=[]
-        for member in stream.getmembers():
-            name=member.name.rstrip('/')
-            pure=pathlib.PurePosixPath(name)
-            if not name or member.name.startswith('/') or '\\' in member.name or '..' in pure.parts or name in seen:
-                fail(f'unsafe archive member in {path.name}: {member.name!r}')
-            seen.add(name)
-            if not (member.isdir() or member.isfile()) or member.issym() or member.islnk() or member.isdev() or member.isfifo():
-                fail(f'link or special member in {path.name}: {member.name!r}')
-            result.append((stream,member,name))
-        payload=[]
-        for _,member,name in result:
-            if member.isfile():
-                source=stream.extractfile(member)
-                if source is None: fail(f'cannot read {name}')
-                payload.append((name,source.read()))
-        return payload
-
-def parse(database: pathlib.Path) -> list[str]:
-    payload=members(database)
-    desc=[(name,data) for name,data in payload if name.endswith('/desc')]
-    if not desc: fail('database has no desc records')
-    filenames=[]
-    for name,data in desc:
-        try: lines=data.decode('utf-8').splitlines()
-        except UnicodeDecodeError: fail(f'non-UTF-8 desc record: {name}')
-        try: index=lines.index('%FILENAME%')
-        except ValueError: fail(f'%FILENAME% missing: {name}')
-        if index+1 >= len(lines) or not lines[index+1]: fail(f'%FILENAME% value missing: {name}')
-        filenames.append(lines[index+1])
-    if len(filenames) != len(set(filenames)): fail('duplicate package filename in database')
-    return sorted(filenames)
-
-database=pathlib.Path(sys.argv[1])
-files_archive=pathlib.Path(sys.argv[2])
-expected=sorted(sys.argv[3:])
-actual=parse(database)
-if actual != expected:
-    fail(f'database filenames differ: expected={expected!r} actual={actual!r}')
-files_payload=members(files_archive)
-files_desc=sum(1 for name,_ in files_payload if name.endswith('/desc'))
-files_lists=sum(1 for name,_ in files_payload if name.endswith('/files'))
-if files_desc != len(expected) or files_lists != len(expected):
-    fail('files database package closure differs')
-PY
+    python3 "${script_dir}/verify-database-metadata.py" "$database" "$files_archive" "$@"
 }
 
 main() {

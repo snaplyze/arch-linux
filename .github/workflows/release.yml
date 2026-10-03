@@ -35,6 +35,7 @@ jobs:
     permissions:
       contents: write
     outputs:
+      delivery_kind: ${{ steps.source.outputs.delivery_kind }}
       main_commit: ${{ steps.source.outputs.main_commit }}
       main_tree: ${{ steps.source.outputs.main_tree }}
       source_commit: ${{ steps.source.outputs.source_commit }}
@@ -73,6 +74,14 @@ jobs:
           test "$(git rev-parse HEAD)" = "${MAIN_COMMIT}"
           git merge-base --is-ancestor "${MAIN_COMMIT}" refs/remotes/origin/main
           test "$(git rev-parse refs/remotes/origin/main)" = "${MAIN_COMMIT}"
+          intent="$(python3 repository/release-source.py intent --main-commit "${MAIN_COMMIT}")"
+          kind="$(jq -er .kind <<<"${intent}")"
+          printf 'delivery_kind=%s\n' "${kind}" >>"${GITHUB_OUTPUT}"
+          if [ "${kind}" = packages ]; then
+            # Explicit package intent carries no automatic signing/publication authority.
+            exit 0
+          fi
+          test "${kind}" = installer
           selection="$(python3 repository/actions-release.py select)"
           version="$(jq -er .release_version <<<"${selection}")"
           jq -r 'to_entries[] | "\(.key)=\(.value)"' <<<"${selection}" >>"${GITHUB_OUTPUT}"
@@ -92,6 +101,7 @@ jobs:
           fi
 
       - name: Upload immutable source transport
+        if: steps.source.outputs.delivery_kind == 'installer'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release-source-${{ github.run_id }}
@@ -100,7 +110,7 @@ jobs:
           retention-days: 14
 
   build:
-    if: needs.prepare.outputs.resume != 'true'
+    if: needs.prepare.outputs.delivery_kind == 'installer' && needs.prepare.outputs.resume != 'true'
     name: Build and read back canonical unsigned packages
     needs: prepare
     uses: ./.github/workflows/packages.yml
@@ -265,10 +275,25 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario:
-          - minimal-ext4-systemdboot
-          - stock-gnome-btrfs-luks2-plymouth-grub
-          - marble-gnome-btrfs-luks2-plymouth-systemdboot
+        include:
+          - scenario: minimal-ext4-systemdboot
+            evidence_group: core
+          - scenario: stock-gnome-btrfs-luks2-plymouth-grub
+            evidence_group: core
+          - scenario: marble-gnome-btrfs-luks2-plymouth-systemdboot
+            evidence_group: core
+          - scenario: stock-gnome-ext4-systemdboot
+            evidence_group: supplemental
+          - scenario: stock-gnome-btrfs-systemdboot
+            evidence_group: supplemental
+          - scenario: stock-gnome-btrfs-grub
+            evidence_group: supplemental
+          - scenario: stock-gnome-btrfs-luks2-plymouth-systemdboot
+            evidence_group: supplemental
+          - scenario: marble-gnome-btrfs-luks2-plymouth-systemdboot-stock-gdm
+            evidence_group: supplemental
+          - scenario: minimal-dualboot-ext4-systemdboot
+            evidence_group: supplemental
     steps:
       - name: Check out reviewed main
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -383,7 +408,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: qemu-${{ matrix.scenario }}-${{ needs.prepare.outputs.source_commit }}
+          name: qemu-${{ matrix.evidence_group }}-${{ matrix.scenario }}-${{ needs.prepare.outputs.source_commit }}
           path: ${{ runner.temp }}/${{ matrix.scenario }}.tar.gz
           if-no-files-found: error
           retention-days: 14
@@ -465,7 +490,7 @@ jobs:
       - name: Download three completed QEMU evidence artifacts
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
         with:
-          pattern: qemu-*-${{ needs.prepare.outputs.source_commit }}
+          pattern: qemu-core-*-${{ needs.prepare.outputs.source_commit }}
           merge-multiple: true
           path: ${{ runner.temp }}/qemu-artifacts
 
@@ -540,6 +565,7 @@ jobs:
   draft:
     if: >-
       always() && needs.prepare.result == 'success' &&
+      needs.prepare.outputs.delivery_kind == 'installer' &&
       needs.prepare.outputs.already_published != 'true' &&
       (needs.finalize.result == 'success' || needs.prepare.outputs.resume == 'true')
     name: Create annotated tag and verified draft

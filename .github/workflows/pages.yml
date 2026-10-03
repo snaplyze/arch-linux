@@ -96,6 +96,7 @@ jobs:
     name: Verify signed snapshot
     outputs:
       guarded_main_commit: ${{ steps.source_identity.outputs.guarded_main_commit }}
+      baseline_manifest_sha256: ${{ steps.source_identity.outputs.baseline_manifest_sha256 }}
     # GitHub requires push-level access to read unpublished release assets.
     # Only this manual job receives it; API operations below are read-only.
     permissions:
@@ -120,6 +121,7 @@ jobs:
       - name: Require exact source and annotated tag
         id: source_identity
         env:
+          GH_TOKEN: ${{ github.token }}
           DEPLOYMENT_KIND: ${{ inputs.deployment_kind }}
           PACKAGE_TAG: ${{ inputs.package_tag }}
           RELEASE_VERSION: ${{ inputs.release_version }}
@@ -136,7 +138,62 @@ jobs:
           [[ "${GITHUB_SHA}" =~ ^[a-f0-9]{40}$ ]]
           # Deployment infrastructure may advance after the release is frozen.
           # Verify the tagged ancestor itself, never relabel it as the workflow tree.
-          if git cat-file -e HEAD:repository/release-origin.json 2>/dev/null; then
+          if [ "${DEPLOYMENT_KIND}" = packages ]; then
+            git cat-file -e HEAD:repository/package-origin.json
+            main_commit="$(git show HEAD:repository/package-origin.json | jq -er .mainCommit)"
+            [[ "${main_commit}" =~ ^[a-f0-9]{40}$ ]]
+            git merge-base --is-ancestor "${main_commit}" "${GITHUB_SHA}"
+            test "$(git ls-remote --refs origin refs/heads/main | cut -f1)" = "${main_commit}"
+            printf 'guarded_main_commit=%s\n' "${main_commit}" >>"${GITHUB_OUTPUT}"
+            published="${RUNNER_TEMP}/package-baseline"
+            install -d -m0700 -- "${published}"
+            intent="$(python3 repository/release-source.py intent --main-commit "${main_commit}")"
+            test "$(jq -er .published.releaseVersion <<<"${intent}")" = "${RELEASE_VERSION}"
+            release_id="$(jq -er .published.releaseId <<<"${intent}")"
+            timeout --signal=TERM --kill-after=5s 60s gh api \
+              "/repos/${GITHUB_REPOSITORY}/releases/${release_id}" >"${published}/release-api.json"
+            for field in installerAssetId bootstrapAssetId; do
+              asset_id="$(jq -er ".published.${field}" <<<"${intent}")"
+              name=arch-linux-installer.sh
+              if [ "${field}" = bootstrapAssetId ]; then name=install.sh; fi
+              timeout --signal=TERM --kill-after=5s 60s gh api -H 'Accept: application/octet-stream' \
+                "/repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}" >"${published}/${name}"
+            done
+            curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+              --max-time 60 --max-filesize 8388608 -H 'Cache-Control: no-cache' \
+              'https://snaplyze.github.io/arch-linux/repo/x86_64/repository-manifest.json' \
+              >"${published}/repository-manifest.json"
+            # The active repository may come from a later package-only Release. Resolve its
+            # own source tag, independently of the unchanged installer SemVer Release above.
+            baseline_commit="$(jq -er .sourceCommit "${published}/repository-manifest.json")"
+            [[ "${baseline_commit}" =~ ^[a-f0-9]{40}$ ]]
+            baseline_tag="${RELEASE_VERSION}"
+            if git cat-file -e "${baseline_commit}:repository/package-origin.json" 2>/dev/null; then
+              baseline_tag="$(git show "${baseline_commit}:repository/package-origin.json" | jq -er .packageTag)"
+              [[ "${baseline_tag}" =~ ^packages-[0-9]{8}\.[1-9][0-9]{0,8}$ ]]
+            fi
+            timeout --signal=TERM --kill-after=5s 60s gh api \
+              "/repos/${GITHUB_REPOSITORY}/releases/tags/${baseline_tag}" \
+              >"${published}/baseline-release-api.json"
+            archive="arch-linux-repository-${RELEASE_VERSION}.tar.zst"
+            baseline_digest="$(jq -er .published.repositorySnapshotSha256 <<<"${intent}")"
+            jq -e --arg tag "${baseline_tag}" --arg name "${archive}" --arg digest "sha256:${baseline_digest}" '
+              .tag_name == $tag and .draft == false and .prerelease == false and .immutable == true and
+              ([.assets[] | select(.name == $name)] | length == 1 and
+                .[0].state == "uploaded" and .[0].digest == $digest and
+                (.[0].size | type == "number" and . > 0 and . <= 134217728 and floor == .))
+            ' "${published}/baseline-release-api.json" >/dev/null
+            baseline_asset_id="$(jq -er --arg name "${archive}" '.assets[] | select(.name == $name) | .id' "${published}/baseline-release-api.json")"
+            [[ "${baseline_asset_id}" =~ ^[1-9][0-9]*$ ]]
+            timeout --signal=TERM --kill-after=5s 180s gh api -H 'Accept: application/octet-stream' \
+              "/repos/${GITHUB_REPOSITORY}/releases/assets/${baseline_asset_id}" | \
+              head -c 134217729 >"${published}/${archive}"
+            python3 repository/release-source.py verify-packages \
+              --main-commit "${main_commit}" --source-commit "${SOURCE_COMMIT}" \
+              --package-tag "${PACKAGE_TAG}" --published-input-dir "${published}"
+            printf 'baseline_manifest_sha256=%s\n' \
+              "$(jq -er .published.repositoryManifestSha256 <<<"${intent}")" >>"${GITHUB_OUTPUT}"
+          elif git cat-file -e HEAD:repository/release-origin.json 2>/dev/null; then
             main_commit="$(git show HEAD:repository/release-origin.json | jq -er .mainCommit)"
             [[ "${main_commit}" =~ ^[a-f0-9]{40}$ ]]
             git merge-base --is-ancestor "${main_commit}" "${GITHUB_SHA}"
@@ -289,10 +346,18 @@ jobs:
         if: needs.verify.outputs.guarded_main_commit != ''
         env:
           MAIN_COMMIT: ${{ needs.verify.outputs.guarded_main_commit }}
+          BASELINE_MANIFEST_SHA256: ${{ needs.verify.outputs.baseline_manifest_sha256 }}
         run: |
           set -euo pipefail
           [[ "${MAIN_COMMIT}" =~ ^[a-f0-9]{40}$ ]]
           test "$(git ls-remote --refs https://github.com/snaplyze/arch-linux.git refs/heads/main | cut -f1)" = "${MAIN_COMMIT}"
+          if [ -n "${BASELINE_MANIFEST_SHA256}" ]; then
+            baseline="${RUNNER_TEMP}/active-repository-manifest.json"
+            curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+              --max-time 60 --max-filesize 8388608 -H 'Cache-Control: no-cache' \
+              'https://snaplyze.github.io/arch-linux/repo/x86_64/repository-manifest.json' >"${baseline}"
+            test "$(sha256sum --binary -- "${baseline}" | cut -d ' ' -f1)" = "${BASELINE_MANIFEST_SHA256}"
+          fi
 
       - name: Deploy verified content
         id: deployment

@@ -11,8 +11,8 @@ unset BASH_ENV ENV CDPATH GLOBIGNORE
 readonly qemu_bin='/usr/bin/qemu-system-x86_64'
 readonly qemu_img='/usr/bin/qemu-img'
 readonly python_bin='/usr/bin/python3'
-readonly ovmf_code='/usr/share/OVMF/OVMF_CODE_4M.fd'
-readonly ovmf_vars_template='/usr/share/OVMF/OVMF_VARS_4M.fd'
+ovmf_code=''
+ovmf_vars_template=''
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 repository_root="$(cd -- "${script_dir}/../.." && pwd -P)"
@@ -22,6 +22,7 @@ iso_path=''
 iso_sha256=''
 output_parent=''
 input_mode=''
+media_qualification=false
 release_assets=''
 release_version=''
 legacy_release_assets=''
@@ -111,6 +112,7 @@ usage() {
         '       --legacy-snapshot-sha256 SHA256 (required for the main staged Marble scenario)' \
         '       [--target-disk-metadata absent|identified]' \
         '       --snapshot-sha256 SHA256 --build-metadata-sha256 SHA256 --unsigned-manifest-sha256 SHA256' \
+        '       [--media-qualification] (public Minimal/ext4 or Stock/ext4 only)' \
         '   or: --mode public --release-version VERSION --snapshot-sha256 SHA256' \
         '       --bootstrap-url URL --installer-url URL --public-key-url URL --pages-url URL' >&2
 }
@@ -118,6 +120,32 @@ usage() {
 die() {
     printf 'QEMU_HOST_FAIL: %s\n' "$*" >&2
     return 1
+}
+
+# Only distribution-owned known matching firmware pairs are accepted; never create links.
+select_ovmf_pair() {
+    local code vars
+    for code in /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/edk2/x64/OVMF_CODE.4m.fd; do
+        case "$code" in
+        /usr/share/OVMF/*) vars=/usr/share/OVMF/OVMF_VARS_4M.fd ;;
+        *) vars=/usr/share/edk2/x64/OVMF_VARS.4m.fd ;;
+        esac
+        if [ -f "$code" ] && [ ! -L "$code" ] && [ -r "$code" ] &&
+            [ -f "$vars" ] && [ ! -L "$vars" ] && [ -r "$vars" ]; then
+            ovmf_code="$code"
+            ovmf_vars_template="$vars"
+            return 0
+        fi
+    done
+    die 'no safe matching OVMF code/VARS pair is available'
+}
+
+validate_vm_mode_scenario() {
+    case "${input_mode}:${media_qualification}:${scenario_id}" in
+    staged:false:* | public:false:marble-gnome-btrfs-luks2-plymouth-systemdboot | \
+        public:true:minimal-ext4-systemdboot | public:true:stock-gnome-ext4-systemdboot) return 0 ;;
+    *) die 'mode/scenario is outside the release acceptance matrix'; return 1 ;;
+    esac
 }
 
 require_command() {
@@ -259,7 +287,7 @@ compact_run_evidence() {
         case "${candidate}" in
         *.ppm | *.request.json | *.start.json | *.status.json) continue ;;
         esac
-        grep -aEh '^[[:space:]]*([A-Z]+_QEMU_(READY|INSTALLER_EXIT|INSTALL_COMPLETE|NEIGHBOR_PRESERVED|GUEST_PASS|GUEST_FAIL)|QEMU_HOST_FAIL|QEMU_DIAGNOSTIC_WARNING:|SCREENSHOT_WARNING:|GTK4_APP_(DIAGNOSTIC|LAUNCH_FAIL)|GTK4_SESSION_DIAGNOSTIC|exit_status=|qemu-img|signed repository checks passed|release asset checks passed)' \
+        grep -aEh '^[[:space:]]*([A-Z]+_QEMU_(READY|INSTALLER_EXIT|INSTALL_COMPLETE|NEIGHBOR_PRESERVED|ESP_COLLISION_REFUSAL_PASS|GUEST_PASS|GUEST_FAIL)|QEMU_HOST_FAIL|QEMU_DIAGNOSTIC_WARNING:|SCREENSHOT_WARNING:|GTK4_APP_(DIAGNOSTIC|LAUNCH_FAIL)|GTK4_SESSION_DIAGNOSTIC|exit_status=|qemu-img|signed repository checks passed|release asset checks passed)' \
             "${candidate}" 2>/dev/null || true
     done < <(find "${evidence}" -maxdepth 1 -type f -print0 | LC_ALL=C sort -z) |
         awk 'NR <= 2000 { print substr($0, 1, 4096) }' >>"${summary}" || return 1
@@ -331,14 +359,16 @@ bind_vm_source_identities() {
             die 'public acceptance requires an annotated release tag' || return 1
         source_commit="$(git -C "${repository_root}" rev-parse "refs/tags/${release_version}^{commit}")"
         source_tree="$(git -C "${repository_root}" rev-parse "refs/tags/${release_version}^{tree}")"
-        git -C "${repository_root}" merge-base --is-ancestor "${source_commit}" "${harness_commit}" ||
-            die 'released source is not an ancestor of the test checkout' || return 1
-        # This one documentation file is not a verifier, package, trust or maintenance input.
-        # Release readback notes may advance independently, just like the top-level docs/ tree.
-        git -C "${repository_root}" diff --quiet "${source_commit}" "${harness_commit}" -- \
-            install.sh arch-linux-installer.sh packages repository maintenance \
-            ':(exclude)repository/README.md' ||
-            die 'public test checkout changes release product inputs' || return 1
+        if [ "${media_qualification:-false}" = false ]; then
+            git -C "${repository_root}" merge-base --is-ancestor "${source_commit}" "${harness_commit}" ||
+                die 'released source is not an ancestor of the test checkout' || return 1
+            # This one documentation file is not a verifier, package, trust or maintenance input.
+            # Release readback notes may advance independently, just like the top-level docs/ tree.
+            git -C "${repository_root}" diff --quiet "${source_commit}" "${harness_commit}" -- \
+                install.sh arch-linux-installer.sh packages repository maintenance \
+                ':(exclude)repository/README.md' ||
+                die 'public test checkout changes release product inputs' || return 1
+        fi
     fi
 }
 
@@ -353,8 +383,13 @@ verify_frozen_source_unchanged() {
         [ "$(git -C "${repository_root}" rev-parse "refs/tags/${release_version}^{commit}")" = \
             "${source_commit}" ] || die 'release tag drifted during the VM run'
     fi
-    [ "$(sha256sum --binary -- "${repository_root}/arch-linux-installer.sh" | awk '{ print $1 }')" = \
-        "${installer_sha256}" ] || die 'installer bytes drifted during the VM run'
+    if [ "${media_qualification}" = true ]; then
+        [ "$(release_product_sha256 arch-linux-installer.sh)" = "${installer_sha256}" ] ||
+            die 'released installer bytes drifted during the VM run'
+    else
+        [ "$(sha256sum --binary -- "${repository_root}/arch-linux-installer.sh" | awk '{ print $1 }')" = \
+            "${installer_sha256}" ] || die 'installer bytes drifted during the VM run'
+    fi
     [ "$(stat -Lc '%u:%a:%h' -- "${run_root}/harness.sha256")" = "$(id -u):600:1" ] ||
         die 'harness manifest metadata drifted during the VM run'
     [ "$(sha256sum --binary -- "${run_root}/harness.sha256" | awk '{ print $1 }')" = \
@@ -755,6 +790,23 @@ send_password() {
     exec {serial_bridge_input_fd}>&-
     serial_bridge_input_fd=''
     kill -0 "${serial_bridge_pid}" 2>/dev/null || die 'protected serial credential delivery failed'
+}
+
+release_product_sha256() {
+    git -C "${repository_root}" show "${source_commit}:$1" | sha256sum --binary | awk '{ print $1 }'
+}
+
+load_public_product_trust() {
+    repository_primary_fingerprint="$(git -C "${repository_root}" show "${source_commit}:repository/trust/primary-fingerprint")" || return 1
+    repository_signing_fingerprint="$(git -C "${repository_root}" show "${source_commit}:repository/trust/signing-subkey-fingerprint")" || return 1
+    repository_public_key_sha256="$(release_product_sha256 repository/trust/arch-linux.gpg)" || return 1
+    repository_package_set_sha256="$(release_product_sha256 repository/package-set)" || return 1
+    [[ "${repository_primary_fingerprint}" =~ ^[A-F0-9]{40}$ ]] &&
+        [[ "${repository_signing_fingerprint}" =~ ^[A-F0-9]{40}$ ]] &&
+        [ "${repository_primary_fingerprint}" != "${repository_signing_fingerprint}" ] &&
+        [[ "${repository_public_key_sha256}" =~ ^[a-f0-9]{64}$ ]] &&
+        [[ "${repository_package_set_sha256}" =~ ^[a-f0-9]{64}$ ]] ||
+        { die 'released trust inputs are malformed'; return 1; }
 }
 
 load_release_trust() {
@@ -1458,13 +1510,13 @@ qga_verify() {
         --arg public_key_sha256 "${repository_public_key_sha256}" \
         --arg legacy_release_version "${legacy_release_version:--}" \
         --arg legacy_profile_version "${legacy_profile_version:--}" \
-        --arg legacy_gtk3_version "${legacy_gtk3_version:--}" '
+        --arg legacy_gtk3_version "${legacy_gtk3_version:--}" --arg media_qualification "${media_qualification}" '
         {execute:"guest-exec",arguments:{path:"/usr/bin/bash","capture-output":true,
           arg:["-c",$script,"minimal-verify",$phase,$serial,$vendor,$model,$username,$scenario,$run_id,
             $repository_primary,$repository_signing,$input_mode,$release_version,$target_disk_metadata,$pages_url,$public_key_url,
             $snapshot_sha256,$source_commit,$source_tree,$installer_sha256,$package_set_sha256,
             $build_metadata_sha256,$unsigned_manifest_sha256,$public_key_sha256,
-            $legacy_release_version,$legacy_profile_version,$legacy_gtk3_version]}}')"
+            $legacy_release_version,$legacy_profile_version,$legacy_gtk3_version,$media_qualification]}}')"
     printf '%s\n' "${request}" | jq -cS . >"${evidence}/${stem}.request.json"
     start="$(qga_call "${request}")" || die "QGA verification did not start: ${phase}"
     printf '%s\n' "${start}" | jq -cS . >"${evidence}/${stem}.start.json"
@@ -1497,8 +1549,14 @@ qga_verify() {
         "${stdout_file}" || die "guest verification marker is missing: ${phase}"
     last_boot_id="$(sed -n 's/^.* boot_id=\([a-f0-9-]\{36\}\) .*$/\1/p' "${stdout_file}" | head -n1)"
     [[ "${last_boot_id}" =~ ^[a-f0-9-]{36}$ ]] || die "guest boot id is missing: ${phase}"
-    if [ "${input_mode}" = public ] && [ "${phase}" = prelogin ]; then
+    if [ "${input_mode}" = public ] && { [ "${phase}" = prelogin ] || [ "${phase}" = firstboot ]; }; then
         capture_public_repository_evidence "${stdout_file}"
+    fi
+}
+
+prepare_public_media_readback() {
+    if [ "${input_mode}" = public ] && [ "${media_qualification}" = true ]; then
+        qga_verify media-readback-prepare media-readback-prepare || return 1
     fi
 }
 
@@ -1657,6 +1715,16 @@ run_marble_acceptance() {
         'the second real GDM password authentication reached Marble GNOME Wayland with storage, isolation and Qkk intact'
     if [ "${input_mode}" = staged ] && [[ "${scenario_id}" != *-stock-gdm ]]; then
         current_phase='marble-lifecycle'
+        qga_verify helper-failure helper-failure
+        qga_verify helper-restored-prelogin helper-retained-greeter
+        marble_gdm_login helper-restored-login helper-retained
+        record_assertion gdm-helper-failure-honest \
+            'unsafe project ancestry made prepare and status fail; activation remained and the actual Marble greeter and password session were inspected'
+        qga_verify deactivate-gdm explicit-deactivation
+        qga_verify deactivated-prelogin deactivated-greeter
+        marble_gdm_login deactivated-login deactivated
+        record_assertion gdm-explicit-deactivation \
+            'explicit helper removal disabled GDM overlays; actual Stock greeter and password login retained the installed Marble user desktop'
         qga_verify incompatible-fixture fallback-enable
         qga_verify incompatible-prelogin fallback-greeter
         marble_gdm_login incompatible-login fallback
@@ -1679,6 +1747,49 @@ run_marble_acceptance() {
     current_phase='clean-shutdown'
     schedule_transition poweroff postreboot
     wait_qemu_exit postreboot-poweroff 300
+}
+
+verify_collision_refusal_marker() {
+    local serial_log="$1" line
+    local -a markers=()
+    collision_esp_sha256='' collision_root_sha256=''
+    [ -f "${serial_log}" ] && [ ! -L "${serial_log}" ] || return 1
+    mapfile -t markers < <(grep -aF 'MINIMAL_QEMU_ESP_COLLISION_REFUSAL_PASS' "${serial_log}")
+    [ "${#markers[@]}" -eq 1 ] || return 1
+    # Serial terminals may add one CR before LF; all marker fields remain exact.
+    line="${markers[0]%$'\r'}"
+    [[ "${line}" =~ ^MINIMAL_QEMU_ESP_COLLISION_REFUSAL_PASS\ run_id=([A-Za-z0-9_-]+)\ esp_sha256=([a-f0-9]{64})\ root_sha256=([a-f0-9]{64})$ ]] || return 1
+    [ "${BASH_REMATCH[1]}" = "${run_id}" ] || return 1
+    collision_esp_sha256="${BASH_REMATCH[2]}"
+    collision_root_sha256="${BASH_REMATCH[3]}"
+}
+
+run_snapshot_acceptance() {
+    local snapshot_boot_id
+    current_phase='snapshot-boot'
+    qga_verify snapshot-prepare snapshot-prepare
+    schedule_transition reboot snapshot-select
+    wait_qemu_exit snapshot-select-reboot 300
+    launch_qemu snapshot false
+    wait_qga || die 'snapshot boot guest agent did not become ready'
+    qga_verify snapshot-prelogin snapshot-prelogin
+    [ "${post_boot_id}" != "${last_boot_id}" ] || die 'snapshot boot did not change boot identity'
+    snapshot_boot_id="${last_boot_id}"
+    hmp_request key ret
+    sleep 3
+    hmp_type_password
+    qga_verify snapshot-login snapshot-login
+    record_assertion btrfs-readonly-snapshot-real-boot \
+        'the production grub-btrfs entry booted the exact read-only snapshot through a volatile overlay with matching modules/initramfs and real password GNOME Wayland login'
+    schedule_transition reboot snapshot-return
+    wait_qemu_exit snapshot-return-reboot 300
+    launch_qemu snapshot-return false
+    wait_qga || die 'normal root did not return after snapshot boot'
+    qga_verify snapshot-cleanup snapshot-cleanup
+    [ "${snapshot_boot_id}" != "${last_boot_id}" ] || die 'normal root return did not change boot identity'
+    qga_verify postreboot-prelogin snapshot-return-prelogin
+    record_assertion snapshot-normal-root-return-owned-cleanup \
+        'ordinary @ root returned through GRUB and exact owned snapshot/evidence fixtures were removed'
 }
 
 build_result() {
@@ -1714,6 +1825,8 @@ build_result() {
         --arg status "${result_status}" --argjson exitStatus "${exit_status}" \
         --arg failedPhase "${failed_phase}" \
         --arg scenario "${scenario_id}" --arg runId "${run_id}" \
+        --argjson mediaQualification "${media_qualification}" \
+        --arg harnessCommit "${harness_commit}" --arg harnessTree "${harness_tree}" \
         --arg inputMode "${input_mode}" --arg releaseVersion "${release_version}" \
         --arg sourceCommit "${source_commit}" --arg sourceTree "${source_tree}" \
         --arg installerSha256 "${installer_sha256}" --arg harnessSha256 "${harness_sha256}" \
@@ -1756,7 +1869,11 @@ build_result() {
           releaseVersion:$releaseVersion,retainedEvidenceBytes:$retainedEvidenceBytes,
           screenshots:$screenshots,snapshotVerification:$snapshotVerification,
           sourceCommit:$sourceCommit,sourceTree:$sourceTree,status:$status,
-          targetSerial:$targetSerial,unsignedManifestSha256:$unsignedManifestSha256}' \
+          targetSerial:$targetSerial,unsignedManifestSha256:$unsignedManifestSha256}
+        + (if $mediaQualification then
+             {harnessCommit:$harnessCommit,harnessTree:$harnessTree,
+              mediaQualification:true,qualificationStatus:$status}
+           else {} end)' \
         >"${run_root}/result.json" || return 1
     jq -e --arg expected_status "${result_status}" --argjson expected_exit "${exit_status}" \
         --arg expected_phase "${failed_phase}" '
@@ -1784,6 +1901,7 @@ assert_forced_failure_result_contract() {
 bind_frozen_inputs() {
     local binding="${output_parent}/frozen-inputs.txt" expected
     expected="$(printf '%s\n' \
+        "media_qualification=${media_qualification}" \
         "source_commit=${source_commit}" \
         "source_tree=${source_tree}" \
         "harness_commit=${harness_commit}" \
@@ -1905,6 +2023,7 @@ main() {
         --iso) [ "$#" -ge 2 ] || { usage; exit 2; }; iso_path="$2"; shift 2 ;;
         --iso-sha256) [ "$#" -ge 2 ] || { usage; exit 2; }; iso_sha256="$2"; shift 2 ;;
         --output-root) [ "$#" -ge 2 ] || { usage; exit 2; }; output_parent="$2"; shift 2 ;;
+        --media-qualification) media_qualification=true; shift ;;
         --mode) [ "$#" -ge 2 ] || { usage; exit 2; }; input_mode="$2"; shift 2 ;;
         --release-assets) [ "$#" -ge 2 ] || { usage; exit 2; }; release_assets="$2"; shift 2 ;;
         --release-version) [ "$#" -ge 2 ] || { usage; exit 2; }; release_version="$2"; shift 2 ;;
@@ -1929,11 +2048,7 @@ main() {
     done
     assert_forced_failure_result_contract
     [[ "${iso_path}" = /* && "${output_parent}" = /* ]] || die 'ISO and output paths must be absolute'
-    case "${input_mode}:${scenario_id}" in
-    staged:* | \
-        public:marble-gnome-btrfs-luks2-plymouth-systemdboot) ;;
-    *) die 'mode/scenario is outside the release acceptance matrix' ;;
-    esac
+    validate_vm_mode_scenario
     [[ "${release_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die 'release version is malformed'
     case "${target_disk_metadata}" in
     absent | identified) ;;
@@ -1976,6 +2091,7 @@ main() {
     [[ "${iso_sha256}" =~ ^[a-f0-9]{64}$ ]] || die 'accepted ISO SHA-256 is malformed'
     [ -f "${iso_path}" ] && [ ! -L "${iso_path}" ] || die 'accepted ISO is not a regular non-symlink file'
     [ -r /dev/kvm ] && [ -w /dev/kvm ] || die '/dev/kvm is not accessible'
+    select_ovmf_pair
     for input in "${qemu_bin}" "${qemu_img}" "${ovmf_code}" "${ovmf_vars_template}"; do
         [ -f "${input}" ] && [ ! -L "${input}" ] || die "required runtime input is unsafe: ${input}"
     done
@@ -1991,6 +2107,10 @@ main() {
     bind_vm_source_identities
     installer_sha256="$(sha256sum --binary -- "${repository_root}/arch-linux-installer.sh" | awk '{ print $1 }')"
     bootstrap_sha256="$(sha256sum --binary -- "${repository_root}/install.sh" | awk '{ print $1 }')"
+    if [ "${media_qualification}" = true ]; then
+        installer_sha256="$(release_product_sha256 arch-linux-installer.sh)"
+        bootstrap_sha256="$(release_product_sha256 install.sh)"
+    fi
     run_id="${run_prefix}-$(date -u +%Y%m%dT%H%M%SZ)-$(openssl rand -hex 4)"
     if [ "${run_prefix}" = minimal ] || [ "${run_prefix}" = dualboot ]; then
         target_serial="ALI100M$(openssl rand -hex 6 | tr '[:lower:]' '[:upper:]')"
@@ -2038,8 +2158,8 @@ main() {
     ) >"${run_root}/harness.sha256"
     harness_sha256="$(sha256sum --binary -- "${run_root}/harness.sha256" | awk '{ print $1 }')"
     if [ "${input_mode}" = public ]; then
-        printf 'harness_commit=%s\nharness_tree=%s\nrelease_commit=%s\nrelease_tree=%s\n' \
-            "${harness_commit}" "${harness_tree}" "${source_commit}" "${source_tree}" \
+        printf 'harness_commit=%s\nharness_tree=%s\nrelease_commit=%s\nrelease_tree=%s\nmedia_qualification=%s\n' \
+            "${harness_commit}" "${harness_tree}" "${source_commit}" "${source_tree}" "${media_qualification}" \
             >"${run_root}/harness-source.txt"
     fi
     if [ "${input_mode}" = staged ]; then
@@ -2050,7 +2170,11 @@ main() {
         fi
         snapshot_verification='INDEPENDENT_PASS'
     else
-        load_release_trust "${repository_root}/repository/trust"
+        if [ "${media_qualification}" = true ]; then
+            load_public_product_trust
+        else
+            load_release_trust "${repository_root}/repository/trust"
+        fi
         snapshot_verification='PENDING_PUBLIC_RELEASE_PAGES_BINDING'
     fi
     if [ "${input_mode}" = staged ] && is_marble_scenario; then
@@ -2111,6 +2235,7 @@ main() {
         printf 'HOSTNAME=%s\nUSERNAME=vmtest\nMICROCODE=none\n' "${guest_hostname}"
         printf 'SOURCE_COMMIT=%s\nSOURCE_TREE=%s\nINSTALLER_SHA256=%s\nHARNESS_SHA256=%s\nISO_SHA256=%s\n' \
             "${source_commit}" "${source_tree}" "${installer_sha256}" "${harness_sha256}" "${iso_sha256}"
+        printf 'MEDIA_QUALIFICATION=%s\n' "${media_qualification}"
         printf 'INPUT_MODE=%s\nRELEASE_VERSION=%s\nBOOTSTRAP_SHA256=%s\nSNAPSHOT_SHA256=%s\nBUILD_METADATA_SHA256=%s\nUNSIGNED_MANIFEST_SHA256=%s\nPUBLIC_KEY_SHA256=%s\nPRIMARY_FINGERPRINT=%s\nSIGNING_SUBKEY_FINGERPRINT=%s\n' \
             "${input_mode}" "${release_version}" "${bootstrap_sha256}" "${snapshot_sha256}" \
             "${build_metadata_sha256}" "${unsigned_manifest_sha256}" \
@@ -2185,6 +2310,7 @@ main() {
         capture_and_unlock_luks_prompt firstboot
     fi
     wait_qga || die 'first boot QEMU guest agent did not become ready'
+    prepare_public_media_readback || die 'public media readback preparation failed'
     if is_marble_scenario; then
         run_marble_acceptance
     elif [[ "${scenario_id}" = minimal-* ]]; then
@@ -2212,6 +2338,10 @@ main() {
         record_assertion reboot-and-tty-return 'guest rebooted with a new boot id and tty1 returned'
         record_assertion failed-units-zero-postreboot 'systemctl --failed remains empty after reboot'
         if [ "${scenario_id}" = minimal-dualboot-ext4-systemdboot ]; then
+            verify_collision_refusal_marker "${evidence}/install-serial.log" ||
+                die 'exact run-bound ESP collision refusal proof is absent or malformed'
+            record_assertion dual-boot-collision-refusal \
+                "the real installer refused collision before mutation; run_id=${run_id} esp_sha256=${collision_esp_sha256} root_sha256=${collision_root_sha256} were unchanged"
             grep -aFq "MINIMAL_QEMU_NEIGHBOR_PRESERVED run_id=${run_id}" \
                 "${evidence}/install-serial.log" || die 'neighbor preservation check is absent'
             qga_verify neighbor-select neighbor-select
@@ -2223,7 +2353,7 @@ main() {
             qga_verify neighbor neighbor-verify
             capture_screen neighbor-tty
             record_assertion dual-boot-neighbor-preserved \
-                'installer reused the EFI partition and root partition3; neighboring Linux data and boot files were preserved'
+                'after full update and reboot, UUID/PARTUUID and all six neighbor/EFI hashes matched the original baseline; the actual neighboring Linux boot repeated that readback'
             record_assertion dual-boot-both-systems-boot \
                 'the installed Arch system and the preserved neighboring Linux both booted through systemd-boot'
             shutdown_phase=neighbor
@@ -2382,6 +2512,9 @@ main() {
         else
             record_assertion gdm-second-real-login 'Stock GDM accepted a second virtual-keyboard password login into GNOME on Wayland'
             record_assertion failed-units-zero-secondlogin 'systemctl --failed remains empty after reboot and the second login'
+        fi
+        if [ "${scenario_id}" = stock-gnome-btrfs-grub ]; then
+            run_snapshot_acceptance
         fi
         current_phase='clean-shutdown'
         schedule_transition poweroff postreboot

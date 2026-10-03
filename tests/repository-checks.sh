@@ -417,6 +417,7 @@ cp -- "$repo_root/repository/safe-extract-snapshot.py" "$fixture_project/reposit
 cp -- "$repo_root/repository/acceptance-manifest.py" "$fixture_project/repository/acceptance-manifest.py"
 cp -- "$repo_root/repository/snapshot-manifest.py" "$fixture_project/repository/snapshot-manifest.py"
 cp -- "$repo_root/repository/verify-release-assets.sh" "$fixture_project/repository/verify-release-assets.sh"
+cp -- "$repo_root/repository/verify-database-metadata.py" "$fixture_project/repository/verify-database-metadata.py"
 cp -- "$repo_root/repository/verify-signed-repository.sh" "$fixture_project/repository/verify-signed-repository.sh"
 cp -- "$repo_root/repository/verify-unsigned-build.sh" "$fixture_project/repository/verify-unsigned-build.sh"
 cp -- "$repo_root/maintenance/accepted-arch-iso.json" \
@@ -435,8 +436,9 @@ import pathlib, sys
 destination=pathlib.Path(sys.argv[1])
 verifier=sys.argv[2]
 destination.write_text(
-    '#!/usr/bin/env python3\nimport os,sys\n'
-    f'os.execv(sys.executable,[sys.executable,{verifier!r},*sys.argv[1:]])\n',
+    '#!/usr/bin/env python3\nimport os,sys,runpy\n'
+    f'if __name__ == \"__main__\": os.execv(sys.executable,[sys.executable,{verifier!r},*sys.argv[1:]])\n'
+    f'globals().update(runpy.run_path({verifier!r}))\n',
     encoding='utf-8',
 )
 PY
@@ -448,7 +450,8 @@ chmod 0755 -- "$fixture_project/repository/lib/common.sh" \
     "$fixture_project/repository/verify-signed-repository.sh" \
     "$fixture_project/repository/verify-unsigned-build.sh" \
     "$fixture_project/repository/verify-package-metadata.py"
-chmod 0644 -- "$fixture_project/repository/package-set" "$fixture_project/repository/source-date-epoch"
+chmod 0644 -- "$fixture_project/repository/package-set" "$fixture_project/repository/source-date-epoch" \
+    "$fixture_project/repository/verify-database-metadata.py"
 PYTHONDONTWRITEBYTECODE=1 python3 -I -B - \
     "$fixture_project/repository/acceptance-manifest.py" <<'PY'
 import importlib.util
@@ -638,34 +641,11 @@ for package in "${packages[@]}"; do
     sign_file "$key_home" "$signing" "$snapshot/$name" "$snapshot/$name.sig"
     package_names+=("$name")
 done
-python3 - "$snapshot" "${package_names[@]}" <<'PY'
-from __future__ import annotations
-import gzip, io, pathlib, sys, tarfile
-root=pathlib.Path(sys.argv[1])
-filenames=sys.argv[2:]
+python3 -B "$repo_root/tests/repository-database-checks.py" create \
+    "$snapshot" "${package_names[@]}"
+python3 -B "$repo_root/tests/repository-database-checks.py" checks \
+    "$snapshot" "$fixture_project/repository/verify-signed-repository.sh"
 
-def write(path: pathlib.Path, include_files: bool) -> None:
-    with path.open('wb') as raw:
-        with gzip.GzipFile(filename='',mode='wb',fileobj=raw,mtime=0) as zipped:
-            with tarfile.open(fileobj=zipped,mode='w',format=tarfile.USTAR_FORMAT) as stream:
-                for filename in filenames:
-                    package,version,revision,_arch=filename.rsplit('-',3)
-                    directory=f'{package}-{version}-{revision}'
-                    info=tarfile.TarInfo(directory+'/')
-                    info.type=tarfile.DIRTYPE; info.mode=0o755; info.uid=info.gid=0; info.mtime=0
-                    stream.addfile(info)
-                    desc=f'%FILENAME%\n{filename}\n\n%NAME%\n{package}\n'.encode()
-                    info=tarfile.TarInfo(directory+'/desc')
-                    info.mode=0o644; info.uid=info.gid=0; info.mtime=0; info.size=len(desc)
-                    stream.addfile(info,io.BytesIO(desc))
-                    if include_files:
-                        payload=f'%FILES%\nusr/share/{package}/fixture\n'.encode()
-                        info=tarfile.TarInfo(directory+'/files')
-                        info.mode=0o644; info.uid=info.gid=0; info.mtime=0; info.size=len(payload)
-                        stream.addfile(info,io.BytesIO(payload))
-write(root/'arch-linux.db.tar.gz',False)
-write(root/'arch-linux.files.tar.gz',True)
-PY
 for file in arch-linux.db.tar.gz arch-linux.files.tar.gz; do
     chmod 0644 -- "$snapshot/$file"
     sign_file "$key_home" "$signing" "$snapshot/$file" "$snapshot/$file.sig"
@@ -770,6 +750,37 @@ expect_rejected() {
         exit 1
     fi
 }
+
+# Re-sign databases, aliases and manifest with the same ephemeral accepted key.
+# These failures must reach the semantic gate after every public signature gate.
+for semantic_case in wrong-name wrong-files; do
+    semantic_negative="$work/semantic-$semantic_case"
+    cp -a -- "$snapshot" "$semantic_negative"
+    if [ "$semantic_case" = wrong-name ]; then
+        python3 -B "$repo_root/tests/repository-database-checks.py" mutate \
+            "$semantic_negative" field NAME wrong
+    else
+        python3 -B "$repo_root/tests/repository-database-checks.py" mutate \
+            "$semantic_negative" list '' missing
+    fi
+    for database_file in arch-linux.db arch-linux.files; do
+        rm -- "$semantic_negative/$database_file.tar.gz.sig"
+        sign_file "$key_home" "$signing" "$semantic_negative/$database_file.tar.gz" \
+            "$semantic_negative/$database_file.tar.gz.sig"
+        cp -- "$semantic_negative/$database_file.tar.gz" "$semantic_negative/$database_file"
+        cp -- "$semantic_negative/$database_file.tar.gz.sig" "$semantic_negative/$database_file.sig"
+    done
+    resign_manifest "$semantic_negative"
+    if semantic_result="$(verify_snapshot "$semantic_negative" 2>&1)"; then
+        printf 'repository check failed: signed semantic fixture accepted: %s\n' "$semantic_case" >&2
+        exit 1
+    fi
+    grep -Fq 'repository database check failed:' <<<"$semantic_result" || {
+        printf 'repository check failed: semantic fixture hit wrong gate: %s: %s\n' \
+            "$semantic_case" "$semantic_result" >&2
+        exit 1
+    }
+done
 
 negative="$work/tampered-package"
 cp -a -- "$snapshot" "$negative"

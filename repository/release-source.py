@@ -9,9 +9,14 @@ import json
 import os
 from pathlib import Path
 import re
+import runpy
+import signal
+import stat
 import subprocess
 import sys
+import tarfile
 import tempfile
+import time
 
 ROOT = Path(__file__).resolve().parent.parent
 ORIGIN = "repository/release-origin.json"
@@ -80,9 +85,322 @@ def replace_once(raw: bytes, before: bytes, after: bytes, label: str) -> bytes:
     return raw.replace(before, after, 1)
 
 
+INTENT = "repository/delivery-intent.json"
+PACKAGE_ORIGIN = "repository/package-origin.json"
+PACKAGE_TAG = re.compile(r"packages-[0-9]{8}\.[1-9][0-9]{0,8}\Z")
+HEX64 = re.compile(r"[a-f0-9]{64}\Z")
+MAX_BASELINE_SNAPSHOT_BYTES = 128 * 1024 * 1024
+MAX_BASELINE_SNAPSHOT_SECONDS = 60
+
+
+def unique_json_object(pairs: list[tuple[str, object]]) -> dict:
+    value = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError("delivery intent contains a duplicate JSON key")
+        value[key] = item
+    return value
+
+
+def delivery_intent(root: Path, commit: str) -> dict:
+    entries = tree_entries(root, commit)
+    if INTENT not in entries:
+        return {"schema": 1, "kind": "installer"}
+    value = json.loads(blob(root, commit, INTENT), object_pairs_hook=unique_json_object)
+    if not isinstance(value, dict) or type(value.get("schema")) is not int or value["schema"] != 1:
+        raise ValueError("delivery intent schema must be integer 1")
+    if value == {"schema": 1, "kind": "installer"}:
+        return value
+    if not isinstance(value, dict) or set(value) != {"schema", "kind", "packageTag", "published"} or value["schema"] != 1 or value["kind"] != "packages":
+        raise ValueError("delivery intent is malformed")
+    published = value["published"]
+    expected = {"releaseVersion", "releaseId", "sourceCommit", "sourceTree", "installerAssetId", "bootstrapAssetId", "repositoryManifestSha256", "repositorySnapshotSha256"}
+    if not isinstance(published, dict) or set(published) != expected or not isinstance(value["packageTag"], str) or not PACKAGE_TAG.fullmatch(value["packageTag"]):
+        raise ValueError("package delivery intent is malformed")
+    version_parts(published["releaseVersion"])
+    for key in ("releaseId", "installerAssetId", "bootstrapAssetId"):
+        if type(published[key]) is not int or published[key] <= 0:
+            raise ValueError("published asset identity is malformed")
+    for key in ("sourceCommit", "sourceTree", "repositoryManifestSha256", "repositorySnapshotSha256"):
+        pattern = HEX64 if key.endswith("Sha256") else HEX40
+        if not isinstance(published[key], str) or not pattern.fullmatch(published[key]):
+            raise ValueError("published source identity is malformed")
+    return value
+
+
+def read_input(directory: Path, name: str) -> bytes:
+    path = directory / name
+    limit = 8 * 1024 * 1024
+    if directory.is_symlink():
+        raise ValueError("published input directory is a symlink")
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(descriptor, "rb") as stream:
+        attributes = os.fstat(stream.fileno())
+        if not stat.S_ISREG(attributes.st_mode) or attributes.st_size > limit:
+            raise ValueError("published input is not a bounded regular file")
+        raw = stream.read(limit + 1)
+    if len(raw) > limit:
+        raise ValueError("published input exceeds byte limit")
+    return raw
+
+
+def baseline_tag(root: Path, commit: str, version: str) -> str:
+    tag = version
+    if PACKAGE_ORIGIN in tree_entries(root, commit):
+        origin = json.loads(blob(root, commit, PACKAGE_ORIGIN), object_pairs_hook=unique_json_object)
+        tag = origin.get("packageTag")
+        if origin.get("kind") != "packages" or not isinstance(tag, str) or not PACKAGE_TAG.fullmatch(tag):
+            raise ValueError("repository baseline package origin is malformed")
+    if git(root, "cat-file", "-t", f"refs/tags/{tag}").decode().strip() != "tag" or oid(root, f"refs/tags/{tag}^{{commit}}") != commit:
+        raise ValueError("repository baseline requires its exact annotated source tag")
+    return tag
+
+
+def verify_baseline_snapshot(directory: Path, tag: str, version: str,
+                             digest: str, manifest_raw: bytes) -> None:
+    api = json.loads(read_input(directory, "baseline-release-api.json"), object_pairs_hook=unique_json_object)
+    if (not isinstance(api, dict) or type(api.get("id")) is not int or api["id"] <= 0 or
+            api.get("tag_name") != tag or api.get("draft") is not False or
+            api.get("prerelease") is not False or api.get("immutable") is not True):
+        raise ValueError("repository baseline release identity differs")
+    name = f"arch-linux-repository-{version}.tar.zst"
+    assets = api.get("assets")
+    if not isinstance(assets, list) or any(not isinstance(row, dict) for row in assets):
+        raise ValueError("repository baseline release assets are malformed")
+    rows = [row for row in assets if row.get("name") == name]
+    if len(rows) != 1:
+        raise ValueError("repository baseline snapshot asset is ambiguous")
+    asset = rows[0]
+    if (type(asset.get("id")) is not int or asset["id"] <= 0 or
+            sum(row.get("id") == asset["id"] for row in assets) != 1 or
+            asset.get("state") != "uploaded" or type(asset.get("size")) is not int or
+            not 0 < asset["size"] <= MAX_BASELINE_SNAPSHOT_BYTES or
+            asset.get("digest") != "sha256:" + digest):
+        raise ValueError("repository baseline snapshot asset identity differs")
+    if directory.is_symlink():
+        raise ValueError("published input directory is a symlink")
+    descriptor = os.open(directory / name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    deadline = time.monotonic() + MAX_BASELINE_SNAPSHOT_SECONDS
+    prior_handler = signal.getsignal(signal.SIGALRM)
+    prior_timer = signal.getitimer(signal.ITIMER_REAL)
+    def expired(_signum, _frame):
+        raise ValueError("repository baseline snapshot time limit exceeded")
+    signal.signal(signal.SIGALRM, expired)
+    signal.setitimer(signal.ITIMER_REAL, MAX_BASELINE_SNAPSHOT_SECONDS)
+    try:
+        with os.fdopen(descriptor, "rb") as source, tempfile.TemporaryFile() as compressed:
+            info = os.fstat(source.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or not 0 < info.st_size <= MAX_BASELINE_SNAPSHOT_BYTES:
+                raise ValueError("repository baseline snapshot is not a bounded regular file")
+            actual = hashlib.sha256()
+            size = 0
+            for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                size += len(chunk)
+                if size > MAX_BASELINE_SNAPSHOT_BYTES:
+                    raise ValueError("repository baseline snapshot exceeds byte limit")
+                actual.update(chunk)
+                compressed.write(chunk)
+            if size != asset["size"] or actual.hexdigest() != digest:
+                raise ValueError("repository baseline snapshot bytes differ")
+            # Reuse public TRUST-01 resource/pre-extension bounds. The private unnamed copy
+            # contains exactly the accepted hash bytes, independent of source-path/inode changes.
+            metadata = runpy.run_path(str(ROOT / "repository/verify-package-metadata.py"))
+            compressed.flush()
+            frozen = f"/proc/{os.getpid()}/fd/{compressed.fileno()}"
+            # --force follows this owned FD link. Integrity testing first prohibits zstd's
+            # force/stdout passthrough of an uncompressed input.
+            if metadata["run_zstd_bounded"](["zstd", "--test", "--quiet", "--force", "--", frozen], deadline) != 0:
+                raise ValueError("repository baseline snapshot integrity differs")
+            with tempfile.TemporaryFile() as expanded:
+                if metadata["run_zstd_bounded"](
+                        ["zstd", "--decompress", "--quiet", "--stdout", "--force", "--", frozen], deadline, expanded) != 0:
+                    raise ValueError("repository baseline snapshot decompression failed")
+                expanded.seek(0)
+                seen = set()
+                matched = False
+                with tarfile.open(fileobj=expanded, mode="r:", tarinfo=metadata["BoundedTarInfo"]) as archive:
+                    for member in archive:
+                        member_name = metadata["safe_member_name"](member)
+                        if member_name in seen or len(seen) >= 64:
+                            raise ValueError("repository baseline snapshot archive closure differs")
+                        seen.add(member_name)
+                        if member.isdir() and member_name in {"repo", "repo/x86_64"}:
+                            continue
+                        if (not member.isreg() or member.type != tarfile.REGTYPE or
+                                not re.fullmatch(r"repo/x86_64/[A-Za-z0-9][A-Za-z0-9+._-]*", member_name)):
+                            raise ValueError("repository baseline snapshot contains an unsafe member")
+                        if member_name == "repo/x86_64/repository-manifest.json":
+                            if member.size != len(manifest_raw) or metadata["read_member"](archive, member) != manifest_raw:
+                                raise ValueError("repository baseline snapshot manifest bytes differ")
+                            matched = True
+                if not matched:
+                    raise ValueError("repository baseline snapshot manifest is absent")
+    except (OSError, tarfile.TarError) as error:
+        raise ValueError("repository baseline snapshot inspection failed") from error
+    except SystemExit as error:
+        raise ValueError("repository baseline snapshot resource or archive limit exceeded") from error
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, *prior_timer)
+        signal.signal(signal.SIGALRM, prior_handler)
+
+
+def package_metadata(root: Path, commit: str, package: str) -> tuple[str, str, int, str]:
+    raw = blob(root, commit, f"packages/{package}/.SRCINFO").decode("ascii")
+    values = []
+    for key in ("epoch", "pkgver", "pkgrel", "arch"):
+        matches = re.findall(rf"^\t{key} = (\S+)$", raw, re.M)
+        if key == "epoch" and not matches:
+            matches = ["0"]
+        if len(matches) != 1:
+            raise ValueError("package metadata is ambiguous")
+        values.append(matches[0])
+    epoch, version, revision, arch = values
+    if not re.fullmatch(r"0|[1-9][0-9]{0,8}", epoch) or not re.fullmatch(r"[1-9][0-9]{0,8}", revision) or not re.fullmatch(r"[A-Za-z0-9+._]+", version) or arch not in {"any", "x86_64"}:
+        raise ValueError("package metadata is malformed")
+    pkgbuild = blob(root, commit, f"packages/{package}/PKGBUILD")
+    if re.findall(rb"^pkgname=(\S+)$", pkgbuild, re.M) != [package.encode()] or re.findall(rb"^arch=\('([^']+)'\)$", pkgbuild, re.M) != [arch.encode()]:
+        raise ValueError("PKGBUILD name or architecture differs from package metadata")
+    for key in ("pkgbase", "pkgname"):
+        if re.findall(rf"^{key} = (\S+)$", raw, re.M) != [package]:
+            raise ValueError("SRCINFO package name differs from package closure")
+    for key, value in (("pkgver", version), ("pkgrel", revision)):
+        if re.findall(rb"^" + key.encode() + rb"=(\S+)$", pkgbuild, re.M) != [value.encode()]:
+            raise ValueError("PKGBUILD and SRCINFO versions differ")
+    epoch_values = re.findall(rb"^epoch=(\S+)$", pkgbuild, re.M)
+    if epoch_values != ([] if epoch == "0" and not epoch_values else [epoch.encode()]):
+        raise ValueError("PKGBUILD and SRCINFO epochs differ")
+    for alias in re.findall(rb'"([a-z0-9+._-]+)=\$\{pkgver\}-\$\{pkgrel\}"', pkgbuild):
+        if raw.count(f"\tprovides = {alias.decode()}={version}-{revision}\n") != 1:
+            raise ValueError("version-bound provides differ")
+    return epoch, version, int(revision), arch
+
+
+def package_tree(root: Path, main: str, tag: str, directory: Path) -> tuple[str, str]:
+    if not HEX40.fullmatch(main) or oid(root, f"{main}^{{commit}}") != main:
+        raise ValueError("reviewed package commit is malformed")
+    entries = tree_entries(root, main)
+    if ORIGIN in entries or PACKAGE_ORIGIN in entries:
+        raise ValueError("a delivery child cannot be reviewed main")
+    transformer = blob(root, main, TRANSFORMER)
+    if transformer != Path(__file__).read_bytes():
+        raise ValueError("package transformer differs from reviewed main")
+    intent = delivery_intent(root, main)
+    if intent["kind"] != "packages" or intent["packageTag"] != tag:
+        raise ValueError("package intent or tag differs")
+    published = intent["published"]
+    version = published["releaseVersion"]
+    release = published["sourceCommit"]
+    if git(root, "cat-file", "-t", f"refs/tags/{version}").decode().strip() != "tag" or oid(root, f"refs/tags/{version}^{{commit}}") != release:
+        raise ValueError("published release requires its exact annotated SemVer tag")
+    if oid(root, f"{release}^{{tree}}") != published["sourceTree"]:
+        raise ValueError("published release source tree differs")
+    api = json.loads(read_input(directory, "release-api.json"))
+    if api.get("id") != published["releaseId"] or api.get("tag_name") != version or api.get("draft") is not False or api.get("prerelease") is not False or api.get("immutable") is not True:
+        raise ValueError("published release identity differs")
+    raw_manifest = read_input(directory, "repository-manifest.json")
+    if hashlib.sha256(raw_manifest).hexdigest() != published["repositoryManifestSha256"]:
+        raise ValueError("active repository baseline differs")
+    baseline = json.loads(raw_manifest)
+    baseline_commit = baseline["sourceCommit"]
+    if baseline.get("schema") != 2 or baseline.get("releaseVersion") != version or not isinstance(baseline_commit, str) or not HEX40.fullmatch(baseline_commit) or oid(root, f"{baseline_commit}^{{tree}}") != baseline["sourceTree"]:
+        raise ValueError("repository baseline source differs")
+    active_tag = baseline_tag(root, baseline_commit, version)
+    verify_baseline_snapshot(directory, active_tag, version, published["repositorySnapshotSha256"], raw_manifest)
+    for field in ("buildMetadataSha256", "unsignedManifestSha256"):
+        if not isinstance(baseline.get(field), str) or not HEX64.fullmatch(baseline[field]):
+            raise ValueError("repository baseline build identity differs")
+    published_installer = read_input(directory, "arch-linux-installer.sh")
+    if baseline.get("installerSha256") != hashlib.sha256(published_installer).hexdigest() or blob(root, baseline_commit, "arch-linux-installer.sh") != published_installer:
+        raise ValueError("repository baseline installer hash or bytes differ")
+    package_set = blob(root, main, "repository/package-set")
+    names = package_set.decode("ascii").splitlines()
+    if len(names) != 6 or len(set(names)) != 6 or any(not re.fullmatch(r"arch-linux-[a-z0-9-]+", name) for name in names) or package_set != blob(root, baseline_commit, "repository/package-set") or hashlib.sha256(package_set).hexdigest() != baseline["packageSetSha256"]:
+        raise ValueError("package closure differs from active baseline")
+    revisions = {}
+    expected_names = set()
+    for name in names:
+        before = package_metadata(root, baseline_commit, name)
+        after = package_metadata(root, main, name)
+        if before[:2] != after[:2] or before[3] != after[3] or after[2] <= before[2]:
+            raise ValueError("all package revisions must advance with unchanged epoch/version/architecture")
+        expected_names.add(f"{name}-{before[1]}-{before[2]}-{before[3]}.pkg.tar.zst")
+        revisions[name] = after[2]
+    files = baseline["files"]
+    actual_names = [row["name"] for row in files if row["name"].endswith(".pkg.tar.zst")]
+    if len(actual_names) != 6 or set(actual_names) != expected_names:
+        raise ValueError("repository baseline package inventory differs")
+    release_entries = tree_entries(root, release)
+    # Trust and keyring payload remain byte/mode identical to the installer release.
+    protected = {name for name in entries.keys() | release_entries.keys() if name.startswith("repository/trust/") or (name.startswith("packages/arch-linux-keyring/") and not name.endswith(("/PKGBUILD", "/.SRCINFO")))}
+    for name in protected:
+        if entries.get(name) != release_entries.get(name):
+            raise ValueError("package delivery cannot change release trust inputs")
+    installer = blob(root, main, "arch-linux-installer.sh")
+    matches = re.findall(rb"^readonly VERSION='([^']+)'$", installer, re.M)
+    if len(matches) != 1:
+        raise ValueError("installer version is ambiguous")
+    old = matches[0].decode("ascii")
+    base = version_parts(old)
+    target = version_parts(version)
+    if target[:2] != base[:2] or target < base:
+        raise ValueError("package normalization requires the same forward patch series")
+    installer = replace_once(installer, b"readonly VERSION='" + matches[0] + b"'", f"readonly VERSION='{version}'".encode(), "installer version")
+    bootstrap = blob(root, main, "install.sh")
+    for before, after in ((f"readonly BOOTSTRAP_VERSION='{old}'", f"readonly BOOTSTRAP_VERSION='{version}'"),
+                          (f"readonly BOOTSTRAP_RELEASE_URL='https://github.com/snaplyze/arch-linux/releases/download/{old}'", f"readonly BOOTSTRAP_RELEASE_URL='https://github.com/snaplyze/arch-linux/releases/download/{version}'")):
+        bootstrap = replace_once(bootstrap, before.encode(), after.encode(), "bootstrap version/URL")
+    for template in ("release {} supports Linux x86_64 only", "installer version does not match immutable release {}"):
+        if template.format(old).encode() in bootstrap:
+            bootstrap = replace_once(bootstrap, template.format(old).encode(), template.format(version).encode(), "bootstrap diagnostic")
+    changes = {}
+    for name, content, id_key in (("arch-linux-installer.sh", installer, "installerAssetId"), ("install.sh", bootstrap, "bootstrapAssetId")):
+        rows = [row for row in api["assets"] if row.get("name") == name or row.get("id") == published[id_key]]
+        digest = hashlib.sha256(content).hexdigest()
+        if len(rows) != 1 or rows[0].get("id") != published[id_key] or rows[0].get("name") != name or rows[0].get("size") != len(content) or rows[0].get("digest") != "sha256:" + digest or rows[0].get("state") != "uploaded" or content != read_input(directory, name) or content != blob(root, release, name) or entries[name][0] != release_entries[name][0]:
+            raise ValueError("published installer/bootstrap bytes or identity differ")
+        changes[name] = entries[name][0], content
+    origin = {"schema": 1, "transformSchema": 1, "kind": "packages", "mainCommit": main,
+              "mainTree": oid(root, f"{main}^{{tree}}"), "packageTag": tag, "published": published,
+              "baselineCommit": baseline_commit, "baselineTree": baseline["sourceTree"],
+              "baselineTag": active_tag, "baselineRepositorySnapshotSha256": published["repositorySnapshotSha256"],
+              "baselineBuildMetadataSha256": baseline["buildMetadataSha256"],
+              "baselineUnsignedManifestSha256": baseline["unsignedManifestSha256"],
+              "baselineSourceSha256": source_hash(root, baseline_commit), "publishedSourceSha256": source_hash(root, release),
+              "transformerSha256": hashlib.sha256(transformer).hexdigest(), "packageRevisions": revisions}
+    changes[PACKAGE_ORIGIN] = "100644", (json.dumps(origin, sort_keys=True, separators=(",", ":")) + "\n").encode()
+    return replace_tree(root, main, changes), version
+
+
+def verify_packages(root: Path, source: str, main: str, tag: str, directory: Path) -> dict[str, str]:
+    tree, version = package_tree(root, main, tag, directory)
+    if not HEX40.fullmatch(source) or git(root, "show", "-s", "--format=%P", source).decode().strip() != main or oid(root, f"{source}^{{tree}}") != tree or release_commit(root, main, tag, tree) != source:
+        raise ValueError("package child differs from deterministic reviewed transformation")
+    return {"main_commit": main, "main_tree": oid(root, f"{main}^{{tree}}"), "source_commit": source,
+            "source_tree": tree, "source_tree_sha256": source_hash(root, source), "release_version": version, "package_tag": tag, "delivery_kind": "packages"}
+
+
+def prepare_packages(root: Path, main: str, tag: str, directory: Path, output: Path) -> dict[str, str]:
+    if oid(root, "HEAD") != main or git(root, "status", "--porcelain=v1", "--untracked-files=all").strip():
+        raise ValueError("package preparation requires clean reviewed main")
+    if not output.is_absolute() or output == root or root in output.parents:
+        raise ValueError("package output must be absolute and outside source")
+    tree, _ = package_tree(root, main, tag, directory)
+    source = release_commit(root, main, tag, tree)
+    identity = verify_packages(root, source, main, tag, directory)
+    output.mkdir(mode=0o700)
+    candidate_ref = "refs/arch-linux-release/prepared"
+    git(root, "update-ref", candidate_ref, source)
+    git(root, "bundle", "create", str(output / "source.bundle"), candidate_ref, f"^{main}")
+    identity["bundle_sha256"] = hashlib.sha256((output / "source.bundle").read_bytes()).hexdigest()
+    (output / "identity.json").write_text(json.dumps(identity, sort_keys=True, separators=(",", ":")) + "\n")
+    return identity
+
+
 def transformed_tree(root: Path, main: str, version: str) -> str:
     if HEX40.fullmatch(main) is None or oid(root, f"{main}^{{commit}}") != main:
         raise ValueError("reviewed main commit is malformed")
+    if delivery_intent(root, main)["kind"] != "installer":
+        raise ValueError("package intent suppresses installer release preparation")
     parts = version_parts(version)
     entries = tree_entries(root, main)
     if ORIGIN in entries:
@@ -263,6 +581,29 @@ def restore(root: Path, main: str, source: str, version: str, directory: Path, b
     return expected
 
 
+def restore_packages(root: Path, main: str, source: str, tag: str, published: Path,
+                     directory: Path, bundle_hash: str) -> dict[str, str]:
+    if oid(root, "HEAD") != main or git(root, "status", "--porcelain=v1", "--untracked-files=all").strip():
+        raise ValueError("package restoration requires clean reviewed main")
+    bundle = directory / "source.bundle"
+    if not HEX64.fullmatch(bundle_hash) or bundle.is_symlink() or not bundle.is_file() or hashlib.sha256(bundle.read_bytes()).hexdigest() != bundle_hash:
+        raise ValueError("package source bundle digest differs")
+    git(root, "bundle", "verify", str(bundle))
+    git(root, "fetch", "--no-tags", str(bundle), "refs/arch-linux-release/prepared")
+    if oid(root, "FETCH_HEAD") != source:
+        raise ValueError("package bundle commit differs")
+    identity = verify_packages(root, source, main, tag, published)
+    expected = dict(identity, bundle_sha256=bundle_hash)
+    if json.loads(read_input(directory, "identity.json")) != expected:
+        raise ValueError("package transport metadata differs")
+    previous_umask = os.umask(0o022)
+    try:
+        git(root, "checkout", "--detach", source)
+    finally:
+        os.umask(previous_umask)
+    return expected
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=ROOT)
@@ -278,17 +619,40 @@ def main() -> int:
         if command == "restore":
             child.add_argument("--input-dir", type=Path, required=True)
             child.add_argument("--bundle-sha256", required=True)
+    intent_parser = commands.add_parser("intent")
+    intent_parser.add_argument("--main-commit", required=True)
+    for command in ("prepare-packages", "verify-packages", "restore-packages"):
+        child = commands.add_parser(command)
+        child.add_argument("--main-commit", required=True)
+        child.add_argument("--package-tag", required=True)
+        child.add_argument("--published-input-dir", type=Path, required=True)
+        if command == "prepare-packages":
+            child.add_argument("--output-dir", type=Path, required=True)
+        else:
+            child.add_argument("--source-commit", required=True)
+        if command == "restore-packages":
+            child.add_argument("--input-dir", type=Path, required=True)
+            child.add_argument("--bundle-sha256", required=True)
     args = parser.parse_args()
     try:
         root = args.root.resolve(strict=True)
-        if args.command == "prepare":
+        if args.command == "intent":
+            identity = delivery_intent(root, args.main_commit)
+        elif args.command == "prepare-packages":
+            identity = prepare_packages(root, args.main_commit, args.package_tag, args.published_input_dir, args.output_dir)
+        elif args.command == "restore-packages":
+            identity = restore_packages(root, args.main_commit, args.source_commit, args.package_tag,
+                                        args.published_input_dir, args.input_dir, args.bundle_sha256)
+        elif args.command == "verify-packages":
+            identity = verify_packages(root, args.source_commit, args.main_commit, args.package_tag, args.published_input_dir)
+        elif args.command == "prepare":
             identity = prepare(root, args.main_commit, args.release_version, args.output_dir)
         elif args.command == "restore":
             identity = restore(root, args.main_commit, args.source_commit, args.release_version, args.input_dir, args.bundle_sha256)
         else:
             identity = verify(root, args.source_commit, args.main_commit, args.release_version)
         print(json.dumps(identity, sort_keys=True, separators=(",", ":")))
-    except (OSError, ValueError, UnicodeError) as error:
+    except (OSError, ValueError, UnicodeError, KeyError, TypeError) as error:
         print(f"release source failed: {error}", file=sys.stderr)
         return 1
     return 0

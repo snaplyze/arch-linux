@@ -2,6 +2,17 @@
 
 Maintenance detects drift; it does not change source, accepted hashes, pins, keys or releases.
 
+The [dated audit snapshot and registry](PLAN.md#current-arch-context) distinguish observed drift
+from accepted inputs and reviewed no-update decisions. Reports record UTC observation time,
+manifest path/SHA-256, and each queried source's identity and
+result, including unchanged and error outcomes. Daily key-only updates preserve monthly findings
+and their original date, while displaying their age; results older than 35 days are marked stale.
+Undated legacy reports remain unknown and cannot close an issue as current clean evidence.
+Coverage includes linux/linux-lts/linux-zen, systemd, mkinitcpio, cryptsetup, GRUB, pacman,
+Arch keyring, GTK3/GTK4 and libadwaita. New package entries use the October 3 official API
+observations as advisory comparison baselines; they do not pin installer packages or qualify them.
+An `unchanged` value in an old advisory is not today's media qualification.
+
 ## Public signing key expiry
 
 ```bash
@@ -45,6 +56,17 @@ python3 maintenance/check-arch-iso.py
 
 Updating accepted ISO state is a separate human-reviewed task. At minimum, a new ISO requires fresh
 Minimal TTY and Stock GNOME QEMU acceptance before the committed state changes.
+The committed input is `2026.10.01`, SHA-256
+`684ded26c63240ff4a41e8c25ee84ea6da233f557364821f13d12c2b0a9059a5`.
+The owner accepted this exact pin after official metadata, hash and trusted Arch signature
+verification and fresh Minimal/Stock qualification on October 3. The unchanged public 1.0.5
+product and harness commit `1b45bbaf2cdf30f4e97f8bfcf9546272f055b376` were bound separately.
+Minimal `minimal-20261003T151714Z-2c0c2415` passed 13 assertions; Stock
+`stock-20261003T152418Z-552739f5` passed 20, including real GDM password login, Wayland,
+lock/unlock, full update and repeat login after another boot. Both passed clean shutdown,
+`qemu-img check` and owned-resource cleanup. These are media qualification results, not
+acceptance of later installer changes. Compact evidence and the preceding diagnostic failure
+remain separately recorded in [the project registry](PLAN.md).
 
 The September 2026 baseline was reviewed with official ISO `2026.09.01` and installed GDM
 `50.3-1`, GNOME Shell `1:50.4-1`, Linux `7.2.3.arch1-2` and Ptyxis `50.1-1`. Fresh Minimal,
@@ -70,12 +92,19 @@ No installer/package pin, production certificate or published 1.0.0 asset change
 
 `maintenance/sources.json` lists only sources currently used by the installer or package recipes:
 Arch packages, GNOME, Marble, Colloid, GNOME extensions, pinned AUR inputs, Gum, the Starship preset
-and license/source provenance. Offline binding is mandatory:
+and license/source provenance. Arch comparisons retain epoch and package release; mkinitcpio and
+keyring use `core/any` endpoints, core binaries use `core/x86_64`, and linux-zen/GTK/GNOME use
+`extra/x86_64`. Extension tags are compared only within the recorded accepted Shell major;
+missing or malformed compatible versions are errors. Pinned upstream tag identity is checked
+separately from the latest release, so an unchanged accepted tag cannot hide a newer release.
+Offline binding is mandatory:
 
 ```bash
 python3 maintenance/check-sources.py
 ```
 
+Offline reports say `validated`, which proves local binding only. Network reports say `unchanged`,
+`advisory` (drift), or `error` (one or more failed queries, with other findings retained).
 A scheduled or manual advisory run may query upstream services:
 
 ```bash
@@ -145,8 +174,9 @@ Their verdict is `COMPATIBILITY_PASS`, `releaseAcceptance=false`: not a fresh-in
 for a modified installer or a new release. No production key or signed-release verifier changed.
 
 Blur stays at [released v72](https://github.com/aunetx/blur-my-shell/releases/tag/v72),
-commit `444df605b34529dfab7be77d0f434bf54a6dd4cc`; its AUR input is unchanged. The detected
-development HEAD contains unreleased popup/shader/pipeline changes, not a released v73.
+commit `444df605b34529dfab7be77d0f434bf54a6dd4cc`; its AUR input is unchanged. At the September review, the detected
+development HEAD contained unreleased popup/shader/pipeline changes; v73 was not released then.
+The October review below records its subsequent release.
 Keep that advisory visible until a separately reviewed update is justified.
 
 This historical review did not change the then-published 1.0.0 bootstrap, assets, tag or Pages. The
@@ -253,3 +283,44 @@ exist and must be disjoint from source and output; the builder creates and owns 
 then removes it on completion. Do not point WORK_DIR at existing data or run concurrent builds at
 that same path in a shared environment. Local builds without WORK_DIR retain isolated `mktemp`
 directories. Build environments can still drift independently; actual mismatches remain advisory.
+
+### October 3, 2026 source review
+
+Fresh advisory/source review retained every accepted pin. These proposals were reviewed, not
+accepted as new source inputs; URLs, hashes, package versions and trust bytes remain unchanged.
+
+| Input | Exact proposed upstream identity | Decision |
+| --- | --- | --- |
+| gum | `879f048103adf0214b85943b52d8d65b08d772c5` | retain 0.17.0; 2.0.2 still strips command-substitution ANSI style/join |
+| colloid | `fe11342f37f124f1b29d44cf33e9a06053f4bba2` | retain; diff changes only unshipped switcher/Cinnamon |
+| spdx | `31ba1a50e5397e00a304dbadc76531740e89ee48` | retain |
+| blur | `425761d5504941899cfb8cda24202d829024c622` | retain released72; proposal73 requires new runtime acceptance |
+| justPerfection | `6e82a6ebf8e9578f2ffe4e06b88f5d23f600b947` | retain released37.0; unreleased HEAD has two UI fixes but no reproduced current defect |
+| dashToDock | `36529d37c0eb805b04dfd647e5295860771b23ea` | retain106; optional109 proposal needs GNOME50 runtime acceptance |
+| pikaur | `ae8a9c7787ffc87399b12477fbfc4268ac525fbb` | retain1.33.3; optional1.34 proposal changes pkgbase/srcinfo and opt-in privilege environment behavior |
+
+Gum 2.0.2 Linux x86-64 asset 585508723 is 4,963,495 bytes, SHA256
+`d842e06d93dbed90af48cb8dd10698db6f22e331fc40346bb37bbc753109edc2`. API digest and
+published checksums agree. Sigstore bundle cryptographic verification was NOT_TESTED because
+cosign is unavailable; this candidate was not accepted. Real controlling-PTY smoke covered
+nine used commands and 28 expected case/version outcomes. The existing style/join command-
+substitution behavior remains incompatible with Gum 2; fixture-only write/pager mistakes
+were corrected and receipts preserve both attempts.
+
+Colloid's three-commit diff changes only unshipped switcher/Cinnamon files. The sole consumed
+SPDX LGPL-2.1-only text is byte-identical (26,001 bytes, SHA256
+`5749785c8bdefafcb5d798270ed0a967036fe2ca63dcedade1627565dfef81d2`). Blur v73 is now
+released: 118 commits / 105 changed files require fresh popup/shader/lifecycle acceptance;
+its observed development HEAD `67bbf7236f64a4e03b87982971f45584499802fb` declares 74.
+Just Perfection has three unreleased UI-fix commits with no reproduced current defect.
+Dash to Dock 109 changes 56 commits / 20 files, including startup geometry, timeout and input.
+Pikaur 1.34 changes 24 commits / 41 files, including pkgbase/srcinfo and opt-in privilege
+environment behavior. No dependency/license change was found for the latter two proposals.
+
+Proposed AUR identities: Blur `f23a49d84b3b62ca2c23bbdec7763329c555fd38`, Dock
+`91c4de013bd43db027ece31f1dba96fd06a6d924`, Pikaur
+`9b3b01867ab9b8db88765a1dd69029ecae604d62`. Six accepted-package metadata checks, offline
+source checks and accepted AUR SRCINFO bindings passed. Candidate builds/VMs are NOT_TESTED
+and unnecessary for the retain decision. Canonical corrected-child build and runtime gates
+remain GATE-01/RELEASE-01. Compact review receipts stay outside source; [the project registry](PLAN.md) is the
+canonical decision record.

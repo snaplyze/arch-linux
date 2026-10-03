@@ -46,6 +46,10 @@ The verifier requires exactly one unsigned package per allowlisted name, exact c
 schema-2 source/build identity, `.BUILDINFO`, `.MTREE`, a canonical checksum list and no signatures
 or unexpected objects. It decompresses every real package and checks its exact package-specific
 payload, ownership, modes, dependencies, hooks, licenses and bounded internal symlinks.
+Decompression and tar inventory currently lack total expanded-byte, member-count and execution-time
+limits. Payload validation therefore does not establish bounded resource consumption for hostile
+unsigned input. [F-04 / TRUST-01](PLAN.md#review-findings) tracks planned hardening; this
+documentation correction does not implement it.
 
 ## Signing boundary
 
@@ -108,6 +112,10 @@ repository/verify-release-assets.sh "$SNAPSHOT_OUTPUT/assets" --phase-a \
 The verifiers require the exact public certificate and fingerprints, exact package/database file
 closure, valid signatures from the accepted signing subkey, safe database archives and package
 filenames that agree with the database.
+That filename check is narrower than complete metadata consistency: `.db` name/version/size/hash/
+embedded-signature fields and `.files` package identities/file lists are not fully cross-checked
+against verified packages. [F-12 / TRUST-02](PLAN.md#review-findings) tracks this semantic gap.
+Genuine signature/hash bindings remain required; this is not a demonstrated signature bypass.
 
 ## Pacman policy and lifecycle
 
@@ -134,3 +142,26 @@ For package-only updates, use the `packages` deployment mode described in
 [repository tooling](../repository/README.md#package-only-updates). It accepts a separately tagged,
 signed 14-file package-update bundle for an existing installer version. A Marble profile `pkgrel`
 update therefore does not require a new installer release or replacement of old installer assets.
+The source candidate implements strict package-child provenance and requires version-only
+normalization to exact published installer/bootstrap bytes. Current behavior corrections need
+a normal installer release first. External package delivery remains separately authorized and
+NOT_TESTED; local source validation does not prove signed installed-system upgrade or deployment.
+See [DELIVERY-01](PLAN.md#delivery-01--package-only-provenance-and-procedure).
+
+## Unsigned archive inspection limits
+
+Package verification rejects input above 128 MiB compressed, 512 MiB expanded tar or aggregate
+payload, 32 MiB per member, 1 MiB per extension header, 100,000 physical headers or logical
+members, and 16 nested extension headers. Integrity checking, decompression and traversal
+share a 60-second deadline; zstd children have 512 MiB address-space and CPU limits and are
+reaped on rejection. Limits are fixed in the verifier, without environment/CLI overrides.
+GNU sparse encodings are rejected before map parsing; this package closure does not use them.
+Solaris PAX receives the same extension bounds as other recognized extension formats.
+
+The October 3 preliminary clean Arch inventory built all six packages as a disposable non-root
+user with the pinned build-container input. Observed maxima: compressed 5,271,971 bytes; tar
+61,429,760 bytes; payload 35,432,571 bytes; member 1,245,973 bytes; 41,216 members; verifier
+1.196 seconds. Policy provides at least eightfold byte, twofold entry and fiftyfold measured
+wall-time headroom. This inventory sizes the inspection policy; it is not the frozen candidate's
+canonical build or installation acceptance. A changed package closure requires fresh inventory
+and independently verified canonical output before release.

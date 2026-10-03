@@ -455,6 +455,7 @@ executable_sources=(
     repository/run-offline-signing.sh
     repository/safe-extract-snapshot.py
     repository/snapshot-manifest.py
+    repository/verify-database-metadata.py
     repository/verify-release-assets.sh
     repository/verify-signed-repository.sh
     repository/verify-sealed-offline-code.py
@@ -510,7 +511,11 @@ destination.write_text(
     'if stat.S_IMODE(a.st_mode)!=0o755 or a.st_nlink!=1: raise SystemExit("fixture verifier mode or links differ")\n'
     'if i(a)!=i(b): raise SystemExit("fixture verifier identity changed during read")\n'
     'if hashlib.sha256(d).hexdigest()!=e: raise SystemExit("fixture verifier hash differs")\n'
-    f'os.execv("/usr/bin/python3",["/usr/bin/python3","-I",{verifier!r},*sys.argv[1:]])\n',
+    'if __name__ == "__main__":\n'
+    f'    os.execv("/usr/bin/python3",["/usr/bin/python3","-I",{verifier!r},*sys.argv[1:]])\n'
+    'else:\n'
+    '    __file__=str(p)\n'
+    '    exec(compile(d,__file__,"exec"),globals())\n',
     encoding='utf-8',
 )
 PY

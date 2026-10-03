@@ -15,7 +15,7 @@ guest_error() {
 }
 trap 'guest_error "$LINENO" "$BASH_COMMAND"' ERR
 
-[ "$#" -eq 25 ] || { printf 'usage: verify.sh PHASE SERIAL VENDOR MODEL USERNAME SCENARIO RUN_ID REPOSITORY_PRIMARY REPOSITORY_SIGNING INPUT_MODE RELEASE_VERSION TARGET_DISK_METADATA PAGES_URL PUBLIC_KEY_URL SNAPSHOT_SHA256 SOURCE_COMMIT SOURCE_TREE INSTALLER_SHA256 PACKAGE_SET_SHA256 BUILD_METADATA_SHA256 UNSIGNED_MANIFEST_SHA256 PUBLIC_KEY_SHA256 LEGACY_RELEASE_VERSION LEGACY_PROFILE_VERSION LEGACY_GTK3_VERSION\n' >&2; exit 2; }
+{ [ "$#" -eq 25 ] || [ "$#" -eq 26 ]; } || { printf 'usage: verify.sh PHASE SERIAL VENDOR MODEL USERNAME SCENARIO RUN_ID REPOSITORY_PRIMARY REPOSITORY_SIGNING INPUT_MODE RELEASE_VERSION TARGET_DISK_METADATA PAGES_URL PUBLIC_KEY_URL SNAPSHOT_SHA256 SOURCE_COMMIT SOURCE_TREE INSTALLER_SHA256 PACKAGE_SET_SHA256 BUILD_METADATA_SHA256 UNSIGNED_MANIFEST_SHA256 PUBLIC_KEY_SHA256 LEGACY_RELEASE_VERSION LEGACY_PROFILE_VERSION LEGACY_GTK3_VERSION [MEDIA_QUALIFICATION]\n' >&2; exit 2; }
 readonly phase="$1" expected_serial="$2" expected_vendor="$3" expected_model="$4"
 readonly username="$5" scenario="$6" run_id="$7" repository_primary="$8"
 readonly repository_signing="$9" input_mode="${10}" release_version="${11}"
@@ -23,11 +23,12 @@ readonly target_disk_metadata="${12}" pages_url="${13}" public_key_url="${14}"
 readonly snapshot_sha256="${15}" source_commit="${16}" source_tree="${17}"
 readonly installer_sha256="${18}" package_set_sha256="${19}"
 readonly build_metadata_sha256="${20}" unsigned_manifest_sha256="${21}" public_key_sha256="${22}"
+readonly media_qualification="${26:-false}"
 readonly legacy_release_version="${23}" legacy_profile_version="${24}" legacy_gtk3_version="${25}"
 case "${scenario}" in
 minimal-ext4-systemdboot)
     marker_prefix='MINIMAL'
-    case "${phase}" in firstboot | update | postreboot) ;; *) exit 2 ;; esac
+    case "${phase}" in media-readback-prepare | firstboot | update | postreboot) ;; *) exit 2 ;; esac
     [[ "${expected_serial}" =~ ^ALI100M[A-F0-9]{12}$ ]]
     [[ "${expected_model}" =~ ^ALI_MIN_[A-F0-9]{8}$ ]]
     [[ "${run_id}" =~ ^minimal-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}$ ]]
@@ -41,7 +42,7 @@ minimal-dualboot-ext4-systemdboot)
     ;;
 stock-gnome-ext4-systemdboot)
     marker_prefix='STOCK'
-    case "${phase}" in prelogin | firstlogin | lock | unlock | update | postreboot-prelogin | secondlogin) ;; *) exit 2 ;; esac
+    case "${phase}" in media-readback-prepare | prelogin | firstlogin | lock | unlock | update | postreboot-prelogin | secondlogin) ;; *) exit 2 ;; esac
     [[ "${expected_serial}" =~ ^ALI100S[A-F0-9]{12}$ ]]
     [[ "${expected_model}" =~ ^ALI_STK_[A-F0-9]{8}$ ]]
     [[ "${run_id}" =~ ^stock-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}$ ]]
@@ -55,7 +56,7 @@ stock-gnome-btrfs-systemdboot)
     ;;
 stock-gnome-btrfs-grub)
     marker_prefix='GRUB'
-    case "${phase}" in prelogin | firstlogin | lock | unlock | update | postreboot-prelogin | secondlogin) ;; *) exit 2 ;; esac
+    case "${phase}" in prelogin | firstlogin | lock | unlock | update | postreboot-prelogin | secondlogin | snapshot-prepare | snapshot-prelogin | snapshot-login | snapshot-cleanup) ;; *) exit 2 ;; esac
     [[ "${expected_serial}" =~ ^ALI100G[A-F0-9]{12}$ ]]
     [[ "${expected_model}" =~ ^ALI_GRB_[A-F0-9]{8}$ ]]
     [[ "${run_id}" =~ ^grub-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}$ ]]
@@ -81,6 +82,8 @@ marble-gnome-btrfs-luks2-plymouth-systemdboot)
         legacy-install | legacy-login | migration-update | migrated-login | \
         gtk4-app-smoke-light | gtk4-app-smoke-dark | fresh-user-prepare | \
         fresh-user-login | fresh-user-logout | return-user-login | \
+        helper-failure | helper-restored-prelogin | helper-restored-login | \
+        deactivate-gdm | deactivated-prelogin | deactivated-login | \
         incompatible-fixture | incompatible-prelogin | incompatible-login | restore-marble | \
         restored-prelogin | restored-login | remove-marble | removed-prelogin | removed-login | \
         reinstall-marble | reinstalled-prelogin | reinstalled-login) ;;
@@ -94,6 +97,8 @@ marble-gnome-btrfs-luks2-plymouth-systemdboot-stock-gdm)
     marker_prefix='MARBLE'
     case "${phase}" in
     prelogin | firstlogin | lock | unlock | update | postreboot-prelogin | secondlogin | \
+        helper-failure | helper-restored-prelogin | helper-restored-login | \
+        deactivate-gdm | deactivated-prelogin | deactivated-login | \
         incompatible-fixture | incompatible-prelogin | incompatible-login | restore-marble | \
         restored-prelogin | restored-login | remove-marble | removed-prelogin | removed-login | \
         reinstall-marble | reinstalled-prelogin | reinstalled-login) ;;
@@ -124,6 +129,8 @@ for expected_digest in "${installer_sha256}" "${package_set_sha256}" \
 done
 case "${input_mode}" in
 staged)
+    [ "${phase}" != media-readback-prepare ]
+    [ "${media_qualification}" = false ]
     [ "${pages_url}" = - ] && [ "${public_key_url}" = - ]
     if [ "${scenario}" = marble-gnome-btrfs-luks2-plymouth-systemdboot ]; then
         [[ "${legacy_release_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
@@ -134,9 +141,13 @@ staged)
     fi
     ;;
 public)
-    [ "${scenario}" = marble-gnome-btrfs-luks2-plymouth-systemdboot ]
+    case "${media_qualification}:${scenario}" in
+    false:marble-gnome-btrfs-luks2-plymouth-systemdboot | \
+        true:minimal-ext4-systemdboot | true:stock-gnome-ext4-systemdboot) ;;
+    *) exit 2 ;;
+    esac
     case "${phase}" in
-    prelogin | firstlogin | lock | unlock | update | postreboot-prelogin | secondlogin) ;;
+    media-readback-prepare | firstboot | postreboot | prelogin | firstlogin | lock | unlock | update | postreboot-prelogin | secondlogin) ;;
     *) exit 2 ;;
     esac
     [ "${pages_url}" = "https://snaplyze.github.io/arch-linux/repo/\$arch" ]
@@ -488,6 +499,7 @@ verify_common() {
     getent ahostsv4 archlinux.org >/dev/null
     [ -z "$(systemctl --failed --no-legend --plain)" ]
     clean_kernel_command_line
+    verify_kernel_initramfs_pair /boot/initramfs-linux.img || return 1
     printf '%s' "${target}"
 }
 
@@ -722,12 +734,178 @@ verify_luks_initramfs() {
 }
 
 verify_kernel_initramfs_pair() {
-    local image="$1" kernel_release listing
-    kernel_release="$(uname -r)"
-    [ -n "${kernel_release}" ]
-    [ -d "/usr/lib/modules/${kernel_release}" ]
-    listing="$(lsinitcpio -l "${image}")"
-    grep -Fq -- "usr/lib/modules/${kernel_release}/" <<<"${listing}"
+    local image="$1" kernel_release listing module_root
+    local -a releases=()
+    [ -f "${image}" ] && [ ! -L "${image}" ] || return 1
+    [ -f /boot/vmlinuz-linux ] && [ ! -L /boot/vmlinuz-linux ] || return 1
+    listing="$(lsinitcpio -l "${image}")" || return 1
+    mapfile -t releases < <(sed -n 's|^\(\./\)\?usr/lib/modules/\([^/][^/]*\)/.*|\2|p' <<<"${listing}" | LC_ALL=C sort -u)
+    [ "${#releases[@]}" -eq 1 ] || return 1
+    kernel_release="${releases[0]}"
+    [[ "${kernel_release}" =~ ^[A-Za-z0-9._+-]+$ ]] || return 1
+    module_root="/usr/lib/modules/${kernel_release}"
+    [ -d "${module_root}" ] && [ ! -L "${module_root}" ] || return 1
+    [ -f "${module_root}/pkgbase" ] && [ ! -L "${module_root}/pkgbase" ] || return 1
+    [ "$(cat -- "${module_root}/pkgbase")" = linux ] || return 1
+    [ -f "${module_root}/vmlinuz" ] && [ ! -L "${module_root}/vmlinuz" ] || return 1
+    cmp -s -- /boot/vmlinuz-linux "${module_root}/vmlinuz" || return 1
+    # A full upgrade can replace disk modules while the old kernel still runs.
+    # Require runtime pairing again after the following real reboot.
+    case "${phase}" in
+    update | migration-update) ;;
+    *) [ "$(uname -r)" = "${kernel_release}" ] || return 1 ;;
+    esac
+    printf 'QEMU_KERNEL_PAIR run_id=%s phase=%s installed_release=%s running_release=%s package=linux systemd=%s mkinitcpio=%s\n' \
+        "${run_id}" "${phase}" "${kernel_release}" "$(uname -r)" \
+        "$(pacman -Q systemd | awk '{print $2}')" "$(pacman -Q mkinitcpio | awk '{print $2}')" >&2
+}
+
+select_snapshot_grub_entry() {
+    python3 - "$@" <<'SNAPSHOT_ENTRY_PY'
+import re
+import shlex
+import sys
+from pathlib import Path
+main, generated, uuid, subvol = sys.argv[1:]
+headers = re.compile(r"^\s*(submenu|menuentry)\s+(.*)\{\s*$")
+def walk(path):
+    stack = []
+    for line in Path(path).read_text().splitlines():
+        match = headers.match(line)
+        if match:
+            title = shlex.split(match[2])[0]
+            if not title or any(c in title for c in ">\n\r"):
+                raise ValueError("unsafe menu title")
+            stack.append((match[1], title))
+        elif line.rstrip().endswith("{"):
+            stack.append(("block", ""))
+        elif re.match(r"^\s*}\s*$", line):
+            if not stack: raise ValueError("unbalanced generated menu")
+            stack.pop()
+        else:
+            yield tuple(item for item in stack if item[0] != "block"), line.strip()
+    if stack: raise ValueError("unclosed generated menu")
+outer = set()
+for stack, line in walk(main):
+    if "configfile" in line and "grub-btrfs.cfg" in line and stack:
+        outer.add(">".join(title for _, title in stack))
+if len(outer) != 1: raise ValueError("snapshot submenu closure differs")
+entries = {}
+for stack, line in walk(generated):
+    if stack and stack[-1][0] == "menuentry":
+        entries.setdefault(stack, []).append(line)
+accepted = []
+for stack, lines in entries.items():
+    linux = [shlex.split(line) for line in lines if line.startswith("linux ")]
+    initrd = [shlex.split(line) for line in lines if line.startswith("initrd ")]
+    if len(linux) != 1 or len(initrd) != 1: continue
+    args = linux[0][2:]
+    roots = [arg for arg in args if arg.startswith("root=")]
+    flags = [arg for arg in args if arg.startswith("rootflags=")]
+    if roots != ["root=UUID=" + uuid] or len(flags) != 1: continue
+    subvols = [flag for flag in flags[0][10:].split(",") if flag.startswith("subvol=")]
+    if subvols != ["subvol=" + subvol]: continue
+    if args.count("systemd.volatile=overlay") != 1: continue
+    if linux[0][1] != "/vmlinuz-linux" or initrd[0][-1] != "/initramfs-linux.img": continue
+    if any(".." in part or not part.startswith("/") for part in initrd[0][1:]): continue
+    accepted.append(next(iter(outer)) + ">" + ">".join(title for _, title in stack))
+if len(accepted) != 1: raise ValueError("exact snapshot boot entry absent or ambiguous")
+print(accepted[0])
+SNAPSHOT_ENTRY_PY
+}
+
+snapshot_lowerdir_matches() {
+    local lower="$1" subvol="$2" options
+    [ "$(findmnt -nro FSTYPE --target "${lower}")" = btrfs ] || return 1
+    [ "$(findmnt -nro FSROOT --target "${lower}")" = "/${subvol}" ] || return 1
+    options="$(findmnt -nro OPTIONS --target "${lower}")" || return 1
+    case ",${options}," in *,ro,*) ;; *) return 1 ;; esac
+}
+
+prepare_snapshot_boot() {
+    local subvol="@snapshots/qa-${run_id}" path="/.snapshots/qa-${run_id}"
+    local state="/boot/qa-snapshot-${run_id}.state" uuid entry
+    [ "${scenario}" = stock-gnome-btrfs-grub ]
+    verify_common >/dev/null
+    verify_btrfs_contract
+    [ ! -e "${path}" ] && [ ! -L "${path}" ] || return 1
+    [ ! -e "${state}" ] && [ ! -L "${state}" ] || return 1
+    install -d -m0700 /var/lib/arch-linux-vm
+    [ ! -e /var/lib/arch-linux-vm/snapshot-marker ] || return 1
+    printf '%s\n' "${run_id}" >/var/lib/arch-linux-vm/snapshot-marker
+    uuid="$(findmnt -nro UUID --target /)"
+    [[ "${uuid}" =~ ^[a-fA-F0-9-]{36}$ ]]
+    printf 'run_id=%s\nsubvol=%s\nroot_uuid=%s\nnormal_boot_id=%s\n' \
+        "${run_id}" "${subvol}" "${uuid}" "$(cat /proc/sys/kernel/random/boot_id)" >"${state}"
+    btrfs subvolume snapshot -r / "${path}"
+    [ "$(btrfs property get -ts "${path}" ro)" = ro=true ]
+    # Discover the entry using the installed production grub-btrfs generator.
+    grub-mkconfig -o /boot/grub/grub.cfg
+    grub-script-check /boot/grub/grub.cfg
+    grub-script-check /boot/grub/grub-btrfs.cfg
+    entry="$(select_snapshot_grub_entry /boot/grub/grub.cfg /boot/grub/grub-btrfs.cfg "${uuid}" "${subvol}")"
+    grub-reboot "${entry}"
+    emit_runtime_action_pass snapshot-production-entry-selected
+}
+
+verify_snapshot_runtime() {
+    local state="/boot/qa-snapshot-${run_id}.state" subvol="@snapshots/qa-${run_id}"
+    local options lower uuid cmdline target source
+    [ "${scenario}" = stock-gnome-btrfs-grub ] || return 1
+    [ -f "${state}" ] && [ ! -L "${state}" ] || return 1
+    [ "$(stat -Lc '%u:%a:%h' -- "${state}")" = '0:600:1' ] || return 1
+    [ "$(wc -l <"${state}")" -eq 4 ] || return 1
+    grep -qxF "run_id=${run_id}" "${state}" || return 1
+    grep -qxF "subvol=${subvol}" "${state}" || return 1
+    uuid="$(sed -n 's/^root_uuid=//p' "${state}")"
+    [[ "${uuid}" =~ ^[a-fA-F0-9-]{36}$ ]] || return 1
+    [ "$(sed -n 's/^normal_boot_id=//p' "${state}")" != "$(cat /proc/sys/kernel/random/boot_id)" ] || return 1
+    [ "$(findmnt -nro FSTYPE --target /)" = overlay ] || return 1
+    options="$(findmnt -nro OPTIONS --target /)"
+    lower="$(tr ',' '\n' <<<"${options}" | sed -n 's/^lowerdir=//p')"
+    [[ "${lower}" = /* ]] && [[ "${lower}" != *:* ]] && [[ "${lower}" != *\\* ]] || return 1
+    snapshot_lowerdir_matches "${lower}" "${subvol}" || return 1
+    [ "$(findmnt -nro UUID --target "${lower}")" = "${uuid}" ] || return 1
+    [ "$(btrfs property get -ts "${lower}" ro)" = ro=true ] || return 1
+    [ "$(cat -- "${lower}/var/lib/arch-linux-vm/snapshot-marker")" = "${run_id}" ] || return 1
+    source="$(mounted_source_device "${lower}")"
+    target="$(find_target)"
+    [ "${source}" = "$(partition_name "${target}" 2)" ] || return 1
+    cmdline="$(cat /proc/cmdline)"
+    require_prefixed_kernel_argument_once "${cmdline}" root= "root=UUID=${uuid}" || return 1
+    require_kernel_argument_once "${cmdline}" systemd.volatile=overlay || return 1
+    options="$(tr ' ' '\n' <<<"${cmdline}" | sed -n 's/^rootflags=//p')"
+    [ "$(tr ',' '\n' <<<"${options}" | sed -n 's/^subvol=//p')" = "${subvol}" ] || return 1
+    verify_kernel_initramfs_pair /boot/initramfs-linux.img || return 1
+    verify_grub_efi_target || return 1
+    verify_grub_package_integrity >/dev/null || return 1
+    systemctl is-active --quiet NetworkManager.service qemu-guest-agent.service || return 1
+    nm-online -q --timeout=60 || return 1
+    [ -z "$(systemctl --failed --no-legend --plain)" ] || return 1
+    printf '%s' "${target}"
+}
+
+cleanup_snapshot_boot() {
+    local path="/.snapshots/qa-${run_id}" state="/boot/qa-snapshot-${run_id}.state"
+    [ "${scenario}" = stock-gnome-btrfs-grub ]
+    [ "$(findmnt -nro FSROOT --target /)" = /@ ]
+    [ -d "${path}" ] && [ ! -L "${path}" ] || return 1
+    [ "$(cat -- "${path}/var/lib/arch-linux-vm/snapshot-marker")" = "${run_id}" ]
+    [ "$(btrfs property get -ts "${path}" ro)" = ro=true ]
+    [ -f "${state}" ] && [ ! -L "${state}" ] || return 1
+    grep -qxF "run_id=${run_id}" "${state}"
+    btrfs subvolume delete -- "${path}"
+    rm -- "${state}" /var/lib/arch-linux-vm/snapshot-marker
+    grub-mkconfig -o /boot/grub/grub.cfg
+    verify_common >/dev/null
+    verify_btrfs_contract
+    emit_runtime_action_pass snapshot-normal-root-restored-owned-cleanup
+}
+
+emit_runtime_action_pass() {
+    printf '%s_QEMU_GUEST_PASS run_id=%s scenario=%s phase=%s boot_id=%s action=%s failed_units=0\n' \
+        "${marker_prefix}" "${run_id}" "${scenario}" "${phase}" \
+        "$(cat /proc/sys/kernel/random/boot_id)" "$1"
 }
 
 verify_btrfs_contract() {
@@ -932,11 +1110,15 @@ verify_stock_profile() {
 
 verify_stock_greeter() {
     local target config greeter_session boot_id root_contract='root=ext4' bootloader_contract='systemd-boot'
-    target="$(verify_common)"
+    if [[ "${phase}" = snapshot-* ]]; then
+        target="$(verify_snapshot_runtime)"
+    else
+        target="$(verify_common)"
+    fi
     config="/home/${username}/installer.conf"
     [ -f "${config}" ]
     verify_stock_profile "${config}"
-    if is_btrfs_stock; then
+    if is_btrfs_stock && [[ "${phase}" != snapshot-* ]]; then
         verify_btrfs_contract
         root_contract='root=btrfs btrfs_contract=verified encryption=off snapper=off btrfs_assistant=off'
         if is_luks_stock; then
@@ -944,6 +1126,7 @@ verify_stock_greeter() {
         fi
     fi
     is_grub_stock && bootloader_contract='grub'
+    [[ "${phase}" != snapshot-* ]] || root_contract='root=btrfs-snapshot root_mode=read-only overlay=volatile module_pair=verified'
     greeter_session="$(wait_for_greeter)"
     [ -n "${greeter_session}" ]
     boot_id="$(tr -d '\n' </proc/sys/kernel/random/boot_id)"
@@ -961,11 +1144,15 @@ verify_stock_session() {
     if [ "${phase}" = update ] && is_grub_stock; then
         verify_grub_regeneration
     fi
-    target="$(verify_common)"
+    if [[ "${phase}" = snapshot-* ]]; then
+        target="$(verify_snapshot_runtime)"
+    else
+        target="$(verify_common)"
+    fi
     config="/home/${username}/installer.conf"
     [ -f "${config}" ]
     verify_stock_profile "${config}"
-    if is_btrfs_stock; then
+    if is_btrfs_stock && [[ "${phase}" != snapshot-* ]]; then
         verify_btrfs_contract
         root_contract='root=btrfs btrfs_contract=verified encryption=off snapper=off btrfs_assistant=off'
         if is_luks_stock; then
@@ -973,6 +1160,7 @@ verify_stock_session() {
         fi
     fi
     is_grub_stock && bootloader_contract='grub'
+    [[ "${phase}" != snapshot-* ]] || root_contract='root=btrfs-snapshot root_mode=read-only overlay=volatile module_pair=verified'
     user_session="$(wait_for_user_session)"
     uid="$(id -u "${username}")"
     session_uid="$(session_property "${user_session}" User)"
@@ -1148,6 +1336,52 @@ release_sum_for() {
         "${sums}"
 }
 
+require_public_readback_tools() {
+    local include_jq="${1:-true}" command_name
+    for command_name in awk base64 bsdtar cat chmod cmp curl cut find gpg gpgv grep install jq mktemp rm sed sha256sum sort stat tr; do
+        if [ "${command_name}" = jq ] && [ "${include_jq}" = false ]; then
+            continue
+        fi
+        command -v -- "${command_name}" >/dev/null || {
+            printf 'missing public readback dependency: %s\n' "${command_name}" >&2
+            return 1
+        }
+    done
+}
+
+prepare_media_readback() {
+    local siglevel boot_id command_name preparation=existing
+    [ "${input_mode}" = public ] && [ "${media_qualification}" = true ] || return 1
+    case "${scenario}" in minimal-ext4-systemdboot | stock-gnome-ext4-systemdboot) ;; *) return 1 ;; esac
+    require_public_readback_tools false || return 1
+    if ! command -v -- jq >/dev/null; then
+        # Harness-only tooling: use the installed synchronized official repository database,
+        # without refreshing it or upgrading the first-boot kernel before its pairing check.
+        for command_name in pacman pacman-conf; do
+            command -v -- "${command_name}" >/dev/null || {
+                printf 'missing public readback dependency: %s\n' "${command_name}" >&2
+                return 1
+            }
+        done
+        siglevel="$(pacman-conf --repo extra SigLevel)" || return 1
+        if [ -z "${siglevel}" ]; then
+            siglevel="$(pacman-conf SigLevel)" || return 1
+        fi
+        grep -Fxq PackageRequired <<<"${siglevel}" &&
+            grep -Fxq PackageTrustedOnly <<<"${siglevel}" || return 1
+        pacman -S --noconfirm --needed -- extra/jq || {
+            printf 'public media readback preparation failed: official extra/jq installation\n' >&2
+            return 1
+        }
+        preparation=official-extra-install
+    fi
+    require_public_readback_tools || return 1
+    jq --version || return 1
+    boot_id="$(cat /proc/sys/kernel/random/boot_id)" || return 1
+    printf '%s_QEMU_GUEST_PASS run_id=%s scenario=%s phase=%s boot_id=%s target=public-readback-tools preparation=%s\n' \
+        "${marker_prefix}" "${run_id}" "${scenario}" "${phase}" "${boot_id}" "${preparation}"
+}
+
 verify_public_release_pages_binding() (
     local release_base archive_name archive_url pages_base work pages_dir keyring sums sums_signature
     local archive archive_signature archive_checksum release_manifest release_manifest_signature
@@ -1156,9 +1390,7 @@ verify_public_release_pages_binding() (
     local expected_package_files='' database_filenames='' member filename files_desc_count files_list_count
     local -a package_matches=()
     [ "${input_mode}" = public ] || return 0
-    for command_name in awk base64 bsdtar cmp curl cut find gpg gpgv grep jq mktemp sed sha256sum sort stat; do
-        command -v -- "${command_name}" >/dev/null
-    done
+    require_public_readback_tools || return 1
     release_base="${public_key_url%/arch-linux.gpg}"
     [ "${release_base}" = "https://github.com/snaplyze/arch-linux/releases/download/${release_version}" ]
     archive_name="arch-linux-repository-${release_version}.tar.zst"
@@ -1473,10 +1705,12 @@ verify_marble_greeter() {
             verify_stock_gdm_process_without_project "${greeter_session}"
         fi
         ;;
-    fallback)
+    fallback | deactivated)
         verify_marble_packages
         verify_vendor_integrity
-        [ -f /etc/dconf/profile/gdm ] && [ ! -L /etc/dconf/profile/gdm ]
+        if [ "${expected}" = fallback ]; then
+            [ -f /etc/dconf/profile/gdm ] && [ ! -L /etc/dconf/profile/gdm ]
+        fi
         verify_marble_gdm_process stock "${greeter_session}"
         ;;
     removed)
@@ -1970,6 +2204,24 @@ run_lock_phase() {
     esac
 }
 
+exercise_gdm_helper_failure() {
+    local directory="$1" helper="$2" payload="$3" prepare_status=0 status_status=0
+    local override="${directory}/50-arch-linux-marble-gdm.conf"
+    [ -d "${directory}" ] && [ ! -L "${directory}" ] || return 1
+    [ "$(stat -Lc '%u:%a' -- "${directory}")" = "$(id -u):755" ] || return 1
+    [ -L "${override}" ] && [ "$(readlink -- "${override}")" = "${payload}" ] || return 1
+    # Only the disposable guest's exact project directory is changed. Restore it
+    # before assessing outcomes, including unexpected helper success.
+    chmod 0777 -- "${directory}" || return 1
+    "${helper}" --prepare >/dev/null 2>&1 || prepare_status=$?
+    "${helper}" --status >/dev/null 2>&1 || status_status=$?
+    chmod 0755 -- "${directory}" || return 1
+    [ "${prepare_status}" -eq 1 ] && [ "${status_status}" -eq 1 ] || return 1
+    [ -L "${override}" ] && [ "$(readlink -- "${override}")" = "${payload}" ] || return 1
+    printf 'QEMU_GDM_HELPER_FAILURE prepare_status=%s status_status=%s persistent_activation=retained stock_claim=none\n' \
+        "${prepare_status}" "${status_status}"
+}
+
 run_marble_phase() {
     local expected_profile
     case "${phase}" in
@@ -1977,8 +2229,11 @@ run_marble_phase() {
         verify_marble_greeter active
         verify_public_release_pages_binding
         ;;
-    postreboot-prelogin | restored-prelogin | reinstalled-prelogin)
+    postreboot-prelogin | restored-prelogin | reinstalled-prelogin | helper-restored-prelogin)
         verify_marble_greeter active
+        ;;
+    deactivated-prelogin)
+        verify_marble_greeter deactivated
         ;;
     incompatible-prelogin)
         verify_marble_greeter fallback
@@ -1986,7 +2241,7 @@ run_marble_phase() {
     removed-prelogin)
         verify_marble_greeter removed
         ;;
-    firstlogin | secondlogin | migrated-login | restored-login | reinstalled-login)
+    firstlogin | secondlogin | migrated-login | restored-login | reinstalled-login | helper-restored-login)
         verify_marble_user_session marble
         ;;
     legacy-install)
@@ -2016,6 +2271,9 @@ run_marble_phase() {
     return-user-login)
         cleanup_fresh_marble_user
         ;;
+    deactivated-login)
+        verify_marble_user_session fallback
+        ;;
     incompatible-login)
         verify_marble_user_session fallback
         ;;
@@ -2031,12 +2289,29 @@ run_marble_phase() {
             SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
                 pacman -Syu --noconfirm --disable-download-timeout
         fi
+        verify_kernel_initramfs_pair /boot/initramfs-linux.img
         verify_marble_packages
         verify_vendor_integrity
         if marble_gdm_enabled; then
             [ "$(/usr/lib/arch-linux-marble-gdm/update-compatibility --status)" = active ]
         fi
         emit_marble_action_pass pacman-syu-hooks-active-qkk-clean
+        ;;
+    helper-failure)
+        exercise_gdm_helper_failure /etc/systemd/user/org.gnome.Shell@gdm.service.d \
+            /usr/lib/arch-linux-marble-gdm/update-compatibility \
+            /usr/share/arch-linux-marble-gdm/systemd/50-arch-linux-marble-gdm.conf
+        # Failure retained activation; inspect the actual existing authenticated
+        # session as Marble instead of inferring a successful Stock transition.
+        verify_marble_user_session marble
+        restart_gdm_after_profile_transition
+        emit_marble_action_pass helper-failure-observed-activation-retained
+        ;;
+    deactivate-gdm)
+        /usr/lib/arch-linux-marble-gdm/update-compatibility --remove
+        [ "$(/usr/lib/arch-linux-marble-gdm/update-compatibility --status)" = stock ]
+        restart_gdm_after_profile_transition
+        emit_marble_action_pass explicit-gdm-deactivation
         ;;
     incompatible-fixture)
         [ ! -e /etc/dconf/profile/gdm ] && [ ! -L /etc/dconf/profile/gdm ]
@@ -2086,6 +2361,65 @@ run_marble_phase() {
     esac
 }
 
+verify_neighbor_readback() {
+    local proof="$1" manifest="$2" directory="$3" esp="$4" neighbor="$5" key expected device field
+    local expected_names actual_names
+    for field in "${proof}" "${manifest}"; do
+        [ -f "${field}" ] && [ ! -L "${field}" ] || return 1
+        [ "$(stat -Lc '%u:%a:%h' -- "${field}")" = '0:600:1' ] || return 1
+    done
+    [ "$(wc -l <"${proof}")" -eq 5 ] || return 1
+    grep -qxF "run_id=${run_id}" "${proof}" || return 1
+    for key in esp_uuid esp_partuuid neighbor_uuid neighbor_partuuid; do
+        [ "$(grep -c "^${key}=" "${proof}")" -eq 1 ] || return 1
+        expected="$(sed -n "s/^${key}=//p" "${proof}")"
+        [[ "${expected}" =~ ^[A-Za-z0-9-]+$ ]] || return 1
+        device="${esp}"
+        [[ "${key}" = esp_* ]] || device="${neighbor}"
+        field=UUID
+        [[ "${key}" != *_partuuid ]] || field=PARTUUID
+        [ "$(blkid -s "${field}" -o value "${device}")" = "${expected}" ] || return 1
+    done
+    expected_names="$(printf '%s\n' etc/hostname etc/fstab neighbor-preserved.txt \
+        boot/EFI/ali-neighbor/vmlinuz-linux boot/EFI/ali-neighbor/initramfs-linux.img \
+        boot/loader/entries/neighbor.conf | LC_ALL=C sort)"
+    [ "$(wc -l <"${manifest}")" -eq 6 ] || return 1
+    [ "$(grep -Ec '^[a-f0-9]{64}  [A-Za-z0-9_./-]+$' "${manifest}")" -eq 6 ] || return 1
+    actual_names="$(cut -c67- "${manifest}" | LC_ALL=C sort)"
+    [ "${actual_names}" = "${expected_names}" ] || return 1
+    (cd -- "${directory}" && sha256sum --check --strict "${manifest}") || return 1
+    printf 'QEMU_NEIGHBOR_READBACK run_id=%s phase=%s identities=preserved hashes=6\n' "${run_id}" "${phase}"
+}
+
+verify_dual_boot_preservation() {
+    local target="$1"
+    (
+        set -e
+        local work neighbor_mount proof_mount esp neighbor newroot proof_root owned status
+        work="$(mktemp -d /run/qa-neighbor.XXXXXXXX)"
+        neighbor_mount="${work}/neighbor" proof_mount="${work}/proof"
+        mkdir -- "${neighbor_mount}" "${proof_mount}"
+        # Preserve a failing check and surface cleanup failures as failures too.
+        trap 'status=$?; trap - EXIT; for owned in "${neighbor_mount}/boot" "${neighbor_mount}" "${proof_mount}"; do if mountpoint -q "$owned"; then umount -- "$owned" || status=1; fi; done; rmdir -- "${neighbor_mount}" "${proof_mount}" "${work}" || status=1; exit "$status"' EXIT
+        esp="$(partition_name "${target}" 1)"
+        neighbor="$(partition_name "${target}" 2)"
+        newroot="$(partition_name "${target}" 3)"
+        if [ "${phase}" = neighbor ]; then
+            [ "$(mounted_source_device /boot)" = "${esp}" ]
+            mount -o ro,noload -- "${newroot}" "${proof_mount}"
+            proof_root="${proof_mount}/var/lib/arch-linux-vm"
+            verify_neighbor_readback "${proof_root}/neighbor-identities.txt" \
+                "${proof_root}/neighbor.sha256" / "${esp}" "${neighbor}"
+        else
+            mount -o ro,noload -- "${neighbor}" "${neighbor_mount}"
+            mount -o ro -- "${esp}" "${neighbor_mount}/boot"
+            proof_root=/var/lib/arch-linux-vm
+            verify_neighbor_readback "${proof_root}/neighbor-identities.txt" \
+                "${proof_root}/neighbor.sha256" "${neighbor_mount}" "${esp}" "${neighbor}"
+        fi
+    )
+}
+
 verify_dual_boot_phase() {
     local target root_device expected_root boot_id
     [ "${scenario}" = minimal-dualboot-ext4-systemdboot ]
@@ -2096,12 +2430,14 @@ verify_dual_boot_phase() {
         [ "${root_device}" = "${expected_root}" ]
         grep -qx 'ARCH_LINUX_DUAL_BOOT_ENABLED=true' "/home/${username}/installer.conf"
         [ -f /boot/loader/entries/neighbor.conf ]
+        verify_dual_boot_preservation "${target}"
         bootctl set-oneshot neighbor.conf
     else
         expected_root="$(partition_name "${target}" 2)"
         [ "${root_device}" = "${expected_root}" ]
         [ "$(cat /proc/sys/kernel/hostname)" = ali-neighbor ]
         [ "$(cat /neighbor-preserved.txt)" = "${run_id}" ]
+        verify_dual_boot_preservation "${target}"
         # Preserve and boot this existing OS; do not administer its services or network.
         # The newly installed target retains its full network/service/bootloader checks.
     fi
@@ -2110,7 +2446,25 @@ verify_dual_boot_phase() {
         "${run_id}" "${scenario}" "${phase}" "${boot_id}" "${target}"
 }
 
-if [ "${phase}" = neighbor-select ] || [ "${phase}" = neighbor ]; then
+if [ "${phase}" = media-readback-prepare ]; then
+    prepare_media_readback
+    exit 0
+fi
+
+if [ "${media_qualification}" = true ] &&
+    { [ "${phase}" = firstboot ] || [ "${phase}" = prelogin ]; }; then
+    verify_public_release_pages_binding
+fi
+
+if [ "${phase}" = snapshot-prepare ]; then
+    prepare_snapshot_boot
+elif [ "${phase}" = snapshot-cleanup ]; then
+    cleanup_snapshot_boot
+elif [ "${phase}" = snapshot-prelogin ]; then
+    verify_stock_greeter
+elif [ "${phase}" = snapshot-login ]; then
+    verify_stock_session
+elif [ "${phase}" = neighbor-select ] || [ "${phase}" = neighbor ]; then
     verify_dual_boot_phase
 elif [[ "${scenario}" = minimal-* ]]; then
     verify_minimal
