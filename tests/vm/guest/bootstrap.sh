@@ -47,7 +47,7 @@ load_identity() {
     local -a allowed=(
         SCENARIO RUN_ID TARGET_SERIAL TARGET_VENDOR TARGET_MODEL TARGET_DISK_METADATA HOSTNAME USERNAME MICROCODE
         SOURCE_COMMIT SOURCE_TREE INSTALLER_SHA256 HARNESS_SHA256 ISO_SHA256
-        INPUT_MODE RELEASE_VERSION BOOTSTRAP_SHA256 SNAPSHOT_SHA256 BUILD_METADATA_SHA256
+        INPUT_MODE MEDIA_QUALIFICATION RELEASE_VERSION BOOTSTRAP_SHA256 SNAPSHOT_SHA256 BUILD_METADATA_SHA256
         UNSIGNED_MANIFEST_SHA256 PUBLIC_KEY_SHA256 PRIMARY_FINGERPRINT SIGNING_SUBKEY_FINGERPRINT
     )
     declare -gA IDENTITY=()
@@ -118,7 +118,7 @@ partition_identity() {
 }
 
 prepare_dual_boot_neighbor() {
-    local target="$1" serial esp neighbor root_mount esp_uuid neighbor_uuid
+    local target="$1" serial esp neighbor root_mount esp_uuid neighbor_uuid esp_partuuid neighbor_partuuid
     [ "${IDENTITY[SCENARIO]}" = minimal-dualboot-ext4-systemdboot ]
     if [ "${IDENTITY[TARGET_DISK_METADATA]}" = identified ]; then
         [ "$(lsblk -dnro SERIAL -- "${target}" | trim_value)" = "${IDENTITY[TARGET_SERIAL]}" ]
@@ -160,11 +160,18 @@ prepare_dual_boot_neighbor() {
     cp -- "${root_mount}/boot/initramfs-linux.img" "${root_mount}/boot/EFI/ali-neighbor/initramfs-linux.img"
     esp_uuid="$(blkid -s UUID -o value "${esp}")"
     neighbor_uuid="$(blkid -s UUID -o value "${neighbor}")"
+    esp_partuuid="$(blkid -s PARTUUID -o value "${esp}")"
+    neighbor_partuuid="$(blkid -s PARTUUID -o value "${neighbor}")"
     printf 'title Existing Linux neighbor\nlinux /EFI/ali-neighbor/vmlinuz-linux\ninitrd /EFI/ali-neighbor/initramfs-linux.img\noptions root=UUID=%s rw\n' \
         "${neighbor_uuid}" >"${root_mount}/boot/loader/entries/neighbor.conf"
     printf '%s\n' "${IDENTITY[RUN_ID]}" >"${root_mount}/neighbor-preserved.txt"
-    printf 'esp_uuid=%s\nneighbor_uuid=%s\n' "${esp_uuid}" "${neighbor_uuid}" \
+    printf 'run_id=%s\nesp_uuid=%s\nesp_partuuid=%s\nneighbor_uuid=%s\nneighbor_partuuid=%s\n' \
+        "${IDENTITY[RUN_ID]}" "${esp_uuid}" "${esp_partuuid}" "${neighbor_uuid}" "${neighbor_partuuid}" \
         >"${work_root}/neighbor-identities.txt"
+    # This fresh disposable ESP intentionally collides first. Its isolated neighbor entry/images
+    # are the preservation contract; fixture-owned generic writers are removed only after refusal.
+    printf 'title Collision fixture\nlinux /vmlinuz-linux\n' \
+        >"${root_mount}/boot/loader/entries/main.conf"
     (cd -- "${root_mount}"; sha256sum etc/hostname etc/fstab neighbor-preserved.txt \
         boot/EFI/ali-neighbor/vmlinuz-linux boot/EFI/ali-neighbor/initramfs-linux.img \
         boot/loader/entries/neighbor.conf) >"${work_root}/neighbor.sha256"
@@ -179,6 +186,10 @@ check_dual_boot_neighbor() {
         "$(sed -n 's/^esp_uuid=//p' "${work_root}/neighbor-identities.txt")" ]
     [ "$(blkid -s UUID -o value "$(partition_name "${target}" 2)")" = \
         "$(sed -n 's/^neighbor_uuid=//p' "${work_root}/neighbor-identities.txt")" ]
+    [ "$(blkid -s PARTUUID -o value "$(partition_name "${target}" 1)")" = \
+        "$(sed -n 's/^esp_partuuid=//p' "${work_root}/neighbor-identities.txt")" ]
+    [ "$(blkid -s PARTUUID -o value "$(partition_name "${target}" 2)")" = \
+        "$(sed -n 's/^neighbor_partuuid=//p' "${work_root}/neighbor-identities.txt")" ]
     install -d -m0700 -- "${root_mount}"
     mount -o ro,noload -- "$(partition_name "${target}" 2)" "${root_mount}"
     mount -o ro -- "$(partition_name "${target}" 1)" "${root_mount}/boot"
@@ -187,6 +198,60 @@ check_dual_boot_neighbor() {
     umount -- "${root_mount}"
     rmdir -- "${root_mount}"
     printf 'MINIMAL_QEMU_NEIGHBOR_PRESERVED run_id=%s\n' "${IDENTITY[RUN_ID]}"
+}
+
+prove_dual_boot_collision_refusal() {
+    local target="$1" esp root esp_before root_before status=0 probe_mount
+    [ "${IDENTITY[INPUT_MODE]}" = staged ] &&
+        [ "${IDENTITY[SCENARIO]}" = minimal-dualboot-ext4-systemdboot ]
+    esp="$(partition_name "${target}" 1)"
+    root="$(partition_name "${target}" 3)"
+    # Hash complete accepted partition bytes, including off-prefix filesystem metadata.
+    esp_before="$(timeout 300 sha256sum --binary -- "${esp}" | awk '{print $1}')"
+    root_before="$(timeout 600 sha256sum --binary -- "${root}" | awk '{print $1}')"
+    (
+        cd -- "${work_root}"
+        umask 022
+        timeout --signal=TERM --kill-after=15 900 /usr/bin/env FORCE=true DEBUG=false \
+            /usr/bin/bash ./arch-linux-installer.sh </dev/null
+    ) >"${work_root}/collision-refusal.log" 2>&1 || status=$?
+    [ "${status}" -eq 1 ] || fail 'colliding ESP did not produce the expected installer refusal'
+    grep -Fq 'Dual-boot ESP collision or unsafe ancestor' "${work_root}/installer.log" ||
+        fail 'installer failure did not prove ESP collision refusal'
+    [ "$(timeout 300 sha256sum --binary -- "${esp}" | awk '{print $1}')" = "${esp_before}" ] ||
+        fail 'colliding ESP bytes changed during refused installation'
+    [ "$(timeout 600 sha256sum --binary -- "${root}" | awk '{print $1}')" = "${root_before}" ] ||
+        fail 'root partition bytes changed during refused installation'
+    check_dual_boot_neighbor "${target}"
+    printf 'MINIMAL_QEMU_ESP_COLLISION_REFUSAL_PASS run_id=%s esp_sha256=%s root_sha256=%s\n' \
+        "${IDENTITY[RUN_ID]}" "${esp_before}" "${root_before}"
+
+    # Only these exact generic artifacts were created by this fixture's pacstrap/bootctl above.
+    # The neighbor's EFI/ali-neighbor images, neighbor.conf, type1 entries.srel and filesystem
+    # identity remain. The positive installation supplies the shared loader used to boot both OSes.
+    probe_mount="${work_root}/esp-clear"
+    install -d -m0700 -- "${probe_mount}"
+    mount -- "${esp}" "${probe_mount}"
+    rm -rf -- "${probe_mount}/EFI/systemd" "${probe_mount}/EFI/BOOT"
+    rm -f -- "${probe_mount}/vmlinuz-linux" "${probe_mount}/initramfs-linux.img" \
+        "${probe_mount}/initramfs-linux-fallback.img" "${probe_mount}/loader/loader.conf" \
+        "${probe_mount}/loader/random-seed" "${probe_mount}/loader/entries/main.conf" \
+        "${probe_mount}/loader/entries/main-fallback.conf"
+    umount -- "${probe_mount}"
+    rmdir -- "${probe_mount}"
+    check_dual_boot_neighbor "${target}"
+    rm -f -- "${work_root}/collision-refusal.log" "${work_root}/installer.log"
+}
+
+install_dual_boot_neighbor_proof() {
+    local target="$1" proof_mount="${work_root}/installed-proof"
+    install -d -m0700 -- "${proof_mount}"
+    mount -t ext4 -- "$(partition_name "${target}" 3)" "${proof_mount}"
+    install -d -o 0 -g 0 -m0700 -- "${proof_mount}/var/lib/arch-linux-vm"
+    install -o 0 -g 0 -m0600 -- "${work_root}/neighbor-identities.txt" \
+        "${work_root}/neighbor.sha256" "${proof_mount}/var/lib/arch-linux-vm/"
+    umount -- "${proof_mount}"
+    rmdir -- "${proof_mount}"
 }
 
 write_config() {
@@ -306,13 +371,17 @@ main() {
     load_identity "${payload_mount}/IDENTITY"
     case "${IDENTITY[INPUT_MODE]}" in
     staged)
+        [ "${IDENTITY[MEDIA_QUALIFICATION]}" = false ] || fail 'staged media qualification is forbidden'
         [ ! -e "${payload_mount}/public.contract" ] && [ ! -L "${payload_mount}/public.contract" ] ||
             fail 'staged payload contains a public-mode contract'
         [ -f "${payload_mount}/arch-linux-installer.sh" ] || fail 'staged payload lacks the installer'
         ;;
     public)
-        [ "${IDENTITY[SCENARIO]}" = marble-gnome-btrfs-luks2-plymouth-systemdboot ] ||
-            fail 'public acceptance is limited to Marble with experimental GDM'
+        case "${IDENTITY[MEDIA_QUALIFICATION]}:${IDENTITY[SCENARIO]}" in
+        false:marble-gnome-btrfs-luks2-plymouth-systemdboot | \
+            true:minimal-ext4-systemdboot | true:stock-gnome-ext4-systemdboot) ;;
+        *) fail 'public scenario/qualification contract is invalid' ;;
+        esac
         [ -f "${payload_mount}/public.contract" ] && [ ! -L "${payload_mount}/public.contract" ] ||
             fail 'public payload lacks its immutable URL contract'
         for forbidden in arch-linux-installer.sh arch-linux.gpg acceptance-ca.crt repository.contract; do
@@ -516,6 +585,9 @@ main() {
         update-ca-trust
     fi
     write_config "${work_root}/installer.conf" "${target}" "${target_identity}"
+    if [ "${IDENTITY[SCENARIO]}" = minimal-dualboot-ext4-systemdboot ]; then
+        prove_dual_boot_collision_refusal "${target}"
+    fi
     printf '%s_QEMU_READY run_id=%s scenario=%s input_mode=%s source_commit=%s source_tree=%s installer_sha256=%s harness_sha256=%s iso_sha256=%s snapshot_sha256=%s\n' \
         "${marker_prefix}" \
         "${IDENTITY[RUN_ID]}" "${IDENTITY[SCENARIO]}" "${IDENTITY[INPUT_MODE]}" \
@@ -557,6 +629,7 @@ main() {
     [ "${installer_status}" -eq 0 ] || fail "installer exited with status ${installer_status}"
     if [ "${IDENTITY[SCENARIO]}" = minimal-dualboot-ext4-systemdboot ]; then
         check_dual_boot_neighbor "${target}"
+        install_dual_boot_neighbor_proof "${target}"
     fi
     printf '%s_QEMU_INSTALL_COMPLETE run_id=%s scenario=%s powering_off=yes\n' "${marker_prefix}" \
         "${IDENTITY[RUN_ID]}" "${IDENTITY[SCENARIO]}"

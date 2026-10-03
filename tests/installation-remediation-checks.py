@@ -9,6 +9,7 @@ mounts, boot files, user settings, or package databases.
 from pathlib import Path
 import os
 import re
+import runpy
 import shlex
 import subprocess
 import tempfile
@@ -154,7 +155,13 @@ class InstallationRemediationChecks(unittest.TestCase):
         self.assertIn("chroot_configure_grub_btrfs_snapshot_boot /mnt", body)
         guest = (ROOT / "tests/vm/guest/verify.sh").read_text(encoding="utf-8")
         self.assertIn("verify_kernel_initramfs_pair", guest)
-        self.assertIn('kernel_release="$(uname -r)"', guest)
+        # Validate pairing behavior rather than pinning the old running-kernel
+        # assignment, which rejects a legitimate upgrade before its reboot.
+        runtime = runpy.run_path(str(ROOT / "tests/vm/runtime-checks.py"))["RuntimeChecks"]()
+        self.assertEqual(runtime.kernel(phase="update", running="old"), 0)
+        self.assertNotEqual(runtime.kernel(running="old"), 0)
+        self.assertNotEqual(runtime.kernel(releases=("new", "old")), 0)
+        self.assertNotEqual(runtime.kernel(match=False), 0)
 
     def test_gnome_mandatory_settings_use_checked_runner(self):
         desktop = function("exec_install_desktop")

@@ -3,6 +3,39 @@
 Validation is layered and tree-bound. No old report or status document is evidence for the current
 source candidate.
 
+## Current audit record
+
+The [single registry](PLAN.md#review-findings) records the October 2 review and October 3
+documentary follow-up, coverage, open findings and exact check outcomes. Documentary corrections
+do not fix product defects. Fresh builds, production signing, crash/race acceptance, real account
+creation and real VM installation were not executed by this follow-up; they remain NOT_TESTED
+(`NOT_RUN_ENVIRONMENT` in the check-status vocabulary below).
+
+## Public readback of release 1.0.5
+
+October 3 execution independently downloaded all 18 immutable [1.0.5 Release assets](https://github.com/snaplyze/arch-linux/releases/tag/1.0.5),
+checked their API size/SHA-256 map, exact-12 `RELEASE-SHA256SUMS` coverage and all five
+release detached signatures against the committed public certificate and exact signing subkey.
+Public trust files match the committed bytes. The Pages manifest and signature match the signed
+repository archive bytes; all 23 named repository objects match size/hash, and the manifest,
+two databases and six packages pass detached signature verification. The semantic database
+checker additionally accepted the real published database/package pair.
+
+| Binding | Value |
+| --- | --- |
+| Release commit | `61add3e0b2c20adbbdd425494eae02ddec0a3bac` |
+| Release tree | `b5ca51e80277d93541d00a305490ac818d629a33` |
+| Canonical source SHA-256 in signed acceptance | `02816596c2e2e72cddb31b357723660685e4c77fce929c76b04f5e21dee18d37` |
+| Repository archive SHA-256 | `79413af54fca28fc1afef9fbfe6dea24875470d1a3cd65a6c459eb85bde26474` |
+| Build metadata SHA-256 | `c6d7a812737b41e52e8ea3cb59613ac2ceb0e4a0e601d44f6de99820661972da` |
+| Unsigned manifest SHA-256 | `97a821f50df2ab7a523107e0b9f7f956fcce6cc02189437d758c4c429bc6deae` |
+
+Status: `EXECUTED_PASS` for public byte/signature readback. README commands now pin 1.0.5.
+Its signed acceptance still describes the three historical September ISO runs; it is not an
+October installation or corrected-candidate PASS. Fresh VM execution and the new release
+remain tracked in [the registry](PLAN.md#execution-registry). The verified 1.0.4 evidence below
+keeps its original identity and outcomes.
+
 ## Verified release 1.0.4
 
 [Release 1.0.4](https://github.com/snaplyze/arch-linux/releases/tag/1.0.4) was published on

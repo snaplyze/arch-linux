@@ -427,6 +427,7 @@ def seal(
             "repository/trust/arch-linux.gpg",
             "repository/trust/primary-fingerprint",
             "repository/trust/signing-subkey-fingerprint",
+            "repository/verify-database-metadata.py",
             "repository/verify-package-metadata.py",
             "repository/verify-release-assets.sh",
             "repository/verify-signed-repository.sh",

@@ -1,0 +1,4 @@
+# Owner-authorized project Full Access; AGENTS.md bounds task authority.
+# This choice is not a safe default. Preserve trust and managed restrictions.
+approval_policy = "never"
+sandbox_mode = "danger-full-access"

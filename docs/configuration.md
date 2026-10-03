@@ -15,6 +15,9 @@ commits values only after the complete file passes lexical validation. The insta
 The generated file may contain an empty value before its selector runs. The completed installation
 contract is stricter: `validate_properties` requires every context-relevant value and checks
 cross-field rules. The password is runtime-only and never appears in `installer.conf`.
+Choose an ordinary unused account name. The source candidate rejects known reserved users/groups
+before disk work; the detailed policy below is implemented under [CONFIG-01](PLAN.md#config-01--reject-predictable-account-collisions).
+Published 1.0.5 retains its older validator; these corrections require a new installer release.
 
 ## Complete allowlist
 
@@ -83,3 +86,10 @@ nothing after `=`. Values cannot contain carriage returns, line feeds or tabs.
 
 Edit with a plain-text editor and preserve every key. On any parser or validation error, use the
 interactive repair flow; do not execute the file in a shell.
+
+Usernames must avoid fixed Arch base/system groups, supported GNOME service accounts and
+the disposable `archlinux-aur-builder` name. The same policy applies when parsing saved
+configuration, validating an installation and selecting a name interactively. Names such as
+`root`, `nobody`, `dbus`, `systemd-network`, `wheel`, `users`, `gdm` and `avahi` are reserved.
+The installer also checks the target's passwd and group databases before creating the user;
+lookup uncertainty stops installation. Workstation account names do not define this policy.

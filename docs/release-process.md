@@ -282,8 +282,12 @@ Installer changes are new immutable SemVer releases. Arch Linux
 updates normally through `pacman -Syu`. Marble/profile changes increment the owning package's
 `pkgrel` and are delivered through the signed Pages repository, so they do not require an installer
 release. Source pins change only through a reviewed pull request.
-Use the explicit [package-only Pages route](../repository/README.md#package-only-updates), with a
-new package tag and verified signed snapshot. This is not a new installer release.
+Use the explicit [package-child procedure](../repository/README.md#package-only-updates) for a
+reviewed package intent, increased revisions and unchanged published installer bytes. Current
+installer behavior fixes reject this mode until their normal release. The source candidate
+suppresses automatic installer publication for package intent, without enabling signing for it.
+External package-only signing/deployment and installed-system acceptance remain separately
+authorized and NOT_TESTED; see [DELIVERY-01](PLAN.md#delivery-01--package-only-provenance-and-procedure).
 
 The maintenance watcher may only create or update an advisory issue; monthly A+B is advisory and
 never blocks release. The configured release pipeline automatically signs and releases only its

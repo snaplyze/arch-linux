@@ -287,7 +287,7 @@ PAGES_MODES_PY
 
 python3 - "$repo_root/tests/vm/run.sh" <<'PUBLIC_SOURCE_PY'
 from pathlib import Path
-import os, re, subprocess, sys, tempfile
+import hashlib, os, re, subprocess, sys, tempfile
 text = Path(sys.argv[1]).read_text()
 function = re.search(r'^bind_vm_source_identities\(\) \{\n.*?^\}', text, re.S | re.M)
 assert function is not None
@@ -307,10 +307,10 @@ with tempfile.TemporaryDirectory(prefix='public-source-') as raw:
     release = git('rev-parse', 'HEAD')
     script = 'set -euo pipefail\ndie() { return 1; }\n' + function.group(0) + \
              '\nbind_vm_source_identities\nprintf "%s:%s" "$source_commit" "$harness_commit"\n'
-    def run(mode='public'):
+    def run(mode='public', qualification='false'):
         return subprocess.run(['bash', '-c', script], capture_output=True, text=True,
                               env=dict(os.environ, repository_root=raw, input_mode=mode,
-                                       release_version='1.0.0'), check=False)
+                                       release_version='1.0.0', media_qualification=qualification), check=False)
     assert run('staged').stdout == release + ':' + release
     assert run().returncode != 0  # no release tag
     git('tag', '-a', '1.0.0', '-m', 'frozen')
@@ -337,9 +337,22 @@ with tempfile.TemporaryDirectory(prefix='public-source-') as raw:
     git('add', '.')
     git('commit', '-m', 'product change')
     assert run().returncode != 0
+    assert run(qualification='true').stdout == release + ':' + git('rev-parse', 'HEAD')
+    digest_helper = re.search(r'^release_product_sha256\(\) \{\n.*?^\}', text, re.M | re.S).group(0)
+    digest_program = ('set -euo pipefail\n' + digest_helper + '\nrelease_product_sha256 "$1"\n')
+    digest_env = dict(os.environ, repository_root=raw, source_commit=release)
+    old_digest = subprocess.run(['bash', '-c', digest_program, 'digest-fixture', 'arch-linux-installer.sh'],
+                                env=digest_env, capture_output=True, text=True, check=False)
+    assert old_digest.returncode == 0
+    assert old_digest.stdout.strip() == hashlib.sha256(b'original\n').hexdigest()
+    assert old_digest.stdout.strip() != hashlib.sha256((root / 'arch-linux-installer.sh').read_bytes()).hexdigest()
+    missing = subprocess.run(['bash', '-c', digest_program, 'digest-fixture', 'missing'],
+                             env=digest_env, capture_output=True, text=True, check=False)
+    assert missing.returncode != 0
     git('tag', '-d', '1.0.0')
     git('tag', '1.0.0', release)
     assert run().returncode != 0  # lightweight tag
+    assert run(qualification='true').returncode != 0
 print('Public release/test-source separation checks passed; QEMU=NOT_RUN')
 PUBLIC_SOURCE_PY
 
@@ -557,9 +570,9 @@ require('https://github.com/snaplyze/arch-linux/releases/download/${release_vers
 start = host.index('    case "${scenario_id}" in\n', host.index("main() {"))
 end = host.index("\n    esac\n    shift", start) + len("\n    esac")
 case = host[start:end]
-mode_start = host.index('    case "${input_mode}:${scenario_id}" in\n', end)
-mode_end = host.index('\n    esac', mode_start) + len('\n    esac')
-mode_case = host[mode_start:mode_end]
+mode_case = re.search(r'^validate_vm_mode_scenario\(\) \{\n.*?^\}', host, re.M | re.S).group(0)
+mode_case += '\nvalidate_vm_mode_scenario'
+
 start = host.index('    if [ "${run_prefix}" = minimal ]', end)
 end = host.index('    [[ "${run_id}" =~', start)
 identity = host[start:end]
@@ -662,7 +675,7 @@ def final_accepts(scenario, serial, model, run_id, recorded_run_id=None):
 guest_negatives = final_negatives = legacy_regressions = 0
 for scenario, prefix, letter, model_prefix in routes:
     for input_mode in ('staged', 'public', 'invalid'):
-        mode_result = bash('input_mode=$1; scenario_id=$2; die(){ return 1; }\n' + mode_case,
+        mode_result = bash('input_mode=$1; scenario_id=$2; media_qualification=false; die(){ return 1; }\n' + mode_case,
                            input_mode, scenario)
         accepted = input_mode == 'staged' or (input_mode == 'public' and scenario == routes[6][0])
         require((mode_result.returncode == 0) == accepted, f'mode routing: {input_mode}/{scenario}')
@@ -881,7 +894,7 @@ installer_sha256 repository_package_set_sha256 build_metadata_sha256 unsigned_ma
 repository_public_key_sha256 target_disk_metadata'''.split()
 program = 'set -Eeuo pipefail\n' + verify.group() + '\n' + '\n'.join(
     name + '=fixture' for name in globals_used) + '''
-script_dir="$1" evidence="$2" response="$3" input_mode=staged marker_prefix=MINIMAL
+script_dir="$1" evidence="$2" response="$3" input_mode=staged marker_prefix=MINIMAL media_qualification=false
 die() { exit 2; }
 qga_call() {
     if [[ "$1" = *guest-exec-status* ]]; then printf '%s\\n' "$response";

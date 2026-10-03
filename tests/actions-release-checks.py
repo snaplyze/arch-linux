@@ -8,6 +8,8 @@ from contextlib import redirect_stderr, redirect_stdout
 import io
 import json
 import os
+import re
+import runpy
 from pathlib import Path
 import shlex
 import tarfile
@@ -31,6 +33,28 @@ class ActionsReleaseChecks(unittest.TestCase):
         assert spec is not None and spec.loader is not None
         self.module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.module)
+
+    def test_package_intent_stops_automatic_release_before_selection(self):
+        workflow = (ROOT / ".github/workflows/release.yml").read_text()
+        step = workflow.split("      - name: Prepare immutable source and provenance\n", 1)[1].split("      - name:", 1)[0]
+        script = textwrap.dedent(step.split("        run: |\n", 1)[1])
+        with tempfile.TemporaryDirectory(prefix="delivery-workflow-") as directory:
+            root = Path(directory)
+            bin_dir = root / "bin"; bin_dir.mkdir()
+            (bin_dir / "git").write_text("#!/bin/bash\nif [[ $1 == rev-parse ]]; then printf '%s\\n' \"$MAIN_COMMIT\"; fi\n")
+            (bin_dir / "python3").write_text("#!/bin/bash\nif [[ $2 == intent ]]; then printf '%s\\n' '{\"schema\":1,\"kind\":\"packages\"}'; else touch \"$SELECTION_MARKER\"; exit 99; fi\n")
+            for file in bin_dir.iterdir(): file.chmod(0o755)
+            output = root / "output"
+            environment = dict(os.environ, PATH=str(bin_dir) + ":" + os.environ["PATH"], MAIN_COMMIT="a" * 40,
+                               GITHUB_REF="refs/heads/main", GITHUB_OUTPUT=str(output), SELECTION_MARKER=str(root / "selected"))
+            result = subprocess.run(["bash", "-c", script], env=environment, cwd=root, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr.decode())
+            self.assertFalse((root / "selected").exists())
+            self.assertIn("delivery_kind=packages", output.read_text())
+        self.assertIn("if: needs.prepare.outputs.delivery_kind == 'installer'", workflow)
+        pages = (ROOT / ".github/workflows/pages.yml").read_text()
+        self.assertIn("verify-packages", pages)
+        self.assertIn("baseline_manifest_sha256", pages)
 
     def test_version_allocation_never_reuses_retired_or_reserved_tags(self) -> None:
         for names, expected in (([], "1.0.2"), (["1.0.0", "1.0.1"], "1.0.2"),
@@ -88,6 +112,74 @@ class ActionsReleaseChecks(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.module.unpack_evidence(archive, root / "output")
                 self.assertFalse((root / "outside").exists())
+
+    def test_actual_vm_result_producer_preserves_acceptance_schema(self) -> None:
+        source = (ROOT / "tests/vm/run.sh").read_text()
+        producer = re.search(r'^build_result\(\) \{\n.*?^\}', source, re.M | re.S).group(0)
+        consumer = runpy.run_path(str(ROOT / "repository/acceptance-manifest.py"))
+        names = sorted(set(re.findall(r'\$\{([a-z_][a-z0-9_]*)\}', producer)))
+        globals_fixture = "\n".join(name + "=fixture" for name in names)
+        program = "set -euo pipefail\n" + producer + "\n" + globals_fixture + r'''
+run_root="$1"
+evidence="$1/evidence"
+assertions_file="$1/assertions.tsv"
+evidence_size_bytes=0
+input_mode="$5"
+media_qualification="$6"
+scenario_id="$7"
+harness_commit=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+harness_tree=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+die() { return 1; }
+build_result "$2" "$3" "$4"
+'''
+        routes = [("staged", "false", scenario) for scenario in consumer["SCENARIOS"]]
+        routes += [("public", "false", "marble-gnome-btrfs-luks2-plymouth-systemdboot"),
+                   ("public", "true", "minimal-ext4-systemdboot"),
+                   ("public", "true", "stock-gnome-ext4-systemdboot")]
+        for mode, qualification, scenario in routes:
+            for status, code, phase in (("PASS", "0", "-"), ("FAIL", "23", "forced-failure")):
+                with self.subTest(mode=mode, qualification=qualification, scenario=scenario, status=status), \
+                        tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    (root / "evidence").mkdir()
+                    (root / "assertions.tsv").write_text("")
+                    result = subprocess.run(["bash", "--noprofile", "--norc", "-c", program,
+                                             "result-fixture", tmp, status, code, phase, mode, qualification, scenario],
+                                            capture_output=True, text=True, check=False, timeout=10)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    record = json.loads((root / "result.json").read_text())
+                    if qualification == "false":
+                        self.assertEqual(set(record), consumer["RESULT_KEYS"])
+                        consumer["exact_keys"](record, consumer["RESULT_KEYS"], "QEMU result")
+                    else:
+                        additions = {"harnessCommit", "harnessTree", "mediaQualification", "qualificationStatus"}
+                        self.assertEqual(set(record), consumer["RESULT_KEYS"] | additions)
+                        self.assertTrue(record["mediaQualification"])
+                        self.assertEqual(record["qualificationStatus"], status)
+                        self.assertEqual(record["harnessCommit"], "a" * 40)
+                        self.assertEqual(record["harnessTree"], "b" * 40)
+                        with self.assertRaises(consumer["ManifestError"]):
+                            consumer["exact_keys"](record, consumer["RESULT_KEYS"], "QEMU result")
+
+    def test_complementary_qemu_gates_are_mandatory_and_separate_from_signed_evidence(self) -> None:
+        workflow = (ROOT / ".github/workflows/release.yml").read_text()
+        qemu = workflow.split("  qemu:\n", 1)[1].split("  finalize:\n", 1)[0]
+        supplemental = (
+            "stock-gnome-ext4-systemdboot", "stock-gnome-btrfs-systemdboot",
+            "stock-gnome-btrfs-grub", "stock-gnome-btrfs-luks2-plymouth-systemdboot",
+            "marble-gnome-btrfs-luks2-plymouth-systemdboot-stock-gdm",
+            "minimal-dualboot-ext4-systemdboot",
+        )
+        for scenario in supplemental:
+            self.assertIn("scenario: " + scenario + "\n            evidence_group: supplemental", qemu)
+        self.assertIn("needs: [prepare, build, snapshot, qemu]", workflow.split("  finalize:\n", 1)[1])
+        self.assertNotIn("continue-on-error:", qemu)
+        self.assertIn("name: phase-a-${{ needs.prepare.outputs.source_commit }}", qemu)
+        self.assertIn("ref: ${{ needs.prepare.outputs.main_commit }}", qemu)
+        self.assertIn("SNAPSHOT_SHA256: ${{ needs.snapshot.outputs.snapshot_sha256 }}", qemu)
+        self.assertIn("maintenance/accepted-arch-iso.json", qemu)
+        self.assertIn("name: qemu-${{ matrix.evidence_group }}-${{ matrix.scenario }}-${{ needs.prepare.outputs.source_commit }}", qemu)
+        self.assertIn("pattern: qemu-core-*-${{ needs.prepare.outputs.source_commit }}", workflow)
 
     def test_finalizer_workflow_stages_one_run_under_each_consumer_scenario_name(self) -> None:
         workflow = (ROOT / ".github/workflows/release.yml").read_text()

@@ -3,6 +3,8 @@ set -euo pipefail
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 verifier="$repo_root/repository/verify-package-metadata.py"
 
+python3 -B "$repo_root/tests/package-archive-limits.py"
+
 python3 "$repo_root/repository/verify-package-metadata.py"
 bash "$repo_root/repository/assert-public-key.sh" \
     "$repo_root/repository/trust/arch-linux.gpg" \

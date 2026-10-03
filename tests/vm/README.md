@@ -63,7 +63,9 @@ package set with the fresh candidate, then tests a new ordinary user's real GDM 
 application startup. This establishes package migration; it does not rerun the old installer or
 prove visual equivalence from process checks. The release workflow downloads these same inputs.
 
-The same staged arguments also support these complementary cases:
+The same staged arguments also support these six mandatory complementary cases. The release
+workflow finalization waits for all nine matrix jobs; only the three core verdicts enter the
+unchanged signed acceptance schema. Supplemental evidence is retained separately:
 
 ```bash
 bash tests/vm/run.sh stock-gnome-ext4-systemdboot "${common[@]}"
@@ -119,6 +121,16 @@ bash tests/vm/run.sh marble-gnome-btrfs-luks2-plymouth-systemdboot \
   --public-key-url "https://github.com/snaplyze/arch-linux/releases/download/$RELEASE_VERSION/arch-linux.gpg" \
   --pages-url 'https://snaplyze.github.io/arch-linux/repo/$arch'
 ```
+
+For proposed ISO qualification of an unchanged published product, use the same public inputs
+with `--media-qualification` and scenario `minimal-ext4-systemdboot` or
+`stock-gnome-ext4-systemdboot`. The flag permits these two media checks with independently
+bound released product hashes and actual harness hashes. It requires a clean canonical harness
+checkout; it does not accept local dirty edits or qualify the corrected installer candidate.
+Qualification results include explicit provenance fields and cannot enter the core release
+finalizer. Ordinary public mode retains the unchanged-product/descendant checks above.
+A passing qualification run alone does not accept a new ISO pin: retain its trusted official
+hash/signature checks, both real installations and owner source review.
 
 The public guest independently downloads signed `RELEASE-SHA256SUMS`, the exact repository archive
 and its detached signature from the canonical Release. It requires the signed/archive digest to

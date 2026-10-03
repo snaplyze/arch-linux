@@ -86,6 +86,7 @@ SCRIPT_SOURCE_PATH=''
 SCRIPT_SOURCE_IDENTITY=''
 SCRIPT_MAIN_PID=''
 SCRIPT_TMP_DIR=''
+SCRIPT_RECOVERY_DIR=''
 ERROR_MSG_TMP_FILE=''
 PROCESS_LOG_TMP_FILE=''
 PROCESS_RET_TMP_FILE=''
@@ -556,6 +557,33 @@ locale_entry_is_valid() {
     [[ "$entry" =~ ^([A-Za-z]{2,3}_[A-Za-z0-9]+([.@][A-Za-z0-9_-]+)*|C(\.[A-Za-z0-9-]+)?)\ [A-Za-z0-9-]+$ ]]
 }
 
+# Fixed target accounts from Arch filesystem/basic+arch sysusers inputs plus this installer's
+# disposable AUR-builder contract. Never consult workstation passwd for this decision.
+username_is_reserved() {
+    case "$1" in
+    root | bin | daemon | mail | ftp | http | nobody | archlinux-aur-builder | \
+    alpm | dbus | systemd-coredump | systemd-imds | systemd-network | systemd-oom | \
+    systemd-journal-remote | systemd-resolve | systemd-timesync | tss | uuidd | \
+    sys | mem | log | smmsp | proc | games | lock | network | floppy | scanner | \
+    power | adm | wheel | empower | utmp | audio | clock | disk | input | kmem | \
+    kvm | lp | optical | render | sgx | storage | tty | uucp | video | users | \
+    systemd-journal | rfkill | gdm | avahi | polkitd | colord | rtkit | geoclue | \
+    flatpak | cups | brltty | brlapi | git | gnome-headless-session) return 0 ;;
+    *) return 1 ;;
+    esac
+}
+
+# Target-side readback remains required even after the fixed reserved-name preflight.
+# getent status 2 means the supplied key was not found; other failures are uncertain.
+target_username_is_available() {
+    local database status
+    for database in passwd group; do
+        status=0
+        arch-chroot /mnt getent "$database" "$1" >/dev/null 2>&1 || status=$?
+        [ "$status" -eq 2 ] || return 1
+    done
+}
+
 # Validate the lexical type of one persisted value. Empty is permitted for fields whose selector
 # has not run yet; validate_properties enforces the completed install-time contract separately.
 properties_value_is_valid() {
@@ -570,7 +598,7 @@ properties_value_is_valid() {
         [ -z "$value" ] || { [ "${#value}" -le 63 ] && [[ "$value" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]]; }
         ;;
     ARCH_LINUX_USERNAME)
-        [ -z "$value" ] || { [ "${#value}" -le 32 ] && [[ "$value" =~ ^[a-z][a-z0-9_-]*$ ]]; }
+        [ -z "$value" ] || { [ "${#value}" -le 32 ] && [[ "$value" =~ ^[a-z][a-z0-9_-]*$ ]] && ! username_is_reserved "$value"; }
         ;;
     ARCH_LINUX_DISK | ARCH_LINUX_BOOT_PARTITION | ARCH_LINUX_ROOT_PARTITION)
         [ -z "$value" ] || [[ "$value" =~ ^/dev/[A-Za-z0-9._/-]+$ ]]
@@ -2200,66 +2228,112 @@ assert_accepted_destructive_target() {
     }
 }
 
+# Membership returns 0 for a member, 1 for a proved nonmember, 2 for an uncertain probe.
 block_belongs_to_disk() {
-    local candidate="$1" disk="$2" path canonical_disk
-
+    local candidate="$1" disk="$2" path canonical_disk topology canonical_path found=false member=false
     candidate="${candidate%%\[*}"
     [ -b "$candidate" ] || return 1
-    canonical_disk="$(block_canonical "$disk")" || return 1
+    candidate="$(block_canonical "$candidate")" || return 2
+    canonical_disk="$(block_canonical "$disk")" || return 2
+    topology="$(lsblk -srpno PATH -- "$candidate" 2>/dev/null)" || return 2
+    [ -n "$topology" ] || return 2
     while IFS= read -r path; do
-        [ "$(block_canonical "$path")" = "$canonical_disk" ] && return 0
-    done < <(lsblk -srpno PATH -- "$candidate" 2>/dev/null)
-    return 1
+        [[ "$path" =~ ^/dev/[^[:space:]]+$ ]] || return 2
+        canonical_path="$(block_canonical "$path")" || return 2
+        [ "$canonical_path" != "$candidate" ] || found=true
+        [ "$canonical_path" != "$canonical_disk" ] || member=true
+    done <<<"$topology"
+    [ "$found" = true ] || return 2
+    [ "$member" = true ]
 }
 
 storage_path_belongs_to_disk() {
     local storage_path="$1" disk="$2" mount_source
-
     if [ -b "$storage_path" ]; then
         block_belongs_to_disk "$storage_path" "$disk"
         return
     fi
-    [ -e "$storage_path" ] || return 1
-    mount_source="$(findmnt -rn -o SOURCE -T "$storage_path" 2>/dev/null | head -n1)" || return 1
+    if [ ! -e "$storage_path" ]; then
+        case "$storage_path" in /*) return 2 ;; *) return 1 ;; esac
+    fi
+    mount_source="$(findmnt -rn -o SOURCE -T "$storage_path" 2>/dev/null)" || return 2
+    [ -n "$mount_source" ] && [[ ! "$mount_source" =~ [[:space:]] ]] || return 2
     block_belongs_to_disk "${mount_source%%\[*}" "$disk"
 }
 
 target_storage_is_idle() {
-    local report="$1" source swap_path descendant_path descendant_type ok=true
-
+    local report="$1" source swap_path descendant_path descendant_type extra status
+    local mounts swaps topology mountpoint found=false
+    local -A seen_descendants=()
+    status=0
+    mounts="$(findmnt -rn -o SOURCE 2>&1)" || status=$?
+    if [ "$status" -ne 0 ] && { [ "$status" -ne 1 ] || [ -n "$mounts" ]; }; then
+        "$report" "Could not inspect mounted filesystems"; return 1
+    fi
+    swaps="$(swapon --noheadings --raw --show=NAME 2>/dev/null)" || {
+        "$report" "Could not inspect active swap"; return 1;
+    }
+    topology="$(lsblk -rpn -o PATH,TYPE -- "$ARCH_LINUX_DISK" 2>/dev/null)" || {
+        "$report" "Could not inspect selected disk topology"; return 1;
+    }
+    while read -r descendant_path descendant_type extra; do
+        [[ "$descendant_path" =~ ^/dev/[^[:space:]]+$ ]] && [ -z "$extra" ] || {
+            "$report" "Malformed selected disk topology"; return 1;
+        }
+        [ -z "${seen_descendants[$descendant_path]:-}" ] || {
+            "$report" "Duplicate selected disk topology row"; return 1;
+        }
+        seen_descendants[$descendant_path]=true
+        case "$descendant_type" in
+        disk)
+            [ "$descendant_path" = "$ARCH_LINUX_DISK" ] || {
+                "$report" "Unexpected disk in selected topology"; return 1;
+            }
+            ;;
+        part)
+            block_belongs_to_disk "$descendant_path" "$ARCH_LINUX_DISK" || {
+                "$report" "Could not prove selected partition ancestry"; return 1;
+            }
+            ;;
+        *) "$report" "Selected disk has an active ${descendant_type:-unknown} holder: ${descendant_path}"; return 1 ;;
+        esac
+        if [ "$descendant_path" = "$ARCH_LINUX_DISK" ] && [ "$descendant_type" = disk ]; then found=true; fi
+    done <<<"$topology"
+    [ "$found" = true ] || { "$report" "Selected disk is missing from topology"; return 1; }
     while IFS= read -r source; do
         [ -n "$source" ] || continue
-        if storage_path_belongs_to_disk "${source%%\[*}" "$ARCH_LINUX_DISK"; then
-            "$report" "Selected disk has a mounted filesystem; unmount it before installation"
-            ok=false
-        fi
-    done < <(findmnt -rn -o SOURCE 2>/dev/null)
+        [[ ! "$source" =~ [[:space:]] ]] || { "$report" "Malformed mount source"; return 1; }
+        status=0
+        storage_path_belongs_to_disk "${source%%\[*}" "$ARCH_LINUX_DISK" || status=$?
+        case "$status" in
+        0) "$report" "Selected disk has a mounted filesystem; unmount it before installation"; return 1 ;;
+        1) ;;
+        *) "$report" "Could not determine mount source disk membership"; return 1 ;;
+        esac
+    done <<<"$mounts"
     while IFS= read -r swap_path; do
         [ -n "$swap_path" ] || continue
-        if storage_path_belongs_to_disk "$swap_path" "$ARCH_LINUX_DISK"; then
-            "$report" "Selected disk has active swap; disable it before installation"
-            ok=false
-        fi
-    done < <(swapon --noheadings --raw --show=NAME 2>/dev/null)
-    while read -r descendant_path descendant_type; do
-        [ -n "$descendant_path" ] || continue
-        case "$descendant_type" in
-        disk | part) ;;
-        *)
-            "$report" "Selected disk has an active ${descendant_type:-unknown} holder: ${descendant_path}"
-            ok=false
-            ;;
+        [[ "$swap_path" = /* && ! "$swap_path" =~ [[:space:]] ]] && [ -e "$swap_path" ] || {
+            "$report" "Malformed or missing active swap path"; return 1;
+        }
+        status=0
+        storage_path_belongs_to_disk "$swap_path" "$ARCH_LINUX_DISK" || status=$?
+        case "$status" in
+        0) "$report" "Selected disk has active swap; disable it before installation"; return 1 ;;
+        1) ;;
+        *) "$report" "Could not determine swap disk membership"; return 1 ;;
         esac
-    done < <(lsblk -rpn -o PATH,TYPE -- "$ARCH_LINUX_DISK" 2>/dev/null)
+    done <<<"$swaps"
     if [ -e /dev/mapper/cryptroot ] || [ -L /dev/mapper/cryptroot ]; then
-        "$report" "The installer mapper name cryptroot is already in use"
-        ok=false
+        "$report" "The installer mapper name cryptroot is already in use"; return 1
     fi
-    if findmnt -rn -M /mnt >/dev/null 2>&1; then
-        "$report" "The installer mountpoint /mnt is already mounted"
-        ok=false
-    fi
-    [ "$ok" = true ]
+    status=0
+    mountpoint="$(findmnt -rn -M /mnt 2>&1)" || status=$?
+    case "$status" in
+    0) "$report" "The installer mountpoint /mnt is already mounted"; return 1 ;;
+    1) [ -z "$mountpoint" ] || { "$report" "Unexpected mountpoint probe output"; return 1; } ;;
+    *) "$report" "Could not inspect installer mountpoint /mnt"; return 1 ;;
+    esac
 }
 
 storage_marker_state() {
@@ -2298,18 +2372,39 @@ mark_storage_intent() {
 activate_storage_marker() {
     local marker="$1"
     [ "$(storage_marker_state "$marker")" = intent ] || return 1
+    if [ "$marker" = "$TARGET_MOUNT_MARKER" ]; then
+        assert_target_root_mounted || return 1
+    fi
     write_storage_marker "$marker" active
 }
 
-target_mount_tree_is_owned() {
-    local source target found=false
+assert_target_root_mounted() {
+    local source expected
+    assert_accepted_destructive_target log_fail || return 1
+    source="$(findmnt -rn -o SOURCE -M /mnt 2>/dev/null)" || return 1
+    [ -n "$source" ] && [[ ! "$source" =~ [[:space:]] ]] || return 1
+    source="${source%%\[*}"
+    if [ "$ARCH_LINUX_ENCRYPTION_ENABLED" = true ]; then
+        cryptroot_belongs_to_target || return 1
+        expected=/dev/mapper/cryptroot
+    else
+        expected="$ARCH_LINUX_ROOT_PARTITION"
+    fi
+    source="$(block_canonical "$source")" || return 1
+    expected="$(block_canonical "$expected")" || return 1
+    [ "$source" = "$expected" ]
+}
 
+target_mount_tree_is_owned() {
+    local source target found=false inventory
+
+    inventory="$(findmnt -Rrn -o SOURCE,TARGET -M /mnt 2>/dev/null)" || return 1
     while read -r source target; do
         found=true
         case "$target" in /mnt | /mnt/*) ;; *) return 1 ;; esac
         source="${source%%\[*}"
         storage_path_belongs_to_disk "$source" "$ARCH_LINUX_DISK" || return 1
-    done < <(findmnt -Rrn -o SOURCE,TARGET -M /mnt 2>/dev/null)
+    done <<<"$inventory"
     [ "$found" = true ]
 }
 
@@ -2322,21 +2417,32 @@ cryptroot_belongs_to_target() {
 }
 
 installer_cleanup_created_storage() {
-    local cleanup_ok=true marker_state
+    local cleanup_ok=true marker_state mount_probe status
 
     if [ -e "$TARGET_MOUNT_MARKER" ] || [ -L "$TARGET_MOUNT_MARKER" ]; then
         marker_state="$(storage_marker_state "$TARGET_MOUNT_MARKER")" || marker_state=''
-        if [ -n "$marker_state" ] && ! findmnt -rn -M /mnt >/dev/null 2>&1 &&
+        status=0
+        mount_probe="$(findmnt -rn -M /mnt 2>&1)" || status=$?
+        if [ -n "$marker_state" ] && [ "$status" = 1 ] && [ -z "$mount_probe" ] &&
             [ "$marker_state" = intent ]; then
             rm -f -- "$TARGET_MOUNT_MARKER"
-        elif [ -n "$marker_state" ] && target_mount_tree_is_owned &&
-            umount -R -- /mnt && ! findmnt -rn -M /mnt >/dev/null 2>&1; then
-            rm -f -- "$TARGET_MOUNT_MARKER"
+        elif [ -n "$marker_state" ] && [ "$status" = 0 ] && assert_target_root_mounted &&
+            target_mount_tree_is_owned &&
+            umount -R -- /mnt; then
+            status=0
+            mount_probe="$(findmnt -rn -M /mnt 2>&1)" || status=$?
+            if [ "$status" = 1 ] && [ -z "$mount_probe" ]; then
+                rm -f -- "$TARGET_MOUNT_MARKER"
+            else
+                cleanup_ok=false
+            fi
         else
             log_fail "Refusing to unmount a target tree that is not owned by this installation"
             cleanup_ok=false
         fi
     fi
+    # A mapper still used by a target mount cannot be closed safely.
+    [ "$cleanup_ok" = true ] || return 1
     if [ -e "$CRYPTROOT_MARKER" ] || [ -L "$CRYPTROOT_MARKER" ]; then
         marker_state="$(storage_marker_state "$CRYPTROOT_MARKER")" || marker_state=''
         if [ -n "$marker_state" ] && [ ! -e /dev/mapper/cryptroot ] &&
@@ -2353,6 +2459,112 @@ installer_cleanup_created_storage() {
     [ "$cleanup_ok" = true ]
 }
 
+# Compare ASCII boot paths case-insensitively even in the ordinary-directory test adapter.
+# FAT itself folds case; using only -e on a case-sensitive fixture misses that boundary.
+dual_boot_esp_path_is_available() {
+    local LC_ALL=C
+    local root="$1" relative="$2" rule="${3:-absent}" current component entries entry match count
+    local -a components=()
+    current="$root"
+    [ -d "$current" ] && [ ! -L "$current" ] || return 1
+    IFS=/ read -r -a components <<<"$relative"
+    for component in "${components[@]}"; do
+        [ -r "$current" ] && [ -x "$current" ] || return 1
+        entries="$(set -o pipefail; LC_ALL=C find "$current" -mindepth 1 -maxdepth 1 -printf '%f\n' |
+            head -c 1048577)" || return 1
+        [ "${#entries}" -le 1048576 ] || return 1
+        match='' count=0
+        while IFS= read -r entry; do
+            [ -n "$entry" ] || continue
+            count=$((count + 1))
+            [ "$count" -le 4096 ] || return 1
+            if [ "${entry,,}" = "${component,,}" ]; then
+                [ -z "$match" ] || return 1
+                match="$entry"
+            fi
+        done <<<"$entries"
+        if [ -z "$match" ]; then
+            # VFAT may also equate Unicode/short-name aliases that ASCII folding cannot
+            # model. A successful direct lookup with no unique enumerated match is uncertain.
+            [ ! -e "${current}/${component}" ] && [ ! -L "${current}/${component}" ] || return 1
+            return 0
+        fi
+        current="${current}/${match}"
+        if [ "$component" != "${components[${#components[@]}-1]}" ]; then
+            [ -d "$current" ] && [ ! -L "$current" ] || return 1
+        fi
+    done
+    # bootctl preserves an existing type-1 entries.srel; every other reserved object conflicts,
+    # including an empty directory or dangling symlink at a writer's destination.
+    [ "$rule" = type1 ] && [ -f "$current" ] && [ ! -L "$current" ] &&
+        [ "$(stat -c '%s' -- "$current")" = 6 ] &&
+        cmp -s -- "$current" <(printf 'type1\n')
+}
+
+dual_boot_esp_footprint_is_clear() {
+    local root="$1" kernel="$2" microcode="$3" bootloader="$4" path
+    local -a paths=()
+    case "$kernel" in linux | linux-lts | linux-zen | linux-hardened) ;;
+    *) printf 'Dual boot requires a supported kernel with a known ESP footprint: %q\n' "$kernel" >&2; return 1 ;;
+    esac
+    paths=("vmlinuz-${kernel}" "initramfs-${kernel}.img" "initramfs-${kernel}-fallback.img")
+    case "$microcode" in
+    none | '') ;;
+    intel-ucode | amd-ucode) paths+=("${microcode}.img") ;;
+    *) printf 'Unknown dual-boot microcode footprint\n' >&2; return 1 ;;
+    esac
+    case "$bootloader" in
+    systemd)
+        paths+=(EFI/systemd EFI/BOOT loader/loader.conf loader/random-seed
+            loader/entries/main.conf loader/entries/main-fallback.conf)
+        if ! dual_boot_esp_path_is_available "$root" loader/entries.srel type1; then
+            printf 'Dual-boot ESP has an unsafe loader/entries.srel; choose a noncolliding ESP\n' >&2
+            return 1
+        fi
+        ;;
+    grub) paths+=(EFI/ArchLinux grub) ;;
+    *) return 1 ;;
+    esac
+    for path in "${paths[@]}"; do
+        if ! dual_boot_esp_path_is_available "$root" "$path"; then
+            printf 'Dual-boot ESP collision or unsafe ancestor at %s; preserve those files and choose a noncolliding ESP\n' "$path" >&2
+            return 1
+        fi
+    done
+}
+
+dual_boot_inspect_esp_handle() {
+    local handle="$1" probe status=0 program
+    # Inspect the retained accepted block handle in a private namespace. No ESP write or
+    # propagated mount is permitted; namespace destruction also releases a failed unmount.
+    probe="$(umask 077 && mktemp -d -- "${SCRIPT_TMP_DIR}/esp-probe.XXXXXXXXXX")" || return 1
+    program="$(declare -f dual_boot_esp_path_is_available dual_boot_esp_footprint_is_clear)"
+    program+=$'\nset -euo pipefail\n'
+    program+=$'mount -t vfat -o ro,nosuid,nodev,noexec -- "$1" "$2"\n'
+    # shellcheck disable=SC2016 # Evaluated with namespace-child argv, not parent argv.
+    program+=$'trap \'umount -- "$2" || exit 1\' EXIT\n'
+    program+=$'options="$(findmnt -rn -o VFS-OPTIONS -M "$2")"\n'
+    program+=$'[[ ",$options," = *,ro,* ]]\n'
+    program+=$'dual_boot_esp_footprint_is_clear "$2" "$3" "$4" "$5"\n'
+    timeout --signal=TERM --kill-after=5 30 unshare --mount --propagation private \
+        /usr/bin/bash --noprofile --norc -c "$program" esp-inspection \
+        "$handle" "$probe" "$ARCH_LINUX_KERNEL" "$ARCH_LINUX_MICROCODE" "$ARCH_LINUX_BOOTLOADER" || status=$?
+    rmdir -- "$probe" || status=1
+    [ "$status" = 0 ] || { log_fail 'Could not prove the accepted ESP write footprint is safe; no target mutation is permitted'; return 1; }
+}
+
+assert_dual_boot_mounted_esp_is_clear() {
+    local source expected
+    [ "$ARCH_LINUX_DUAL_BOOT_ENABLED" = true ] || return 0
+    source="$(findmnt -rn -o SOURCE -M /mnt/boot)" || return 1
+    [ -n "$source" ] && [[ ! "$source" =~ [[:space:]] ]] || return 1
+    source="$(block_canonical "$source")" || return 1
+    expected="$(block_canonical "$ARCH_LINUX_BOOT_PARTITION")" || return 1
+    [ "$source" = "$expected" ] || return 1
+    dual_boot_esp_footprint_is_clear /mnt/boot \
+        "$ARCH_LINUX_KERNEL" "$ARCH_LINUX_MICROCODE" "$ARCH_LINUX_BOOTLOADER"
+}
+
 validate_properties_with_reporter() {
     local reporter="$1"
     local valid="true"
@@ -2366,6 +2578,7 @@ validate_properties_with_reporter() {
     [ "${ARCH_LINUX_INSTALLER_CONFIG_VERSION:-}" = '1' ] || validate_fail "ARCH_LINUX_INSTALLER_CONFIG_VERSION must be 1"
     [[ "$ARCH_LINUX_USERNAME" =~ ^[a-z][a-z0-9_-]*$ ]] || validate_fail "ARCH_LINUX_USERNAME must start with a lowercase letter and contain only a-z, 0-9, _ or -"
     [ "${#ARCH_LINUX_USERNAME}" -le 32 ] || validate_fail "ARCH_LINUX_USERNAME must not exceed 32 characters (useradd limit)"
+    ! username_is_reserved "$ARCH_LINUX_USERNAME" || validate_fail "ARCH_LINUX_USERNAME is reserved by the target system or installer"
     [[ "$ARCH_LINUX_HOSTNAME" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]] || validate_fail "ARCH_LINUX_HOSTNAME must be a valid single-label hostname"
     [ -n "$ARCH_LINUX_PASSWORD" ] || validate_fail "ARCH_LINUX_PASSWORD must not be empty"
 
@@ -2532,8 +2745,8 @@ select_username() {
         [ -z "$user_input" ] && return 1 # Check if new value is null
 
         # Validate username: must start with a letter, contain only lowercase letters, digits, underscores, hyphens
-        if [[ ! "$user_input" =~ ^[a-z][a-z0-9_-]*$ ]]; then
-            gum_confirm --affirmative="Ok" --negative="" "Invalid username! Must start with a lowercase letter and contain only a-z, 0-9, _ or -"
+        if ! properties_value_is_valid ARCH_LINUX_USERNAME "$user_input"; then
+            gum_confirm --affirmative="Ok" --negative="" "Invalid username! Use an unreserved name of at most 32 characters, starting with a lowercase letter and containing only a-z, 0-9, _ or -"
             return 1
         fi
 
@@ -2832,7 +3045,7 @@ select_gnome_theme_profile() {
         local user_input options
         options=(
             "stock  - Stock GNOME (default; keeps the current Bibata and extension profile)"
-            "marble - Marble blue/filled/dark Shell with Colloid GTK3 and icons"
+            "marble - Marble blue/filled/dark Shell with Colloid GTK3/GTK4/libadwaita and icons"
         )
         user_input=$(gum_choose --header "+ Choose GNOME Appearance (default: Stock)" "${options[@]}") || trap_gum_exit_confirm
         [ -z "$user_input" ] && return 1
@@ -3370,16 +3583,31 @@ exec_prepare_disk() {
             fi
         }
 
+        if [ "$ARCH_LINUX_DUAL_BOOT_ENABLED" = true ]; then
+            dual_boot_inspect_esp_handle "$target_boot_handle" || exit 1
+            # The private read-only probe has ended. Re-prove idle state and every retained
+            # identity immediately before the first cryptsetup or root-filesystem mutation.
+            target_storage_is_idle log_fail || exit 1
+            assert_accepted_destructive_target log_fail || exit 1
+            assert_bound_partition_handles || exit 1
+        fi
+
         # Wipe and create partitions (skip in dual boot mode: keep existing disk layout of the parallel OS)
         if [ "$ARCH_LINUX_DUAL_BOOT_ENABLED" != "true" ]; then
-            assert_bound_disk_handle && wipefs -af -- "$target_disk_handle"
-            assert_bound_disk_handle && sgdisk --zap-all -- "$target_disk_handle"
-            assert_bound_disk_handle && sgdisk -o -- "$target_disk_handle"
-            assert_bound_disk_handle && sgdisk -n 1:0:+1G -t 1:ef00 -c 1:boot \
+            assert_bound_disk_handle || exit 1
+            wipefs -af -- "$target_disk_handle"
+            assert_bound_disk_handle || exit 1
+            sgdisk --zap-all -- "$target_disk_handle"
+            assert_bound_disk_handle || exit 1
+            sgdisk -o -- "$target_disk_handle"
+            assert_bound_disk_handle || exit 1
+            sgdisk -n 1:0:+1G -t 1:ef00 -c 1:boot \
                 --align-end -- "$target_disk_handle"
-            assert_bound_disk_handle && sgdisk -n 2:0:0 -t 2:8300 -c 2:root \
+            assert_bound_disk_handle || exit 1
+            sgdisk -n 2:0:0 -t 2:8300 -c 2:root \
                 --align-end -- "$target_disk_handle"
-            assert_bound_disk_handle && partprobe -- "$target_disk_handle"
+            assert_bound_disk_handle || exit 1
+            partprobe -- "$target_disk_handle"
 
             # Wait for udev to materialise the new nodes, then prove they are really the partitions
             # we just created before any mkfs runs against them.
@@ -3420,25 +3648,30 @@ exec_prepare_disk() {
 
         # Format /boot partition (skip in dual boot mode: reuse existing ESP, keep other OS bootloaders intact)
         [ "$ARCH_LINUX_DUAL_BOOT_ENABLED" = "true" ] || {
-            assert_bound_partition_handles && mkfs.fat -F 32 -n BOOT -- "$target_boot_handle"
+            assert_bound_partition_handles || exit 1
+            mkfs.fat -F 32 -n BOOT -- "$target_boot_handle"
         }
 
         # EXT4
         if [ "$ARCH_LINUX_FILESYSTEM" = "ext4" ]; then
             [ "$ARCH_LINUX_ENCRYPTION_ENABLED" = "true" ] && {
-                assert_bound_cryptroot_handle && mkfs.ext4 -F -L ROOT -- "$cryptroot_handle"
+                assert_bound_cryptroot_handle || exit 1
+                mkfs.ext4 -F -L ROOT -- "$cryptroot_handle"
             }
             [ "$ARCH_LINUX_ENCRYPTION_ENABLED" = "false" ] && {
-                assert_bound_partition_handles && mkfs.ext4 -F -L ROOT -- "$target_root_handle"
+                assert_bound_partition_handles || exit 1
+                mkfs.ext4 -F -L ROOT -- "$target_root_handle"
             }
 
             # Mount disk to /mnt
             mark_storage_intent "$TARGET_MOUNT_MARKER" || { log_fail "Could not record target mount intent"; exit 1; }
             [ "$ARCH_LINUX_ENCRYPTION_ENABLED" = "true" ] && {
-                assert_bound_cryptroot_handle && mount -v -- "$cryptroot_handle" /mnt
+                assert_bound_cryptroot_handle || exit 1
+                mount -v -- "$cryptroot_handle" /mnt
             }
             [ "$ARCH_LINUX_ENCRYPTION_ENABLED" = "false" ] && {
-                assert_bound_partition_handles && mount -v -- "$target_root_handle" /mnt
+                assert_bound_partition_handles || exit 1
+                mount -v -- "$target_root_handle" /mnt
             }
             if ! activate_storage_marker "$TARGET_MOUNT_MARKER"; then
                 log_fail "Could not activate target mount ownership marker"
@@ -3448,25 +3681,30 @@ exec_prepare_disk() {
 
             # Mount /boot
             #mount -v --mkdir LABEL=BOOT /mnt/boot
-            assert_bound_partition_handles && mount -v --mkdir -- "$target_boot_handle" /mnt/boot
+            assert_bound_partition_handles || exit 1
+            mount -v --mkdir -- "$target_boot_handle" /mnt/boot
         fi
 
         # BTRFS
         if [ "$ARCH_LINUX_FILESYSTEM" = "btrfs" ]; then
             [ "$ARCH_LINUX_ENCRYPTION_ENABLED" = "true" ] && {
-                assert_bound_cryptroot_handle && mkfs.btrfs -f -L BTRFS -- "$cryptroot_handle"
+                assert_bound_cryptroot_handle || exit 1
+                mkfs.btrfs -f -L BTRFS -- "$cryptroot_handle"
             }
             [ "$ARCH_LINUX_ENCRYPTION_ENABLED" = "false" ] && {
-                assert_bound_partition_handles && mkfs.btrfs -f -L BTRFS -- "$target_root_handle"
+                assert_bound_partition_handles || exit 1
+                mkfs.btrfs -f -L BTRFS -- "$target_root_handle"
             }
 
             # Mount disk to /mnt
             mark_storage_intent "$TARGET_MOUNT_MARKER" || { log_fail "Could not record target mount intent"; exit 1; }
             [ "$ARCH_LINUX_ENCRYPTION_ENABLED" = "true" ] && {
-                assert_bound_cryptroot_handle && mount -v -- "$cryptroot_handle" /mnt
+                assert_bound_cryptroot_handle || exit 1
+                mount -v -- "$cryptroot_handle" /mnt
             }
             [ "$ARCH_LINUX_ENCRYPTION_ENABLED" = "false" ] && {
-                assert_bound_partition_handles && mount -v -- "$target_root_handle" /mnt
+                assert_bound_partition_handles || exit 1
+                mount -v -- "$target_root_handle" /mnt
             }
             if ! activate_storage_marker "$TARGET_MOUNT_MARKER"; then
                 log_fail "Could not activate target mount ownership marker"
@@ -3517,7 +3755,8 @@ exec_prepare_disk() {
 
             # Mount /boot
             #mount -v --mkdir LABEL=BOOT /mnt/boot
-            assert_bound_partition_handles && mount -v --mkdir -- "$target_boot_handle" /mnt/boot
+            assert_bound_partition_handles || exit 1
+            mount -v --mkdir -- "$target_boot_handle" /mnt/boot
 
             # Create dirs instead of subvolumes by systemd
             mkdir -p /mnt/var/lib/portables
@@ -3603,6 +3842,12 @@ exec_pacstrap_core() {
     (
         process_enter_cgroup
         [ "$DEBUG" = "true" ] && sleep 1 && process_return 0 # If debug mode then return
+
+        assert_target_root_mounted || { log_fail "Accepted target root is not mounted at /mnt"; exit 1; }
+        assert_dual_boot_mounted_esp_is_clear || {
+            log_fail 'Accepted dual-boot ESP identity or write footprint changed before package installation'
+            exit 1
+        }
 
         # Core packages
         local packages=("$ARCH_LINUX_KERNEL" base base-devel linux-firmware mkinitcpio zram-generator networkmanager)
@@ -3843,7 +4088,11 @@ exec_pacstrap_core() {
             [ "$ARCH_LINUX_FILESYSTEM" = "btrfs" ] && arch-chroot /mnt systemctl enable grub-btrfsd.service
         fi
 
-        # Create new user
+        # Create new user only after target-side collision readback.
+        target_username_is_available "$ARCH_LINUX_USERNAME" || {
+            log_fail "Selected user/group already exists in the target or its account lookup failed"
+            exit 1
+        }
         arch-chroot /mnt useradd -m -G wheel -s /bin/bash "$ARCH_LINUX_USERNAME"
 
         # Create the initial user directories before any third-party user code runs. Every later
@@ -5741,7 +5990,10 @@ aur_builder_uid_scan_target_mounts() (
 
         case "$mode" in
         empty)
-            [ -z "$(find "$view" -xdev -uid "$builder_uid" -print -quit)" ] || return 1
+            owned_path="$(find "$view" -xdev -uid "$builder_uid" -print -quit)" || {
+                log_fail "Could not complete AUR UID ownership readback"; return 1;
+            }
+            [ -z "$owned_path" ] || return 1
             ;;
         confined)
             : >"${scan_parent}/owned-inodes"
@@ -5756,7 +6008,10 @@ aur_builder_uid_scan_target_mounts() (
             ;;
         cleanup)
             find "$view" -xdev -depth -uid "$builder_uid" -delete || return 1
-            [ -z "$(find "$view" -xdev -uid "$builder_uid" -print -quit)" ] || return 1
+            owned_path="$(find "$view" -xdev -uid "$builder_uid" -print -quit)" || {
+                log_fail "Could not complete AUR UID ownership readback"; return 1;
+            }
+            [ -z "$owned_path" ] || return 1
             ;;
         occupied-uids)
             find "$view" -xdev -uid +$((minimum_uid - 1)) -uid -$((maximum_uid + 1)) \
@@ -6753,33 +7008,112 @@ trap_error() {
 }
 
 # shellcheck disable=SC2317
+installer_preserve_recovery_state() {
+    local quiescent="$1" marker state mount_retained=false crypt_retained=false cgroup=unavailable
+    local old_runtime="$SCRIPT_TMP_DIR" parent parent_identity owner mode recovery accepted_snapshot index
+    local -a names=() states=()
+    SCRIPT_RECOVERY_DIR=''
+    case "$quiescent" in true | false) ;; *) return 1 ;; esac
+    runtime_directory_metadata_is_safe "$old_runtime" "$(id -u)" || return 1
+    [[ "$old_runtime" = /* && "$old_runtime" != */../* && "$old_runtime" != */./* ]] || return 1
+    parent="${old_runtime%/*}"
+    [ -n "$parent" ] && [ -d "$parent" ] && [ ! -L "$parent" ] || return 1
+    [ "$(cd -- "$parent" && pwd -P)" = "$parent" ] || return 1
+    read -r owner mode parent_identity < <(stat -Lc '%u %a %d:%i' -- "$parent") || return 1
+    [ "$owner" = "$(id -u)" ] && (( (8#$mode & 0022) == 0 )) || return 1
+    accepted_snapshot="$ARCH_LINUX_ACCEPTED_TARGET_SNAPSHOT"
+    for marker in "$TARGET_MOUNT_MARKER" "$CRYPTROOT_MARKER"; do
+        case "$marker" in "${old_runtime}/target-mounted" | "${old_runtime}/cryptroot-opened") ;; *) return 1 ;; esac
+        if [[ "$accepted_snapshot" =~ ^[a-f0-9]{64}$ ]] &&
+            [ -f "$marker" ] && [ ! -L "$marker" ] &&
+            [ "$(stat -c '%h:%s' -- "$marker")" = 1:72 ] &&
+            state="$(storage_marker_state "$marker")" && { [ "$state" = active ] || [ "$state" = intent ]; }; then
+            names+=("${marker##*/}") states+=("$state")
+            case "$marker" in "$TARGET_MOUNT_MARKER") mount_retained=true ;; *) crypt_retained=true ;; esac
+        fi
+    done
+    if [ "${#PROCESS_CGROUP_DIR}" -le 1024 ] &&
+        [[ "$PROCESS_CGROUP_DIR" =~ ^/sys/fs/cgroup(/[A-Za-z0-9_.:@-]+)*/arch-linux-installer-[0-9]+-[0-9]+$ ]] &&
+        [[ "$PROCESS_CGROUP_DIR" != */../* && "$PROCESS_CGROUP_DIR" != */./* ]] &&
+        [ "${PROCESS_CGROUP_DIR##*/}" = "arch-linux-installer-${SCRIPT_MAIN_PID}-${PROCESS_SEQUENCE}" ] &&
+        runtime_directory_metadata_is_safe "$PROCESS_CGROUP_DIR" 0; then
+        cgroup="$PROCESS_CGROUP_DIR"
+    fi
+    # Workers retain old absolute log/error paths even when termination is unproved.
+    # Build a fresh operational-only closure elsewhere; never copy their raw files.
+    recovery="$(umask 077 && mktemp -d -- "${parent}/arch-linux-installer-recovery.XXXXXXXXXX")" || return 1
+    if ! runtime_directory_metadata_is_safe "$recovery" "$(id -u)" ||
+        [ "$(stat -Lc '%d:%i' -- "$parent")" != "$parent_identity" ]; then
+        rm -rf -- "$recovery"
+        return 1
+    fi
+    for index in "${!names[@]}"; do
+        if ! (umask 077; printf '%s %s\n' "${states[$index]}" "$accepted_snapshot" >"${recovery}/${names[$index]}"); then
+            rm -rf -- "$recovery"
+            return 1
+        fi
+    done
+    if ! (umask 077; printf 'schema=1\nworker_quiescent=%s\ntarget_mount_marker=%s\ncryptroot_marker=%s\ncgroup=%s\n' \
+        "$quiescent" "$mount_retained" "$crypt_retained" "$cgroup" >"${recovery}/recovery-state") ||
+        ! rm -rf -- "$old_runtime"; then
+        rm -rf -- "$recovery"
+        return 1
+    fi
+    SCRIPT_RECOVERY_DIR="$recovery"
+    log_fail "Cleanup incomplete; private nonsecret ownership markers retained at ${SCRIPT_RECOVERY_DIR} (target mount: ${mount_retained}; cryptroot: ${crypt_retained}; worker quiescent: ${quiescent}; cgroup: ${cgroup})"
+}
+
+# shellcheck disable=SC2317
 trap_exit() {
     local result_code="$?"
+    local workers_quiescent=true cleanup_complete=true
 
     # Executor subshells are reaped by process_capture. If Bash propagates EXIT in a particular
     # launch context, the child must never clean parent-owned runtime state or accepted storage.
     if [ -n "$SCRIPT_MAIN_PID" ] && [ "$BASHPID" != "$SCRIPT_MAIN_PID" ]; then
         exit "$result_code"
     fi
+    unset ARCH_LINUX_PASSWORD
 
     # Read error msg from file (written in error trap)
-    local error && [ -f "$ERROR_MSG_TMP_FILE" ] && error="$(<"$ERROR_MSG_TMP_FILE")" && rm -f -- "$ERROR_MSG_TMP_FILE"
+    local error=''
+    if [ -f "$ERROR_MSG_TMP_FILE" ]; then
+        error="$(<"$ERROR_MSG_TMP_FILE")"
+        rm -f -- "$ERROR_MSG_TMP_FILE" || result_code=1
+    fi
 
     # Kill and reap the exact active process scope before reading its log or removing runtime state.
     if [ -n "$PROCESS_ACTIVE_PID" ] || [ -n "$PROCESS_CGROUP_DIR" ]; then
         process_reap_active true || result_code=1
+        [ -z "$PROCESS_CGROUP_DIR" ] || cleanup_complete=false
+        if [ -n "$PROCESS_ACTIVE_PID" ] || ! process_cgroup_is_empty; then
+            workers_quiescent=false
+            cleanup_complete=false
+            result_code=1
+            log_fail 'Worker quiescence is unproved; refusing storage teardown'
+        fi
     fi
 
     # On failure, release only storage resources recorded by this exact accepted installation.
     # A successful run preserves the user's explicit keep-mounted/chroot choice.
-    if [ "$result_code" -ne 0 ] && [ "$DEBUG" = false ]; then
-        installer_cleanup_created_storage || result_code=1
+    if [ "$result_code" -ne 0 ] && [ "$DEBUG" = false ] && [ "$workers_quiescent" = true ]; then
+        if ! installer_cleanup_created_storage; then
+            result_code=1
+            cleanup_complete=false
+        fi
     fi
 
     # Cleanup (always: this must run even if gum itself failed to install below, since the trap
     # now also covers gum_init - see the top-level 'trap' call for why)
-    unset ARCH_LINUX_PASSWORD
-    rm -rf -- "$SCRIPT_TMP_DIR"
+    if [ "$cleanup_complete" = true ]; then
+        rm -rf -- "$SCRIPT_TMP_DIR"
+    elif ! installer_preserve_recovery_state "$workers_quiescent"; then
+        # A failed validation cannot justify retaining potentially secret runtime contents.
+        rm -rf -- "$SCRIPT_TMP_DIR" || log_fail 'Could not remove the original worker runtime; it is not a nonsecret recovery closure'
+        log_fail 'Could not retain validated recovery markers; remaining storage/worker resources require manual inspection'
+        result_code=1
+    fi
+    [ "$cleanup_complete" = true ] || error=''
 
     # gum is not guaranteed to be installed yet at this point - fall back to plain output instead
     # of calling gum_* (which would itself exit 1 with a confusing "GUM not found" message)
@@ -6798,7 +7132,7 @@ trap_exit() {
         [ -n "$error" ] && gum_fail "$error"            # Print error message (if exists)
         [ -z "$error" ] && gum_fail "An error occurred" # Otherwise print default error message
         gum_warn "See ${SCRIPT_LOG} for more information..."
-        gum_confirm "Show Logs?" && gum pager --show-line-numbers <"$SCRIPT_LOG" # Ask for show logs?
+        [ "$FORCE" = false ] && gum_confirm "Show Logs?" && gum pager --show-line-numbers <"$SCRIPT_LOG"
     fi
 
     exit "$result_code" # Exit installer.sh
@@ -6969,11 +7303,15 @@ process_reap_active() {
         if [ "$terminate" = true ] || [ "$unexpected_contained" = true ]; then
             process_kill_contained 2>/dev/null || true
         fi
-        wait "$PROCESS_ACTIVE_PID" 2>/dev/null || result=$?
     fi
     if ! process_wait_cgroup_empty; then
         process_kill_contained 2>/dev/null || true
         process_wait_cgroup_empty || return 1
+    fi
+    # Do not enter an unbounded wait while a killed worker may still be running (for example
+    # in uninterruptible I/O). Keep its exact ownership state for the EXIT handler instead.
+    if [ -n "$PROCESS_ACTIVE_PID" ]; then
+        wait "$PROCESS_ACTIVE_PID" 2>/dev/null || result=$?
     fi
     PROCESS_ACTIVE_PID=''
     PROCESS_ACTIVE_PGID=''

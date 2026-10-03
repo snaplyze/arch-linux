@@ -8,6 +8,7 @@ or releases. Network drift is returned in a JSON report and does not alter files
 from __future__ import annotations
 
 import argparse
+import datetime
 import hashlib
 import json
 import pathlib
@@ -177,10 +178,31 @@ def upstream_commit(item: dict[str, Any]) -> str:
     return found.get(refs[-1], found[refs[0]])
 
 
-def network_findings(document: dict[str, Any]) -> list[dict[str, str]]:
+def network_findings(document: dict[str, Any], observations: list[dict[str, str]] | None = None) -> list[dict[str, str]]:
     findings: list[dict[str, str]] = []
+    sources = {item['id']: item for section in ('archPackages', 'tools', 'gnomeExtensions', 'upstreams')
+               for item in document[section]}
+    sources.update({f"aur:{item['name']}": {'git': f"https://aur.archlinux.org/{item['name']}.git"}
+                    for item in document['aurPins']})
+
+    def observe(identifier: str, accepted: str, detected: str) -> None:
+        if observations is None:
+            return
+        item = sources.get(identifier, sources.get(identifier.removesuffix(':release'), {}))
+        observation = {'id': identifier, 'accepted': accepted, 'detected': detected,
+                       'source': item.get('source') if identifier.endswith(':release') or not item.get('git') else item['git'],
+                       'status': 'error' if detected.startswith('ERROR:') else
+                                 ('unchanged' if accepted == detected else 'drift')}
+        if item.get('shellMajor'):
+            observation['shellMajor'] = item['shellMajor']
+        if item.get('acceptedTag') and not identifier.endswith(':release'):
+            observation['ref'] = 'refs/tags/' + item['acceptedTag']
+        if item.get('git') and not item.get('acceptedTag'):
+            observation['ref'] = 'HEAD'
+        observations.append(observation)
 
     def record(identifier: str, accepted: str, detected: str, impact: str) -> None:
+        observe(identifier, accepted, detected)
         if detected != accepted:
             findings.append({
                 "id": identifier,
@@ -208,13 +230,14 @@ def network_findings(document: dict[str, Any]) -> list[dict[str, str]]:
         try:
             data = fetch_json(item["source"])
             versions = data.get("shell_version_map", {})
-            candidates = []
-            for values in versions.values():
-                if isinstance(values, dict) and "pk" in values:
-                    candidates.append(int(values["pk"]))
-                elif isinstance(values, list):
-                    candidates.extend(int(value["pk"]) for value in values if isinstance(value, dict) and "pk" in value)
-            detected = str(max(candidates)) if candidates else "unknown"
+            compatible = versions.get(item['shellMajor'])
+            values = compatible if isinstance(compatible, list) else [compatible]
+            if not all(isinstance(value, dict) and 'pk' in value for value in values):
+                raise ValueError('malformed compatible extension version')
+            candidates = [int(value['pk']) for value in values]
+            if not candidates or any(value <= 0 for value in candidates):
+                raise ValueError(f"no valid extension version for accepted Shell {item['shellMajor']}")
+            detected = str(max(candidates))
             record(item["id"], str(item["acceptedVersionTag"]), detected, item["impact"])
         except Exception as exc:
             findings.append({"id": item["id"], "accepted": str(item["acceptedVersionTag"]), "detected": f"ERROR: {exc}", "impact": item["impact"]})
@@ -249,6 +272,11 @@ def network_findings(document: dict[str, Any]) -> list[dict[str, str]]:
             except Exception as exc:
                 findings.append({"id": item["id"] + ":release", "accepted": item["acceptedTag"],
                                  "detected": f"ERROR: {exc}", "impact": item["impact"]})
+    for finding in findings:
+        if finding['detected'].startswith('ERROR:'):
+            observe(finding['id'], finding['accepted'], finding['detected'])
+    if observations is not None:
+        observations.sort(key=lambda item: item['id'])
     return sorted(findings, key=lambda item: item["id"])
 
 
@@ -259,11 +287,17 @@ def main() -> None:
     args = parser.parse_args()
     document = load_json(MANIFEST)
     validate_offline(document)
-    findings = network_findings(document) if args.network else []
+    observed_at = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds')
+    observations: list[dict[str, str]] = []
+    findings = network_findings(document, observations) if args.network else []
     report = {
         "schema": 1,
         "mode": "network" if args.network else "offline",
-        "status": "advisory" if findings else "unchanged",
+        "status": ('error' if any(item['status'] == 'error' for item in observations) else
+                   ('advisory' if findings else 'unchanged')) if args.network else 'validated',
+        "observedAt": observed_at,
+        "sourceIdentity": {"path": "maintenance/sources.json", "sha256": sha(MANIFEST)},
+        "observations": observations,
         "findings": findings,
         "automaticChanges": False,
     }

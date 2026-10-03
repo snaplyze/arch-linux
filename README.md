@@ -14,17 +14,17 @@ the selected physical disk.
 
 ## Release-pinned bootstrap
 
-The commands below pin the verified release **1.0.4** (2026-09-17). Run its immutable
+The commands below pin the publicly reverified release **1.0.5** (2026-09-17). Run its immutable
 bootstrap from the Arch ISO:
 
 ```bash
-curl -fsS https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.4/install.sh | bash
+curl -fsS https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.5/install.sh | bash
 ```
 
 For a newer version, use the release-pinned command in the
 [latest published immutable GitHub Release](https://github.com/snaplyze/arch-linux/releases).
-These examples remain pinned to the recorded 1.0.4 baseline; they do not track `main` or
-a moving latest-download URL. See the [release evidence](docs/validation.md#verified-release-104).
+These examples pin the October 3 public readback of 1.0.5; they do not track `main` or
+a moving latest-download URL. See the [release evidence](docs/validation.md#public-readback-of-release-105).
 
 The bootstrap is release-pinned. It downloads the installer, its SHA-256 file, detached signature
 and `arch-linux.gpg`; validates the exact public-certificate digest and fingerprints; rejects secret
@@ -32,12 +32,24 @@ key packets; then launches only the verified installer bytes from a private root
 For a verification-only run:
 
 ```bash
-curl -fsS https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.4/install.sh | bash -s -- --verify-only
+curl -fsS https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.5/install.sh | bash -s -- --verify-only
 ```
 
 The certificate fingerprints must also be compared through an independently trusted channel. HTTPS,
 a checksum and a signature fetched from the same account do not by themselves establish identity.
 See the [trust model](docs/trust-model.md).
+
+## Current audit status
+
+The [registry](docs/PLAN.md#review-findings) records open installer guard/idle-probe and shared-ESP
+issues (F-01–F-03), plus package-verifier resource hardening (F-04). Corrections are under development in this checkout;
+they have not been delivered in the published 1.0.5 installer. Review these
+limitations before destructive installation, especially when preserving another Linux.
+
+The 1.0.5 public assets and Pages repository passed fresh hash/signature readback.
+[Validation](docs/validation.md) preserves the separate historical installation evidence;
+this readback does not claim a fresh VM installation. Latest Arch media availability is distinct from the
+project's accepted ISO input; see [compatibility](docs/compatibility.md).
 
 ## Profiles and updates
 
@@ -57,8 +69,12 @@ through:
 sudo pacman -Syu
 ```
 
-A Marble profile update therefore does not require a new installer release. Removing the Marble
-profile returns the user session to Stock; reinstalling it restores the package-owned profile.
+The intended Marble package lifecycle does not require a new installer release. Current package-only
+publication from main has an [open procedure/provenance gap F-14](docs/PLAN.md#review-findings);
+installed systems can still consume already published signed packages through `pacman -Syu`.
+Successful removal of the Marble helpers returns the user session to Stock; reinstalling restores
+the package-owned profile when compatibility checks and activation succeed. Inspect the resulting
+session; helper failures or foreign state require the [lifecycle checks](docs/marble.md).
 The unified `arch-linux-colloid-gtk` package replaces `arch-linux-colloid-gtk3` during normal
 updates. GTK4/libadwaita styling activates automatically on the next GNOME login, replacing existing
 user CSS without backups; see the [Marble lifecycle](docs/marble.md#gtk4libadwaita-and-existing-installations).
@@ -71,7 +87,8 @@ Installer changes use immutable SemVer releases. The [changelog](CHANGELOG.md) r
 released changes; a source commit alone is not a published release. Arch
 Linux itself continues to update through normal `pacman -Syu`. Marble/profile-only changes bump the
 owning package's `pkgrel` and are delivered through the signed Pages repository; they do not require
-a new installer release.
+a new installer release. This is the intended delivery policy; the present package-only route
+limitation is tracked in [F-14 / DELIVERY-01](docs/PLAN.md#review-findings).
 
 Source pins change only through a reviewed pull request. The maintenance watcher may create or
 update one advisory issue, and the monthly A+B build remains advisory. The configured release

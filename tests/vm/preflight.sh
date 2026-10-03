@@ -10,8 +10,8 @@ unset BASH_ENV ENV CDPATH GLOBIGNORE
 
 readonly qemu_bin='/usr/bin/qemu-system-x86_64'
 readonly qemu_img='/usr/bin/qemu-img'
-readonly ovmf_code='/usr/share/OVMF/OVMF_CODE_4M.fd'
-readonly ovmf_vars_template='/usr/share/OVMF/OVMF_VARS_4M.fd'
+ovmf_code=''
+ovmf_vars_template=''
 
 iso_path=''
 iso_sha256=''
@@ -31,17 +31,37 @@ die() {
     exit 1
 }
 
+# Only distribution-owned known matching firmware pairs are accepted; never create links.
+select_ovmf_pair() {
+    local code vars
+    for code in /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/edk2/x64/OVMF_CODE.4m.fd; do
+        case "$code" in
+        /usr/share/OVMF/*) vars=/usr/share/OVMF/OVMF_VARS_4M.fd ;;
+        *) vars=/usr/share/edk2/x64/OVMF_VARS.4m.fd ;;
+        esac
+        if [ -f "$code" ] && [ ! -L "$code" ] && [ -r "$code" ] &&
+            [ -f "$vars" ] && [ ! -L "$vars" ] && [ -r "$vars" ]; then
+            ovmf_code="$code"
+            ovmf_vars_template="$vars"
+            return 0
+        fi
+    done
+    die 'no safe matching OVMF code/VARS pair is available'
+}
+
 require_command() {
     command -v -- "$1" >/dev/null 2>&1 || die "required command is unavailable: $1"
 }
 
 scenario_requirements() {
     case "${scenario}" in
-    minimal-ext4-systemdboot)
+    minimal-ext4-systemdboot | minimal-dualboot-ext4-systemdboot)
         required_memory_kib=$((4 * 1024 * 1024))
         default_free_gib=24
         ;;
-    stock-gnome-btrfs-luks2-plymouth-grub | marble-gnome-btrfs-luks2-plymouth-systemdboot)
+    stock-gnome-ext4-systemdboot | stock-gnome-btrfs-systemdboot | stock-gnome-btrfs-grub | \
+        stock-gnome-btrfs-luks2-plymouth-systemdboot | stock-gnome-btrfs-luks2-plymouth-grub | \
+        marble-gnome-btrfs-luks2-plymouth-systemdboot | marble-gnome-btrfs-luks2-plymouth-systemdboot-stock-gdm)
         required_memory_kib=$((8 * 1024 * 1024))
         default_free_gib=32
         ;;
@@ -104,6 +124,7 @@ fi
 if [ ! -r /dev/kvm ] || [ ! -w /dev/kvm ]; then
     die '/dev/kvm is not accessible to the runner'
 fi
+select_ovmf_pair
 for runtime_input in "${qemu_bin}" "${qemu_img}" "${ovmf_code}" "${ovmf_vars_template}"; do
     if [ ! -f "${runtime_input}" ] || [ -L "${runtime_input}" ]; then
         die "required runtime input is unsafe: ${runtime_input}"

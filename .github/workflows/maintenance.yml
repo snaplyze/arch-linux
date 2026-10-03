@@ -201,7 +201,20 @@ jobs:
           report="${RUNNER_TEMP}/source-report/sources-report.json"
           if [ ! -s "${report}" ]; then
             mkdir -p -- "$(dirname -- "${report}")"
-            printf '%s\n' '{"automaticChanges":false,"findings":[{"accepted":"available report","detected":"ERROR: source monitor failed","id":"maintenance:source-monitor","impact":"Manual infrastructure review required."}],"mode":"network","schema":1,"status":"advisory"}' >"${report}"
+            python3 - "${report}" <<'PYTHON'
+          import datetime, hashlib, json, pathlib, sys
+          manifest = pathlib.Path('maintenance/sources.json')
+          report = {
+              'schema': 1, 'automaticChanges': False, 'mode': 'network', 'status': 'error',
+              'observedAt': datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds'),
+              'sourceIdentity': {'path': str(manifest), 'sha256': hashlib.sha256(manifest.read_bytes()).hexdigest()},
+              'observations': [],
+              'findings': [{'id': 'maintenance:source-monitor', 'accepted': 'available report',
+                            'detected': 'ERROR: source monitor failed',
+                            'impact': 'Manual infrastructure review required.'}],
+          }
+          pathlib.Path(sys.argv[1]).write_text(json.dumps(report) + '\n')
+          PYTHON
           fi
           key_report="${RUNNER_TEMP}/key-report/key-report.json"
           if [ ! -s "${key_report}" ]; then

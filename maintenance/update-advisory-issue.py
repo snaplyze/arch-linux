@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime
 import hashlib
 import json
 import os
@@ -17,6 +18,21 @@ API = "https://api.github.com"
 KEY_HEADING = "\n## Signing key lifetime\n"
 MONTHLY_CLEAN = "<!-- arch-linux-monthly:clean -->"
 MONTHLY_ADVISORY = "<!-- arch-linux-monthly:advisory -->"
+AGE_HEADING = "\n## Monthly observation age\n"
+MAX_AGE_DAYS = 35
+
+
+def observation_age(monthly: str, now: datetime.datetime) -> tuple[str, bool]:
+    match = re.search(r"^- Observed UTC: `([^`]+)`$", monthly, re.MULTILINE)
+    try:
+        observed = datetime.datetime.fromisoformat(match.group(1)) if match else None
+        if observed is None or observed.utcoffset() != datetime.timedelta(0) or observed > now:
+            raise ValueError('missing, non-UTC or future observation')
+        age = (now - observed).days
+        stale = age > MAX_AGE_DAYS
+        return f"{age} days ({'stale; rerun monthly monitoring' if stale else 'preserved monthly result'})", not stale
+    except (ValueError, TypeError):
+        return 'unknown; monthly observation date is missing or invalid', False
 
 
 def request(method: str, url: str, token: str, payload: Any | None = None) -> Any:
@@ -43,6 +59,10 @@ def body_for(report: dict[str, Any], reproducibility: str, iso_status: str) -> s
         "This issue is maintained by the monthly advisory workflow.",
         "It never changes code, pins, hashes, keys, signatures, releases, or pull requests.",
         "",
+        f"- Observed UTC: `{report.get('observedAt', 'unknown')}`",
+        f"- Source identity: `{report.get('sourceIdentity', {}).get('path', 'unknown')}` "
+        f"SHA-256 `{report.get('sourceIdentity', {}).get('sha256', 'unknown')}`",
+        f"- Query mode: `{report.get('mode', 'unknown')}`",
         f"- A+B reproducibility: `{reproducibility}`",
         f"- Arch ISO monitor: `{iso_status}`",
         f"- External source monitor: `{report.get('status', 'unknown')}`",
@@ -50,13 +70,19 @@ def body_for(report: dict[str, Any], reproducibility: str, iso_status: str) -> s
         "## Findings",
     ]
     findings = report.get("findings", [])
-    if not findings and reproducibility == "match" and iso_status == "unchanged":
+    if (not findings and report.get('status') == 'unchanged' and report.get('mode') == 'network'
+            and reproducibility == "match" and iso_status == "unchanged"):
         lines.append("No advisory drift remains.")
     else:
+        if report.get('status') not in ('unchanged', 'advisory') or report.get('mode') != 'network':
+            lines.append('- **External sources**: missing/error or offline report; upstream state could not be determined.')
+        observations = {item['id']: item for item in report.get('observations', [])}
         for finding in findings:
+            observation = observations.get(finding.get('id'), {})
+            source = observation.get('source', 'unknown')
             lines.append(
                 f"- **{finding.get('id', 'unknown')}**: accepted `{finding.get('accepted', '')}`, "
-                f"detected `{finding.get('detected', '')}` — {finding.get('impact', '')}"
+                f"detected `{finding.get('detected', '')}` — {finding.get('impact', '')} Source: `{source}`"
             )
         if reproducibility == "mismatch":
             lines.append("- **A+B**: both unsigned builds verified, but their exact bytes/provenance differ.")
@@ -69,13 +95,20 @@ def body_for(report: dict[str, Any], reproducibility: str, iso_status: str) -> s
 
 
 def combined_body(previous: str, key: dict[str, Any], monthly: str | None,
-                  monthly_clean: bool = False) -> tuple[str, bool]:
+                  monthly_clean: bool = False, *, now: datetime.datetime | None = None) -> tuple[str, bool]:
     """Daily key checks preserve monthly findings in the same advisory issue."""
-    if monthly is None:
-        monthly = previous.split(KEY_HEADING, 1)[0] or "Monthly source/build checks have not reported yet.\n"
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    preserved = monthly is None
+    if preserved:
+        monthly = previous.split(KEY_HEADING, 1)[0].split(AGE_HEADING, 1)[0] or "Monthly source/build checks have not reported yet.\n"
         monthly_clean = MONTHLY_CLEAN in monthly
     else:
         monthly += "\n" + (MONTHLY_CLEAN if monthly_clean else MONTHLY_ADVISORY) + "\n"
+    age, fresh = observation_age(monthly, now)
+    # A daily key check cannot turn an undated or stale monthly result into current PASS.
+    if preserved or '- Observed UTC:' in monthly:
+        monthly_clean = monthly_clean and fresh
+    monthly = monthly.rstrip() + AGE_HEADING + '- Age: ' + age + '\n'
     status = key.get("status", "error")
     healthy = status == "healthy" and key.get("automaticChanges") is False
     lines = [KEY_HEADING.rstrip(), f"- Status: `{status}`"]
@@ -146,7 +179,7 @@ def main() -> None:
         with open(args.report, encoding="utf-8") as stream:
             report = json.load(stream)
         monthly = body_for(report, args.reproducibility, args.iso_status)
-        monthly_clean = (report.get("status") == "unchanged" and args.reproducibility == "match"
+        monthly_clean = (report.get("status") == "unchanged" and report.get("mode") == "network" and args.reproducibility == "match"
                          and args.iso_status == "unchanged")
 
     issues = []

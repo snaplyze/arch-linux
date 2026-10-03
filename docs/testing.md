@@ -28,6 +28,13 @@ It executes:
 
 Individual commands are listed in [AGENTS.md](../AGENTS.md). Static reading must be reported as
 `REVIEWED_ONLY`, never as an executed test.
+The source candidate adds maintained actual-executor/idle-probe failure regressions for F-01/F-02,
+reserved-account tests for F-11, faithful signed database/package semantic negatives for F-12,
+and actual exit-handler fixtures for F-13. Predicate or literal assertions alone do not prove
+a whole executor. The earlier passing suite and documentary audit are historical; the final
+integrated candidate suite and runtime acceptance must bind the new bytes independently.
+Exit-handler late-writer retention now uses an isolated marker closure with a maintained
+synchronized regression; independent source review and actual VM error acceptance remain separate.
 
 ## Clean Arch package build
 
@@ -84,7 +91,12 @@ Stock/Btrfs/LUKS2/GRUB and Marble/Btrfs/LUKS2/systemd-boot. Every run is a fresh
 a new qcow2 and an independent OVMF VARS copy; all three consume one exact independently verified
 production-signed snapshot. Real login, lock/unlock, `pacman -Syu`, reboot, repeated login, package
 integrity, zero failed units, clean shutdown and `qemu-img check` are mandatory. A representative
-dual-boot path is checked separately. See [VM commands](../tests/vm/README.md).
+dual-boot path is a separate required supplemental acceptance case alongside the three core workflow
+matrix entries. The source candidate makes all six complementary scenarios mandatory release
+jobs and requires them before finalization; their evidence stays separate from the three core
+signed verdicts. This workflow change is not yet deployed, and all nine authoritative child
+runs remain pending [QA-01 / RELEASE-01](PLAN.md#qa-01--behavioral-and-vm-coverage).
+See [VM commands](../tests/vm/README.md).
 Stock additionally checks Language/Formats, input layouts and terminal shortcuts. Every run retains
 its input identities, a compact installer log, functional assertions, `qemu-img check` and a
 structured PASS or FAIL. Screenshots are optional diagnostic aids: missing a frame or a slow capture
@@ -134,7 +146,10 @@ promoted to those statuses. Staged QEMU consumes only the exact 14-file Phase-A 
 PASS verdicts, launcher `finalize` preserves those 14 bytes and adds signed acceptance JSON/evidence
 for exact 18; installer-release Pages deployment accepts only that final closure. Later
 [package-only updates](../repository/README.md#package-only-updates) use a separately tagged,
-verified 14-file snapshot with the installer unchanged. The final public VM uses only the tagged public bootstrap, immutable Release
+verified 14-file snapshot with the installer unchanged. The source candidate resolves the local
+[F-14](PLAN.md#review-findings) provenance incompatibility through its explicit package child;
+external package signing/deployment and installed-system upgrade remain separately authorized
+and NOT_TESTED. The final public VM uses only the tagged public bootstrap, immutable Release
 installer/key assets and the public Pages repository; local installer, key, snapshot, CA and
 repository bytes are forbidden from its payload. Inside the public guest, signed
 `RELEASE-SHA256SUMS` binds the expected archive digest, the archive detached signature is verified,
