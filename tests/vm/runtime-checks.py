@@ -10,6 +10,140 @@ VERIFY = ROOT / "tests/vm/guest/verify.sh"
 def function(name):
     return re.search(r"^" + name + r"\(\) \{\n.*?^\}", VERIFY.read_text(), re.M | re.S).group(0)
 class RuntimeChecks(unittest.TestCase):
+    def shell_lifecycle(self, case="normal", checkpoint="extension-timeout"):
+        text = VERIFY.read_text()
+        match = re.search(r"^emit_gnome_shell_lifecycle_diagnostic\(\) \{\n.*?<<'PY'\n(.*?)\nPY\n", text, re.M | re.S)
+        self.assertIsNotNone(match, "actual lifecycle diagnostic helper missing")
+        import json
+        import os
+        from unittest.mock import patch
+        import io
+        import contextlib
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); sentinel = root / "sentinel"; unit = root / "unit"
+            unit.write_text("[Service]\nExecStart=gsettings set org.gnome.shell disable-user-extensions true\n")
+            if case in ("early", "killed", "timeout", "recovery"):
+                sentinel.touch()
+            if case == "unsafe-sentinel":
+                sentinel.symlink_to(unit)
+            source = match.group(1).replace('"/run/user/{uid}/gnome-shell-disable-extensions"', '"' + str(sentinel) + '"').replace('"/usr/lib/systemd/user/org.gnome.Shell-disable-extensions.service"', '"' + str(unit) + '"')
+            namespace = {"__name__": "lifecycle_fixture"}
+            exec(compile(source, "actual-lifecycle-helper", "exec"), namespace)
+            calls = []
+            def run(args, **kwargs):
+                calls.append(args)
+                if case == "unavailable":
+                    raise subprocess.TimeoutExpired(args, 5)
+                if any(arg.endswith("/gsettings") for arg in args):
+                    raw = "SECRET_FLAG" if case == "malformed" else ("true" if case == "recovery" else "false")
+                elif "journalctl" in " ".join(args):
+                    records = []
+                    if case == "recovery":
+                        records.append({"USER_UNIT": "org.gnome.Shell-disable-extensions.service", "MESSAGE_ID": "39f53479d3a045ac8e11786248231fbf"})
+                    if case in ("killed", "timeout"):
+                        records.append({"USER_UNIT": "org.gnome.Shell@wayland.service", "MESSAGE_ID": "d9b373ed55a64feb8242e02dbe79a49c", "UNIT_RESULT": "timeout" if case == "timeout" else "signal"})
+                        records.append({"USER_UNIT": "org.gnome.Shell@wayland.service", "MESSAGE_ID": "98e322203f7a4ed290d09fe03c09fe15", "EXIT_CODE": "killed", "EXIT_STATUS": "9"})
+                    if case == "normal":
+                        records.append({"USER_UNIT": "org.gnome.Shell@wayland.service", "MESSAGE_ID": "9d1aaa27d60140bd96365438aad20286"})
+                    raw = "SECRET_MALFORMED" if case == "malformed" else "\n".join(json.dumps(record | {"_SYSTEMD_USER_UNIT": "init.scope", "MESSAGE": "SECRET_RAW_JOURNAL"}) for record in records)
+                    if case == "duplicate-json": raw = '{"USER_UNIT":"org.gnome.Shell@wayland.service","USER_UNIT":"SECRET"}'
+                    if case == "unknown-unit": raw = '{"USER_UNIT":"SECRET_UNIT","MESSAGE_ID":"SECRET_EVENT"}'
+                    if case == "oversized": raw = "x" * 262145
+                    if case == "capped": raw = "\n".join(json.dumps({"USER_UNIT": "org.gnome.Shell@wayland.service"}) for _ in range(129))
+                else:
+                    raw = "LoadState=loaded\nResult=success\nExecMainCode=1\nExecMainStatus=0\nExecMainStartTimestampMonotonic=12345\nInvocationID=" + "a" * 32 + "\n"
+                    if case == "malformed": raw += "Result=SECRET_RESULT\n"
+                kwargs["stdout"].write(raw.encode())
+                return subprocess.CompletedProcess(args, 0)
+            real_fstat = os.fstat
+            def fstat(fd):
+                value = real_fstat(fd)
+                return os.stat_result(tuple(value)[:4] + (0,) + tuple(value)[5:])
+            output = io.StringIO()
+            with patch("subprocess.run", run), patch("os.fstat", fstat), contextlib.redirect_stderr(output):
+                namespace["diagnose"]("1000", "1000", "fixture", "return-user-login", checkpoint)
+            return output.getvalue(), calls
+
+    def test_shell_lifecycle_normal_and_early_sentinel(self):
+        for case, sentinel in (("normal", "absent"), ("early", "present")):
+            output, calls = self.shell_lifecycle(case)
+            self.assertIn("early_sentinel=" + sentinel, output)
+            self.assertIn("disabled_user_extensions=false", output)
+            self.assertIn("result=success exit_code=exited exit_status=0 start_monotonic_us=12345 invocation=yes", output)
+            self.assertRegex(output, r"recovery_unit_sha256=[a-f0-9]{64}")
+            self.assertIn("stop_events=" + ("1" if case == "normal" else "0"), output)
+            self.assertFalse(any("set" in call for call in calls))
+
+    def test_shell_lifecycle_failure_events_and_recovery_are_distinct(self):
+        for case, token in (("killed", "killed_events=1"), ("timeout", "timeout_events=1"), ("recovery", "recovery_started=yes")):
+            output, _ = self.shell_lifecycle(case)
+            self.assertIn(token, output)
+            self.assertNotIn("SECRET", output)
+            self.assertLess(len(output), 1800)
+
+    def test_shell_lifecycle_unknown_queries_and_malformed_are_not_normal(self):
+        for case in ("unavailable", "malformed", "oversized", "capped", "duplicate-json", "unknown-unit"):
+            output, _ = self.shell_lifecycle(case)
+            self.assertIn("journal_query=unknown", output)
+            self.assertIn("recovery_started=unknown", output)
+            self.assertNotIn("SECRET", output)
+            self.assertNotIn("Traceback", output)
+            if case in ("unavailable", "malformed"):
+                self.assertIn("disabled_user_extensions=unknown", output)
+                self.assertIn("result=unknown", output)
+
+    def test_shell_lifecycle_unsafe_sentinel_is_unknown(self):
+        output, _ = self.shell_lifecycle("unsafe-sentinel")
+        self.assertIn("early_sentinel=unknown", output)
+
+    def test_shell_lifecycle_actual_query_enforces_caps_and_timeout(self):
+        import sys
+        source = re.search(r"^emit_gnome_shell_lifecycle_diagnostic\(\) \{\n.*?<<'PY'\n(.*?)\nPY\n", VERIFY.read_text(), re.M | re.S).group(1)
+        namespace = {"__name__": "lifecycle_fixture"}
+        exec(compile(source, "actual-lifecycle-helper", "exec"), namespace)
+        self.assertEqual(namespace["query"]([sys.executable, "-c", "print('safe')"], 64), "safe\n")
+        self.assertIsNone(namespace["query"]([sys.executable, "-c", "print('x'*10000)"], 64))
+        self.assertIsNone(namespace["query"]([sys.executable, "-c", "import time;time.sleep(6)"], 64))
+
+    def test_shell_lifecycle_checkpoints_do_not_query_journal(self):
+        for checkpoint in ("migrated-login", "before-original-user-logout"):
+            output, calls = self.shell_lifecycle(checkpoint=checkpoint)
+            self.assertIn("checkpoint=" + checkpoint, output)
+            self.assertFalse(any("journalctl" in " ".join(args) for args in calls))
+
+    def test_shell_lifecycle_actual_checkpoint_routes_before_logout(self):
+        body = function("prepare_fresh_marble_user")
+        start = body.index('    uid="$(id -u "${username}")"')
+        end = body.index('    greeter_session=', start)
+        script = '''set -euo pipefail
+username=vmtest
+id(){ printf 1000; }
+emit_gnome_shell_lifecycle_diagnostic(){ printf 'CHECKPOINT:%s\\n' "$2"; }
+run_in_user_session(){ printf 'SESSION_COMMAND:%s\\n' "$*"; }
+wait_for_named_user_logout(){ printf 'LOGOUT_WAIT:%s\\n' "$1"; }
+''' + body[start:end]
+        result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=5)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines(), ["CHECKPOINT:before-original-user-logout", "SESSION_COMMAND:1000 /usr/bin/gnome-session-quit --logout --no-prompt", "LOGOUT_WAIT:vmtest"])
+
+    def test_shell_lifecycle_actual_migrated_session_checkpoint_route(self):
+        body = function("verify_marble_user_session").split('    shell_environment=', 1)[0] + "\n}\n"
+        setup = '''set -euo pipefail
+username=vmtest
+verify_common(){ printf target; }
+verify_marble_storage_profile(){ :; }
+verify_public_repository_contract(){ :; }
+wait_for_user_session(){ printf session; }
+id(){ printf 1000; }
+session_property(){ printf 1000; }
+wait_for_gnome_shell(){ printf 123; }
+emit_gnome_shell_lifecycle_diagnostic(){ printf 'CHECKPOINT:%s\\n' "$2"; }
+'''
+        for phase in ("migrated-login", "return-user-login"):
+            result = subprocess.run(["bash", "-c", setup + body + "phase=" + phase + "\nverify_marble_user_session marble\n"], capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, "CHECKPOINT:migrated-login\n" if phase == "migrated-login" else "")
+
     def media_prepare(self, available=False, install_status=0, installed=True, trusted=True, mode="public", qualification="true", inherited=False, missing=""):
         body = function("require_public_readback_tools") + "\n" + function("prepare_media_readback")
         script = "set -euo pipefail\ninput_mode=" + mode + " media_qualification=" + qualification + " scenario=minimal-ext4-systemdboot phase=media-readback-prepare marker_prefix=MINIMAL run_id=fixture\n"
@@ -373,6 +507,7 @@ emit_runtime_action_pass(){ printf 'ACTION_PASS:%s
         with tempfile.TemporaryDirectory() as tmp:
             counter = Path(tmp) / "counter"; counter.write_text("0")
             script = 'set -euo pipefail\nrun_id=fixture phase=return-user-login fixture_expected="$1" fixture_case="$2" fixture_disabled="$3" fixture_counter="$4" fixture_info="$5"\n'
+            script += "emit_gnome_shell_lifecycle_diagnostic(){ :; }\n"
             script += r"""
 run_in_user_session(){
     if [[ "$*" = *gnome-extensions*info* ]]; then
@@ -481,29 +616,37 @@ sleep(){ if [ "$fixture_case" != delayed ]; then SECONDS=$((SECONDS+181)); fi; }
             marker = lower / "var/lib/arch-linux-vm/snapshot-marker"; marker.parent.mkdir(parents=True); marker.write_text("fixture")
             uuid = "11111111-1111-1111-1111-111111111111"; partuuid = "22222222-2222-2222-2222-222222222222"
             state.write_text("run_id=fixture\nsubvol=@snapshots/qa-fixture\nroot_uuid=" + uuid + "\nnormal_boot_id=33333333-3333-3333-3333-333333333333\nroot_device=/dev/vda2\nroot_partuuid=" + partuuid + "\nselector_sha256=" + "a" * 64 + "\nproduction_cfg_sha256=" + "b" * 64 + "\n")
+            if changed == "state-lines": state.write_text(state.read_text() + "SECRET_EXTRA\n")
+            if changed == "state-run": state.write_text(state.read_text().replace("run_id=fixture", "run_id=SECRET_ID"))
+            if changed == "state-subvol": state.write_text(state.read_text().replace("subvol=@snapshots/qa-fixture", "subvol=SECRET_PATH"))
+            if changed == "cfg-record": state.write_text(state.read_text().replace("production_cfg_sha256=", "unknown="))
+            if changed == "cfg-hash": state.write_text(state.read_text().replace("b" * 64, "c" * 64))
+            if changed == "root-uuid": state.write_text(state.read_text().replace(uuid, "SECRET_UUID"))
+            if changed == "marker": marker.write_text("SECRET_MARKER")
             commandline = root / "cmdline"; commandline.write_text(argument.replace("uuid", uuid).replace("part-id", partuuid) + " rootflags=subvol=@snapshots/qa-fixture systemd.volatile=overlay")
             body = "\n".join(function(name) for name in ("snapshot_root_argument_matches", "snapshot_lowerdir_matches", "require_kernel_argument_once", "require_prefixed_kernel_argument_once", "verify_snapshot_runtime"))
+            if "snapshot_runtime_fail() {" in VERIFY.read_text(): body = function("snapshot_runtime_fail") + "\n" + body
             body = body.replace('/boot/qa-snapshot-${run_id}.state', str(state)).replace('/proc/cmdline', str(commandline))
             script = r'''set -euo pipefail
-run_id=fixture scenario=stock-gnome-btrfs-grub
+run_id=fixture scenario=stock-gnome-btrfs-grub phase=snapshot-prelogin
 fixture_lower=$1
 fixture_uuid=$2
 fixture_partuuid=$3
 changed=$4
 [(){ if [[ "$*" = '-b /dev/vda2 ]' ]]; then return 0; fi; builtin [ "$@"; }
-stat(){ printf '0:600:1'; }
+stat(){ if [ "$changed" = state-mode ]; then printf '1000:644:1'; else printf '0:600:1'; fi; }
 sha256sum(){ printf '%s fixture' bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb; }
 findmnt(){
     case "$*" in
-        *FSTYPE*'target /') printf overlay;;
-        *FSTYPE*) printf btrfs;;
-        *FSROOT*) printf /@snapshots/qa-fixture;;
-        *OPTIONS*'target /') printf 'lowerdir=%s' "$fixture_lower";;
-        *OPTIONS*) printf ro;;
+        *FSTYPE*'target /') if [ "$changed" = root-type ]; then printf btrfs; else printf overlay; fi;;
+        *FSTYPE*) if [ "$changed" = lower-type ]; then printf SECRET_VALUE; else printf btrfs; fi;;
+        *FSROOT*) if [ "$changed" = lower-subvol ]; then printf /SECRET_PATH; else printf /@snapshots/qa-fixture; fi;;
+        *OPTIONS*'target /') if [ "$changed" = root-options-query ]; then return 1; elif [ "$changed" = lower-shape ]; then printf lowerdir=SECRET_RELATIVE; else printf 'lowerdir=%s' "$fixture_lower"; fi;;
+        *OPTIONS*) if [ "$changed" = lower-options-query ]; then return 1; elif [ "$changed" = lower-rw ]; then printf rw; else printf ro; fi;;
         *UUID*) if [ "$changed" = lower-uuid ]; then printf wrong; else printf '%s' "$fixture_uuid"; fi;;
     esac
 }
-btrfs(){ printf ro=true; }
+btrfs(){ if [ "$changed" = property ]; then printf ro=false; else printf ro=true; fi; }
 mounted_source_device(){ if [ "$changed" = device ]; then printf /dev/vda3; else printf /dev/vda2; fi; }
 find_target(){ printf /dev/vda; }
 partition_name(){ printf /dev/vda2; }
@@ -515,11 +658,11 @@ blkid(){
     fi
 }
 verify_kernel_initramfs_pair(){ [ "$changed" != modules ]; }
-verify_grub_efi_target(){ :; }
-verify_grub_package_integrity(){ :; }
-systemctl(){ :; }
-nm-online(){ :; }
-''' + body + "\nverify_snapshot_runtime\n"
+verify_grub_efi_target(){ [ "$changed" != efi ]; }
+verify_grub_package_integrity(){ [ "$changed" != package ]; }
+systemctl(){ if [[ "$*" = *is-active* ]]; then [ "$changed" != service ]; elif [ "$changed" = failed-units ]; then printf SECRET_UNIT; fi; }
+nm-online(){ [ "$changed" != network ]; }
+''' + body + "\ntarget=$(verify_snapshot_runtime) || exit 1\nprintf '%s' \"$target\"\n"
             return subprocess.run(["bash", "-c", script, "snapshot-runtime-fixture", str(lower), uuid, partuuid, changed], capture_output=True, text=True, timeout=5)
 
     def test_actual_snapshot_runtime_accepts_proven_root_forms(self):
@@ -532,6 +675,29 @@ nm-online(){ :; }
             with self.subTest(changed=changed): self.assertNotEqual(self.snapshot_runtime(changed=changed).returncode, 0)
         for argument in ("root=/dev/vda3", "root=/dev/vda2 root=UUID=uuid"):
             with self.subTest(argument=argument): self.assertNotEqual(self.snapshot_runtime(argument).returncode, 0)
+
+    def test_snapshot_runtime_failure_reasons_survive_command_substitution(self):
+        cases = {"state-mode": "state-mode", "state-lines": "state-lines", "state-run": "state-run", "state-subvol": "state-subvolume", "cfg-record": "cfg-record", "cfg-hash": "cfg-hash", "root-uuid": "root-uuid", "marker": "lower-marker", "root-type": "root-filesystem", "root-options-query": "root-options-query", "lower-shape": "lower-shape", "lower-type": "lower-filesystem", "lower-subvol": "lower-subvolume", "lower-rw": "lower-readonly", "lower-options-query": "lower-options-query", "lower-uuid": "lower-uuid", "property": "lower-property", "device": "target-partition", "uuid": "device-identity", "partuuid": "device-identity", "modules": "kernel-initramfs", "efi": "grub-efi", "package": "grub-package", "service": "services", "network": "network", "failed-units": "failed-units"}
+        for changed, reason in cases.items():
+            with self.subTest(changed=changed):
+                result = self.snapshot_runtime(changed=changed)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(result.stdout, "")
+                self.assertEqual(result.stderr, "SNAPSHOT_RUNTIME_DIAGNOSTIC run_id=unavailable phase=snapshot-prelogin reason=" + reason + "\n")
+                self.assertNotIn("SECRET", result.stderr)
+        result = self.snapshot_runtime(argument="root=/dev/vda3")
+        self.assertIn("reason=root-argument\n", result.stderr)
+
+    def test_snapshot_runtime_diagnostic_rejects_unknown_and_raw_fields(self):
+        self.assertTrue("snapshot_runtime_fail() {" in VERIFY.read_text(), "diagnostic helper absent")
+        body = function("snapshot_runtime_fail")
+        result = subprocess.run(["bash", "-c", body + "\nrun_id=$'SECRET\\nPATH' phase=SECRET snapshot_runtime_fail SECRET_REASON\n"], capture_output=True, text=True, timeout=5)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+        self.assertEqual(result.stderr, "SNAPSHOT_RUNTIME_DIAGNOSTIC run_id=unavailable phase=unavailable reason=unknown\n")
+        result = subprocess.run(["bash", "-c", body + "\nrun_id=grub-20261004T123456Z-1234abcd phase=snapshot-login snapshot_runtime_fail lower-filesystem\n"], capture_output=True, text=True, timeout=5)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stderr, "SNAPSHOT_RUNTIME_DIAGNOSTIC run_id=grub-20261004T123456Z-1234abcd phase=snapshot-login reason=lower-filesystem\n")
 
     def test_guarded_gdm_activation_withholds_password_until_new_stable_worker(self):
         host = (ROOT / "tests/vm/run.sh").read_text()
@@ -579,7 +745,7 @@ die(){ return 1; }
             with self.subTest(root=root): self.assertNotEqual(self.snapshot_entry(root=root).returncode, 0)
     def test_snapshot_wrong_image(self): self.assertNotEqual(self.snapshot_entry(image="/initramfs-other.img").returncode, 0)
     def test_snapshot_lowerdir_identity(self):
-        body = function("snapshot_lowerdir_matches")
+        body = function("snapshot_runtime_fail") + "\n" + function("snapshot_lowerdir_matches")
         for fsroot, expected in (("/@snapshots/qa-fixture", 0), ("/@", 1), ("/@snapshots/foreign", 1)):
             script = "findmnt(){ case \"$*\" in *FSTYPE*) printf btrfs;; *FSROOT*) printf '" + fsroot + "';; *OPTIONS*) printf ro;; esac; }\n" + body + "\nsnapshot_lowerdir_matches /lower @snapshots/qa-fixture\n"
             result = subprocess.run(["bash", "-c", script], capture_output=True, timeout=5)

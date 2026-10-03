@@ -337,10 +337,10 @@ regression → affected tests → independent review where material → status u
 | MON-01 | P2 | none | DONE | Dated advisory coverage of boot/desktop inputs |
 | UP-01 | P3 | MON-01 | DONE | Reviewed external-source decisions and synchronized metadata |
 | ARCH-01 | P2 | ISO qualification independent; corrected-candidate tests after SAFE-01…03, UP-01 | DONE | Owner-reviewed October ISO after actual Minimal/Stock PASS; corrected-child runtime remains RELEASE-01 |
-| QA-01 | P2 | SAFE-01…03, TRUST-01/02, CONFIG-01, RECOVERY-01, UP-01 | IN_PROGRESS | Third child7PASS/2FAIL; owned GRUB selector and Marble safe diagnostics sourcePASS; fresh product VM pending |
+| QA-01 | P2 | SAFE-01…03, TRUST-01/02, CONFIG-01, RECOVERY-01, UP-01 | IN_PROGRESS | Fourth child7PASS/2FAIL: GRUB QGAready/runtimeguard rejection, Marble globaldisable=true; targeted cause diagnosis active |
 | DOC-01 | P3 | Corrected selector and source behavior prose; final release records under RELEASE-01 | DONE | UI copy and final behavior docs; prose correction is not product fix |
-| GATE-01 | P1 | all above | IN_PROGRESS | Exact738 GATE/PR53 historical; frozen selector/diagnostic slice source17 and stable independent review PASS; fresh exact gates pending |
-| RELEASE-01 | final | GATE-01 | IN_PROGRESS | Third childbb613ce failed7PASS/2FAIL before finalization; next reviewed selector/diagnostic candidate pending |
+| GATE-01 | P1 | all above | IN_PROGRESS | Exactc39 source18/build/five-realguest GATE accepted, PR54/mainf9 delivered; new diagnostic/verification corrections require fresh gates |
+| RELEASE-01 | final | GATE-01 | IN_PROGRESS | Fourth childebb168bd failed7PASS/2FAIL before finalization; public1.0.5 unchanged; targeted causes under diagnosis |
 
 GATE-01 depends on preceding source/pre-merge deliverables only. DELIVERY-01 closes at reviewed
 source/design/regression acceptance; actual package-only publication requires separately defined
@@ -1280,3 +1280,81 @@ five real guest gates. Prepared generated build gate-build.j5w5ze90 and guest
 gate-release-host-next.cbszbvzz are NOT_RUN, prior738 evidence remains historical. No installer,
 package, repository/trust or accepted ISO inputs changed. All15 scope retained:12DONE,
 QA/GATE/RELEASE IN_PROGRESS. Root owns PLAN/Git; no source writer active; GoalACTIVE.
+
+October4 checkpoint: exactc39fe52/treeff0293/canonicaled7e4ec1 accepted clean source18
+EXIT0 SHA727d294d4a03e410e09823a771bf264be67b1addcb3af60518012fe5aac14255,
+canonical six-package build + separate readonly verifier0 (receipt gate-build.j5w5ze90/receipt.json),
+and five actual installed-root gates0 with strict full10/14+18/none, sealedpublication and bothkeyring
+markers. Root independently verified native hashes/modes/exact14 unsignedclosure/identity/PIDs/
+threeimagehealth logs and eightownedheavyfiles removed; guestreceipt51186886c16fb3db2588ff66a7f8f91b243b586af235054ec11059aa0c482e7c.
+PR54 SourceCI37152233238 SUCCESS, squashmerge2026-10-03T20:41:09Z, samecheckout mainFF
+f9d14ce7940f1f19f57d3717f67bc832eb59188e with unchangedtree/canonicalbytes; owncandidate
+preserved local+remote deliver/snapshot-selector-20261003, no reset/force/workloss.
+MainCI37152428414 SUCCESS → fresh automaticRelease37152580086, pipeline-selectedunused1.0.6,
+childebb168bd9627a017f9b481e90d2157cd3847d420/tree06b20d4664765c780d7275b3d9a5ecf91d3ec16e/
+canonical840b8e563a128798b61918fedcb8de5c4aa83c2fed68b7a25a31126f323bb469. Rootbundleverify0
+requires exactmainf9, bundleSHA4d80361d2abafcfcd52c2f49f12ff1f3cd106af0698b048c4b4819797859cd6a,
+no childcheckout/objectimport. FreshPhaseA proof exact14/signatures/cert/schema2/DB/6payload/
+in-memorydeterministicderive PASS; receipt88ba57ac2e42358a89eb004eadc2ace78b87b9408dec6b314987f474ad986ace.
+Root independently rehashed14mode/size/map and actualthreeoutergpgv signatures with committedtrust.
+Fourthrelease terminalFAIL7PASS2FAIL; allnine nativecompactJSON bound to exactchild/ISO/snapshot
+and immutable-main sevenfileharness920093472d678bf08c5822ece1788303822aa5502fd92a1732b76e2fe7856a1e.
+PASS: Minimal14, dualboot17(actualbothOSboots), Stockext4/Btrfssystemdboot21 each, encryptedStock
+systemdboot21/GRUB22, MarbleStockGDM17. FAIL: StockBtrfsGRUB20 snapshot-boot now QGAready
+then snapshot-prelogin verify_snapshot_runtime return1 (callerline1434 loses guard); wrapper
+productioncfg hash validation/preparation PASS, no QGAtimeout. Exactfailingguard UNKNOWN.
+Primarysystemd262 source overlays /sysroot in place, covering lowerBtrfs; current lowerdirpathname
+helper rejects modeled legitimate topology. This is reproduced verifier hypothesis, not proof
+of actualfirstguard. Archive read-only bounded cause investigation/realLinuxsemanticproposal.
+Marbleoptin4 coarsefirstboot actualreturn-user-login: controlledtimeout proves querysuccess,
+expected8/actual0/missing8, disable-user-extensions=true, allknown8 initialized. Whyflagbecametrue
+UNKNOWN; officialGNOME50 early-start OnFailure service is possiblewriter, no actualjournal yet.
+Existing originallogout is already gnome-session-quit --logout --no-prompt; forcedlogout attribution
+is unsupported. Storage readonly causal investigation; no autoenable/reset/weakening.
+Final18/tag/draft/Pages/publication/publicVM actuallySKIPPED; public1.0.5 unchanged. RootPLAN
+updated in place, generated frozen-final-gate-candidate.json preserves allfour attempts/receipts.
+All15 original scope retained:12DONE, QA/GATE/RELEASE IN_PROGRESS; GoalACTIVE.
+
+Next bounded decisions: Marble requires known Shell/recovery-unit typed readback beforelogout
+and at extensiontimeout, retaining only fixed units/enums/counts/hashes through failed-evidence
+compaction. Normal gnome-session-quit, exacteight/180s/login/cleanup remain unchanged. Acceptance:
+actualfunction RED→GREEN recovery/normal/malformed/unavailable/redaction cases, stable review,
+fresh source/build/realprivileged gates and next authoritative child actualShellcause evidence.
+Storage soleguestverify/runtime editor; monitoring solerun/harness editor. GRUB fix notselected yet:
+archive owns only bounded outside-source realLinuxsemanticfixture (one4GiB2CPU/512MiBdata
+disk/freshVARS/approvedISO/privateguestnamespace/15min) to distinguish hiddenlower topology
+and surviving directmount evidence through roottransition. Require exact snapshotRO/subvol/
+UUID/PARTUUID/marker groundtruth, no unrelatedROremount/cmdline-only PASS; native compactreceipt
+and ownedPID/imagehealth/cleanup. RootPLAN/Git/acceptance, all15queue retained, GoalACTIVE.
+
+Continuation decision: actual Linux7.2.7/systemd262 fixture linux-overlay-semantic.88uzwp4d
+completed overlay/pivot/detach EXIT0; root verified four native stage records, retained lowerFD
+readonly/device/marker and disappearing lower pathname/mountinfo, exact input/log hashes, both
+PID/start identities absent and image health. Receipt47280322058eabaf365d8abcb4513640d962086c7451389b479d714e750be093.
+Only detached-layer mechanism proof, not installed-system acceptance. Independent monitoring
+found upper/work tmpfs also unmounted by systemd: inaccessible upperpath absence plus freshRO
+remount/cmdline/backingdevice cannot establish live marker origin. Proposed triangulation rejected;
+strict snapshot guards retained. Next QA01 slice adds finite per-guard SNAPSHOT_RUNTIME_DIAGNOSTIC
+through command-substitution stderr and failed-evidence compactor, meaningful guard/redaction
+regressions, no raw cmdline/path/environment and no acceptance weakening. Archive sole snapshot
+guest/runtime editor; monitoring sole compactor/harness editor; frozen Shell diagnostics preserved.
+Shell slice independent stable review PASS, fullsource19 EXIT0 SHA
+8c62a81a004c7b1aa19d7f9abb056f3346582b3f7d384a5c3c1ebc8076928d57; actual Shell cause still
+UNKNOWN until next authoritative VM. Storage bounded readonly late-layer API investigation;
+no initrd/production boot instrumentation selected. Root PLAN/Git/acceptance, GoalACTIVE, all15
+IDs retained:12DONE and QA/GATE/RELEASE IN_PROGRESS. No released bytes/tags changed.
+
+Focused snapshot diagnostic slice accepted: actual26 per-guard failures plus rootargument through
+command substitution yield empty stdout/single finite stderr marker; unknown values redacted.
+Runtime74/static/harness/syntax/ShellCheck/diff EXIT0, independent stable four-file review PASS.
+Full source20 EXIT0 with fullnamespace10/signerpassed/14+18/deferrednone/allrequiredtests;
+source-shell-snapshot-diagnostics-20.log SHAb7f6ff095d93f454af775949a4434de3b0ddec0d52c87ddb225d17a516f53d37. This working-tree result precedes
+final candidate freeze; source/build/privileged/actualVM/public gates remain required for new tree.
+Bounded primary-source research rejected name_to_handle_at lower-origin handle as data-source
+proof: copy-up can preserve lowerorigin while serving upperdata. Selected next mechanism experiment
+only: uniquePID synchronous marker read through actual systemd overlay observed at Btrfs backing
+read using guest-only BTF/BPF, exactrootid/fsUUID/immutableRO and pairedsuccessfulreturn; copied-up
+tmpfs samebytes negative must yield no lowerproof. Archive sole outside-source experiment editor,
+fresh4GiB2CPU/512MiBowneddata/privateguestnamespace/approvedISO/freshVARS/max15min, explicit
+resourceGO, no host/productioninitrd/kernel/GRUB modifications. Native proof+hashes/PID/imagehealth
+and exactownedcleanup required; source4files frozen. No production verifier replacement selected.

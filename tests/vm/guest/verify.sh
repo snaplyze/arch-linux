@@ -602,6 +602,189 @@ SHORTCUTS
         "${run_id}" "${phase}"
 }
 
+emit_gnome_shell_lifecycle_diagnostic() {
+    local uid="$1" checkpoint="$2" gid
+    gid="$(id -g "${username}")" || return 0
+    # Diagnostics never change acceptance or settings. All query output is parsed privately.
+    python3 - "${uid}" "${gid}" "${run_id}" "${phase}" "${checkpoint}" "${username}" <<'PY'
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import resource
+import stat
+import subprocess
+import sys
+import tempfile
+
+UNITS = ("org.gnome.Shell@wayland.service", "org.gnome.Shell-disable-extensions.service")
+RESULTS = {"success", "exit-code", "signal", "core-dump", "timeout", "watchdog", "oom-kill",
+           "start-limit-hit", "resources", "protocol", "exec-condition", "skipped"}
+EVENTS = {"39f53479d3a045ac8e11786248231fbf": "started",
+          "9d1aaa27d60140bd96365438aad20286": "stopped",
+          "d9b373ed55a64feb8242e02dbe79a49c": "failure-result",
+          "98e322203f7a4ed290d09fe03c09fe15": "process-exit"}
+
+def query(args, cap=262144):
+    try:
+        with tempfile.TemporaryFile() as output:
+            result = subprocess.run(args, stdin=subprocess.DEVNULL, stdout=output,
+                                    stderr=subprocess.DEVNULL, timeout=5, check=False,
+                                    preexec_fn=lambda: resource.setrlimit(resource.RLIMIT_FSIZE, (cap + 1, cap + 1)))
+            output.seek(0)
+            raw = output.read(cap + 1)
+        if result.returncode or len(raw) > cap:
+            return None
+        return raw.decode("utf-8", errors="strict")
+    except (OSError, UnicodeError, subprocess.TimeoutExpired):
+        return None
+
+def unique_object(pairs):
+    value = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError("duplicate field")
+        value[key] = item
+    return value
+
+def number(value, maximum=(1 << 63) - 1):
+    if isinstance(value, str) and re.fullmatch(r"0|[1-9][0-9]{0,18}", value) and int(value) <= maximum:
+        return value
+    return "unknown"
+
+def diagnose(uid, gid, run_id, phase, checkpoint, account="vmtest"):
+    if (not re.fullmatch(r"[0-9]{1,10}", uid) or not re.fullmatch(r"[0-9]{1,10}", gid)
+            or not re.fullmatch(r"[A-Za-z0-9-]{1,80}", run_id)
+            or not re.fullmatch(r"[a-z0-9-]{1,64}", phase)
+            or not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", account)
+            or checkpoint not in {"migrated-login", "before-original-user-logout", "extension-timeout"}):
+        return
+    prefix = f"GNOME_SHELL_DIAGNOSTIC run_id={run_id} phase={phase} checkpoint={checkpoint}"
+    user = ["/usr/bin/setpriv", f"--reuid={uid}", f"--regid={gid}", "--init-groups", "/usr/bin/env",
+            f"HOME=/home/{account}", f"USER={account}", f"LOGNAME={account}",
+            f"XDG_RUNTIME_DIR=/run/user/{uid}", f"DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{uid}/bus"]
+    disabled = query(user + ["/usr/bin/gsettings", "get", "org.gnome.shell", "disable-user-extensions"], 64)
+    disabled = disabled.strip() if disabled is not None else "unknown"
+    if disabled not in {"true", "false"}:
+        disabled = "unknown"
+    sentinel = "unknown"
+    try:
+        path = Path(f"/run/user/{uid}/gnome-shell-disable-extensions")
+        parent = path.parent.lstat()
+        if stat.S_ISDIR(parent.st_mode) and parent.st_uid == int(uid) and not parent.st_mode & 0o077:
+            try:
+                info = path.lstat()
+                if stat.S_ISREG(info.st_mode) and info.st_uid == int(uid) and info.st_nlink == 1 and info.st_size == 0:
+                    sentinel = "present"
+            except FileNotFoundError:
+                sentinel = "absent"
+    except OSError:
+        pass
+    digest = "unknown"
+    try:
+        path = Path("/usr/lib/systemd/user/org.gnome.Shell-disable-extensions.service")
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        try:
+            info = os.fstat(fd)
+            if stat.S_ISREG(info.st_mode) and info.st_uid == 0 and info.st_nlink == 1 and not info.st_mode & 0o022 and 0 < info.st_size <= 16384:
+                raw = os.read(fd, 16385)
+                after = os.fstat(fd)
+                if info == after and len(raw) == info.st_size:
+                    digest = hashlib.sha256(raw).hexdigest()
+        finally:
+            os.close(fd)
+    except OSError:
+        pass
+    print(f"{prefix} disabled_user_extensions={disabled} early_sentinel={sentinel} recovery_unit_sha256={digest}", file=sys.stderr)
+    for unit in UNITS:
+        raw = query(user + ["/usr/bin/systemctl", "--user", "show", unit,
+                           "--property=LoadState,Result,ExecMainCode,ExecMainStatus,ExecMainStartTimestampMonotonic,InvocationID"], 4096)
+        fields = {}
+        try:
+            if raw is None:
+                raise ValueError("query unavailable")
+            for line in raw.splitlines():
+                key, value = line.split("=", 1)
+                if key in fields:
+                    raise ValueError("duplicate field")
+                fields[key] = value
+            if fields.get("LoadState") != "loaded":
+                raise ValueError("unit unavailable")
+        except ValueError:
+            fields = {}
+        result = fields.get("Result")
+        result = result if result in RESULTS else "unknown"
+        code = {"0": "none", "1": "exited", "2": "killed", "3": "dumped"}.get(fields.get("ExecMainCode"), "unknown")
+        invocation = fields.get("InvocationID")
+        if invocation in {"", "0" * 32}:
+            invocation = "no"
+        else:
+            invocation = "yes" if isinstance(invocation, str) and re.fullmatch(r"[a-f0-9]{32}", invocation) else "unknown"
+        print(f"{prefix} unit={unit} result={result} exit_code={code} exit_status={number(fields.get('ExecMainStatus'), 255)} start_monotonic_us={number(fields.get('ExecMainStartTimestampMonotonic'))} invocation={invocation}", file=sys.stderr)
+    if checkpoint != "extension-timeout":
+        return
+    # Current boot includes the migration and original-user logout. Query only these public
+    # units for this UID; retain no messages, paths, command lines or unknown identifiers.
+    args = ["/usr/bin/journalctl", "--boot=0", "--no-pager", "--lines=129", "--output=json",
+            "--output-fields=USER_UNIT,_SYSTEMD_USER_UNIT,MESSAGE_ID,UNIT_RESULT,EXIT_CODE,EXIT_STATUS"]
+    for unit in UNITS:
+        for field in ("USER_UNIT", "_SYSTEMD_USER_UNIT"):
+            if args[-1].startswith(("USER_UNIT=", "_SYSTEMD_USER_UNIT=")):
+                args.append("+")
+            args.extend([f"_UID={uid}", f"{field}={unit}"])
+    raw = query(args)
+    query_state = "unknown"
+    counts = dict.fromkeys(("records", "stop_events", "failure_events", "killed_events", "timeout_events", "unclassified_events"), "unknown")
+    recovery = "unknown"
+    try:
+        if raw is None:
+            raise ValueError("query unavailable")
+        records = [json.loads(line, object_pairs_hook=unique_object) for line in raw.splitlines()]
+        if len(records) >= 129:
+            raise ValueError("bounded window exhausted")
+        typed = []
+        for record in records:
+            if not isinstance(record, dict):
+                raise ValueError("invalid record")
+            unit = record.get("USER_UNIT", record.get("_SYSTEMD_USER_UNIT"))
+            if unit not in UNITS or any(not isinstance(record.get(key, ""), str) for key in ("MESSAGE_ID", "UNIT_RESULT", "EXIT_CODE", "EXIT_STATUS")):
+                raise ValueError("invalid fields")
+            if record.get("UNIT_RESULT") and record["UNIT_RESULT"] not in RESULTS:
+                raise ValueError("invalid result")
+            if record.get("EXIT_CODE") and record["EXIT_CODE"] not in {"exited", "killed", "dumped"}:
+                raise ValueError("invalid exit code")
+            if record.get("EXIT_STATUS") and number(record["EXIT_STATUS"], 255) == "unknown":
+                raise ValueError("invalid exit status")
+            typed.append((unit, EVENTS.get(record.get("MESSAGE_ID")), record))
+        counts = dict.fromkeys(counts, 0)
+        counts["records"] = len(typed)
+        recovery = "no"
+        for unit, event, record in typed:
+            counts["unclassified_events"] += event is None
+            if unit == UNITS[1] and event == "started":
+                recovery = "yes"
+            if unit == UNITS[0]:
+                counts["stop_events"] += event == "stopped"
+                counts["failure_events"] += event == "failure-result"
+                counts["timeout_events"] += event == "failure-result" and record.get("UNIT_RESULT") == "timeout"
+                counts["killed_events"] += event == "process-exit" and record.get("EXIT_CODE") in {"killed", "dumped"}
+        query_state = "ok"
+    except (ValueError, TypeError):
+        pass
+    values = " ".join(f"{key}={value}" for key, value in counts.items())
+    print(f"{prefix} journal_scope=current-boot journal_query={query_state} {values} recovery_started={recovery}", file=sys.stderr)
+
+if __name__ == "__main__":
+    try:
+        diagnose(*sys.argv[1:])
+    except Exception:
+        # A diagnostic failure must neither repair settings nor replace the functional verdict.
+        print("GNOME_SHELL_DIAGNOSTIC query=unknown reason=helper-failed", file=sys.stderr)
+PY
+    return 0
+}
+
 emit_extension_timeout_diagnostic() {
     local uid="$1" expected="$2" actual="$3" query_status="$4"
     local reason=enabled-set-mismatch disabled=unavailable value id line expected_flag enabled_flag state
@@ -668,6 +851,7 @@ emit_extension_timeout_diagnostic() {
         printf 'GNOME_EXTENSION_DIAGNOSTIC run_id=%s phase=%s known_extension=%s expected=%s enabled=%s state=%s\n' \
             "${run_id}" "${phase}" "${id}" "${expected_flag}" "${enabled_flag}" "${state}" >&2
     done
+    emit_gnome_shell_lifecycle_diagnostic "${uid}" extension-timeout
 }
 
 wait_for_enabled_extensions() {
@@ -1037,12 +1221,25 @@ print(accepted[0])
 SNAPSHOT_ENTRY_PY
 }
 
+snapshot_runtime_fail() {
+    local reason="$1" identity=unavailable checkpoint=unavailable
+    case "${reason}" in
+        scenario|state-file|state-mode|state-lines|state-run|state-subvolume|cfg-record|cfg-hash|root-uuid|boot-id|root-filesystem|root-options-query|lower-shape|lower-filesystem|lower-subvolume|lower-options-query|lower-readonly|lower-uuid|lower-property|lower-marker|lower-source-query|target-query|target-partition|cmdline-query|device-shape|partuuid-shape|device-identity|root-argument|volatile-argument|rootflags-argument|rootflags-subvolume|kernel-initramfs|grub-efi|grub-package|services|network|failed-units) ;;
+        *) reason=unknown ;;
+    esac
+    [[ "${run_id:-}" =~ ^grub-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}$ ]] && identity="${run_id}"
+    case "${phase:-}" in snapshot-prelogin|snapshot-login) checkpoint="${phase}" ;; esac
+    printf 'SNAPSHOT_RUNTIME_DIAGNOSTIC run_id=%s phase=%s reason=%s\n' \
+        "${identity}" "${checkpoint}" "${reason}" >&2
+    return 1
+}
+
 snapshot_lowerdir_matches() {
     local lower="$1" subvol="$2" options
-    [ "$(findmnt -nro FSTYPE --target "${lower}")" = btrfs ] || return 1
-    [ "$(findmnt -nro FSROOT --target "${lower}")" = "/${subvol}" ] || return 1
-    options="$(findmnt -nro OPTIONS --target "${lower}")" || return 1
-    case ",${options}," in *,ro,*) ;; *) return 1 ;; esac
+    [ "$(findmnt -nro FSTYPE --target "${lower}")" = btrfs ] || { snapshot_runtime_fail lower-filesystem; return 1; }
+    [ "$(findmnt -nro FSROOT --target "${lower}")" = "/${subvol}" ] || { snapshot_runtime_fail lower-subvolume; return 1; }
+    options="$(findmnt -nro OPTIONS --target "${lower}")" || { snapshot_runtime_fail lower-options-query; return 1; }
+    case ",${options}," in *,ro,*) ;; *) snapshot_runtime_fail lower-readonly; return 1 ;; esac
 }
 
 snapshot_root_argument_matches() {
@@ -1160,47 +1357,47 @@ prepare_snapshot_boot() {
 verify_snapshot_runtime() {
     local state="/boot/qa-snapshot-${run_id}.state" subvol="@snapshots/qa-${run_id}"
     local options lower uuid cmdline target source device partuuid
-    [ "${scenario}" = stock-gnome-btrfs-grub ] || return 1
-    [ -f "${state}" ] && [ ! -L "${state}" ] || return 1
-    [ "$(stat -Lc '%u:%a:%h' -- "${state}")" = '0:600:1' ] || return 1
-    [ "$(wc -l <"${state}")" -eq 8 ] || return 1
-    grep -qxF "run_id=${run_id}" "${state}" || return 1
-    grep -qxF "subvol=${subvol}" "${state}" || return 1
-    [ "$(grep -c '^production_cfg_sha256=' "${state}")" -eq 1 ] || return 1
+    [ "${scenario}" = stock-gnome-btrfs-grub ] || { snapshot_runtime_fail scenario; return 1; }
+    [ -f "${state}" ] && [ ! -L "${state}" ] || { snapshot_runtime_fail state-file; return 1; }
+    [ "$(stat -Lc '%u:%a:%h' -- "${state}")" = '0:600:1' ] || { snapshot_runtime_fail state-mode; return 1; }
+    [ "$(wc -l <"${state}")" -eq 8 ] || { snapshot_runtime_fail state-lines; return 1; }
+    grep -qxF "run_id=${run_id}" "${state}" || { snapshot_runtime_fail state-run; return 1; }
+    grep -qxF "subvol=${subvol}" "${state}" || { snapshot_runtime_fail state-subvolume; return 1; }
+    [ "$(grep -c '^production_cfg_sha256=' "${state}")" -eq 1 ] || { snapshot_runtime_fail cfg-record; return 1; }
     [ "$(sha256sum -- /boot/grub/grub-btrfs.cfg | awk '{print $1}')" = \
-        "$(sed -n 's/^production_cfg_sha256=//p' "${state}")" ] || return 1
+        "$(sed -n 's/^production_cfg_sha256=//p' "${state}")" ] || { snapshot_runtime_fail cfg-hash; return 1; }
     uuid="$(sed -n 's/^root_uuid=//p' "${state}")"
-    [[ "${uuid}" =~ ^[a-fA-F0-9-]{36}$ ]] || return 1
-    [ "$(sed -n 's/^normal_boot_id=//p' "${state}")" != "$(cat /proc/sys/kernel/random/boot_id)" ] || return 1
-    [ "$(findmnt -nro FSTYPE --target /)" = overlay ] || return 1
-    options="$(findmnt -nro OPTIONS --target /)"
+    [[ "${uuid}" =~ ^[a-fA-F0-9-]{36}$ ]] || { snapshot_runtime_fail root-uuid; return 1; }
+    [ "$(sed -n 's/^normal_boot_id=//p' "${state}")" != "$(cat /proc/sys/kernel/random/boot_id)" ] || { snapshot_runtime_fail boot-id; return 1; }
+    [ "$(findmnt -nro FSTYPE --target /)" = overlay ] || { snapshot_runtime_fail root-filesystem; return 1; }
+    options="$(findmnt -nro OPTIONS --target /)" || { snapshot_runtime_fail root-options-query; return 1; }
     lower="$(tr ',' '\n' <<<"${options}" | sed -n 's/^lowerdir=//p')"
-    [[ "${lower}" = /* ]] && [[ "${lower}" != *:* ]] && [[ "${lower}" != *\\* ]] || return 1
+    [[ "${lower}" = /* ]] && [[ "${lower}" != *:* ]] && [[ "${lower}" != *\\* ]] || { snapshot_runtime_fail lower-shape; return 1; }
     snapshot_lowerdir_matches "${lower}" "${subvol}" || return 1
-    [ "$(findmnt -nro UUID --target "${lower}")" = "${uuid}" ] || return 1
-    [ "$(btrfs property get -ts "${lower}" ro)" = ro=true ] || return 1
-    [ "$(cat -- "${lower}/var/lib/arch-linux-vm/snapshot-marker")" = "${run_id}" ] || return 1
-    source="$(mounted_source_device "${lower}")"
-    target="$(find_target)"
-    [ "${source}" = "$(partition_name "${target}" 2)" ] || return 1
-    cmdline="$(cat /proc/cmdline)"
+    [ "$(findmnt -nro UUID --target "${lower}")" = "${uuid}" ] || { snapshot_runtime_fail lower-uuid; return 1; }
+    [ "$(btrfs property get -ts "${lower}" ro)" = ro=true ] || { snapshot_runtime_fail lower-property; return 1; }
+    [ "$(cat -- "${lower}/var/lib/arch-linux-vm/snapshot-marker")" = "${run_id}" ] || { snapshot_runtime_fail lower-marker; return 1; }
+    source="$(mounted_source_device "${lower}")" || { snapshot_runtime_fail lower-source-query; return 1; }
+    target="$(find_target)" || { snapshot_runtime_fail target-query; return 1; }
+    [ "${source}" = "$(partition_name "${target}" 2)" ] || { snapshot_runtime_fail target-partition; return 1; }
+    cmdline="$(cat /proc/cmdline)" || { snapshot_runtime_fail cmdline-query; return 1; }
     device="$(sed -n 's/^root_device=//p' "${state}")"
     partuuid="$(sed -n 's/^root_partuuid=//p' "${state}")"
-    [ "${device}" = "${source}" ] && [ -b "${device}" ] || return 1
-    [[ "${partuuid}" =~ ^[a-fA-F0-9-]{36}$ ]] || return 1
+    [ "${device}" = "${source}" ] && [ -b "${device}" ] || { snapshot_runtime_fail device-shape; return 1; }
+    [[ "${partuuid}" =~ ^[a-fA-F0-9-]{36}$ ]] || { snapshot_runtime_fail partuuid-shape; return 1; }
     [ "$(blkid -s UUID -o value -- "${device}")" = "${uuid}" ] &&
-        [ "$(blkid -s PARTUUID -o value -- "${device}")" = "${partuuid}" ] || return 1
-    snapshot_root_argument_matches "${cmdline}" "${device}" "${uuid}" "${partuuid}" || return 1
-    require_kernel_argument_once "${cmdline}" systemd.volatile=overlay || return 1
+        [ "$(blkid -s PARTUUID -o value -- "${device}")" = "${partuuid}" ] || { snapshot_runtime_fail device-identity; return 1; }
+    snapshot_root_argument_matches "${cmdline}" "${device}" "${uuid}" "${partuuid}" || { snapshot_runtime_fail root-argument; return 1; }
+    require_kernel_argument_once "${cmdline}" systemd.volatile=overlay || { snapshot_runtime_fail volatile-argument; return 1; }
     options="$(tr ' ' '\n' <<<"${cmdline}" | sed -n 's/^rootflags=//p')"
-    require_prefixed_kernel_argument_once "${cmdline}" rootflags= "rootflags=${options}" || return 1
-    [ "$(tr ',' '\n' <<<"${options}" | sed -n 's/^subvol=//p')" = "${subvol}" ] || return 1
-    verify_kernel_initramfs_pair /boot/initramfs-linux.img || return 1
-    verify_grub_efi_target || return 1
-    verify_grub_package_integrity >/dev/null || return 1
-    systemctl is-active --quiet NetworkManager.service qemu-guest-agent.service || return 1
-    nm-online -q --timeout=60 || return 1
-    [ -z "$(systemctl --failed --no-legend --plain)" ] || return 1
+    require_prefixed_kernel_argument_once "${cmdline}" rootflags= "rootflags=${options}" || { snapshot_runtime_fail rootflags-argument; return 1; }
+    [ "$(tr ',' '\n' <<<"${options}" | sed -n 's/^subvol=//p')" = "${subvol}" ] || { snapshot_runtime_fail rootflags-subvolume; return 1; }
+    verify_kernel_initramfs_pair /boot/initramfs-linux.img || { snapshot_runtime_fail kernel-initramfs; return 1; }
+    verify_grub_efi_target || { snapshot_runtime_fail grub-efi; return 1; }
+    verify_grub_package_integrity >/dev/null || { snapshot_runtime_fail grub-package; return 1; }
+    systemctl is-active --quiet NetworkManager.service qemu-guest-agent.service || { snapshot_runtime_fail services; return 1; }
+    nm-online -q --timeout=60 || { snapshot_runtime_fail network; return 1; }
+    [ -z "$(systemctl --failed --no-legend --plain)" ] || { snapshot_runtime_fail failed-units; return 1; }
     printf '%s' "${target}"
 }
 
@@ -2060,6 +2257,9 @@ verify_marble_user_session() {
     session_uid="$(session_property "${user_session}" User)"
     [ "${session_uid}" = "${uid}" ]
     shell_pid="$(wait_for_gnome_shell "${uid}")"
+    if [ "${phase}" = migrated-login ]; then
+        emit_gnome_shell_lifecycle_diagnostic "${uid}" migrated-login
+    fi
     shell_environment="$(tr '\0' '\n' <"/proc/${shell_pid}/environ")"
     grep -qx 'XDG_SESSION_TYPE=wayland' <<<"${shell_environment}"
     grep -Eq '^XDG_CURRENT_DESKTOP=(GNOME|GNOME:GNOME)$' <<<"${shell_environment}"
@@ -2396,6 +2596,7 @@ prepare_fresh_marble_user() {
     chmod 0644 -- "${dropin}"
     /usr/share/libalpm/scripts/systemd-hook daemon-reload-user
     uid="$(id -u "${username}")"
+    emit_gnome_shell_lifecycle_diagnostic "${uid}" before-original-user-logout
     run_in_user_session "${uid}" /usr/bin/gnome-session-quit --logout --no-prompt
     wait_for_named_user_logout "${username}"
     greeter_session="$(wait_for_greeter)"
