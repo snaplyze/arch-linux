@@ -335,7 +335,7 @@ regression → affected tests → independent review where material → status u
 | MON-01 | P2 | none | DONE | Dated advisory coverage of boot/desktop inputs |
 | UP-01 | P3 | MON-01 | DONE | Reviewed external-source decisions and synchronized metadata |
 | ARCH-01 | P2 | ISO qualification independent; corrected-candidate tests after SAFE-01…03, UP-01 | IN_PROGRESS | Qualification of October media and runtime inputs |
-| QA-01 | P2 | SAFE-01…03, TRUST-01/02, CONFIG-01, RECOVERY-01, UP-01 | DONE | Regression tests and mandatory child VM gates implemented |
+| QA-01 | P2 | SAFE-01…03, TRUST-01/02, CONFIG-01, RECOVERY-01, UP-01 | IN_PROGRESS | Regression tests and mandatory child VM gates implemented |
 | DOC-01 | P3 | Corrected selector and source behavior prose; final release records under RELEASE-01 | DONE | UI copy and final behavior docs; prose correction is not product fix |
 | GATE-01 | P1 | all above | IN_PROGRESS | Frozen, independently reviewed pre-merge source/unsigned-build candidate |
 | RELEASE-01 | final | GATE-01 | TODO | Main delivery, child build/signing/VM acceptance, tag/release and public readback |
@@ -884,3 +884,26 @@ Next dependent step after final source PASS: explicit owned/adopted-path integra
 commit → cleanharness October Minimal/Stock qualification → humanreview acceptedISO → final
 tree-bound source/release-host/unsignedbuild gates → authorized PRdelivery → configured
 deterministic-child release/runtime/publicacceptance. Entirefiniteobjective remains incomplete.
+
+Local reviewed candidate44540017c2d8981bfbe2bdd1901e0136bc0621cc committed on main after
+source-candidate-5.log EXIT0 (exact fullnamespace14+18 deferrednone); tree
+c13f8201886810453a5d8a598071c136e4ea2711, canonicalSHA
+75cbe126cc6a8f8b771fa5dd170f3cbf603bf56f0f75dd9dd9eb3f9930978dbc. Independent
+187-file/mode/stability review PASS, no material unresolved source finding then. Canonical
+unprivileged build and separate fresh-container verification both EXIT0/all6packages:
+gate-build.qSAJfyHY; metadataSHAa086d4c9a33f3b9cb5a46cc8eacd3afc9b1596c4b94845900009ed4754288a97,
+unsignedSHA9082ed8df7eff6b726e8a528ac461a14e7d870b340a490274726c3dd1c1b842e.
+Owned containers removed. These results belong only to4454001; final candidate remains pending.
+
+ARCH actual October Minimal attempt minimal-20261003T145600Z-b3895c93: unchanged public1.0.5
+installer zeroexit, completed installation and real firstboot/QGA; overall FAIL at readback
+command availability (verify.sh1347), not a successful media qualification. Evidence retained
+compactly outside source, owned QEMU/disk/VARS cleaned. Diagnostic tool prerequisite missing
+on newly supported Minimal media route; jq is required by public readback and not provisioned
+by published Minimal VM support. QA/ARCH correction is necessary bounded harness work, not
+an installer/pin change: storage_guards owns run.sh/guestverify/runtime regressions; root owns
+PLAN. Add explicit prerequisite phase restricted to media qualification, useful missing-tool
+diagnostic and actual regression; review/test/newcleanharness commit before fresh VM rerun.
+Old FAIL remains historical; no PASS or new pin accepted. Root release-host payload is prepared
+but not launched, must regenerate against final accepted tree. Current official observation at
+2026-10-03T14:59:45Z: GNOME50.5/GDM50.3, systemd262/mkinitcpio42.2; GNOME51 condition not met.

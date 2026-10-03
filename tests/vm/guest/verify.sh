@@ -28,7 +28,7 @@ readonly legacy_release_version="${23}" legacy_profile_version="${24}" legacy_gt
 case "${scenario}" in
 minimal-ext4-systemdboot)
     marker_prefix='MINIMAL'
-    case "${phase}" in firstboot | update | postreboot) ;; *) exit 2 ;; esac
+    case "${phase}" in media-readback-prepare | firstboot | update | postreboot) ;; *) exit 2 ;; esac
     [[ "${expected_serial}" =~ ^ALI100M[A-F0-9]{12}$ ]]
     [[ "${expected_model}" =~ ^ALI_MIN_[A-F0-9]{8}$ ]]
     [[ "${run_id}" =~ ^minimal-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}$ ]]
@@ -42,7 +42,7 @@ minimal-dualboot-ext4-systemdboot)
     ;;
 stock-gnome-ext4-systemdboot)
     marker_prefix='STOCK'
-    case "${phase}" in prelogin | firstlogin | lock | unlock | update | postreboot-prelogin | secondlogin) ;; *) exit 2 ;; esac
+    case "${phase}" in media-readback-prepare | prelogin | firstlogin | lock | unlock | update | postreboot-prelogin | secondlogin) ;; *) exit 2 ;; esac
     [[ "${expected_serial}" =~ ^ALI100S[A-F0-9]{12}$ ]]
     [[ "${expected_model}" =~ ^ALI_STK_[A-F0-9]{8}$ ]]
     [[ "${run_id}" =~ ^stock-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}$ ]]
@@ -129,6 +129,7 @@ for expected_digest in "${installer_sha256}" "${package_set_sha256}" \
 done
 case "${input_mode}" in
 staged)
+    [ "${phase}" != media-readback-prepare ]
     [ "${media_qualification}" = false ]
     [ "${pages_url}" = - ] && [ "${public_key_url}" = - ]
     if [ "${scenario}" = marble-gnome-btrfs-luks2-plymouth-systemdboot ]; then
@@ -146,7 +147,7 @@ public)
     *) exit 2 ;;
     esac
     case "${phase}" in
-    firstboot | postreboot | prelogin | firstlogin | lock | unlock | update | postreboot-prelogin | secondlogin) ;;
+    media-readback-prepare | firstboot | postreboot | prelogin | firstlogin | lock | unlock | update | postreboot-prelogin | secondlogin) ;;
     *) exit 2 ;;
     esac
     [ "${pages_url}" = "https://snaplyze.github.io/arch-linux/repo/\$arch" ]
@@ -1335,6 +1336,52 @@ release_sum_for() {
         "${sums}"
 }
 
+require_public_readback_tools() {
+    local include_jq="${1:-true}" command_name
+    for command_name in awk base64 bsdtar cat chmod cmp curl cut find gpg gpgv grep install jq mktemp rm sed sha256sum sort stat tr; do
+        if [ "${command_name}" = jq ] && [ "${include_jq}" = false ]; then
+            continue
+        fi
+        command -v -- "${command_name}" >/dev/null || {
+            printf 'missing public readback dependency: %s\n' "${command_name}" >&2
+            return 1
+        }
+    done
+}
+
+prepare_media_readback() {
+    local siglevel boot_id command_name preparation=existing
+    [ "${input_mode}" = public ] && [ "${media_qualification}" = true ] || return 1
+    case "${scenario}" in minimal-ext4-systemdboot | stock-gnome-ext4-systemdboot) ;; *) return 1 ;; esac
+    require_public_readback_tools false || return 1
+    if ! command -v -- jq >/dev/null; then
+        # Harness-only tooling: use the installed synchronized official repository database,
+        # without refreshing it or upgrading the first-boot kernel before its pairing check.
+        for command_name in pacman pacman-conf; do
+            command -v -- "${command_name}" >/dev/null || {
+                printf 'missing public readback dependency: %s\n' "${command_name}" >&2
+                return 1
+            }
+        done
+        siglevel="$(pacman-conf --repo extra SigLevel)" || return 1
+        if [ -z "${siglevel}" ]; then
+            siglevel="$(pacman-conf SigLevel)" || return 1
+        fi
+        grep -Fxq PackageRequired <<<"${siglevel}" &&
+            grep -Fxq PackageTrustedOnly <<<"${siglevel}" || return 1
+        pacman -S --noconfirm --needed -- extra/jq || {
+            printf 'public media readback preparation failed: official extra/jq installation\n' >&2
+            return 1
+        }
+        preparation=official-extra-install
+    fi
+    require_public_readback_tools || return 1
+    jq --version || return 1
+    boot_id="$(cat /proc/sys/kernel/random/boot_id)" || return 1
+    printf '%s_QEMU_GUEST_PASS run_id=%s scenario=%s phase=%s boot_id=%s target=public-readback-tools preparation=%s\n' \
+        "${marker_prefix}" "${run_id}" "${scenario}" "${phase}" "${boot_id}" "${preparation}"
+}
+
 verify_public_release_pages_binding() (
     local release_base archive_name archive_url pages_base work pages_dir keyring sums sums_signature
     local archive archive_signature archive_checksum release_manifest release_manifest_signature
@@ -1343,9 +1390,7 @@ verify_public_release_pages_binding() (
     local expected_package_files='' database_filenames='' member filename files_desc_count files_list_count
     local -a package_matches=()
     [ "${input_mode}" = public ] || return 0
-    for command_name in awk base64 bsdtar cmp curl cut find gpg gpgv grep jq mktemp sed sha256sum sort stat; do
-        command -v -- "${command_name}" >/dev/null
-    done
+    require_public_readback_tools || return 1
     release_base="${public_key_url%/arch-linux.gpg}"
     [ "${release_base}" = "https://github.com/snaplyze/arch-linux/releases/download/${release_version}" ]
     archive_name="arch-linux-repository-${release_version}.tar.zst"
@@ -2400,6 +2445,11 @@ verify_dual_boot_phase() {
     printf 'MINIMAL_QEMU_GUEST_PASS run_id=%s scenario=%s phase=%s boot_id=%s target=%s neighbor=preserved\n' \
         "${run_id}" "${scenario}" "${phase}" "${boot_id}" "${target}"
 }
+
+if [ "${phase}" = media-readback-prepare ]; then
+    prepare_media_readback
+    exit 0
+fi
 
 if [ "${media_qualification}" = true ] &&
     { [ "${phase}" = firstboot ] || [ "${phase}" = prelogin ]; }; then

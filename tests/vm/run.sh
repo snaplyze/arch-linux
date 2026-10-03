@@ -1554,6 +1554,12 @@ qga_verify() {
     fi
 }
 
+prepare_public_media_readback() {
+    if [ "${input_mode}" = public ] && [ "${media_qualification}" = true ]; then
+        qga_verify media-readback-prepare media-readback-prepare || return 1
+    fi
+}
+
 schedule_transition() {
     local mode="$1" phase="$2" request start guest_pid status_request status_response=''
     request="$(jq -cn --arg unit "ali-${run_prefix}-${mode}-${run_id}" --arg mode "${mode}" '
@@ -2304,6 +2310,7 @@ main() {
         capture_and_unlock_luks_prompt firstboot
     fi
     wait_qga || die 'first boot QEMU guest agent did not become ready'
+    prepare_public_media_readback || die 'public media readback preparation failed'
     if is_marble_scenario; then
         run_marble_acceptance
     elif [[ "${scenario_id}" = minimal-* ]]; then

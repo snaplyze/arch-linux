@@ -10,6 +10,71 @@ VERIFY = ROOT / "tests/vm/guest/verify.sh"
 def function(name):
     return re.search(r"^" + name + r"\(\) \{\n.*?^\}", VERIFY.read_text(), re.M | re.S).group(0)
 class RuntimeChecks(unittest.TestCase):
+    def media_prepare(self, available=False, install_status=0, installed=True, trusted=True, mode="public", qualification="true", inherited=False, missing=""):
+        body = function("require_public_readback_tools") + "\n" + function("prepare_media_readback")
+        script = "set -euo pipefail\ninput_mode=" + mode + " media_qualification=" + qualification + " scenario=minimal-ext4-systemdboot phase=media-readback-prepare marker_prefix=MINIMAL run_id=fixture\n"
+        script += "available=" + str(int(available)) + "\ncommand(){ if [ \"$*\" = '-v -- jq' ]; then [ \"$available\" = 1 ]; else [ \"$*\" != '-v -- " + missing + "' ]; fi; }\n"
+        script += "pacman-conf(){ " + ("if [[ \"$*\" = --repo* ]]; then return 0; fi; " if inherited else "") + "printf '%s\\n' PackageRequired " + ("PackageTrustedOnly" if trusted else "PackageTrustAll") + "; }\n"
+        script += "pacman(){ printf 'PACMAN:%s\\n' \"$*\"; available=" + str(int(installed)) + "; return " + str(install_status) + "; }\n"
+        script += "jq(){ printf 'jq-fixture\\n'; }\n" + body + "\nprepare_media_readback\n"
+        return subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=5)
+
+    def test_media_readback_preparation_installs_official_jq(self):
+        result = self.media_prepare()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("PACMAN:-S --noconfirm --needed -- extra/jq", result.stdout)
+        self.assertIn("phase=media-readback-prepare", result.stdout)
+
+    def test_media_readback_preparation_missing_other_tool(self):
+        result = self.media_prepare(missing="gpgv")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("missing public readback dependency: gpgv", result.stderr)
+        self.assertNotIn("PACMAN:", result.stdout)
+
+    def test_media_readback_preparation_inherited_signature_policy(self):
+        result = self.media_prepare(inherited=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_media_readback_preparation_existing_tool(self):
+        result = self.media_prepare(available=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("PACMAN:", result.stdout)
+
+    def test_media_readback_preparation_failures_stop(self):
+        for kwargs in ({"install_status": 1}, {"installed": False}, {"trusted": False},
+                       {"mode": "staged"}, {"qualification": "false"}):
+            with self.subTest(kwargs=kwargs):
+                result = self.media_prepare(**kwargs)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn("_QEMU_GUEST_PASS", result.stdout)
+        self.assertIn("missing public readback dependency: jq", self.media_prepare(installed=False).stderr)
+
+    def test_readback_missing_dependency_is_named(self):
+        body = function("require_public_readback_tools") + "\n" + re.search(r"^verify_public_release_pages_binding\(\) \(\n.*?^\)", VERIFY.read_text(), re.M | re.S).group(0)
+        for missing in ("jq", "gpgv"):
+            script = "set -euo pipefail\ninput_mode=public\ncommand(){ [ \"$*\" != '-v -- " + missing + "' ]; }\n" + body + "\nverify_public_release_pages_binding\n"
+            result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=5)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("missing public readback dependency: " + missing, result.stderr)
+
+    def test_media_prepare_phase_only_public_qualification(self):
+        prefix = VERIFY.read_text().split("trim_value() {", 1)[0]
+        for mode, qualification, expected in (("public", "true", 0), ("public", "false", 2), ("staged", "false", 1)):
+            args = ["media-readback-prepare", "ALI100M123456789ABC", "SNAPLYZE", "ALI_MIN_12345678", "vmtest", "minimal-ext4-systemdboot", "minimal-20261003T145600Z-b3895c93", "A" * 40, "B" * 40, mode, "1.0.5", "absent", "https://snaplyze.github.io/arch-linux/repo/$arch" if mode == "public" else "-", "https://github.com/snaplyze/arch-linux/releases/download/1.0.5/arch-linux.gpg" if mode == "public" else "-", "a" * 64, "a" * 40, "b" * 40] + ["a" * 64] * 5 + ["-", "-", "-", qualification]
+            result = subprocess.run(["bash", "-c", prefix, "phase-guard-fixture", *args], capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, expected, result.stderr)
+
+    def test_host_media_preparation_route_and_failure(self):
+        host = (ROOT / "tests/vm/run.sh").read_text()
+        body = re.search(r"^prepare_public_media_readback\(\) \{\n.*?^\}", host, re.M | re.S).group(0)
+        self.assertIn("prepare_public_media_readback", host.split("wait_qga || die 'first boot QEMU guest agent did not become ready'", 1)[1].split("if is_marble_scenario", 1)[0])
+        for mode, qualification, status in (("public", "true", 0), ("public", "true", 1), ("public", "false", 0), ("staged", "false", 0)):
+            script = "set -euo pipefail\ninput_mode=" + mode + " media_qualification=" + qualification + "\nqga_verify(){ printf 'PREPARE:%s\\n' \"$*\"; return " + str(status) + "; }\n" + body + "\nprepare_public_media_readback\nprintf 'READBACK_READY\\n'\n"
+            result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, status)
+            self.assertEqual("PREPARE:media-readback-prepare" in result.stdout, mode == "public" and qualification == "true")
+            self.assertEqual("READBACK_READY" in result.stdout, status == 0)
+
     def kernel(self, phase="firstboot", running="new", releases=("new",), image=True, modules=True, match=True):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
