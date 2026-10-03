@@ -337,10 +337,10 @@ regression → affected tests → independent review where material → status u
 | MON-01 | P2 | none | DONE | Dated advisory coverage of boot/desktop inputs |
 | UP-01 | P3 | MON-01 | DONE | Reviewed external-source decisions and synchronized metadata |
 | ARCH-01 | P2 | ISO qualification independent; corrected-candidate tests after SAFE-01…03, UP-01 | DONE | Owner-reviewed October ISO after actual Minimal/Stock PASS; corrected-child runtime remains RELEASE-01 |
-| QA-01 | P2 | SAFE-01…03, TRUST-01/02, CONFIG-01, RECOVERY-01, UP-01 | IN_PROGRESS | Second child6PASS/3FAIL; neighbor fix frozen, GDM diagnostics/wait and large-script transport fix pending; snapshot-boot diagnosis active |
+| QA-01 | P2 | SAFE-01…03, TRUST-01/02, CONFIG-01, RECOVERY-01, UP-01 | IN_PROGRESS | Third child7PASS/2FAIL; owned GRUB selector and Marble safe diagnostics sourcePASS; fresh product VM pending |
 | DOC-01 | P3 | Corrected selector and source behavior prose; final release records under RELEASE-01 | DONE | UI copy and final behavior docs; prose correction is not product fix |
-| GATE-01 | P1 | all above | IN_PROGRESS | Exact85e36c2 PASS retained; new neighbor harness correction requires fresh affected candidate gates |
-| RELEASE-01 | final | GATE-01 | IN_PROGRESS | PR52/main38cc6e6 child failed6PASS/3FAIL; final18/tag/Pages/public skipped; focused corrected candidate in progress |
+| GATE-01 | P1 | all above | IN_PROGRESS | Exact738 GATE/PR53 historical; frozen selector/diagnostic slice source17 and stable independent review PASS; fresh exact gates pending |
+| RELEASE-01 | final | GATE-01 | IN_PROGRESS | Third childbb613ce failed7PASS/2FAIL before finalization; next reviewed selector/diagnostic candidate pending |
 
 GATE-01 depends on preceding source/pre-merge deliverables only. DELIVERY-01 closes at reviewed
 source/design/regression acceptance; actual package-only publication requires separately defined
@@ -1214,3 +1214,69 @@ fullsource16, exactfreshcanonicalbuild and5realguestgates next. Snapshotguestcau
 newdiagnostic evidence actualVM NOT_RUN. No product/bootsetting change inferredfromtimeout.
 Preparedbuild gate-build.aNHF629V and guest gate-release-host-next.l955b_49 NOT_RUN, waitfrozen
 identity/resourceGO. All15-ID finite scope retained;12DONE, QA/GATE/RELEASE IN_PROGRESS. GoalACTIVE.
+
+Exact738de12 GATE accepted: cleanfullsource16 EXIT0 SHAaa475dd6a57efcd685253d6182d1284f1e15d207d1cef26aeac34da017c39490;
+canonical6build/freshverify0 rootnative14filemodehashbindingPASS metadata1472bdab/unsigned022059d5,
+receipt53ccf823;5realguestgates0 exactfull10/14+18/none, publicationsealed14/18/FIFO/memfd/ns4/
+pid1/agent/supervisordeath, keyringordinarypartial5 andprivilegedfull10, exactbefore/afteridentity.
+Guestreceipt ed783b11743542d9b91ff00f02bac51f1f314bc5466255901417dd2f4c222e68; rootchecked
+allnativeSHA/markers/PIDstart/imagehealth and8recordedheavyfilesremoved; noownVM/containerleft.
+PR53 SourceCI37147291681SUCCESS/squashmerge2026-10-03T19:19:53Z; samecheckout mainFF to
+1a16609bb8ed14ec351b6e8224ccd6ca5536b85f/treefe51ad86dc98b350f26a7e1aa8ce4ec31883d944,
+canonicalSHAe51914a70c0abd7b5275ea309d3bd87a2da860f4aaf78c20d631ed6acd98c1a8 unchanged.
+Own738 candidatepreserved local+remote deliver/vm-readback-20261003; noreset/force/bypass.
+MainCI37147497511SUCCESS → freshautomaticRelease37147640933, liveunused1.0.6, child
+bb613cea7e59d85b70da3360971d737990f1b959/tree911f92dd4acdb87681c4ebe345efad628027add5/
+canonicalSHA6631bafea6ff9635640d7c6a666dba281fee92bd0fc3291ab5786367b4a50ae1. Actualpublic
+sourcebundle fff2b971c657d6e1ed93c3443c168f788b38c4698abcbff716b9efbbf48070d7 verified
+withoutchildcheckout/import. NewPhaseA exact14 independently/rootactualmapPASS, receipt
+639c67bd47127472185a97a4071a3aeafbc84a82ee2e08fa88da39527625da7f; build6f9b3b68,
+unsigned32fbaba5, snapshotarchivebaf2a225, manifest a5832c2e. NooldchildPASS transfer.
+Freshactualnative7PASS/1FAIL/1GRUBrunning: Minimal14, dualboot17(realbothOSboots/6neighborEFI
+hashes+UUID/PARTUUID afterupdate/reboot), Stockext4/Btrfssystemdboot21 each, encryptedStock
+systemdboot21/GRUB22, MarbleStockGDM17. MarbleoptinFAIL4 coarsefirstboot; initialroot inference beforefirstlogin correctedafterreadback:
+GDM baseline/check/settled, reallegacy/migrated/fresh-user logins+logout andGTK4 light/dark smoke
+PASS. Actualfailure return-user-login verify1940 wait_for_enabled_extensions exact8 notproven180s.
+Underlying missing/unexpectedset vsqueryfailure UNKNOWN because helper discardsstatus/set/stderr;
+actualhelper fixtures prove missing/queryexit1 indistinguishableemptydiag. Necessary controlled
+GNOME_EXTENSION_DIAGNOSTIC distinguishes readonlyqueryfailure/mismatch/knownids/count/stateenum
+on timeout, preserves exact8/180s andlogin/integrity/cleanup, no autoenable/reset/guessedfix.
+Storage solewriter guestverify/runtime; archive solewriter run/harnesscompactorretention, rootPLAN.
+CurrentGDM wait/transport fixedactualrealVM behavior; historicalsecondMarblecause remainsUNKNOWN.
+No openingrace attribution/unchangedretry. GRUBsnapshot actualFAIL20, thirdRelease/watch86144 terminal1/FAIL7PASS2FAIL. Allfinal18/tag/draft/
+Pages/publish/publicVM actuallySKIPPED. Newcontrolledsnapshot serialinspected/noerrorcodes and
+root-viewedtimeoutframe show GRUBsnapshotmenu, kernelneverbooted. Source-supportedmechanism:
+grub-btrfs outer submenu callsconfigfile, freshcontext copiesonlyexportedvars, currentcontinuous
+grub-reboot path losesdefault/timeout atboundary. Installer/productconfig notdefectivebythisproof.
+Rootselected strictlyrunowned one-shotselector exporting validatedinnerdefault+timeout then
+existingproductionconfigfile; preserveproductionentries/kernelargs/bytes andreadonlylowerdir/
+volatileoverlay/modulepair/realpasswordlogin/normalreturn. Archive nowsolewriter snapshotareas
+guestverify/run/harness/runtime, storage extensiondiag frozen guestcfb37345/runtimef35cfdcd
+(58runtime/static/harness/syntax/ShellCheck/diffPASS). No overlap; preserveextensionmarkerretention
+runffcc539b/harness7eb77182. BoundedrealGRUB semanticfixture authorized onlydisposabletoolcontainer
+1CPU512MiB128pids10min/freshminiQEMU512MiB1CPU2min, nohostinstall/signing/config; actual
+productVM acceptance remainsnewCI. Final18/public blockedbytwo actualfailedrequirements; no publication/rerun/cancellation. RootPLAN and assignedfocusedharnesschanges dirty onmain;
+codeimmutable1a sourceinputs unchanged. Rootreceipt.snapshotDiagnosticCandidate contains exact
+acceptedgate/delivery/14proof/8native bindings. All15 scope retained, GoalACTIVE.
+
+Current focused slice frozen: guestccfa0853/runtime05fa77e4/harness0dbf85e5/runffcc539b.
+Actual helper regressions runtime64/harness/static/syntax/ShellCheck/diff PASS, including owned
+selector creation/production regeneration failure/changed fragment cleanup refusal and finite
+known-extension State diagnostics (eight readonly queries bounded5s, no raw fields). Selector
+uses only validated inner title/default/timeout exported before existing production configfile;
+production grub-btrfs.cfg byte hash retained through generation/runtime. Snapshot identity,
+readonly lowerdir, volatile overlay, kernel/initramfs pair, real login and normal return stay required.
+Actual GRUB2:2.16-1 miniEFI old route stalled20s and required owned termination; canonical
+exported helper reached exactleaf and exited naturally. Root independently matched input/serial
+hashes, verified both PID/start identities absent and exact owned container absent; EFI/VARS
+removed, compact receipt retained at grub-semantic-1a16609/receipt.json. This is mechanism proof,
+not product VM PASS. Marble actual underlying extension failure remains UNKNOWN.
+Fullsource17 EXIT0 SHA c454818d31bc6f91548e2c95952a90aecef99eac11427a75fcb36538a4b78b86
+with exact fullnamespace10/signerpassed/14+18/deferrednone and all required source tests.
+Independent monitoring stable four-file review PASS: runtime64/harness/syntax/ShellCheck/diff
+EXIT0 and source hashes unchanged; no material findings. Root will commit only reviewed five
+paths, run clean fullsource18, bind exact new commit/tree/canonicalSHA, then fresh build and
+five real guest gates. Prepared generated build gate-build.j5w5ze90 and guest
+gate-release-host-next.cbszbvzz are NOT_RUN, prior738 evidence remains historical. No installer,
+package, repository/trust or accepted ISO inputs changed. All15 scope retained:12DONE,
+QA/GATE/RELEASE IN_PROGRESS. Root owns PLAN/Git; no source writer active; GoalACTIVE.

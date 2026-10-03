@@ -481,4 +481,32 @@ assert result.stdout.splitlines() == ["OPTIONAL_SCREEN snapshot-qga-timeout", "B
 print("snapshot boot diagnostics: 6 production compaction cases passed")
 PY_BOOT_DIAGNOSTICS
 
+# Preserve controlled extension diagnostics, never their raw or credential-bearing input.
+python3 - "${host}" <<'PY_EXTENSION_COMPACTION'
+import gzip
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+import tempfile
+source = Path(sys.argv[1]).read_text()
+functions = [re.search(r"^" + name + r"\(\) \{\n.*?^\}", source, re.M | re.S).group()
+             for name in ("remove_secret_bearing_evidence", "compact_run_evidence")]
+marker = "GNOME_EXTENSION_DIAGNOSTIC run_id=marble-fixture phase=return-user-login reason=enabled-set-mismatch expected_count=8 actual_count=7 missing_known_count=1 unexpected_count=0 duplicate_count=0 disabled_user_extensions=false"
+known = "GNOME_EXTENSION_DIAGNOSTIC run_id=marble-fixture phase=return-user-login known_extension=dash-to-dock@micxgx.gmail.com expected=yes enabled=no state=error"
+with tempfile.TemporaryDirectory(prefix="qa-extension-compaction-") as tmp:
+    root = Path(tmp); evidence = root / "evidence"; evidence.mkdir()
+    (evidence / "return-user-login.stdout").write_text(marker + "\n" + known + "\narbitrary untrusted raw output\n")
+    (evidence / "credential.stderr").write_text(marker + " secret=fixture-runtime-credential\n")
+    (evidence / "return-user-login.stderr").write_text("raw user private path /hidden/key\n")
+    script = "set -Eeuo pipefail\nrun_root=$FIXTURE evidence=$FIXTURE/evidence runtime_password=fixture-runtime-credential\n" + "\n".join(functions) + "\ncompact_run_evidence\n"
+    result = subprocess.run(["bash", "-c", script], env=dict(os.environ, FIXTURE=tmp), capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    summary = gzip.decompress((evidence / "scenario.log.gz").read_bytes()).decode()
+    assert summary.splitlines() == [marker, known], summary
+    assert sorted(item.name for item in evidence.iterdir()) == ["scenario.log.gz"]
+print("extension diagnostic compaction: controlled marker preserved, credential/raw logs removed")
+PY_EXTENSION_COMPACTION
+
 printf 'VM_HARNESS_CHECKS_RESULT schema=1 version_provenance=passed metadata_absent=passed; QEMU=NOT_RUN\n'
