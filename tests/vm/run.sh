@@ -73,6 +73,7 @@ qmp_socket_identity=''
 serial_socket=''
 serial_bridge_pid=''
 serial_bridge_input_fd=''
+serial_credential_deliveries=0
 current_phase='preflight'
 last_boot_id=''
 runtime_password=''
@@ -287,7 +288,7 @@ compact_run_evidence() {
         case "${candidate}" in
         *.ppm | *.request.json | *.start.json | *.status.json) continue ;;
         esac
-        grep -aEh '^[[:space:]]*([A-Z]+_QEMU_(READY|INSTALLER_EXIT|INSTALL_COMPLETE|NEIGHBOR_PRESERVED|ESP_COLLISION_REFUSAL_PASS|GUEST_PASS|GUEST_FAIL)|QEMU_HOST_FAIL|QEMU_DIAGNOSTIC_WARNING:|SCREENSHOT_WARNING:|GTK4_APP_(DIAGNOSTIC|LAUNCH_FAIL)|GTK4_SESSION_DIAGNOSTIC|exit_status=|qemu-img|signed repository checks passed|release asset checks passed)' \
+        grep -aEh '^[[:space:]]*([A-Z]+_QEMU_(READY|INSTALLER_EXIT|INSTALL_COMPLETE|NEIGHBOR_PRESERVED|ESP_COLLISION_REFUSAL_PASS|COLLISION_PROBE_READY|COLLISION_PROBE_EXIT|FAIL|GUEST_PASS|GUEST_FAIL)|QEMU_HOST_FAIL|QEMU_DIAGNOSTIC_WARNING:|SCREENSHOT_WARNING:|GTK4_APP_(DIAGNOSTIC|LAUNCH_FAIL)|GTK4_SESSION_DIAGNOSTIC|SNAPSHOT_ENTRY_DIAGNOSTIC|GDM_ACTIVATION_DIAGNOSTIC|exit_status=|qemu-img|signed repository checks passed|release asset checks passed)' \
             "${candidate}" 2>/dev/null || true
     done < <(find "${evidence}" -maxdepth 1 -type f -print0 | LC_ALL=C sort -z) |
         awk 'NR <= 2000 { print substr($0, 1, 4096) }' >>"${summary}" || return 1
@@ -515,6 +516,79 @@ wait_for_marker() {
     return 1
 }
 
+serial_stage_password_ready() {
+    local marker="$2"
+    if [[ "${marker}" == *_QEMU_READY\ run_id=* ]]; then
+        marker+=" input_mode=${input_mode} source_commit=${source_commit} source_tree=${source_tree}"
+        marker+=" installer_sha256=${installer_sha256} harness_sha256=${harness_sha256}"
+        marker+=" iso_sha256=${iso_sha256} snapshot_sha256=${snapshot_sha256}"
+    fi
+    python3 - "$1" "${marker}" <<'PY'
+import pathlib
+import sys
+path = pathlib.Path(sys.argv[1])
+if not path.is_file():
+    raise SystemExit(1)
+if path.stat().st_size > 128 * 1024 * 1024:
+    raise SystemExit(2)
+with path.open('rb') as source:
+    data = source.read(128 * 1024 * 1024 + 1)
+if len(data) > 128 * 1024 * 1024:
+    raise SystemExit(2)
+marker = sys.argv[2].encode('ascii')
+ends = []
+offset = 0
+for line in data.splitlines(keepends=True):
+    if line.rstrip(b'\r\n') == marker and line.endswith(b'\n'):
+        ends.append(offset + len(line))
+    offset += len(line)
+if len(ends) > 1:
+    raise SystemExit(2)
+# The prompt may already follow the exact marker in this same read.
+raise SystemExit(0 if ends and b'Enter Password' in data[ends[0]:] else 1)
+PY
+}
+
+wait_for_stage_password() {
+    local file="$1" marker="$2" timeout="$3" status
+    local deadline=$((SECONDS + timeout))
+    while [ "${SECONDS}" -lt "${deadline}" ]; do
+        if serial_stage_password_ready "${file}" "${marker}"; then
+            return 0
+        else
+            status=$?
+            [ "${status}" -eq 1 ] || return 1
+        fi
+        if [ -n "${qemu_pid}" ] && ! process_is_exact_qemu "${qemu_pid}" "${qemu_start_time}"; then
+            return 1
+        fi
+        if [[ "${serial_bridge_pid}" =~ ^[1-9][0-9]*$ ]] &&
+            ! kill -0 "${serial_bridge_pid}" 2>/dev/null; then
+            return 1
+        fi
+        sleep 1
+    done
+    return 1
+}
+
+deliver_installer_credentials() {
+    local marker
+    if [ "${scenario_id}" = minimal-dualboot-ext4-systemdboot ]; then
+        marker="MINIMAL_QEMU_COLLISION_PROBE_READY run_id=${run_id} scenario=${scenario_id}"
+        wait_for_marker "${evidence}/install-serial.log" "${marker}" "${bootstrap_timeout}" ||
+            die 'dual-boot collision probe did not reach the installer'
+        wait_for_stage_password "${evidence}/install-serial.log" "${marker}" 300 ||
+            die 'collision probe did not reach its new runtime-only password prompt'
+        send_password
+    fi
+    marker="${marker_prefix}_QEMU_READY run_id=${run_id} scenario=${scenario_id}"
+    wait_for_marker "${evidence}/install-serial.log" "${marker}" "${bootstrap_timeout}" ||
+        die 'Arch ISO bootstrap did not reach the installer'
+    wait_for_stage_password "${evidence}/install-serial.log" "${marker}" 300 ||
+        die 'installer did not reach its new runtime-only password prompt'
+    send_password
+}
+
 wait_for_install_outcome() {
     local file="$1" success_marker="$2" failure_marker="$3" timeout="$4"
     local deadline=$((SECONDS + timeout))
@@ -720,11 +794,13 @@ capture_and_unlock_luks_prompt() {
 }
 
 start_serial_bridge() {
-    local ready output_fd
+    local ready output_fd delivery_limit=1
+    [ "${scenario_id}" != minimal-dualboot-ext4-systemdboot ] || delivery_limit=2
+    serial_credential_deliveries=0
     [ -z "${serial_bridge_pid}" ] && [ -z "${serial_bridge_input_fd}" ] ||
         die 'serial bridge is already active'
     coproc ALI_SERIAL_BRIDGE {
-        python3 /dev/fd/3 "${serial_socket}" "${qemu_pid}" "${evidence}/install-serial.log" 3<<'PY'
+        python3 /dev/fd/3 "${serial_socket}" "${qemu_pid}" "${evidence}/install-serial.log" "${delivery_limit}" 3<<'PY'
 import os
 import select
 import socket
@@ -735,6 +811,10 @@ import time
 path = sys.argv[1]
 expected_pid = int(sys.argv[2])
 log_path = sys.argv[3]
+delivery_limit = int(sys.argv[4])
+if delivery_limit not in (1, 2):
+    raise SystemExit('credential delivery limit is invalid')
+deliveries = 0
 with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
     connection.settimeout(30)
     connection.connect(path)
@@ -758,9 +838,15 @@ with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
             if sys.stdin.buffer in readable:
                 value = os.read(sys.stdin.fileno(), 4096)
                 if not value:
+                    if credential:
+                        raise SystemExit('credential input is incomplete')
                     readers.remove(sys.stdin.buffer)
                     continue
+                if deliveries >= delivery_limit:
+                    raise SystemExit('credential delivery limit exceeded')
                 credential += value
+                if len(credential) > 49:
+                    raise SystemExit('credential input is malformed')
                 if b'\n' not in credential:
                     continue
                 secret, trailing = credential.split(b'\n', 1)
@@ -771,7 +857,8 @@ with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
                 connection.sendall(secret + b'\r')
                 secret = b''
                 credential = b''
-                readers.remove(sys.stdin.buffer)
+                deliveries += 1
+                value = b''
 PY
     }
     serial_bridge_pid="${ALI_SERIAL_BRIDGE_PID}"
@@ -783,12 +870,18 @@ PY
 }
 
 send_password() {
+    local delivery_limit=1
+    [ "${scenario_id}" != minimal-dualboot-ext4-systemdboot ] || delivery_limit=2
     [[ "${serial_bridge_input_fd}" =~ ^[0-9]+$ ]] || die 'serial bridge input is unavailable'
     [[ "${serial_bridge_pid}" =~ ^[1-9][0-9]*$ ]] || die 'serial bridge process is unavailable'
     [[ "${runtime_password}" =~ ^[a-f0-9]{48}$ ]] || die 'generated password is malformed'
+    [ "${serial_credential_deliveries}" -lt "${delivery_limit}" ] || die 'credential delivery limit exceeded'
     printf '%s\n' "${runtime_password}" >&"${serial_bridge_input_fd}"
-    exec {serial_bridge_input_fd}>&-
-    serial_bridge_input_fd=''
+    serial_credential_deliveries=$((serial_credential_deliveries + 1))
+    if [ "${serial_credential_deliveries}" -eq "${delivery_limit}" ]; then
+        exec {serial_bridge_input_fd}>&-
+        serial_bridge_input_fd=''
+    fi
     kill -0 "${serial_bridge_pid}" 2>/dev/null || die 'protected serial credential delivery failed'
 }
 
@@ -1510,13 +1603,14 @@ qga_verify() {
         --arg public_key_sha256 "${repository_public_key_sha256}" \
         --arg legacy_release_version "${legacy_release_version:--}" \
         --arg legacy_profile_version "${legacy_profile_version:--}" \
-        --arg legacy_gtk3_version "${legacy_gtk3_version:--}" --arg media_qualification "${media_qualification}" '
+        --arg legacy_gtk3_version "${legacy_gtk3_version:--}" --arg media_qualification "${media_qualification}" \
+        --arg gdm_worker_baseline "${gdm_worker_baseline:--}" '
         {execute:"guest-exec",arguments:{path:"/usr/bin/bash","capture-output":true,
           arg:["-c",$script,"minimal-verify",$phase,$serial,$vendor,$model,$username,$scenario,$run_id,
             $repository_primary,$repository_signing,$input_mode,$release_version,$target_disk_metadata,$pages_url,$public_key_url,
             $snapshot_sha256,$source_commit,$source_tree,$installer_sha256,$package_set_sha256,
             $build_metadata_sha256,$unsigned_manifest_sha256,$public_key_sha256,
-            $legacy_release_version,$legacy_profile_version,$legacy_gtk3_version,$media_qualification]}}')"
+             $legacy_release_version,$legacy_profile_version,$legacy_gtk3_version,$media_qualification,$gdm_worker_baseline]}}')"
     printf '%s\n' "${request}" | jq -cS . >"${evidence}/${stem}.request.json"
     start="$(qga_call "${request}")" || die "QGA verification did not start: ${phase}"
     printf '%s\n' "${start}" | jq -cS . >"${evidence}/${stem}.start.json"
@@ -1549,6 +1643,9 @@ qga_verify() {
         "${stdout_file}" || die "guest verification marker is missing: ${phase}"
     last_boot_id="$(sed -n 's/^.* boot_id=\([a-f0-9-]\{36\}\) .*$/\1/p' "${stdout_file}" | head -n1)"
     [[ "${last_boot_id}" =~ ^[a-f0-9-]{36}$ ]] || die "guest boot id is missing: ${phase}"
+    if [[ "${phase}" = gdm-activation-* ]]; then
+        parse_gdm_activation_evidence "${stdout_file}" "${phase}" || die 'GDM activation evidence is malformed'
+    fi
     if [ "${input_mode}" = public ] && { [ "${phase}" = prelogin ] || [ "${phase}" = firstboot ]; }; then
         capture_public_repository_evidence "${stdout_file}"
     fi
@@ -1585,10 +1682,59 @@ schedule_transition() {
         <<<"${status_response}" >/dev/null || die "guest ${mode} scheduler failed"
 }
 
+parse_gdm_activation_evidence() {
+    local file="$1" phase="$2" line
+    line="$(grep -aF "GDM_ACTIVATION_DIAGNOSTIC run_id=${run_id} phase=${phase} daemon=" "${file}")" || return 1
+    [ "${#line}" -le 4096 ] && [[ "${line}" != *$'\n'* ]] || return 1
+    [[ "${line}" =~ ^GDM_ACTIVATION_DIAGNOSTIC\ run_id=${run_id}\ phase=${phase}\ daemon=([1-9][0-9]*\.[1-9][0-9]*)\ greeter=([A-Za-z0-9_-]+)\ worker_ids=([a-z0-9.,]+)\ new_worker=([a-z0-9.]+)\ activation=(baseline|pending|started)$ ]] || return 1
+    last_gdm_daemon_identity="${BASH_REMATCH[1]}"
+    last_gdm_greeter_session="${BASH_REMATCH[2]}"
+    last_gdm_worker_ids="${BASH_REMATCH[3]}"
+    last_gdm_new_worker_identity="${BASH_REMATCH[4]}"
+    last_gdm_activation_status="${BASH_REMATCH[5]}"
+    [[ "${last_gdm_worker_ids}" = none || "${last_gdm_worker_ids}" =~ ^[1-9][0-9]*\.[1-9][0-9]*(,[1-9][0-9]*\.[1-9][0-9]*)*$ ]] || return 1
+    [[ "${last_gdm_new_worker_identity}" = none || "${last_gdm_new_worker_identity}" =~ ^[1-9][0-9]*\.[1-9][0-9]*$ ]] || return 1
+    if [ "${phase}" = gdm-activation-baseline ]; then
+        [ "${last_gdm_activation_status}" = baseline ] && [ "${last_gdm_new_worker_identity}" = none ]
+    elif [ "${last_gdm_activation_status}" = pending ]; then
+        [ "${last_gdm_new_worker_identity}" = none ]
+    else
+        [ "${last_gdm_activation_status}" = started ] && [ "${last_gdm_new_worker_identity}" != none ]
+    fi
+}
+
+activate_gdm_password_conversation() {
+    local stem="$1" attempt boot daemon greeter new_worker
+    local gdm_worker_baseline=-
+    qga_verify gdm-activation-baseline "${stem}-activation-baseline" || return 1
+    gdm_worker_baseline="${last_gdm_worker_ids}"
+    boot="${last_boot_id}" daemon="${last_gdm_daemon_identity}" greeter="${last_gdm_greeter_session}"
+    for ((attempt = 0; attempt < 30; attempt++)); do
+        qga_verify gdm-activation-check "${stem}-activation-check" || return 1
+        [ "${last_boot_id}" = "${boot}" ] && [ "${last_gdm_daemon_identity}" = "${daemon}" ] &&
+            [ "${last_gdm_greeter_session}" = "${greeter}" ] || return 1
+        if [ "${last_gdm_activation_status}" = started ]; then
+            new_worker="${last_gdm_new_worker_identity}"
+            # A new verified worker proves conversation start, not UI focus. Settle, recheck
+            # its stable identity, then require the existing real password-login session checks.
+            sleep 3
+            qga_verify gdm-activation-check "${stem}-activation-settled" || return 1
+            [ "${last_boot_id}" = "${boot}" ] && [ "${last_gdm_daemon_identity}" = "${daemon}" ] &&
+                [ "${last_gdm_greeter_session}" = "${greeter}" ] &&
+                [ "${last_gdm_activation_status}" = started ] &&
+                [ "${last_gdm_new_worker_identity}" = "${new_worker}" ] || return 1
+            return 0
+        fi
+        [ "${last_gdm_activation_status}" = pending ] || return 1
+        hmp_request key ret || return 1
+        sleep 2
+    done
+    die 'GDM password conversation activation timed out; password withheld'
+}
+
 marble_gdm_login() {
     local phase="$1" stem="$2" password_capture="${3:-}"
-    hmp_request key ret
-    sleep 3
+    activate_gdm_password_conversation "${stem}" || return 1
     if [ -n "${password_capture}" ]; then
         capture_screen "${password_capture}"
     fi
@@ -1775,8 +1921,7 @@ run_snapshot_acceptance() {
     qga_verify snapshot-prelogin snapshot-prelogin
     [ "${post_boot_id}" != "${last_boot_id}" ] || die 'snapshot boot did not change boot identity'
     snapshot_boot_id="${last_boot_id}"
-    hmp_request key ret
-    sleep 3
+    activate_gdm_password_conversation snapshot || return 1
     hmp_type_password
     qga_verify snapshot-login snapshot-login
     record_assertion btrfs-readonly-snapshot-real-boot \
@@ -2269,12 +2414,7 @@ main() {
     sleep 60
     hmp_request type "${bootstrap_command}"
     [ "${scenario_id}" != minimal-dualboot-ext4-systemdboot ] || bootstrap_timeout=1800
-    wait_for_marker "${evidence}/install-serial.log" \
-        "${marker_prefix}_QEMU_READY run_id=${run_id} scenario=${scenario_id}" "${bootstrap_timeout}" ||
-        die 'Arch ISO bootstrap did not reach the installer'
-    wait_for_marker "${evidence}/install-serial.log" 'Enter Password' 300 ||
-        die 'installer did not reach its runtime-only password prompt'
-    send_password
+    deliver_installer_credentials
     set +e
     wait_for_install_outcome "${evidence}/install-serial.log" \
         "${marker_prefix}_QEMU_INSTALL_COMPLETE run_id=${run_id} scenario=${scenario_id} powering_off=yes" \
@@ -2411,8 +2551,7 @@ main() {
             record_assertion graphical-target 'the installed system reached active graphical.target'
             record_assertion stock-gdm-greeter 'gdm.service is active and its real Wayland greeter session reached the login screen'
         fi
-        hmp_request key ret
-        sleep 3
+        activate_gdm_password_conversation firstboot || die 'GDM first-login activation failed; password withheld'
         capture_screen firstboot-gdm-password
         hmp_type_password
         printf 'phase=firstlogin\ntransport=hmp-virtual-keyboard\ncredential_length=48\nsubmit_key=enter\nsecret_recorded=no\n' \
@@ -2492,8 +2631,7 @@ main() {
         else
             record_assertion reboot-new-boot-id 'the reboot produced a new kernel boot identity and returned to Stock GDM'
         fi
-        hmp_request key ret
-        sleep 3
+        activate_gdm_password_conversation postreboot || die 'GDM second-login activation failed; password withheld'
         hmp_type_password
         printf 'phase=secondlogin\ntransport=hmp-virtual-keyboard\ncredential_length=48\nsubmit_key=enter\nsecret_recorded=no\n' \
             >"${evidence}/postreboot-login-input.txt"

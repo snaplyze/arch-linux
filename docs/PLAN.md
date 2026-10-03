@@ -337,10 +337,10 @@ regression → affected tests → independent review where material → status u
 | MON-01 | P2 | none | DONE | Dated advisory coverage of boot/desktop inputs |
 | UP-01 | P3 | MON-01 | DONE | Reviewed external-source decisions and synchronized metadata |
 | ARCH-01 | P2 | ISO qualification independent; corrected-candidate tests after SAFE-01…03, UP-01 | DONE | Owner-reviewed October ISO after actual Minimal/Stock PASS; corrected-child runtime remains RELEASE-01 |
-| QA-01 | P2 | SAFE-01…03, TRUST-01/02, CONFIG-01, RECOVERY-01, UP-01 | DONE | Regression tests and mandatory child VM gates implemented |
+| QA-01 | P2 | SAFE-01…03, TRUST-01/02, CONFIG-01, RECOVERY-01, UP-01 | DONE | Focused snapshot/GDM/dualboot harness regressions and stable independent review PASS; fresh actual child remains RELEASE-01 |
 | DOC-01 | P3 | Corrected selector and source behavior prose; final release records under RELEASE-01 | DONE | UI copy and final behavior docs; prose correction is not product fix |
-| GATE-01 | P1 | all above | IN_PROGRESS | Frozen, independently reviewed pre-merge source/unsigned-build candidate |
-| RELEASE-01 | final | GATE-01 | TODO | Main delivery, child build/signing/VM acceptance, tag/release and public readback |
+| GATE-01 | P1 | all above | IN_PROGRESS | Historical00cde4f source/build/5guest PASS preserved; new QA corrections require fresh exact candidate |
+| RELEASE-01 | final | GATE-01 | IN_PROGRESS | PR51/main74c18c9 first child 6VM PASS/3FAIL, publication skipped; corrected candidate/new child/public acceptance pending |
 
 GATE-01 depends on preceding source/pre-merge deliverables only. DELIVERY-01 closes at reviewed
 source/design/regression acceptance; actual package-only publication requires separately defined
@@ -626,7 +626,7 @@ testing/validation/maintenance/release process, installer appearance choice text
 Dependencies: every preceding source/pre-merge task accepted; no unresolved P1 or deferred
 pre-merge-required tests. Production-child/post-publication gates are RELEASE-01 obligations.
 
-- [ ] Recheck main/origin/dirty/index and ownership; stable independent security review of final changes.
+- [x] Recheck main/origin/dirty/index and ownership; stable independent security review of final changes.
   No simulated independent review. Resolve material findings and rerun affected checks after correction.
 - [ ] Run `bash tests/source-tests.sh` and `git diff --check` on final candidate; bind commit/tree and
   canonical mode-and-byte source SHA-256, package inputs, tool versions and selected ISO.
@@ -998,3 +998,95 @@ candidate receives clean fullsource receipt, fresh canonicalunprivilegedbuild+in
 verification and allfive actual release-host guest gates. Reusable guest recipe now installs
 linux+parted, provisions immutableRO source, realguestboots before gates (no chroot gates).
 Retain exacthistorical1b0/0/1/0/0; acceptance is incomplete until new publication succeeds.
+
+GATE01 accepted exact00cde4fcabfb3f805b8f15565b331fec424a4ec9/tree
+96927d2bf87665e93b4cd0f516e46509a104a96b/canonicalSHA
+3ea372b30f853ec6e36bee38d24f369d6f63e7748c38d7716ec7ca1a6293e643. Clean
+source-final-clean-10.log EXIT0 fullnamespace14+18/none; canonicalbuild+freshindependentverify
+EXIT0 sixpackages gate-build.W7Jo60Od. MetadataSHA785c9d8105fd59f994b971b3b69e50c2cc10c93e1cfb1a656d57cddad03f1cef;
+unsignedSHA9082ed8df7eff6b726e8a528ac461a14e7d870b340a490274726c3dd1c1b842e.
+Final realguest evidence gate-release-host-00cde4f/evidence/receipt.json: allfive EXIT0/exact
+requiredmarkers, sourceidentity before/afterequal, cleanpowerdown/qemuimg/ownedcleanup PASS.
+Root independently checked native5logs/hashmap/statuses/identity. Hostwrapper ANSI-footer
+parser EXIT1 separately recorded; native command results are actualPASS, not inferred.
+Stable independent source/pin/fixture reviews PASS. No owned containers/VMs remain.
+
+Authorized samecheckout PR51 created/pushed; Sourcechecks run37136155046 SUCCESS then
+squashmerge74c18c98fe1b3ca5817de8f55fd7280d210daf81 at2026-10-03T16:17:59Z.
+Accepted fourcommits preserved on local/remote deliver/installer-hardening-20261003; local
+main safely aligned to preserved originbase while on PRbranch, then returned/FFonly to
+mergedmain. Its tree exactly96927d2bf87665e93b4cd0f516e46509a104a96b. No forcepush/reset/
+clean/stash/extra checkout. Newmain CI37136338034 IN_PROGRESS; configured Release should
+automatically follow success. Production-child source/build/signing/9VM/final18/tag/Pages/
+freshpublicMarble NOT_RUN yet. Entirefinite Goal remainsACTIVE/incomplete. This checkpoint
+prose is a later local documentation update, not transferred product acceptance for a newtree.
+
+Main CI37136338034 SUCCESS. Automatic configured Release37136479088 active, prepareSUCCESS
+selected unused1.0.6 and deterministicchild5ab0ae8ea947a1684251ab8360d4f351f164d2c0/
+tree510544f9a37a70298e1e230adf27ab52770ce6d0/canonicalSHA
+e5f0ed9f733d7cf6b68e0c36ddc77f1421ea26ec44d09036fdc46f397ab40d84.
+Publicnonsecret sourceartifact bundleSHA0bfab6e7a982b2bb9ca542595b9cb690f8ea4ae96eebe95d91c664914877a059
+verified outside source; no localchildcheckout/restoration. Main74c/tree96927 bound separately.
+CIchild canonical unsignedbuild in progress; snapshot/9VM/finalize/publicacceptance pending.
+Root watcherhandle35328 logs release-37136479088-watch.log; no manualdispatch/publication.
+
+Release37136479088 PhaseA exact14/signatures/metadata/payloads independentlyPASS; receipt
+release-37136479088-phase-a-receipt.json SHA55313429ce5ff7d7d0a88c1ae3c1a21526bccd7750387646346a9c7f1417ded1.
+Minimal staged14actualassertionsPASS minimal-20261003T163142Z-661679c7, boundexactchild/
+snapshot/build/ISO. FiveCI VMjobsSUCCESS so far; twoFAIL, two stillrunning; finalization blocked.
+StockBtrfsGRUB grub-20261003T163124Z-727cb55d FAIL snapshot-boot beforegrub-reboot, after20
+actualinstall/login/update/rebootassertionsPASS. Official grub-btrfs4.14 withinstallerUUIDdisabled
+producesdevice-root; selector+snapshotruntime assumeUUID-only. Authenticgenerator-shaped
+device-rootRED/UUIDGREEN reproduce mismatch. Generatedcfg/traceback was lostbycompaction, so
+historicalexactrootargument is supportedinference, not recoveredrawproof. PreserveFAIL.
+Stockext4 stock-20261003T163120Z-8c1541cd FAILfirstboot after7assertions; gdm-user-session
+timeout300s. Optionaldiagnostic capture afterReturn+3s stilluserlisttile; harness sentpassword
+withoutactivationguard. Delayedgreeter helperfixture reproduceslostselection/secret-before
+activation. No credential/product defect established.
+
+Root reopens QA/GATE onlychangedpremises; allotherclosedwork/media/pins preserved.
+storage_guards solewriter run.sh/guestverify/runtimechecks forcombinedfocusedfix: exact
+independentlybound snapshot root identity in selection+runtime; bounded normalGDM activation
+via newstable rootpasswordworker afterbaseline+realHMPReturn, then settle and existingactual
+gdm-password/Wayland user checks. OfficialGDMresearch: worker creation is conversation-start
+proxy, NOT exactfocusedpassword-entryproof; this limitation must remain explicit. No pixels/
+autologin/QGAstarted session/DBuspassword/unsafeEval/securityrelaxation. Retainneededbounded
+nonsecret failure diagnostics. Otherworkersreadonly; rootownsPLAN. RemainingactualVMs continue
+independently; no changed-input rerun or prematurepublication. Newcorrectedcandidate will get
+fresh source/build/root/readyPR thenautomaticnewchild allnine/publicgates; GoalACTIVE.
+
+First authoritative child run37136479088 completedFAIL; rootdownloadedall9compactartifacts
+and independentlymatchedeachsource/tree/installer/snapshot/build/unsigned/ISO binding.
+SixactualPASS: Minimal14, StockencryptedGRUB22, StockBtrfssystemdboot21, Stockencrypted
+systemdboot21, Marbleopt-inGDM26, MarbleStockGDM17 assertions. ThreeactualFAIL: Stockext4
+firstboot7; StockBtrfsGRUBsnapshotprepare20; Minimaldualbootinstall-archiso0.
+Their resultJSON/archivehash receipts remainoutside source under release-37136479088-vm.
+Finalize18/tag/draft/Pages/publish/publicVM allSKIPPED, notNOT_TESTEDsuccess; publiclatest
+API still1.0.5 fromSeptember17. Rootwatcher35328 endedEXIT1, no ongoingCIVMjob. Thirddualboot
+preinstallationfailure assignedarchive_limits boundedreadonlydiagnosis; storage_guards only
+writer current3harness files. ResetcurrentGATEchecklist fornewcandidate, preservingaccepted
+00cde4f evidence. Newmain/child requiresfreshaffectedsource/build/root/runtime bindings; no
+failedoldchildpublished, no changed-input rerun/tagmovement/assetreplacement.
+
+Focused harness correction complete in five VM files only. Snapshot selector/runtime now bind
+the actual target partition and its UUID/PARTUUID while retaining exact subvolume, overlay,
+read-only lower filesystem and kernel/initramfs checks. GDM requires a new stable verified
+password-conversation worker after baseline and a settle/recheck before keyboard input;
+this is a conversation-start guard, not proof of password-field focus. Actual gdm-password
+Wayland login, lock/unlock, update and second login remain mandatory runtime acceptance.
+Dualboot negative full-installer probe now exposes its separate runtime-password prompt on
+serial before normal READY. Protected bridge allows exactly two stage-bound deliveries only
+for that scenario, preserving exact refusal status/cause, whole partition hashes and neighbor
+checks. Secrets remain outside argv/env/config/log/evidence. Producer actual-input regression
+RED then ten cases GREEN; host/runtime regressions RED then GREEN. Independent review caught
+short READY matching against the producer's complete identity line; actual printf-format
+regression RED3 then corrected full host-bound suffix GREEN. Stable runtime51, actions-release16,
+harness/syntax/ShellCheck/diff checks PASS, QEMU NOT_RUN. First source-harness-fixes-11.log
+EXIT0/fullnamespace14+18/none predates the READY correction and is retained as intermediate
+evidence only. Final independent review PASS on stable five-file hashes after READY correction.
+source-harness-fixes-12.log EXIT0, exact fullnamespace/scenarios10/signerpassed/14+18/none and
+all required source tests passed; no material unresolved finding. Root verified stable hashes,
+main74c18c9/index empty/exact six dirty paths/no untracked source. QA source acceptance DONE;
+fresh frozen-candidate build/root gates, ready PR/new automatic child/allnine VM/final18/public
+acceptance remain. Goal ACTIVE. Guest-runner preflight meets resources, generated-only ANSI
+footer parser fixed with wrong/duplicate/missing-summary rejection; no historical receipt changed.
