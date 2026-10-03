@@ -349,4 +349,136 @@ grep -Fq -- '/dev/kvm' "${preflight}" || fail 'VM preflight does not check KVM a
 grep -Fq -- 'qemu-system-x86_64' "${preflight}" || fail 'VM preflight does not probe QEMU KVM acceleration'
 grep -Fq -- 'VM_PREFLIGHT_RESULT schema=1' "${preflight}" || fail 'VM preflight result marker is absent'
 
+# Exercise the production mount orchestration without host mounts.
+python3 - "${verify}" <<'PY_NEIGHBOR'
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+import tempfile
+source = Path(sys.argv[1]).read_text()
+body = re.search(r"^verify_dual_boot_preservation\(\) \{\n.*?^\}", source, re.M | re.S).group()
+model = r'''
+set -Eeuo pipefail
+phase=neighbor-select
+partition_name(){ printf '%s%s' "$1" "$2"; }
+mktemp(){ mkdir "$FIXTURE/work"; printf '%s' "$FIXTURE/work"; }
+mounted_source_device(){
+    if [ "$CASE" = wrong-source ] || { [ "$CASE" = wrong-bind-source ] && [ "$1" != /boot ]; }; then printf /dev/foreign; else printf /dev/vda1; fi
+}
+findmnt(){
+    field="$2"; target="${@: -1}"
+    case "$field" in
+    FSTYPE) if [ "$CASE" = wrong-fstype ] || { [ "$CASE" = wrong-bind-fstype ] && [ "$target" != /boot ]; }; then printf ext4; else printf vfat; fi;;
+    FSROOT) if [ "$CASE" = subroot ] || { [ "$CASE" = bind-subroot ] && [ "$target" != /boot ]; }; then printf /subdir; else printf /; fi;;
+    OPTIONS|VFS-OPTIONS) if [ "$target" = /boot ]; then printf rw; elif [ "$CASE" = readonly-check ]; then printf rw; else cat "$FIXTURE/bind-options"; fi;;
+    *) return 1;;
+    esac
+}
+mount(){
+    printf 'mount %s\n' "$*" >>"$FIXTURE/calls"
+    target="${@: -1}"
+    [ "$target" != /boot ] || return 99
+    case "$*" in
+    *remount*bind*ro*) [ "$CASE" != remount-failure ] || return 32; printf ro >"$FIXTURE/bind-options";;
+    *--bind*) [ "$CASE" != bind-failure ] || return 32; printf rw >"$FIXTURE/bind-options"; touch "$FIXTURE/bind";;
+    *ro,noload*) mkdir "$target/boot"; touch "$FIXTURE/root";;
+    *) printf 'existing ESP superblock RW; conflicting RO mount -> EBUSY\n' >&2; return 32;;
+    esac
+}
+mountpoint(){
+    case "${@: -1}" in */neighbor/boot) [ -f "$FIXTURE/bind" ];; */neighbor) [ -f "$FIXTURE/root" ];; *) return 1;; esac
+}
+umount(){
+    target="${@: -1}"; printf 'umount %s\n' "$target" >>"$FIXTURE/calls"
+    [ "$target" != /boot ] || return 99
+    case "$target" in
+    */neighbor/boot) [ "$CASE" != cleanup-failure ] || return 1; rm "$FIXTURE/bind";;
+    */neighbor) [ ! -f "$FIXTURE/bind" ] || return 1; rmdir "$target/boot"; rm "$FIXTURE/root";;
+    *) return 1;; esac
+}
+verify_neighbor_readback(){
+    [ "$CASE" != readback-failure ] || return 1
+    [ -f "$FIXTURE/bind" ] && [ "$(cat "$FIXTURE/bind-options")" = ro ]
+    printf readback >"$FIXTURE/readback"
+}
+'''
+for case in ("success", "wrong-source", "subroot", "wrong-fstype", "wrong-bind-source", "wrong-bind-fstype", "bind-subroot", "bind-failure", "remount-failure", "readonly-check", "readback-failure", "cleanup-failure"):
+    with tempfile.TemporaryDirectory(prefix="qa-neighbor-") as tmp:
+        root = Path(tmp)
+        result = subprocess.run(["bash", "-c", model + body + "\nverify_dual_boot_preservation /dev/vda\n"], env=dict(os.environ, FIXTURE=tmp, CASE=case), capture_output=True, text=True, timeout=5)
+        calls = (root / "calls").read_text() if (root / "calls").exists() else ""
+        assert "umount /boot\n" not in calls, (case, calls)
+        if case == "success":
+            assert result.returncode == 0, (case, result.returncode, result.stderr)
+            assert (root / "readback").exists(), case
+            assert not (root / "work").exists(), (case, "owned mount directories leaked")
+        else:
+            assert result.returncode != 0, (case, "incorrectly passed")
+            if case != "cleanup-failure":
+                assert not (root / "work").exists(), (case, "failed operation leaked owned mounts")
+print("neighbor preservation orchestration: 12 cases passed; host mounts NOT_RUN")
+PY_NEIGHBOR
+
+# Run the real scrubber/diagnostic producer/compactor on bounded serial fixtures.
+python3 - "${host}" <<'PY_BOOT_DIAGNOSTICS'
+import gzip
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+import tempfile
+source = Path(sys.argv[1]).read_text()
+functions = []
+for name in ("remove_secret_bearing_evidence", "capture_snapshot_boot_failure", "compact_run_evidence"):
+    match = re.search(r"^" + name + r"\(\) \{\n.*?^\}", source, re.M | re.S)
+    assert match, "missing production function: " + name
+    functions.append(match.group())
+for case in ("boot-errors", "credential", "oversize", "symlink", "empty-serial", "no-serial"):
+    with tempfile.TemporaryDirectory(prefix="qa-boot-diagnostic-") as tmp:
+        root = Path(tmp); evidence = root / "evidence"; evidence.mkdir()
+        serial = evidence / "snapshot-serial.log"
+        secret = "fixture-runtime-credential"
+        if case == "boot-errors":
+            serial.write_text(("arbitrary private path /hidden/key token=unrelated\nKernel panic - not syncing: secret-looking arbitrary payload\nVFS: Unable to mount root fs on unknown-block(0,0)\n[FAILED] Failed to start systemd-volatile-root.service\n" * 100))
+        elif case == "empty-serial": serial.write_text("")
+        elif case == "credential": serial.write_text("Kernel panic - not syncing: " + secret + "\n")
+        elif case == "oversize": serial.write_bytes(b"x" * (16777216 + 1))
+        elif case == "symlink":
+            outside = root / "outside"; outside.write_text("Kernel panic - not syncing: outside\n")
+            serial.symlink_to(outside)
+        (evidence / "snapshot-qemu.identity").write_text("pid=123\nstart=456\n")
+        (evidence / "snapshot-qemu.stderr").write_text("raw stderr untrusted private payload\n")
+        script = "set -Eeuo pipefail\nrun_root=$FIXTURE evidence=$FIXTURE/evidence runtime_password=fixture-runtime-credential\ndie(){ printf '%s\\n' \"$*\" >&2; return 1; }\n" + "\n".join(functions) + "\ncapture_snapshot_boot_failure\ncompact_run_evidence\n"
+        result = subprocess.run(["bash", "-c", script], env=dict(os.environ, FIXTURE=tmp), capture_output=True, text=True, timeout=10)
+        assert result.returncode == 0, (case, result.stderr)
+        diagnostic = (evidence / "snapshot-boot-diagnostic.txt").read_text()
+        assert "reason=qga-not-ready" in diagnostic, case
+        assert len(diagnostic.encode()) <= 4096 and len(diagnostic.splitlines()) <= 33, case
+        assert secret not in diagnostic and "private" not in diagnostic and "/hidden" not in diagnostic, case
+        assert ("code=kernel-panic" in diagnostic) == (case == "boot-errors"), case
+        assert (evidence / "snapshot-qemu.identity").exists(), case
+        assert (not serial.exists() or case == "symlink") and not (evidence / "snapshot-qemu.stderr").exists(), case
+        summary = gzip.decompress((evidence / "scenario.log.gz").read_bytes()).decode()
+        assert "reason=qga-not-ready" in summary and secret not in summary, case
+        if case == "symlink": assert (root / "outside").read_text().endswith("outside\n")
+route = re.search(r"^run_snapshot_acceptance\(\) \{\n.*?^\}", source, re.M | re.S).group()
+script = """set -Eeuo pipefail
+qga_verify(){ :; }
+schedule_transition(){ :; }
+wait_qemu_exit(){ :; }
+launch_qemu(){ :; }
+wait_qga(){ return 1; }
+capture_screen(){ printf 'OPTIONAL_SCREEN %s\n' "$1"; return 77; }
+capture_snapshot_boot_failure(){ printf 'BOUNDED_DIAGNOSTIC\n'; }
+die(){ printf 'FAIL %s\n' "$*"; exit 1; }
+""" + route + "\nrun_snapshot_acceptance\n"
+result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=5)
+assert result.returncode == 1, result
+assert result.stdout.splitlines() == ["OPTIONAL_SCREEN snapshot-qga-timeout", "BOUNDED_DIAGNOSTIC", "FAIL snapshot boot guest agent did not become ready"], result.stdout
+print("snapshot boot diagnostics: 6 production compaction cases passed")
+PY_BOOT_DIAGNOSTICS
+
 printf 'VM_HARNESS_CHECKS_RESULT schema=1 version_provenance=passed metadata_absent=passed; QEMU=NOT_RUN\n'

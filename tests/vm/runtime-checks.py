@@ -183,6 +183,80 @@ wait_qga(){ :; }
         for case in ("owner", "cgroup", "ancestor", "executable"):
             with self.subTest(case=case): self.assertNotEqual(self.gdm_inventory(case).returncode, 0)
 
+    def gdm_probe(self, case="delayed", phase="gdm-activation-baseline"):
+        text = VERIFY.read_text()
+        names = ["wait_for_greeter", "gdm_activation_failure", "gdm_activation_probe"]
+        body = "\n".join(function(name) for name in names if re.search(r"^" + name + r"\(\)", text, re.M))
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); worker = root / "gdm-session-worker"; worker.write_text("fixture")
+            counter = root / "counter"; counter.write_text("0")
+            setup = "set -euo pipefail\nphase=" + phase + " username=vmtest run_id=fixture gdm_worker_baseline=none\n"
+            setup += 'fixture_worker="$1" fixture_counter="$2" fixture_case="$3"\n'
+            setup += r"""
+systemctl(){ case "$*" in *MainPID*) printf '10
+';; *ControlGroup*) printf '/system.slice/gdm.service
+';; *) return 0;; esac; }
+find_session(){ printf 'c1'; }
+session_property(){ case "$2" in Type) printf wayland;; State) if [ "$fixture_case" = timeout ] || { [ "$fixture_case" = delayed ] && [ "$(cat "$fixture_counter")" -lt 2 ]; }; then printf opening; else printf active; fi;; Remote) printf no;; esac; }
+session_name_exists(){ return 1; }
+sleep(){ printf '%s
+' "$(( $(cat "$fixture_counter") + 1 ))" > "$fixture_counter"; if [ "$fixture_case" = timeout ]; then SECONDS=$((SECONDS + 301)); fi; }
+readlink(){ [ "$fixture_case" != daemon ] || return 1; printf '/usr/bin/gdm
+'; }
+pacman(){ if [ "$1" = -Qqo ]; then printf 'gdm
+'; else printf '%s
+' "$fixture_worker"; fi; }
+stat(){ if [ "$2" = '%u:%g:%h' ]; then case "$fixture_case" in owner) printf '1000:0:1
+';; nlink) printf '0:0:2
+';; *) printf '0:0:1
+';; esac; else printf '0:0
+'; fi; }
+find(){ if [ "$fixture_case" = permission ]; then printf '%s
+' "$fixture_worker"; fi; }
+gdm_password_worker_inventory(){ [ "$fixture_case" != inventory ] || return 1; if [ "$fixture_case" = ambiguous ]; then printf '10.100 20.200,21.201
+'; else printf '10.100 none
+'; fi; }
+emit_runtime_action_pass(){ printf 'ACTION_PASS:%s
+' "$1"; }
+"""
+            if case == "path": worker.unlink(); worker.symlink_to(counter)
+            script = setup + body + "\ngdm_activation_probe && printf 'PASSWORD_ALLOWED\n'\n"
+            return subprocess.run(["bash", "-c", script, "fixture", str(worker), str(counter), case], capture_output=True, text=True, timeout=5)
+
+    def test_gdm_baseline_waits_for_delayed_active_greeter(self):
+        result = self.gdm_probe()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("activation=baseline", result.stdout)
+
+    def test_gdm_guard_failures_report_bounded_steps_and_withhold_password(self):
+        for case, phase, step in (("timeout", "gdm-activation-baseline", "greeter-ready"),
+                                  ("delayed", "gdm-activation-check", "greeter-state"),
+                                  ("owner", "gdm-activation-baseline", "worker-metadata"),
+                                  ("nlink", "gdm-activation-baseline", "worker-metadata"),
+                                  ("path", "gdm-activation-baseline", "worker-path"),
+                                  ("permission", "gdm-activation-baseline", "daemon-permissions"),
+                                  ("daemon", "gdm-activation-baseline", "daemon-executable"),
+                                  ("inventory", "gdm-activation-baseline", "worker-inventory"),
+                                  ("ambiguous", "gdm-activation-check", "worker-ambiguity"),
+                                  ("valid", "invalid", "phase")):
+            with self.subTest(case=case):
+                result = self.gdm_probe(case, phase)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn("PASSWORD_ALLOWED", result.stdout)
+                self.assertIn("step=" + step, result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
+                self.assertNotIn("/tmp/", result.stderr)
+                self.assertLess(len(result.stderr), 1024)
+
+    def test_gdm_inventory_failures_have_controlled_reasons(self):
+        for case, reason in (("owner", "process-owner"), ("cgroup", "process-cgroup"),
+                             ("ancestor", "worker-ancestry"), ("executable", "worker-executable")):
+            result = self.gdm_inventory(case)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("reason=" + reason, result.stderr)
+            self.assertNotIn("Traceback", result.stderr)
+            self.assertNotIn("/tmp/", result.stderr)
+
     def test_normal_gdm_routes_use_activation_guard(self):
         host = (ROOT / "tests/vm/run.sh").read_text()
         self.assertIn("activate_gdm_password_conversation firstboot", host)
@@ -425,6 +499,44 @@ die(){ return 1; }
                     self.assertIn("PAIR_CHECKED:/boot/initramfs-linux.img", result.stdout)
                     self.assertEqual(result.returncode, pair_status, result.stderr)
                     self.assertEqual("PASS:" in result.stdout, pair_status == 0)
+
+    def test_qga_request_preserves_script_larger_than_exec_argument_limit(self):
+        import base64, json
+        body = self.host_function("qga_verify")
+        script_bytes = "# harmless fixture\n" * 8000 + "cat >/dev/null\nprintf 'fixture\n'\nprintf 'phase=%s argc=%s\\n' \"$1\" \"$#\"\n"
+        self.assertGreater(len(script_bytes.encode()), 128 * 1024)
+        globals_used = "target_serial target_model run_id scenario_id repository_primary_fingerprint repository_signing_fingerprint release_version pages_url snapshot_sha256 source_commit source_tree installer_sha256 repository_package_set_sha256 build_metadata_sha256 unsigned_manifest_sha256 repository_public_key_sha256 target_disk_metadata".split()
+        marker = "MINIMAL_QEMU_GUEST_PASS run_id=fixture scenario=fixture phase=firstboot boot_id=00000000-0000-0000-0000-000000000001 target=fixture\n"
+        for exit_code in (0, 1):
+            with self.subTest(exit_code=exit_code), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary); (root / "guest").mkdir(); (root / "guest/verify.sh").write_text(script_bytes)
+                response = json.dumps({"return": {"exited": True, "exitcode": exit_code, "out-data": base64.b64encode(marker.encode()).decode(), "err-data": "", "out-truncated": False}})
+                program = "set -euo pipefail\n" + body + "\n" + "\n".join(name + "=fixture" for name in globals_used)
+                program += r"""
+script_dir="$1" evidence="$1" response="$2" input_mode=staged marker_prefix=MINIMAL media_qualification=false
+die(){ exit 2; }
+qga_call(){ if [[ "$1" = *guest-exec-status* ]]; then printf '%s
+' "$response"; else printf '%s
+' "$1" > "$evidence/transmitted-request.json"; printf '%s
+' '{"return":{"pid":1}}'; fi; }
+qga_verify firstboot fixture
+printf 'VERIFY_CONTINUED
+'
+"""
+                result = subprocess.run(["bash", "-c", program, "fixture", str(root), response], capture_output=True, text=True, timeout=5)
+                self.assertEqual(result.returncode, 0 if exit_code == 0 else 2, result.stderr)
+                self.assertEqual("VERIFY_CONTINUED" in result.stdout, exit_code == 0)
+                request = json.loads((root / "transmitted-request.json").read_bytes())
+                self.assertLess(len(json.dumps(request).encode()), 1_048_576)
+                arguments = request["arguments"]
+                decoded = base64.b64decode(arguments["input-data"], validate=True)
+                self.assertEqual(decoded, script_bytes.encode())
+                self.assertEqual(arguments["arg"][3], "firstboot")
+                self.assertTrue(all(len(arg.encode()) < 128 * 1024 for arg in arguments["arg"]))
+                execution = subprocess.run([arguments["path"], *arguments["arg"]], input=decoded, capture_output=True, timeout=5)
+                self.assertEqual(execution.returncode, 0, execution.stderr)
+                self.assertEqual(execution.stdout, b"fixture\nphase=firstboot argc=27\n")
+                self.assertEqual(request["arguments"]["arg"][-2:], ["false", "-"])
 
     def host_function(self, name):
         return re.search(r"^" + name + r"\(\) \{\n.*?^\}", (ROOT / "tests/vm/run.sh").read_text(), re.M | re.S).group(0)
