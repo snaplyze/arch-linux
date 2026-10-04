@@ -130,8 +130,8 @@ It does not replace or relabel the release-child VM/source identities above.
 Clean local documentation commit `30d4a162ed99141c4ccd2b43273a90f1fda0b756` (tree `895fb77ea77e2f66ef5bf8cbb49ba6f21572004b`, canonical SHA-256 `368587520f60e525c9ede887e08b139e77aa42597dbbfc6da2705422339c04d6`) passed `PYTHONDONTWRITEBYTECODE=1 bash tests/source-tests.sh`, source37/native0/session71065; log SHA-256 `ad9f3e402e3bcfaf772d44c3b88ec422e4eba3df6a948b91d7dcd8610ece3ccd`. This result belongs to that exact documentation tree. Later documentation edits require fresh applicable checks; the evidence register preserves each exact tree/result.
 Historical predecessor failures, 1.0.5 media qualification and older release results retain their
 original identities. Final documentation was initially retained in localmain commits. A subsequent
-explicit owner request authorizes checked PR/main publication of these documents; its exact outcome
-is bound in the same evidence register. This publication does not require another installer release.
+explicit owner request authorizes checked PR/main publication of these documents. Record its exact
+outcome in the same evidence register after publication. This publication requires no new installer release.
 
 ## Historical audit record
 
