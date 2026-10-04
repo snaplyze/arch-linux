@@ -498,6 +498,8 @@ known = "GNOME_EXTENSION_DIAGNOSTIC run_id=marble-fixture phase=return-user-logi
 shell = "GNOME_SHELL_DIAGNOSTIC run_id=marble-fixture phase=return-user-login checkpoint=extension-timeout disabled_user_extensions=false early_sentinel=present recovery_unit_sha256=" + "a" * 64
 snapshot = "SNAPSHOT_RUNTIME_DIAGNOSTIC run_id=grub-fixture phase=snapshot-runtime step=lower-identity status=unknown"
 prepare = "SNAPSHOT_PREPARE_DIAGNOSTIC run_id=grub-20261004T000000Z-aabbccdd phase=snapshot-prepare step=state-validation status=failed"
+unit = "SNAPSHOT_UNIT_DIAGNOSTIC run_id=grub-20261004T000000Z-aabbccdd phase=snapshot-prelogin query=success count=1 unknown_count=0"
+unit_status = "SNAPSHOT_UNIT_DIAGNOSTIC run_id=grub-20261004T000000Z-aabbccdd phase=snapshot-prelogin unit=systemd-remount-fs result=exit-code code=exited status=32"
 with tempfile.TemporaryDirectory(prefix="qa-extension-compaction-") as tmp:
     root = Path(tmp); evidence = root / "evidence"; evidence.mkdir()
     (evidence / "return-user-login.stdout").write_text(marker + "\n" + known + "\n" + shell + "\nGNOME_SHELL_DIAGNOSTIC_UNTRUSTED raw payload\narbitrary untrusted raw output\n")
@@ -507,11 +509,13 @@ with tempfile.TemporaryDirectory(prefix="qa-extension-compaction-") as tmp:
     (evidence / "snapshot-credential.stderr").write_text(snapshot + " secret=fixture-runtime-credential\n")
     (evidence / "snapshot-prepare.stderr").write_text(prepare + "\nSNAPSHOT_PREPARE_DIAGNOSTIC_UNTRUSTED raw payload\nprivate raw preparation command\n")
     (evidence / "snapshot-prepare-credential.stderr").write_text(prepare + " secret=fixture-runtime-credential\n")
+    (evidence / "snapshot-unit.stderr").write_text(unit + "\n" + unit_status + "\nSNAPSHOT_UNIT_DIAGNOSTIC_UNTRUSTED raw payload\nprivate raw unit name\n")
+    (evidence / "snapshot-unit-credential.stderr").write_text(unit + " secret=fixture-runtime-credential\n")
     script = "set -Eeuo pipefail\nrun_root=$FIXTURE evidence=$FIXTURE/evidence runtime_password=fixture-runtime-credential\n" + "\n".join(functions) + "\ncompact_run_evidence\n"
     result = subprocess.run(["bash", "-c", script], env=dict(os.environ, FIXTURE=tmp), capture_output=True, text=True, timeout=10)
     assert result.returncode == 0, result.stderr
     summary = gzip.decompress((evidence / "scenario.log.gz").read_bytes()).decode()
-    assert summary.splitlines() == [marker, known, shell, prepare, snapshot], summary
+    assert summary.splitlines() == [marker, known, shell, prepare, snapshot, unit, unit_status], summary
     assert sorted(item.name for item in evidence.iterdir()) == ["scenario.log.gz"]
 print("guest diagnostic compaction: extension, Shell and snapshot markers preserved, credential/raw logs removed")
 PY_EXTENSION_COMPACTION

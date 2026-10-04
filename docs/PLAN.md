@@ -1667,3 +1667,41 @@ fixed preboot steps. Actual loader/policy/CLI/failure sequencing regressions RED
 RED1→GREEN0 and independent monitoring PASS; raw/suffix/credential negatives retained. Stable final
 guest/runtime review PASS (monitoring actual4targeted + failure reasons/syntax/ShellCheck/diff);
 clean source/build/five-root/nextchild9VM acceptance remains pending.
+
+Seventh delivery PR57 merged to mainb49165f9499c7b395119feb8b0039d3d314d2437,
+treea19bef424f9adb0be6910590cf1a495bc3c23fad/canonical53317d952698eb30aa7cc785e86a174456c308b6c9e3ccdbdd703a1453502a74.
+Clean source31 native0/session11964 (logf857c420854ac3f93b5ed29d7640a1d8a30c2852aa6fe38a249c9a9d190489fa),
+fresh build/verify0/session66583 and five real-root gates0/session72672 accepted;
+exact owned heavy resources removed after health/quiescence, compact evidence retained.
+PR CI37199115141/mainCI37199343777 SUCCESS; same checkout returned main FF.
+Fresh configured run37199471699 child4514c3a949bc16d869a55101227365c0a38e34d6,
+treecd75164a593588a38c785cbc9e04b72cf28ccc60/canonical5b6b364a3321e41f50bd52ff293b55e08ac681bd4219a846d4f20b629d2c89c6.
+Actual source graph proof accepted after correcting verifier ordering; first native0 receipt
+retained as superseded, corrected receipt8f646b01e96e758225ee6c7fb0a243de1112c7ebbc6d3e69784a69f2a3c76317.
+Signed Phase-A14 accepted, receipt6bc7d466539ce7a06c8bfc321176028096ce5112c0ccda9d0783b19b82ba7ec2.
+All nine authenticated native results collected: eight PASS and StockBtrfsGRUB FAIL20 at
+snapshot-boot; final Marble PASS26. Run terminal FAILURE/nativewatch1/session33933;
+finalization, publication and public readback skipped. FAT preparation recovered and actual
+snapshot boot/backing/kernel/EFI/package/network guards passed before snapshot-prelogin
+reason=failed-units. Failed service identity was not retained, so the remount-fs/overlay
+hypothesis is not yet a native cause. Preserve zero-failed-units acceptance; add checked,
+finite service diagnostics and reproduce the lifecycle before any product correction.
+No final18/public1.0.6 acceptance or completion claim; QA-01/GATE-01/RELEASE-01 remain open.
+
+Snapshot failed-unit readback now checks native query status: actual nonzero/empty query
+reproduced an old false PASS and now rejects. Bounded5s/4096B queries emit only counts,
+five fixed public unit enums and finite Result/code/status; unknown names, descriptions
+and errors are discarded. Zero-failed-unit acceptance and all37 reasons remain intact.
+Worker runtime104PASS/native0/session96207, affected syntax/ShellCheck/diff0/session30689;
+root actualhelper3PASS after correcting one mistyped test selection (native1 retained).
+Independent monitoring source review PASS; host compaction RED1→GREEN0, storage_guards
+actualproducer review PASS. Committed fixture now retains full summary and per-unit row
+and rejects raw/lookalike/credential logs. This is diagnostics/query correction only.
+Bounded offline remount fixture attempt1/native1/session61288 reached normalBtrfs remounter
+exit0, but transient unit wrapper timed out: --wait plus RemainAfterExit=yes waits for
+deactivation although native unit is success/active/main0. Overlay not reached; no cause
+or fixture PASS claimed. ExactPID absent/imagehealthy/no-visible-consumers; owned heavy
+cleanup native0, compact receipt/log retained. Correct finite nonblocking unit readback
+and LF/CRLF parsing before a new attempt. Focused actual installed snapshot unit diagnostic
+is being prepared with exact seventh-child installer and current reviewed harness; one
+signed full guest transaction provisions QA bpftrace, without replacing native acceptance.

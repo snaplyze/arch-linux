@@ -261,6 +261,66 @@ class RuntimeChecks(unittest.TestCase):
             with patch.object(namespace["os"], "fstat", unsafe_metadata), self.assertRaises(ValueError):
                 namespace["load_state"](str(path), fields["run_id"], fields["subvol"])
 
+    def test_snapshot_runtime_rejects_failed_empty_unit_query(self):
+        result = self.snapshot_runtime(changed="failed-query")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("query=failed count=unavailable unknown_count=unavailable", result.stderr)
+        self.assertTrue(result.stderr.endswith("reason=failed-units\n"))
+
+    def test_snapshot_unit_actual_helper_classifies_only_fixed_public_values(self):
+        import contextlib, io
+        namespace = {"__name__": "snapshot_unit_fixture"}
+        exec(compile(self.snapshot_program("snapshot_unit_program", "SNAPSHOT_UNIT_PY"), "actual-snapshot-units", "exec"), namespace)
+        run = "grub-20261004T000000Z-aabbccdd"
+        properties = b"Result=exit-code\nExecMainCode=1\nExecMainStatus=32\n"
+        def query(args):
+            return (True, b"systemd-remount-fs.service loaded failed failed SECRET_DESCRIPTION\n") if "--failed" in args else (True, properties)
+        output = io.StringIO()
+        with contextlib.redirect_stderr(output): self.assertEqual(namespace["inspect_units"](run, "snapshot-prelogin", query), 1)
+        self.assertEqual(output.getvalue().splitlines(), [
+            "SNAPSHOT_UNIT_DIAGNOSTIC run_id=" + run + " phase=snapshot-prelogin query=success count=1 unknown_count=0",
+            "SNAPSHOT_UNIT_DIAGNOSTIC run_id=" + run + " phase=snapshot-prelogin unit=systemd-remount-fs result=exit-code code=exited status=32"])
+        self.assertNotIn("SECRET", output.getvalue())
+
+    def test_snapshot_unit_actual_helper_query_unknown_malformed_and_empty(self):
+        import contextlib, io
+        namespace = {"__name__": "snapshot_unit_fixture"}
+        exec(compile(self.snapshot_program("snapshot_unit_program", "SNAPSHOT_UNIT_PY"), "actual-snapshot-units", "exec"), namespace)
+        run = "grub-20261004T000000Z-aabbccdd"
+        for success, raw, category in ((True, b"", ""), (False, b"", "failed"), (False, b"SECRET", "failed"), (True, b"SECRET_RAW_LINE", "malformed"), (True, b" \n", "malformed"), (True, b"x" * 4096, "malformed"), (True, b"gdm.service.SECRET loaded failed failed SECRET_MESSAGE\n", "success"), (True, b"unknown.service loaded failed failed SECRET_MESSAGE\n", "success"), (True, b"gdm.service loaded failed failed x\ngdm.service loaded failed failed x\n", "malformed"), (True, b"gdm.service loaded active running x\n", "malformed")):
+            output = io.StringIO()
+            with self.subTest(raw=raw), contextlib.redirect_stderr(output):
+                status = namespace["inspect_units"](run, "snapshot-login", lambda args: (success, raw))
+            self.assertEqual(status, 1 if category else 0)
+            self.assertNotIn("SECRET", output.getvalue()); self.assertNotIn("unknown.service", output.getvalue())
+            if category: self.assertIn("query=" + category, output.getvalue())
+            else: self.assertEqual(output.getvalue(), "")
+        output = io.StringIO()
+        with contextlib.redirect_stderr(output):
+            self.assertEqual(namespace["inspect_units"]("SECRET_RUN", "snapshot-login", lambda args: (True, b"")), 1)
+            self.assertEqual(namespace["inspect_units"](run, "SECRET_PHASE", lambda args: (True, b"")), 1)
+        self.assertEqual(output.getvalue(), "")
+
+    def test_snapshot_unit_actual_helper_properties_and_native_caps(self):
+        import contextlib, io, sys
+        namespace = {"__name__": "snapshot_unit_fixture"}
+        exec(compile(self.snapshot_program("snapshot_unit_program", "SNAPSHOT_UNIT_PY"), "actual-snapshot-units", "exec"), namespace)
+        run = "grub-20261004T000000Z-aabbccdd"
+        for success, raw in ((False, b""), (True, b"Result=SECRET\nExecMainCode=SECRET\nExecMainStatus=SECRET\n"), (True, b"Result=exit-code\nResult=success\nExecMainCode=1\nExecMainStatus=32\n")):
+            output = io.StringIO()
+            def query(args): return (True, b"gdm.service loaded failed failed SECRET\n") if "--failed" in args else (success, raw)
+            with contextlib.redirect_stderr(output): self.assertEqual(namespace["inspect_units"](run, "snapshot-prelogin", query), 1)
+            self.assertIn("unit=gdm result=unavailable code=unavailable status=unavailable", output.getvalue())
+            self.assertNotIn("SECRET", output.getvalue())
+        self.assertEqual(namespace["bounded_query"]([sys.executable, "-c", "print('public')"]), (True, b"public\n"))
+        self.assertFalse(namespace["bounded_query"]([sys.executable, "-c", "print('x'*8192)"])[0])
+        from unittest.mock import patch
+        with patch.object(namespace["subprocess"], "run", side_effect=subprocess.TimeoutExpired("systemctl", 5)) as run:
+            self.assertEqual(namespace["bounded_query"](["systemctl", "--failed"]), (False, b""))
+            self.assertEqual(run.call_args.kwargs["timeout"], 5)
+
+
     def test_snapshot_fat_state_actual_same_fd_ioctl_policy(self):
         import array, os
         from unittest.mock import patch
@@ -1086,6 +1146,7 @@ sleep(){ if [ "$fixture_case" != delayed ]; then SECONDS=$((SECONDS+181)); fi; }
             rows = [row.replace("fsid=1234567812341234", "fsid=" + uuid.replace("-", "")[:16]).replace("fsid=1234123456789abc", "fsid=" + uuid.replace("-", "")[16:]) for row in rows]
             (root / "checker.py").write_text(self.snapshot_program("snapshot_backing_checker_program", "SNAPSHOT_CHECKER_PY"))
             (root / "state.py").write_text(self.snapshot_program("snapshot_state_program", "SNAPSHOT_STATE_PY"))
+            (root / "units.py").write_text(self.snapshot_program("snapshot_unit_program", "SNAPSHOT_UNIT_PY"))
             (root / "proof.stdout").write_bytes(self.proof_output(rows)); (root / "proof.stderr").write_bytes(b"")
             (root / "expected.json").write_text(json.dumps(expected))
             if changed == "state-lines": state.write_text(state.read_text() + "SECRET_EXTRA\n")
@@ -1124,6 +1185,16 @@ mounted_source_device(){ if [ "$changed" = device ]; then printf /dev/vda3; else
 find_target(){ printf /dev/vda; }
 partition_name(){ if [ "$changed" = device ]; then printf /dev/vda3; else printf /dev/vda2; fi; }
 mount(){ return 0; }
+snapshot_failed_units(){ python3 - "$fixture_root/units.py" "$run_id" "$phase" "$changed" <<'FIXTURE_UNITS_PY'
+import runpy, sys
+namespace = runpy.run_path(sys.argv[1])
+def query(arguments):
+    if sys.argv[4] == "failed-query": return False, b""
+    if sys.argv[4] == "failed-units": return True, b"secret-fixture.service loaded failed failed SECRET_MESSAGE\n"
+    return True, b""
+raise SystemExit(namespace["inspect_units"](sys.argv[2], sys.argv[3], query))
+FIXTURE_UNITS_PY
+}
 snapshot_validate_metadata(){ python3 - "$fixture_root/state.py" "$1" "$changed" <<'FIXTURE_METADATA_PY'
 import os, runpy, sys
 from unittest.mock import patch
@@ -1161,7 +1232,7 @@ blkid(){
 verify_kernel_initramfs_pair(){ [ "$changed" != modules ]; }
 verify_grub_efi_target(){ [ "$changed" != efi ]; }
 verify_grub_package_integrity(){ [ "$changed" != package ]; }
-systemctl(){ if [[ "$*" = *is-active* ]]; then [ "$changed" != service ]; elif [ "$changed" = failed-units ]; then printf SECRET_UNIT; fi; }
+systemctl(){ if [[ "$*" = *is-active* ]]; then [ "$changed" != service ]; elif [ "$changed" = failed-units ]; then printf SECRET_UNIT; elif [ "$changed" = failed-query ]; then return 1; fi; }
 nm-online(){ [ "$changed" != network ]; }
 ''' + body + "\ntarget=$(verify_snapshot_runtime) || exit 1\nprintf '%s' \"$target\"\n"
             return subprocess.run(["bash", "-c", script, "snapshot-runtime-fixture", str(lower), uuid, partuuid, changed], capture_output=True, text=True, timeout=5)
@@ -1184,7 +1255,10 @@ nm-online(){ [ "$changed" != network ]; }
                 result = self.snapshot_runtime(changed=changed)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertEqual(result.stdout, "")
-                self.assertEqual(result.stderr, "SNAPSHOT_RUNTIME_DIAGNOSTIC run_id=grub-20261004T000000Z-aabbccdd phase=snapshot-prelogin reason=" + reason + "\n")
+                expected = "SNAPSHOT_RUNTIME_DIAGNOSTIC run_id=grub-20261004T000000Z-aabbccdd phase=snapshot-prelogin reason=" + reason + "\n"
+                if changed == "failed-units":
+                    expected = "SNAPSHOT_UNIT_DIAGNOSTIC run_id=grub-20261004T000000Z-aabbccdd phase=snapshot-prelogin query=success count=1 unknown_count=1\n" + expected
+                self.assertEqual(result.stderr, expected)
                 self.assertNotIn("SECRET", result.stderr)
         result = self.snapshot_runtime(argument="root=/dev/vda3")
         self.assertIn("reason=root-argument\n", result.stderr)
