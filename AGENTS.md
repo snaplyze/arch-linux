@@ -281,6 +281,24 @@ different workflow, a retry with changed inputs, key rotation, repository-settin
 deletion, tag movement or any unrelated publication. Those actions still require separate explicit
 authorization. Source-candidate completion is not `RELEASED`.
 
+## Documentation after a successful release
+
+After immutable publication, verified Pages/public readback and the required public VM acceptance
+succeed, inventory every tracked Markdown file, including the root README, nested READMEs,
+security, user, developer, maintenance and agent documentation. Before reporting the release task
+complete, reconcile current release pins, commands, product behavior, known defects, pending gates
+and acceptance summaries with the actual released inputs and results. Update every affected page;
+release-neutral pages need no artificial version edits. Preserve dated changelogs, design decisions,
+retained source pins and historical evidence with their original identities; never relabel an old
+PASS or an unexecuted scenario as acceptance of the new release.
+
+Keep exact release identities and evidence in `docs/validation.md`, and record the Markdown coverage,
+corrections, checks and any remaining publication limitation in the existing `docs/PLAN.md`
+checkpoint. Review the resulting diff and run documentation/link checks, `git diff --check` and the
+required source suite for the final tree. This obligation does not authorize a new release, push,
+merge, tag/asset replacement, signing or deployment; preserve the existing Git/external boundaries
+and state clearly when final documentation is local rather than published.
+
 ## Scope and continuation
 
 The finite setup plan and checkpoint are in [docs/agent-setup.md](docs/agent-setup.md).

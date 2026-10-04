@@ -3,18 +3,27 @@
 Release entries describe their immutable tagged source. Package-only updates can be delivered
 separately through the signed repository; see [package delivery](docs/package-repository.md).
 
-## Unreleased
+## 1.0.6 — 2026-10-04
 
-- Refresh installation examples, release evidence, compatibility, signing policy and documentation
-  checks. Keep the verified 1.0.5 installation example separate from the source version floor.
+- Publish immutable release child `7af2209be497a0a5f0e314cd8cc20f691e52b064` after all nine
+  staged VM scenarios passed. The exact 18 finalized assets and Pages deployment are published;
+  fresh public Release/Pages byte readback and public-only Marble/GDM acceptance passed.
+  See [release evidence](docs/validation.md).
+- Reject uncertain disk/idle probes, reserved account names and shared-ESP write collisions before
+  destructive work. Require worker quiescence before storage cleanup and retain only validated,
+  bounded recovery state after failed teardown.
+- Strengthen package/database identity and resource checks while retaining mandatory signatures and
+  the isolated signing boundary.
+- Adapt only the volatile overlay's root fstab row before the unchanged systemd remounter so GRUB
+  Btrfs snapshots boot with their read-only lower root preserved.
 
 ## 1.0.5 — 2026-09-17
 
 - Record the immutable published release at commit `61add3e0b2c20adbbdd425494eae02ddec0a3bac`.
   October public readback verified all 18 assets, their signatures and the signed Pages repository;
   see [readback evidence](docs/validation.md#public-readback-of-release-105).
-- This entry records published bytes and historical acceptance. Current source corrections and
-  October media qualification require their own fresh acceptance.
+- This entry records published bytes and historical acceptance. Later installer corrections
+  belong to 1.0.6; October media qualification remains bound to its separate inputs.
 
 ## 1.0.4 — 2026-09-17
 

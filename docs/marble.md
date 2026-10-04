@@ -14,9 +14,8 @@ Marble desktop is an explicit opt-in delivered by native packages from the stric
 repository. It applies the reviewed Marble blue/filled/dark GNOME Shell theme, Colloid Dark GTK3
 theme, Colloid GTK4/libadwaita system-color stylesheet and Colloid icon theme. Official User Themes
 is added to the editable extension list.
-The present selection-list text mentions GTK3 only, while the package and selection summary include
-GTK4/libadwaita. [F-10](PLAN.md#review-findings) tracks the pending UI-text correction; this page
-describes the actual payload rather than the abbreviated prompt.
+Release 1.0.6's selection list and summary both describe the GTK3 and GTK4/libadwaita payload;
+the historical [F-10 UI-text finding](PLAN.md#review-findings) is closed.
 
 The desktop profile does not replace system fonts, lock user dconf,
 change the Bibata cursor or write another package's files. Its compatibility helper exposes project
@@ -60,7 +59,9 @@ installation but does not weaken or damage the Stock path.
 Fallback requires successful removal of project-owned activation. Helpers can report failure if
 they cannot prove deactivation, including foreign/unsafe state; unknown inputs do not guarantee
 that every already-running session has returned to Stock. Check helper status and actual session/
-greeter state. The [QA-01 acceptance gap](PLAN.md#review-findings) covers those runtime obligations.
+greeter state. Release 1.0.6's staged Marble/GDM acceptance covers honest helper failure, explicit
+deactivation, fallback, removal and reinstallation; the fresh public scenario covers its separate
+19-assertion installation/update/login path. See the [exact results](validation.md#verified-release-106--2026-10-04).
 
 Acceptance requires the QEMU scenarios in [testing.md](testing.md) and current results in
 [validation.md](validation.md). Reference framebuffer images show the intended visual states:

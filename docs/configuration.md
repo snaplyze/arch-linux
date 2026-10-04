@@ -15,9 +15,8 @@ commits values only after the complete file passes lexical validation. The insta
 The generated file may contain an empty value before its selector runs. The completed installation
 contract is stricter: `validate_properties` requires every context-relevant value and checks
 cross-field rules. The password is runtime-only and never appears in `installer.conf`.
-Choose an ordinary unused account name. The source candidate rejects known reserved users/groups
-before disk work; the detailed policy below is implemented under [CONFIG-01](PLAN.md#config-01--reject-predictable-account-collisions).
-Published 1.0.5 retains its older validator; these corrections require a new installer release.
+Choose an ordinary unused account name. Release 1.0.6 rejects known reserved users/groups
+before disk work; the detailed policy below is recorded under [CONFIG-01](PLAN.md#config-01--reject-predictable-account-collisions).
 
 ## Complete allowlist
 

@@ -29,13 +29,13 @@ validates every value and atomically replaces `installer.conf`. The parser commi
 until the entire file, ownership, mode, size, exact 43-key set and types pass. The stored disk
 identity and, for dual boot, both partition identities are part of that accepted state.
 
-The source candidate checks dual-boot ESP collisions through the retained accepted partition
+Release 1.0.6 checks dual-boot ESP collisions through the retained accepted partition
 handle, inside a private read-only mount namespace. It checks the selected supported kernel,
 reserved initramfs/fallback/microcode and bootloader write footprint, rejecting FAT case aliases
 and unsafe ancestors. After the probe closes, identity/idle/handle checks run before root
 mutation; mounted ESP identity/footprint is checked again before pacstrap. Valid existing
 `loader/entries.srel` containing exactly `type1\n` is preserved. Refusal never edits neighbor
-files or changes partition layout. Published 1.0.5 retains its earlier behavior.
+files or changes partition layout.
 
 ## Executor phase
 
@@ -58,10 +58,9 @@ exec_init_installation
 
 Each executor owns a reviewable failure boundary. Work runs in a background subshell, writes to the
 process log and is observed by the UI. Executors do not prompt: all choices are complete before the
-chain starts. A non-zero stage stops subsequent stages. The source candidate explicitly aborts after rejected
-destructive guards and failed/ambiguous idle probes, with maintained actual-executor regressions.
-Published 1.0.5 retains the [historical F-01/F-02 gaps](PLAN.md#review-findings); source tests
-do not replace corrected-child installation acceptance.
+chain starts. A non-zero stage stops subsequent stages. Release 1.0.6 explicitly aborts after
+rejected destructive guards and failed/ambiguous idle probes, with actual-executor regressions.
+[Validation](validation.md) records source checks and staged installation acceptance separately.
 
 `exec_init_installation` verifies the Arch ISO hostname, UEFI mode, disabled Secure Boot, network,
 clock and package-manager readiness before any target-disk mutation.
@@ -71,9 +70,8 @@ changes. It also requires the whole selected storage tree to be idle: no mounted
 swap, active non-partition holder, pre-existing `/mnt` mount or occupied installer mapper. Fresh
 installs create the exact GPT/ESP/root layout. Dual boot preserves the partition table and existing
 vfat ESP. LUKS2 is opened before Btrfs or ext4 formatting. No later stage may reinterpret the chosen
-disk. Preserving the ESP filesystem does not currently imply preserving all neighboring boot files;
-generic kernel/entry paths can collide with another Linux installation
-([F-03](PLAN.md#review-findings)).
+disk. The shared-ESP guard rejects existing kernel, entry and bootloader write-footprint collisions
+before root mutation; it does not delete or rename neighboring files to make room.
 
 ## Chroot phase
 
@@ -86,9 +84,8 @@ success and failure cleanup kill every descendant, prove the cgroup empty, then 
 and home. Strictly allowlisted `.SRCINFO` dependencies are installed in a separate root step;
 `makepkg` runs with `--nodeps`, and only copied root-staged package bytes with the exact requested
 identity are passed to `pacman -U`.
-This is the required AUR handoff. Two UID-emptiness/readback probes currently discard `find`
-failure status; [F-02](PLAN.md#review-findings) also covers this probe-handling gap. No live
-privilege bypass was demonstrated; successful-path checks do not establish those failures safe.
+UID-emptiness and readback probes check `find` status as well as output; an inventory error
+refuses the handoff. [SAFE-02](PLAN.md#safe-02--fail-closed-on-idle-probe-errors) records the correction.
 
 The desktop stage installs only GNOME/GDM or is skipped for TTY. Stock configuration is applied
 locally. Marble first verifies the project public certificate, exact fingerprints and strict
@@ -132,9 +129,8 @@ library even when the rest of the GNOME group does not pull that dependency into
 
 - Preflight failure changes no target disk.
 - Property failure returns to the editor without mutating validation state.
-- The source candidate stops before mutation on rejected target guards and uncertain/error idle
-  probes. Actual-executor failure injection covers these paths; real corrected-child VM behavior
-  remains a separate acceptance layer. Published 1.0.5 retains F-01/F-02.
+- Release 1.0.6 stops before mutation on rejected target guards and uncertain/error idle probes.
+  Actual-executor failure injection and staged VM results remain separate evidence layers.
 - Package or service failure stops its executor and leaves the log for diagnosis.
 - Repository or signature failure leaves Stock install behavior available and does not authorize
   unsigned content.
@@ -144,10 +140,9 @@ library even when the rest of the GNOME group does not pull that dependency into
 - Final unmount or encrypted-volume closure is permitted only for resources recorded by private
   markers and re-bound to the accepted target snapshot. Chroot and reboot remain explicit user
   choices.
-Published 1.0.5 proceeds to storage cleanup after failed reaping and loses recovery markers on
-failed teardown. The source candidate blocks storage teardown until workers are proved quiet.
-On failed teardown, the source candidate creates a separate private generated recovery directory
+Release 1.0.6 blocks storage teardown until workers are proved quiet.
+On failed teardown, it creates a separate private generated recovery directory
 with reserialized validated ownership markers and a bounded nonsecret receipt. It does not retain
 worker logs or reuse their writable runtime path; password state is cleared. Allocation/validation
-failure refuses retention. Source race regression passes; independent review and real VM
-cancellation/cleanup acceptance remain separate gates.
+failure refuses retention. Source race regressions cover late worker writes; successful VM
+shutdown does not establish the outcome of every cancellation or busy-resource path.

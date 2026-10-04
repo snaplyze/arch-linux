@@ -16,9 +16,10 @@ effects. State “none” only after checking each relevant boundary.
 - [ ] ShellCheck and `git diff --check`
 - [ ] Documentation structure and links
 - [ ] Secret and unsupported-source scans
-- [ ] Two clean Arch builds and byte comparison, when package/repository behavior changes
+- [ ] Canonical clean Arch build and independent verification, when package/repository behavior changes
+- [ ] Advisory A+B byte-comparison result recorded separately, when run
 - [ ] Signed repository/strict-client acceptance, when trust or publication changes
-- [ ] Required QEMU scenarios and screenshots, when runtime behavior changes
+- [ ] Required functional QEMU scenarios, when runtime behavior changes; screenshots are optional diagnostics
 
 List exact commands, versions, digests and evidence links below.
 

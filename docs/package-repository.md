@@ -46,10 +46,11 @@ The verifier requires exactly one unsigned package per allowlisted name, exact c
 schema-2 source/build identity, `.BUILDINFO`, `.MTREE`, a canonical checksum list and no signatures
 or unexpected objects. It decompresses every real package and checks its exact package-specific
 payload, ownership, modes, dependencies, hooks, licenses and bounded internal symlinks.
-Decompression and tar inventory currently lack total expanded-byte, member-count and execution-time
-limits. Payload validation therefore does not establish bounded resource consumption for hostile
-unsigned input. [F-04 / TRUST-01](PLAN.md#review-findings) tracks planned hardening; this
-documentation correction does not implement it.
+Release 1.0.6 bounds compressed and expanded bytes, aggregate payload, individual members,
+extension headers, member count and inspection time, with resource-limited decompressor children
+and checked cleanup. See [inspection limits](#unsigned-archive-inspection-limits).
+The historical [F-04 / TRUST-01 finding](PLAN.md#review-findings) is closed; passing a bounded
+inspection still does not authorize installation or replace signature verification.
 
 ## Signing boundary
 
@@ -112,10 +113,10 @@ repository/verify-release-assets.sh "$SNAPSHOT_OUTPUT/assets" --phase-a \
 The verifiers require the exact public certificate and fingerprints, exact package/database file
 closure, valid signatures from the accepted signing subkey, safe database archives and package
 filenames that agree with the database.
-That filename check is narrower than complete metadata consistency: `.db` name/version/size/hash/
-embedded-signature fields and `.files` package identities/file lists are not fully cross-checked
-against verified packages. [F-12 / TRUST-02](PLAN.md#review-findings) tracks this semantic gap.
-Genuine signature/hash bindings remain required; this is not a demonstrated signature bypass.
+Release 1.0.6 also cross-checks `.db` name/version/size/hash/embedded-signature fields and
+`.files` package identities/file lists against the verified package set, rejecting inconsistent
+records. The historical [F-12 / TRUST-02 finding](PLAN.md#review-findings) is closed.
+These semantic checks supplement the mandatory genuine signatures and hash bindings.
 
 ## Pacman policy and lifecycle
 
@@ -142,9 +143,9 @@ For package-only updates, use the `packages` deployment mode described in
 [repository tooling](../repository/README.md#package-only-updates). It accepts a separately tagged,
 signed 14-file package-update bundle for an existing installer version. A Marble profile `pkgrel`
 update therefore does not require a new installer release or replacement of old installer assets.
-The source candidate implements strict package-child provenance and requires version-only
-normalization to exact published installer/bootstrap bytes. Current behavior corrections need
-a normal installer release first. External package delivery remains separately authorized and
+The delivered tooling implements strict package-child provenance and requires version-only
+normalization to exact published installer/bootstrap bytes. Future installer/bootstrap behavior
+changes require a new accepted installer release before package-only delivery. External package delivery remains separately authorized and
 NOT_TESTED; local source validation does not prove signed installed-system upgrade or deployment.
 See [DELIVERY-01](PLAN.md#delivery-01--package-only-provenance-and-procedure).
 

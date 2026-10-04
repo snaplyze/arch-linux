@@ -321,6 +321,7 @@ Proposed AUR identities: Blur `f23a49d84b3b62ca2c23bbdec7763329c555fd38`, Dock
 `91c4de013bd43db027ece31f1dba96fd06a6d924`, Pikaur
 `9b3b01867ab9b8db88765a1dd69029ecae604d62`. Six accepted-package metadata checks, offline
 source checks and accepted AUR SRCINFO bindings passed. Candidate builds/VMs are NOT_TESTED
-and unnecessary for the retain decision. Canonical corrected-child build and runtime gates
-remain GATE-01/RELEASE-01. Compact review receipts stay outside source; [the project registry](PLAN.md) is the
-canonical decision record.
+and unnecessary for the retain decision. The retained pins subsequently passed the canonical
+corrected-child build and runtime gates in release 1.0.6; see [validation](validation.md#verified-release-106--2026-10-04).
+Those results do not qualify the unaccepted proposals. Compact review receipts stay outside source;
+[the project registry](PLAN.md) is the canonical decision record.

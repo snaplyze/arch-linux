@@ -164,8 +164,10 @@ checks the real backing mount and entry/return identity; a lower pathname lookup
 snapshot mount does not replace that proof. The guest installs the observer tool in its existing
 update transaction and removes its owned tracer, temporary mounts and files before accepting
 the check. Missing observations, diagnostic warnings and cleanup failures fail the scenario.
-Fresh installed-system acceptance of the current observer integration remains pending; see
-[the canonical registry](../../docs/PLAN.md#execution-registry).
+Release 1.0.6's `stock-gnome-btrfs-grub` run passed all 23 assertions, including this actual
+snapshot boot, return to the normal root and owned cleanup. The LUKS/GRUB case proves ordinary
+encrypted installation and reboot, not filesystem snapshot boot. See
+[the exact validation record](../../docs/validation.md#verified-release-106--2026-10-04).
 
 If the installer exits before creating its log (for example, a dependency download fails), the
 guest reports its actual exit status and powers off. Missing diagnostic logs must not hide that

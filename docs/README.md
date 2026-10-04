@@ -1,5 +1,8 @@
 # Documentation
 
+Current published product: [immutable release 1.0.6](https://github.com/snaplyze/arch-linux/releases/tag/1.0.6).
+The [validation record](validation.md#verified-release-106--2026-10-04) binds its source, assets and actual acceptance.
+
 ## Install and use
 
 - [Installation: supported platform, preflight and release-pinned bootstrap](installation.md)
