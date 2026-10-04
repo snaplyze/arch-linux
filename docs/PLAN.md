@@ -1531,3 +1531,18 @@ acc6b52196776d2774b7598af5c271dc31105eacf181d3d8344de6244623dd12, full namespace
 signer/14+18/deferrednone and all required source tests. Exact five authorized paths are ready
 for local candidate commit; clean tree-bound source/build/five real-root gates follow before
 new protected-main PR delivery. Historical fourth child stays7PASS/2FAIL/public1.0.5 unchanged.
+
+
+Clean candidate27b4a5f passed source24 (log caa62924), fresh unsigned build and
+independent verification (receipt29b01ce0), and all five actual release-host root gates
+(receipt89816e1; exact owned cleanup ed3d54e2). These results remain bound to that
+candidate; they do not prove installed release acceptance. PR55 required Source checks
+run37187167926 then FAILED only lifecycle fixture ownership: CI runtime directory UID1001
+versus hardcoded requested UID1000 produced correct `early_sentinel=unknown`.
+Production verifier unchanged. Focused fixture correction uses actual UID/GID, models CI
+UID1001 and rejects foreign ownership for both absent/present sentinels; RED→GREEN and
+94 runtime tests PASS. Independent narrow monitoring review PASS for all four actual
+owner/presence cases, stable runtime886edcd6/guest5fee2674. New exact source/build/five root
+gates precede updating the same PR55; no unchanged CI retry or acceptance transfer.
+QA-01/GATE-01/RELEASE-01 remain open; fourth child7PASS/2FAIL and immutable public1.0.5
+remain historical. Next prepared build t3c0kny3/root bv6a7sh0 are not executed yet.

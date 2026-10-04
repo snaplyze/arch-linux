@@ -298,7 +298,7 @@ rm(){ if [ "$case_fixture" = cleanup-fail ]; then return 1; fi; command rm "$@";
                 else: self.assertIn("reason=lower-source-query", result.stderr)
                 if case == "foreign-file": self.assertEqual((work / "foreign").read_text(), "preserve")
 
-    def shell_lifecycle(self, case="normal", checkpoint="extension-timeout"):
+    def shell_lifecycle(self, case="normal", checkpoint="extension-timeout", requested_uid=None):
         text = VERIFY.read_text()
         match = re.search(r"^emit_gnome_shell_lifecycle_diagnostic\(\) \{\n.*?<<'PY'\n(.*?)\nPY\n", text, re.M | re.S)
         self.assertIsNotNone(match, "actual lifecycle diagnostic helper missing")
@@ -349,7 +349,7 @@ rm(){ if [ "$case_fixture" = cleanup-fail ]; then return 1; fi; command rm "$@";
                 return os.stat_result(tuple(value)[:4] + (0,) + tuple(value)[5:])
             output = io.StringIO()
             with patch("subprocess.run", run), patch("os.fstat", fstat), contextlib.redirect_stderr(output):
-                namespace["diagnose"]("1000", "1000", "fixture", "return-user-login", checkpoint)
+                namespace["diagnose"](str(os.getuid() if requested_uid is None else requested_uid), str(os.getgid()), "fixture", "return-user-login", checkpoint)
             return output.getvalue(), calls
 
     def test_shell_lifecycle_normal_and_early_sentinel(self):
@@ -361,6 +361,29 @@ rm(){ if [ "$case_fixture" = cleanup-fail ]; then return 1; fi; command rm "$@";
             self.assertRegex(output, r"recovery_unit_sha256=[a-f0-9]{64}")
             self.assertIn("stop_events=" + ("1" if case == "normal" else "0"), output)
             self.assertFalse(any("set" in call for call in calls))
+
+    def test_shell_lifecycle_actual_helper_under_ci_uid_model(self):
+        import os
+        from unittest.mock import patch
+        original = Path.lstat
+        def ci_lstat(path, *args, **kwargs):
+            value = original(path, *args, **kwargs)
+            fields = list(value); fields[4] = 1001
+            return os.stat_result(fields)
+        with patch.object(Path, "lstat", ci_lstat), patch("os.getuid", return_value=1001), patch("os.getgid", return_value=1001):
+            for case, expected in (("normal", "absent"), ("early", "present")):
+                output, _ = self.shell_lifecycle(case)
+                self.assertIn("early_sentinel=" + expected, output)
+
+    def test_shell_lifecycle_foreign_runtime_owner_is_unknown(self):
+        import os
+        for case in ("normal", "early"):
+            with self.subTest(case=case):
+                output, calls = self.shell_lifecycle(case, requested_uid=os.getuid() + 1)
+                self.assertIn("early_sentinel=unknown", output)
+                self.assertNotIn("early_sentinel=absent", output)
+                self.assertNotIn("early_sentinel=present", output)
+                self.assertTrue(any("--reuid=" + str(os.getuid() + 1) in call for call in calls))
 
     def test_shell_lifecycle_failure_events_and_recovery_are_distinct(self):
         for case, token in (("killed", "killed_events=1"), ("timeout", "timeout_events=1"), ("recovery", "recovery_started=yes")):
