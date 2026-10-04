@@ -261,6 +261,99 @@ class RuntimeChecks(unittest.TestCase):
             with patch.object(namespace["os"], "fstat", unsafe_metadata), self.assertRaises(ValueError):
                 namespace["load_state"](str(path), fields["run_id"], fields["subvol"])
 
+    def test_snapshot_fat_state_actual_same_fd_ioctl_policy(self):
+        import array, os
+        from unittest.mock import patch
+        namespace, fields, raw = self.snapshot_state()
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "state"; path.write_bytes(raw); path.chmod(0o700)
+            original = os.fstat; observed = []
+            def root_metadata(fd):
+                observed.append(fd)
+                value = list(original(fd)); value[4] = 0
+                return os.stat_result(value)
+            def fat_ioctl(fd, request, buffer, mutate):
+                self.assertEqual(fd, observed[-1]); self.assertEqual(request, 0x80047210)
+                self.assertIsInstance(buffer, array.array); self.assertEqual(buffer.typecode, "I")
+                self.assertEqual(buffer.itemsize, 4); self.assertTrue(mutate)
+                return 0
+            with patch.object(namespace["os"], "fstat", root_metadata), patch("fcntl.ioctl", side_effect=fat_ioctl) as ioctl:
+                self.assertEqual(namespace["load_state"](str(path), fields["run_id"], fields["subvol"]), fields)
+                self.assertEqual(ioctl.call_count, 1)
+                namespace["load_metadata"](str(path))
+                self.assertEqual(ioctl.call_count, 2)
+
+    def test_snapshot_state_metadata_policy_security_and_stability(self):
+        import os, stat
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        namespace, fields, raw = self.snapshot_state()
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "state"; path.write_bytes(raw); path.chmod(0o600)
+            original = os.fstat
+            for case in ("normal", "posix700", "ioctl-error", "foreign-owner", "hardlink", "unsafe-mode", "nonregular", "changed"):
+                for operation in ("load_state", "load_metadata"):
+                    calls = []
+                    def metadata(fd):
+                        value = original(fd); calls.append(fd)
+                        data = {key: getattr(value, key) for key in ("st_dev", "st_ino", "st_mode", "st_uid", "st_gid", "st_nlink", "st_size", "st_mtime_ns", "st_ctime_ns")}
+                        data["st_uid"] = 0
+                        if case in ("posix700", "ioctl-error"): data["st_mode"] = stat.S_IFREG | 0o700
+                        if case == "foreign-owner": data["st_uid"] = 1000
+                        if case == "hardlink": data["st_nlink"] = 2
+                        if case == "unsafe-mode": data["st_mode"] = stat.S_IFREG | 0o722
+                        if case == "nonregular": data["st_mode"] = stat.S_IFIFO | 0o600
+                        if case == "changed" and len(calls) > 1: data["st_ctime_ns"] += 1
+                        return SimpleNamespace(**data)
+                    args = (str(path), fields["run_id"], fields["subvol"]) if operation == "load_state" else (str(path),)
+                    with self.subTest(case=case, operation=operation), patch.object(namespace["os"], "fstat", metadata):
+                        if case == "normal":
+                            with patch("fcntl.ioctl", side_effect=AssertionError("POSIX600 must not need ioctl")):
+                                namespace[operation](*args)
+                        elif case == "ioctl-error":
+                            with patch("fcntl.ioctl", side_effect=OSError("SECRET fixture error")), self.assertRaises(ValueError): namespace[operation](*args)
+                        else:
+                            with self.assertRaises(ValueError): namespace[operation](*args)
+
+    def test_snapshot_state_actual_metadata_cli_does_not_reorder_parse(self):
+        import os
+        from unittest.mock import patch
+        namespace, fields, raw = self.snapshot_state()
+        source = self.snapshot_program("snapshot_state_program", "SNAPSHOT_STATE_PY")
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "state"; path.write_bytes(b"malformed SECRET fields\n"); path.chmod(0o600)
+            original = os.fstat
+            def metadata(fd):
+                value = list(original(fd)); value[4] = 0
+                return os.stat_result(value)
+            with patch("os.fstat", metadata), patch("sys.argv", ["state.py", "--metadata", str(path)]):
+                exec(compile(source, "actual-metadata-cli", "exec"), {"__name__": "__main__"})
+            with patch("os.fstat", metadata), self.assertRaises(ValueError):
+                namespace["load_state"](str(path), fields["run_id"], fields["subvol"])
+
+    def test_snapshot_prepare_final_failures_stop_before_reboot_and_pass(self):
+        body = function("prepare_snapshot_boot")
+        tail = body[body.index('    final_uuid='):].rsplit("\n}", 1)[0]
+        diagnostic = function("snapshot_prepare_fail")
+        for case, expected, reboot in (("identity", "device-identity", False), ("uuid-query", "device-identity", False), ("partuuid-query", "device-identity", False), ("state", "state-validation", False), ("reboot", "grub-reboot", True), ("normal", "", True)):
+            script = 'set -euo pipefail\nrun_id=grub-20261004T000000Z-aabbccdd\nuuid=expected partuuid=expected device=fixture state=fixture subvol=fixture\ncase_name=' + case + "\n" + diagnostic + r"""
+blkid(){ if [ "$case_name" = identity ]; then printf wrong; else printf expected; fi; if [ "$case_name" = uuid-query ] && [[ "$*" != *PARTUUID* ]]; then return 1; fi; if [ "$case_name" = partuuid-query ] && [[ "$*" = *PARTUUID* ]]; then return 1; fi; return 0; }
+snapshot_validate_state(){ [ "$case_name" != state ]; }
+grub-reboot(){ printf 'REBOOT\n'; [ "$case_name" != reboot ]; }
+emit_runtime_action_pass(){ printf 'PASS\n'; }
+finish(){
+""" + tail + "\n}\nfinish\n"
+            result = subprocess.run(["bash", "--noprofile", "--norc", "-c", script], capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, 0 if case == "normal" else 1)
+            self.assertEqual("REBOOT" in result.stdout, reboot)
+            self.assertEqual("PASS" in result.stdout, case == "normal")
+            if expected:
+                self.assertEqual(result.stderr.strip(), "SNAPSHOT_PREPARE_DIAGNOSTIC run_id=grub-20261004T000000Z-aabbccdd phase=snapshot-prepare step=" + expected + " status=failed")
+            else: self.assertEqual(result.stderr, "")
+        for run, step in (("SECRET RUN", "state-validation"), ("grub-20261004T000000Z-aabbccdd", "SECRET_STEP")):
+            result = subprocess.run(["bash", "-c", diagnostic + '\nrun_id="$1"; snapshot_prepare_fail "$2"\n', "fixture", run, step], capture_output=True, text=True, timeout=5)
+            self.assertNotEqual(result.returncode, 0); self.assertEqual(result.stdout + result.stderr, "")
+
     def test_snapshot_update_tool_install_exact_grub_full_transaction(self):
         body = function("is_grub_stock") + "\n" + function("upgrade_stock_runtime_tools")
         for scenario, phase, status, extra in (("stock-gnome-btrfs-grub", "update", 0, True), ("stock-gnome-btrfs-luks2-plymouth-grub", "update", 0, False), ("stock-gnome-ext4-systemdboot", "update", 0, False), ("stock-gnome-btrfs-grub", "snapshot-prepare", 1, False)):
@@ -986,6 +1079,7 @@ sleep(){ if [ "$fixture_case" != delayed ]; then SECONDS=$((SECONDS+181)); fi; }
             marker = lower / "var/lib/arch-linux-vm/snapshot-marker"; marker.parent.mkdir(parents=True); marker.write_text("grub-20261004T000000Z-aabbccdd")
             uuid = "11111111-1111-1111-1111-111111111111"; partuuid = "22222222-2222-2222-2222-222222222222"
             state.write_text("run_id=grub-20261004T000000Z-aabbccdd\nsubvol=@snapshots/qa-grub-20261004T000000Z-aabbccdd\nroot_uuid=" + uuid + "\nnormal_boot_id=33333333-3333-3333-3333-333333333333\nroot_device=/dev/vda2\nroot_partuuid=" + partuuid + "\nselector_sha256=" + "a" * 64 + "\nproduction_cfg_sha256=" + "b" * 64 + "\nsnapshot_root_id=257\nsnapshot_marker_inode=1234\nroot_major=254\nroot_minor=2\n")
+            state.chmod(0o600)
             import json
             expected, rows = self.proof_fixture()
             expected["fsUuid"] = uuid
@@ -1030,6 +1124,22 @@ mounted_source_device(){ if [ "$changed" = device ]; then printf /dev/vda3; else
 find_target(){ printf /dev/vda; }
 partition_name(){ if [ "$changed" = device ]; then printf /dev/vda3; else printf /dev/vda2; fi; }
 mount(){ return 0; }
+snapshot_validate_metadata(){ python3 - "$fixture_root/state.py" "$1" "$changed" <<'FIXTURE_METADATA_PY'
+import os, runpy, sys
+from unittest.mock import patch
+namespace = runpy.run_path(sys.argv[1])
+original = os.fstat
+# The command fixture models guest UID0; state-mode deliberately models foreign ownership.
+def guest_metadata(fd):
+    value = list(original(fd)); value[4] = 1000 if sys.argv[3] == "state-mode" else 0
+    return os.stat_result(value)
+try:
+    with patch.object(namespace["os"], "fstat", guest_metadata):
+        namespace["load_metadata"](sys.argv[2])
+except (OSError, ValueError):
+    raise SystemExit(1)
+FIXTURE_METADATA_PY
+}
 snapshot_validate_state(){ python3 - "$fixture_root/state.py" "$1" "$run_id" "$2" <<'FIXTURE_STATE_PY'
 import runpy, sys
 from pathlib import Path
