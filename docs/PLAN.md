@@ -1620,3 +1620,50 @@ writers are quiescent. Replacement/symlink/unhealthy negatives remain; generated
 historical native1 retained. No repeated installation: the child installer itself completed; hosted
 seven-variant causes remain unreproduced. Next fresh source/build/five-root gates and protected-main
 delivery of the evidenced QGA fix/typed diagnostics; nine-variant/final18/public acceptance remains open.
+
+Sixth delivery PR56 merged2026-10-04T10:12:14Z to maind22bf5791fc22e556f22b1dfc661c2f4efa69fdc,
+with accepted211892bd/tree2c9d422a/canonicalc0b714fb. Clean source30 PASS/native0/session34757
+(log4f129aaa84b863a6f986b9672336c3bad5d4e9acc1940cbfba02681624760e9c), fresh build+verify0/0/session68751,
+five real-root gates0/session60207 before/after exactsource; compactreceipt44d3667cdd6d6eebeb494c2c328546988a552c2ce75ab5bf600b134959b3a2cb.
+PRSourceCI37194359454 and mainCI37194605119 SUCCESS; branch retained, samecheckoutmainFFclean.
+Fresh run37194737694 child07f377ba21abff27a71b6f2110f9998d292c3e51/tree7b67274e1c6379c6b3ac66bf2163aee05241a239,
+canonical0913150db5170208db4db2bee9aaa345a46503c02582479ccea320d2085f9eeb; sourceartifact independentlybound.
+Prepare/build/readback/snapshot nativeSUCCESS; exact14 Phase-A independentproof accepted receipt
+9b5b0b2fe40becf098a7764d0caca0a4fe48c952fa0be301d2bf09173435801f. Actual MinimalPASS14/dualbootPASS17,
+Stockext4PASS21/StockBtrfssystemdbootPASS21,StockLUKSsystemdbootPASS21/GRUBPASS22,MarbleStockGDMPASS17
+andMarbleGDMPASS26 authenticate this child/ISO/harness: all8PASS andStockGRUBFAIL20. Seven earlier
+installer failures not reproduced; both QGA timeouts and priorShellfailure recovered inthisnative matrix.
+Run37194737694 terminalFAIL/nativewatch1; finalization/publication skipped, no new1.0.6 release.
+StockBtrfsGRUBFAIL20 during snapshot preparation (caller4233), before snapshot reboot or BPF observation;
+entry selection and owned selector passed. No final18/public acceptance or release claim.
+QA-01 focused state-storage decision: keep /boot shared state and strict root/regular/nlink1/12-field/FD
+stability guards; accept0600 normally, or exactly0700 only with read-only FAT_IOCTL_GET_ATTRIBUTES proof
+on the same FD. No general mode relaxation, filesystem remount, source pins or signing changes.
+Reason: installer FAT fmask0077 synthesizes0700; the actual loader rejects that as ownership, while600passes.
+Native failing state metadata absent, so first require bounded real disposable VFAT RED→GREEN regression,
+including POSIX700/ioctl failure/foreign-owner/unsafe-mode/malformed/stability negatives. Apply same policy
+to early runtime guard and full loader, with fixed finite preboot diagnostic stages; preserve all37 reasons.
+Root and independent monitoring accepted this narrow design; source implementation waits for real FAT proof.
+Real FAT fixture attempt1 native1/session38236 stopped before mkfs: virtio serial sysfs path absent,
+not a product/FAT verdict. Exact owned VM stopped, image health PASS; original result retained.
+Independent fixture review required finite create/health deadlines, corrected before GO; total600s,
+offline2CPU/2GiB/256MiB target. Correct serial-path fixture regression then fresh bounded attempt.
+
+Real FAT attempt2/session59266 executed all11 actual guest cases: FAT0700/oldloaderRED/proposedFDGREEN,
+POSIX600PASS and POSIX700/ioctl-error/foreign-owner/unsafe-mode/hardlink/changedmetadata/malformedstate
+reject. Guest COMPLETE11/EXIT0, exactPIDgone/imagehealthPASS, independent monitoring accepted. Native
+wrapper1 retained: firstcase followed UEFI terminal reset on same line, so startswithcount10. Bound
+offline readback native0 +14regressionsPASS; receipt7ad673be0bbf82d02cdc3f24f4cd81bf1377835a2c37ba98a76a220bcdf6469e.
+No thirdVM: both attempts exactownedheavy cleanup native0; compactfailed/proof evidence retained.
+This proves the guest prototype mechanism, not installed snapshot acceptance; implement narrow shared
+FD policy now, retaining all37 runtime reasons and fresh downstream candidate/release gates.
+
+Focused source correction: common same-FD metadata policy now serves full state loader and early
+metadata-only guard; 0600 normal, exactly0700 only successful read-only FAT ioctl. UID0/regular/nlink1,
+bounded4097 read/exact12 fields/FDidentity remain; full validation stays at the original runtime stage.
+Final UUID/PARTUUID probes, state-validation and grub-reboot explicitly stop before PASS and emit only
+fixed preboot steps. Actual loader/policy/CLI/failure sequencing regressions RED→GREEN; native runtime
+100PASS/session44123 and affected Bash/ShellCheck/diff0/session12517. Root diagnostic compaction
+RED1→GREEN0 and independent monitoring PASS; raw/suffix/credential negatives retained. Stable final
+guest/runtime review PASS (monitoring actual4targeted + failure reasons/syntax/ShellCheck/diff);
+clean source/build/five-root/nextchild9VM acceptance remains pending.

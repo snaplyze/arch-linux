@@ -2364,6 +2364,8 @@ remove_snapshot_selector() {
 
 snapshot_state_program() {
     cat <<'SNAPSHOT_STATE_PY'
+import array
+import fcntl
 import os
 import re
 import stat
@@ -2404,17 +2406,45 @@ def parse_state(raw, run, subvol):
         raise ValueError("state range")
     return fields
 
+def check_metadata(fd, value):
+    if not stat.S_ISREG(value.st_mode) or value.st_uid != 0 or value.st_nlink != 1:
+        raise ValueError("state ownership")
+    mode = stat.S_IMODE(value.st_mode)
+    if mode == 0o600:
+        return
+    if mode != 0o700:
+        raise ValueError("state ownership")
+    # VFAT synthesizes 0700 under fmask=0077. Prove FAT on this retained FD;
+    # POSIX execute permission alone never permits an exception.
+    attributes = array.array("I", [0])
+    if attributes.itemsize != 4:
+        raise ValueError("state attributes")
+    try:
+        fcntl.ioctl(fd, 0x80047210, attributes, True)  # FAT_IOCTL_GET_ATTRIBUTES
+    except OSError:
+        raise ValueError("state ownership") from None
+
+def identity(value):
+    return (value.st_dev, value.st_ino, value.st_mode, value.st_uid, value.st_gid, value.st_nlink, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+
+def load_metadata(path):
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        before = os.fstat(fd)
+        check_metadata(fd, before)
+        if identity(before) != identity(os.fstat(fd)):
+            raise ValueError("state changed")
+    finally:
+        os.close(fd)
+
 def load_state(path, run, subvol):
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
         before = os.fstat(fd)
-        if not stat.S_ISREG(before.st_mode) or (before.st_uid, stat.S_IMODE(before.st_mode), before.st_nlink) != (0, 0o600, 1):
-            raise ValueError("state ownership")
+        check_metadata(fd, before)
         raw = os.read(fd, 4097)
         fields = parse_state(raw, run, subvol)
         after = os.fstat(fd)
-        def identity(value):
-            return (value.st_dev, value.st_ino, value.st_mode, value.st_uid, value.st_gid, value.st_nlink, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
         if len(raw) != before.st_size or identity(before) != identity(after):
             raise ValueError("state changed")
         return fields
@@ -2423,7 +2453,10 @@ def load_state(path, run, subvol):
 
 if __name__ == "__main__":
     try:
-        load_state(*sys.argv[1:])
+        if len(sys.argv) == 3 and sys.argv[1] == "--metadata":
+            load_metadata(sys.argv[2])
+        else:
+            load_state(*sys.argv[1:])
     except (OSError, ValueError, UnicodeError, TypeError):
         raise SystemExit(1)
 
@@ -2432,6 +2465,10 @@ SNAPSHOT_STATE_PY
 
 snapshot_validate_state() {
     python3 - "$1" "${run_id}" "$2" < <(snapshot_state_program)
+}
+
+snapshot_validate_metadata() {
+    python3 - --metadata "$1" < <(snapshot_state_program)
 }
 
 snapshot_device_numbers() {
@@ -2529,9 +2566,18 @@ SNAPSHOT_EXPECTED_PY
 )
 }
 
+snapshot_prepare_fail() {
+    local step="$1"
+    [[ "${run_id}" =~ ^grub-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}$ ]] || return 1
+    case "${step}" in device-identity | state-validation | grub-reboot) ;; *) return 1 ;; esac
+    printf 'SNAPSHOT_PREPARE_DIAGNOSTIC run_id=%s phase=snapshot-prepare step=%s status=failed\n' \
+        "${run_id}" "${step}" >&2
+    return 1
+}
+
 prepare_snapshot_boot() {
     local subvol="@snapshots/qa-${run_id}" path="/.snapshots/qa-${run_id}"
-    local state="/boot/qa-snapshot-${run_id}.state" uuid entry device partuuid target root_id inode physical
+    local state="/boot/qa-snapshot-${run_id}.state" uuid entry device partuuid target root_id inode physical final_uuid final_partuuid
     [ "${scenario}" = stock-gnome-btrfs-grub ]
     [[ "${run_id}" =~ ^grub-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}$ ]] || return 1
     [ ! -e "/etc/grub.d/42_qa_snapshot_${run_id}" ] &&
@@ -2567,10 +2613,11 @@ prepare_snapshot_boot() {
     grub-script-check /boot/grub/grub-btrfs.cfg
     entry="$(select_snapshot_grub_entry /boot/grub/grub.cfg /boot/grub/grub-btrfs.cfg "${uuid}" "${subvol}" "${device}" "${partuuid}" --inner)"
     install_snapshot_selector "${state}" "${entry}" || return 1
-    [ "$(blkid -s UUID -o value -- "${device}")" = "${uuid}" ] &&
-        [ "$(blkid -s PARTUUID -o value -- "${device}")" = "${partuuid}" ] || return 1
-    snapshot_validate_state "${state}" "${subvol}" || return 1
-    grub-reboot "qa-snapshot-${run_id}"
+    final_uuid="$(blkid -s UUID -o value -- "${device}")" || { snapshot_prepare_fail device-identity; return 1; }
+    final_partuuid="$(blkid -s PARTUUID -o value -- "${device}")" || { snapshot_prepare_fail device-identity; return 1; }
+    [ "${final_uuid}" = "${uuid}" ] && [ "${final_partuuid}" = "${partuuid}" ] || { snapshot_prepare_fail device-identity; return 1; }
+    snapshot_validate_state "${state}" "${subvol}" || { snapshot_prepare_fail state-validation; return 1; }
+    grub-reboot "qa-snapshot-${run_id}" || { snapshot_prepare_fail grub-reboot; return 1; }
     emit_runtime_action_pass snapshot-production-entry-selected
 }
 
@@ -2579,7 +2626,7 @@ verify_snapshot_runtime() {
     local options lower uuid cmdline target device partuuid root_id inode major minor
     [ "${scenario}" = stock-gnome-btrfs-grub ] || { snapshot_runtime_fail scenario; return 1; }
     [ -f "${state}" ] && [ ! -L "${state}" ] || { snapshot_runtime_fail state-file; return 1; }
-    [ "$(stat -Lc '%u:%a:%h' -- "${state}")" = '0:600:1' ] || { snapshot_runtime_fail state-mode; return 1; }
+    snapshot_validate_metadata "${state}" || { snapshot_runtime_fail state-mode; return 1; }
     [ "$(wc -l <"${state}")" -eq 12 ] || { snapshot_runtime_fail state-lines; return 1; }
     grep -qxF "run_id=${run_id}" "${state}" || { snapshot_runtime_fail state-run; return 1; }
     grep -qxF "subvol=${subvol}" "${state}" || { snapshot_runtime_fail state-subvolume; return 1; }
