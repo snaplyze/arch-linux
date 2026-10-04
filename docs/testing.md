@@ -94,8 +94,10 @@ integrity, zero failed units, clean shutdown and `qemu-img check` are mandatory.
 dual-boot path is a separate required supplemental acceptance case alongside the three core workflow
 matrix entries. The source candidate makes all six complementary scenarios mandatory release
 jobs and requires them before finalization; their evidence stays separate from the three core
-signed verdicts. This workflow change is not yet deployed, and all nine authoritative child
-runs remain pending [QA-01 / RELEASE-01](PLAN.md#qa-01--behavioral-and-vm-coverage).
+signed verdicts. The nine-scenario workflow is deployed. The latest executed child passed
+seven scenarios and failed two before finalization; it is not a published release. Current
+corrections and fresh acceptance remain tracked in
+[QA-01 / RELEASE-01](PLAN.md#qa-01--behavioral-and-vm-coverage).
 See [VM commands](../tests/vm/README.md).
 Stock additionally checks Language/Formats, input layouts and terminal shortcuts. Every run retains
 its input identities, a compact installer log, functional assertions, `qemu-img check` and a
@@ -108,6 +110,18 @@ Minimal must reach its working TTY without a forced VT switch. There is no conti
 frame-timing threshold, pixel challenge or manual-review receipt. If a functional check fails,
 investigate and fix the cause, add a regression check, and rerun the affected checks on the new inputs.
 Keep source, package and actual VM results distinct.
+
+The Stock Btrfs/GRUB snapshot check must prove that the marker read through the current overlay
+came from the expected read-only snapshot on the accepted physical partition. A detached or
+covered lower mount can disappear from pathname-based `findmnt` lookup; checking a separately
+mounted snapshot alone does not prove the source of the overlay read. The verifier binds the
+pre-reboot snapshot root ID, marker inode and physical-device numbers, uses a root-relative
+single-file reader, and observes the underlying Btrfs read and stable entry/return identities.
+The bounded observer fails on missing records, warnings, drops or incomplete cleanup. Its tool
+is installed only in that disposable scenario's existing update transaction. The separate
+read-only snapshot readback and all boot, partition, kernel, EFI and service checks remain
+required. A disposable overlay mechanism test is not an installed snapshot-boot PASS; fresh
+end-to-end acceptance is still required for the current correction.
 
 ## Marble GTK migration acceptance
 

@@ -157,6 +157,16 @@ lock/unlock, package update, reboot and second login. Stock also checks Language
 layouts, switching and terminal shortcuts. Minimal checks its installed multi-user system and TTY.
 QGA runs diagnostics; it does not log the user in or replace the installation.
 
+Stock Btrfs/GRUB also boots the production-selected read-only snapshot and then returns to the
+normal root. Its snapshot marker must be read through the actual overlay from the pre-recorded
+snapshot inode/root ID on the accepted physical partition. The bounded Btrfs read observer
+checks the real backing mount and entry/return identity; a lower pathname lookup or a separate
+snapshot mount does not replace that proof. The guest installs the observer tool in its existing
+update transaction and removes its owned tracer, temporary mounts and files before accepting
+the check. Missing observations, diagnostic warnings and cleanup failures fail the scenario.
+Fresh installed-system acceptance of the current observer integration remains pending; see
+[the canonical registry](../../docs/PLAN.md#execution-registry).
+
 If the installer exits before creating its log (for example, a dependency download fails), the
 guest reports its actual exit status and powers off. Missing diagnostic logs must not hide that
 failure or leave the host waiting for an installation that has already stopped.
