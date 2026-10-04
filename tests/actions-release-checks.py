@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import ast
 import importlib.util
 from contextlib import redirect_stderr, redirect_stdout
 import io
@@ -160,6 +161,78 @@ build_result "$2" "$3" "$4"
                         self.assertEqual(record["harnessTree"], "b" * 40)
                         with self.assertRaises(consumer["ManifestError"]):
                             consumer["exact_keys"](record, consumer["RESULT_KEYS"], "QEMU result")
+
+    def test_actual_marble_phase_assertions_match_strict_finalizer(self) -> None:
+        # Execute the real assertion-producing branch. Only VM/QGA/input operations
+        # are bounded stubs; assertion IDs/details never come from consumer expectations.
+        source = (ROOT / "tests/vm/run.sh").read_text()
+        def function(name: str) -> str:
+            return re.search(r'^' + name + r'\(\) \{\n.*?^\}', source, re.M | re.S).group(0)
+        def outer_assertion(identifier: str) -> str:
+            return re.search(r'^\s*record_assertion ' + re.escape(identifier) +
+                             r" \\\n\s*'[^']*'", source, re.M).group(0)
+        program = "set -euo pipefail\n" + function("record_assertion") + "\n" + function("run_marble_acceptance") + r'''
+assertions_file="$1/assertions.tsv"
+scenario_id=marble-gnome-btrfs-luks2-plymouth-systemdboot
+input_mode=staged
+last_boot_id=first
+current_phase=firstboot
+die(){ return 1; }
+qga_verify(){ if [ "$1" = postreboot-prelogin ]; then last_boot_id=second; fi; }
+capture_screen(){ :; }
+marble_gdm_login(){ :; }
+run_fresh_marble_user_round_trip(){ :; }
+hmp_request(){ :; }
+hmp_type_password(){ :; }
+sleep(){ :; }
+schedule_transition(){ :; }
+wait_qemu_exit(){ :; }
+launch_qemu(){ :; }
+capture_and_unlock_luks_prompt(){ :; }
+wait_qga(){ :; }
+'''
+        program += outer_assertion("accepted-iso-exact-installer") + "\nrun_marble_acceptance\n"
+        program += outer_assertion("clean-poweroff-image-health-hygiene") + "\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            produced = subprocess.run(["bash", "--noprofile", "--norc", "-c", program,
+                                       "fixture", tmp], capture_output=True, text=True, timeout=5)
+            self.assertEqual(produced.returncode, 0, produced.stderr)
+            rows = (Path(tmp) / "assertions.tsv").read_bytes()
+        assertions = [dict(zip(("id", "status", "detail"), line.split("\t"), strict=True))
+                      for line in rows.decode().splitlines()]
+        self.assertEqual(len(assertions), 26)
+        # Run the actual run_record assertion-validation statements, avoiding fake
+        # repository signatures/VM evidence and retaining the exact ordered closure.
+        path = ROOT / "repository/acceptance-manifest.py"
+        consumer = runpy.run_path(str(path))
+        record = next(node for node in ast.parse(path.read_text()).body
+                      if isinstance(node, ast.FunctionDef) and node.name == "run_record")
+        begin = next(i for i, node in enumerate(record.body)
+                     if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and
+                        target.id == "assertions" for target in node.targets))
+        end = next(i for i, node in enumerate(record.body)
+                   if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call) and
+                   isinstance(node.value.func, ast.Name) and node.value.func.id == "validate_repository_objects")
+        validator = compile(ast.Module(body=record.body[begin:end], type_ignores=[]), str(path), "exec")
+        def validate(items: list[dict[str, str]]) -> None:
+            tsv = "".join(f"{row['id']}\t{row['status']}\t{row['detail']}\n" for row in items).encode()
+            namespace = dict(consumer, result={"assertions": items}, scenario=consumer["SCENARIOS"][2],
+                             read=lambda name, limit: tsv)
+            exec(validator, namespace)
+        validate(assertions)
+        identifiers = [item["id"] for item in assertions]
+        first = identifiers.index("gdm-helper-failure-honest")
+        second = identifiers.index("gdm-explicit-deactivation")
+        variants = [assertions[:first] + assertions[first + 1:],
+                    assertions[:second] + assertions[second + 1:],
+                    [item for item in assertions if item["id"] not in
+                     ("gdm-helper-failure-honest", "gdm-explicit-deactivation")],
+                    assertions[:first] + [assertions[second], assertions[first]] + assertions[second + 1:],
+                    assertions + [{"id": "unknown-extra", "status": "PASS", "detail": "fixture"}],
+                    [dict(item, status="FAIL") if i == first else item for i, item in enumerate(assertions)]]
+        for index, variant in enumerate(variants):
+            with self.subTest(rejected=index), self.assertRaises(consumer["ManifestError"]):
+                validate(variant)
 
     def test_complementary_qemu_gates_are_mandatory_and_separate_from_signed_evidence(self) -> None:
         workflow = (ROOT / ".github/workflows/release.yml").read_text()

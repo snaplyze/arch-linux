@@ -337,10 +337,10 @@ regression → affected tests → independent review where material → status u
 | MON-01 | P2 | none | DONE | Dated advisory coverage of boot/desktop inputs |
 | UP-01 | P3 | MON-01 | DONE | Reviewed external-source decisions and synchronized metadata |
 | ARCH-01 | P2 | ISO qualification independent; corrected-candidate tests after SAFE-01…03, UP-01 | DONE | Owner-reviewed October ISO after actual Minimal/Stock PASS; corrected-child runtime remains RELEASE-01 |
-| QA-01 | P2 | SAFE-01…03, TRUST-01/02, CONFIG-01, RECOVERY-01, UP-01 | IN_PROGRESS | Seventh child8PASS/StockGRUBFAIL20; actual installed snapshot identifies systemd-remount-fs exit1; native Btrfs-fstab/overlay reproduction accepted; focused correction remains |
+| QA-01 | P2 | SAFE-01…03, TRUST-01/02, CONFIG-01, RECOVERY-01, UP-01 | IN_PROGRESS | Eighth child1079a9f all9 nativePASS incl plainGRUB23 snapshotruntime; finalizer strict Marble assertion consumer24 versus actual26 needs correction/fresh gates |
 | DOC-01 | P3 | Corrected selector and source behavior prose; final release records under RELEASE-01 | DONE | UI copy and final behavior docs; prose correction is not product fix |
-| GATE-01 | P1 | all above | IN_PROGRESS | PR57/mainb491 source31/build/five-root gates accepted; diagnostics c546 source32 PASS; remount product correction needs fresh candidate gates |
-| RELEASE-01 | final | GATE-01 | IN_PROGRESS | Seventh child4514c3/run37199471699 signed Phase-A14 verified; 8PASS/StockGRUBFAIL20, final18/public skipped; public1.0.5 retained |
+| GATE-01 | P1 | all above | IN_PROGRESS | Remount e310 source34/build/five-realroot gates accepted; PR58/main9291 CI passed; finalizer assertion correction requires fresh candidate binding |
+| RELEASE-01 | final | GATE-01 | IN_PROGRESS | Eighth child1079a9f/run37210253900 exactPhaseA14/all9 nativePASS; finalization rejected public Marble26 versus consumer24 before secret handoff, final18/public skipped; public1.0.5 retained |
 
 GATE-01 depends on preceding source/pre-merge deliverables only. DELIVERY-01 closes at reviewed
 source/design/regression acceptance; actual package-only publication requires separately defined
@@ -1705,7 +1705,7 @@ cleanup native0, compact receipt/log retained. Correct finite nonblocking unit r
 and LF/CRLF parsing before a new attempt. Attempt2/native1/session8358 passed normal
 CLI/unit but stopped at overlay setup before native exec; no overlay verdict transferred.
 
-Current continuation: diagnostics commitc54613c67f4404f644ebcab996f0c0c142cde2a9,
+Historical diagnostics candidate: commitc54613c67f4404f644ebcab996f0c0c142cde2a9,
 tree0c5287e35a403cfdd3d9835c5d997109a012f725 on local main, clean/ahead1, not pushed.
 Source32 native0/session42275 (logbda7d77c4ef488135a46f45067078682063224cc60e54a0e508bdba0f1d488d2),
 104runtime/full10/signer14+18/deferrednone PASS. This corrects failed-query false PASS and
@@ -1781,3 +1781,40 @@ build/verify/five-root gates, ready authorized PR/main delivery, new configured 
 final18/public gates. No mask/reset/failed-unit exemption, source-pin/signing change or
 repeated closed FAT/BPF proof. Full15-ID scope and QA-01/GATE-01/RELEASE-01 remain open;
 no final18/public1.0.6/completion claim.
+
+Current continuation: same physical checkout main9291d995f0d7857d493917c330a2714e4f904bd1,
+tree586fc2d8bf25dfddc33aea03813ce44add763466, origin equal, accepted PR58 squash/mainFF.
+Clean e310 candidate source34/native0/session85155 logb91729a3b35265adda368968f0caadfb2a32c23a32c57035a7b8a54e59af7110;
+fresh six-package build/separateverify0/session74206 and five-realroot0/session77494,
+independent reviews PASS. Owned transient heavy removed exactly, compact proof retained.
+MainCI37210132492 passed; eighth configuredrelease37210253900 child1079a9f58a2a4cc23db4744484e7a3050f1764af,
+tree8eb507bc626764b47768158784469825d5559450, canonical331ca490c3f35cbf6e84bd99241b1c4275b57d779551f7f4b15405be0b470007,
+version1.0.6 UNPUBLISHED. Actual sourcegraph readback0/session17203 plus independent review;
+main188 plus releaseorigin1 = child189 (oldfixed188 diagnostic failed first, history retained).
+PhaseA14 native0/session74032, proofd2fd6039a0f6c922924808a1d9d3143c77663fce404f1aea6377adb7bded7e83,
+independent signatures/trust/source/package review PASS. All9 actualnative VM results bound
+and collected0/session96962: Minimal14,dual17,Stockext4 21,StockBtrfssystemd21,StockLUKSsystemd21,
+StockLUKSGRUB22,MarbleStockGDM17,MarbleGDM26,plainStockBtrfsGRUB23. The latter proves real
+filesystem snapshot boot/desktop/return after remount correction. LUKSGRUB22 is normal
+installation/login/update/reboot only; repository snapshotVerification is not filesystem boot.
+Terminal releaseFAIL at finalizejob111464818903, before secret handoff; tag/release/Pages/public
+skipped, original public1.0.5 unchanged. Root reproduced actual full public snapshot_contract
+and three directory_run inputs: MinimalPASS14,StockPASS22,MarbleFAIL QEMU assertion closure differs.
+Independent diagnosis: actual producer emits gdm-helper-failure-honest and gdm-explicit-deactivation
+after second-gdm-login-wayland; strict consumer EXPECTED_ASSERTIONS omits them (24 versus26).
+Source correction must retain all26 ordered checks and missing/reordered/unknown/failure rejection.
+storage_guards owns only acceptance-manifest.py and actions-release-checks.py; root owns this
+checkpoint/integration/final acceptance. Next stable correction/public-input replay/regression,
+fresh source/build/five-root gates, ready PR/new configuredchild/all9/final18/public; old run
+not retried with changed inputs and no priorPASS transferred. All15 originalIDs remain in scope.
+Final record updates are local main docs/validation/checkpoint; a separate remote documentation
+publication gate is not in the agreed plan. Do not trigger an unsolicited second installer release
+merely to publish final checkpoint prose; report the remote-doc limitation honestly.
+Focused finalizer correction frozen: production adds only the two required IDs in the
+real producer order. Actual run_marble_acceptance + record_assertion under bounded VM/QGA
+stubs emits26 (never derived from consumer EXPECTED list); real assertion-validation AST
+statements RED1 old24 → GREEN0 new26. Missing either/both, reordered pair, unknownextra
+and FAILstatus reject. Full17 actions-release checks native0; independent stable review PASS.
+Root full authentic public three-directory replay RED1 Marble closure → GREEN0 all14/22/26,
+no private handoff/signing/final18 claim. Next commit exactthree authorized paths, bind fresh
+clean source35/build/five-realroot gates, PR/newconfiguredchild; predecessor9PASS remains historical.
