@@ -216,6 +216,68 @@ chroot_enable_btrfs_scrub /mnt
         self.assertNotIn("btrfs-scrub@home.timer", core)
         self.assertNotIn("btrfs-scrub@.snapshots.timer", core)
 
+    def test_volatile_fstab_helper_installs_prestart_without_replacing_vendor_unit(self):
+        generator = function("volatile_root_fstab_program")
+        installer = function("chroot_install_volatile_root_fstab")
+        with tempfile.TemporaryDirectory(prefix="arch-linux-volatile-helper-check-") as temporary:
+            root = Path(temporary)
+            vendor = root / "usr/lib/systemd/system/systemd-remount-fs.service"
+            vendor.parent.mkdir(parents=True)
+            vendor.write_bytes(b"[Service]\nExecStart=/usr/lib/systemd/systemd-remount-fs\n")
+            fstab = root / "etc/fstab"
+            fstab.parent.mkdir()
+            fstab.write_bytes(b"# unchanged at installation\n")
+            program = generator + installer + '\nchroot_install_volatile_root_fstab "$1"\n'
+            result = run_bash(program + 'chroot_install_volatile_root_fstab "$1"\n', root)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(vendor.read_bytes(), b"[Service]\nExecStart=/usr/lib/systemd/systemd-remount-fs\n")
+            self.assertEqual(fstab.read_bytes(), b"# unchanged at installation\n")
+            helper = root / "usr/local/lib/arch-linux/volatile-root-fstab.py"
+            dropin = root / "etc/systemd/system/systemd-remount-fs.service.d/arch-linux-volatile-root.conf"
+            self.assertEqual(helper.stat().st_mode & 0o777, 0o644)
+            self.assertEqual(dropin.stat().st_mode & 0o777, 0o644)
+            self.assertEqual(dropin.read_text(), "[Service]\nExecStartPre=/usr/bin/python -I -S /usr/local/lib/arch-linux/volatile-root-fstab.py\n")
+            # The installed artifact must be exactly the reviewed generator output.
+            emitted = run_bash(generator + "\nvolatile_root_fstab_program\n")
+            self.assertEqual(emitted.returncode, 0, emitted.stderr)
+            self.assertEqual(helper.read_bytes(), emitted.stdout.encode())
+            self.assertEqual(sorted(path.name for path in dropin.parent.iterdir()), [dropin.name])
+
+    def test_volatile_helper_and_python_route_only_to_btrfs_grub(self):
+        core = function("exec_pacstrap_core")
+        start = core.index("# GRUB INSTALLATION")
+        stop = core.index("# Add kernel args", start)
+        routing = core[start:stop] + "\nfi\n"
+        dependency = next(line for line in core.splitlines() if "packages+=(inotify-tools" in line)
+        for filesystem, bootloader, expected in (("btrfs", "grub", True), ("ext4", "grub", False),
+                                                 ("btrfs", "systemd", False), ("ext4", "systemd", False)):
+            with self.subTest(filesystem=filesystem, bootloader=bootloader):
+                setup = '''
+ARCH_LINUX_FILESYSTEM="$1"
+ARCH_LINUX_BOOTLOADER="$2"
+packages=()
+chroot_configure_grub_btrfs_snapshot_boot() { printf 'configure\\n'; }
+chroot_install_volatile_root_fstab() { printf 'helper\\n'; }
+log_fail() { :; }
+process_return() { exit "$1"; }
+'''
+                result = run_bash(setup + routing, filesystem, bootloader)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.splitlines(), ["configure", "helper"] if expected else [])
+                deps = run_bash(setup + dependency + '\nprintf "%s\\n" "${packages[@]}"\n', filesystem, bootloader)
+                self.assertEqual(deps.returncode, 0, deps.stderr)
+                self.assertEqual("python" in deps.stdout.splitlines(), expected)
+        failed = run_bash('''
+ARCH_LINUX_FILESYSTEM=btrfs
+ARCH_LINUX_BOOTLOADER=grub
+chroot_configure_grub_btrfs_snapshot_boot() { printf 'configure\\n'; return 1; }
+chroot_install_volatile_root_fstab() { printf 'helper\\n'; }
+log_fail() { :; }
+process_return() { exit "$1"; }
+''' + routing)
+        self.assertNotEqual(failed.returncode, 0)
+        self.assertEqual(failed.stdout.splitlines(), ["configure"])
+
     def test_first_login_success_failure_and_retry_contract(self):
         with tempfile.TemporaryDirectory(prefix="arch-linux-first-login-check-") as temporary:
             fixture = Path(temporary)
