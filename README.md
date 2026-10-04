@@ -70,9 +70,10 @@ through:
 sudo pacman -Syu
 ```
 
-The intended Marble package lifecycle does not require a new installer release. Current package-only
-publication from main has an [open procedure/provenance gap F-14](docs/PLAN.md#review-findings);
-installed systems can still consume already published signed packages through `pacman -Syu`.
+The Marble package lifecycle does not require a new installer release. The reviewed
+[package-only procedure](repository/README.md#package-only-updates) now binds an exact package child
+to the published installer; external package-only signing/publication still requires separate
+authorization and is NOT_TESTED. Installed systems consume published signed packages through `pacman -Syu`.
 Successful removal of the Marble helpers returns the user session to Stock; reinstalling restores
 the package-owned profile when compatibility checks and activation succeed. Inspect the resulting
 session; helper failures or foreign state require the [lifecycle checks](docs/marble.md).

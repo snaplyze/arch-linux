@@ -27,8 +27,8 @@ are separate properties.
 
 ## Verified publication record
 
-Release 1.0.4 has completed immutable publication, Pages verification and public VM acceptance.
-The [validation record](validation.md#verified-release-104) links its exact source identities,
+Release 1.0.6 has completed immutable publication, Pages verification and fresh public VM acceptance.
+The [validation record](validation.md#verified-release-106--2026-10-04) links its exact source identities,
 signed evidence and workflow. Older results below remain historical and do not validate a later
 source candidate.
 

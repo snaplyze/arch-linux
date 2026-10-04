@@ -28,11 +28,11 @@ It executes:
 
 Individual commands are listed in [AGENTS.md](../AGENTS.md). Static reading must be reported as
 `REVIEWED_ONLY`, never as an executed test.
-The source candidate adds maintained actual-executor/idle-probe failure regressions for F-01/F-02,
+The maintained suite includes actual-executor/idle-probe failure regressions for F-01/F-02,
 reserved-account tests for F-11, faithful signed database/package semantic negatives for F-12,
 and actual exit-handler fixtures for F-13. Predicate or literal assertions alone do not prove
 a whole executor. The earlier passing suite and documentary audit are historical; the final
-integrated candidate suite and runtime acceptance must bind the new bytes independently.
+integrated suite and runtime acceptance for 1.0.6 are separately bound in [validation](validation.md#verified-release-106--2026-10-04). Later changes require fresh applicable checks.
 Exit-handler late-writer retention now uses an isolated marker closure with a maintained
 synchronized regression; independent source review and actual VM error acceptance remain separate.
 
@@ -92,7 +92,7 @@ a new qcow2 and an independent OVMF VARS copy; all three consume one exact indep
 production-signed snapshot. Real login, lock/unlock, `pacman -Syu`, reboot, repeated login, package
 integrity, zero failed units, clean shutdown and `qemu-img check` are mandatory. A representative
 dual-boot path is a separate required supplemental acceptance case alongside the three core workflow
-matrix entries. The source candidate makes all six complementary scenarios mandatory release
+matrix entries. The release workflow makes all six complementary scenarios mandatory release
 jobs and requires them before finalization; their evidence stays separate from the three core
 signed verdicts. The nine-scenario workflow is deployed. Release 1.0.6 child7af2209 passed all nine scenarios against its exact signed snapshot and
 October ISO, then finalized18 and immutable publication succeeded. The separate fresh public Marble/GDM VM passed19 assertions; exact outcomes and identities
@@ -161,7 +161,7 @@ promoted to those statuses. Staged QEMU consumes only the exact 14-file Phase-A 
 PASS verdicts, launcher `finalize` preserves those 14 bytes and adds signed acceptance JSON/evidence
 for exact 18; installer-release Pages deployment accepts only that final closure. Later
 [package-only updates](../repository/README.md#package-only-updates) use a separately tagged,
-verified 14-file snapshot with the installer unchanged. The source candidate resolves the local
+verified 14-file snapshot with the installer unchanged. The delivered tooling resolves the local
 [F-14](PLAN.md#review-findings) provenance incompatibility through its explicit package child;
 external package signing/deployment and installed-system upgrade remain separately authorized
 and NOT_TESTED. The final public VM uses only the tagged public bootstrap, immutable Release

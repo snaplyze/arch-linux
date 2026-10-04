@@ -327,7 +327,7 @@ the Pages artifact. The Pages job receives no signing secret or private material
 
 ### Package-only updates
 
-The source candidate provides an explicit package child; external package signing/publication is
+The delivered tooling provides an explicit package child; external package signing/publication is
 separately authorized and remains NOT_TESTED. Normal installer intent stays the default. A reviewed
 `repository/delivery-intent.json` with package intent suppresses the automatic installer release
 before version allocation; it does not grant package signing authority.

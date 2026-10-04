@@ -670,6 +670,25 @@ Owner requested this as the end of the plan. Do not publish during review/planni
 
 ## Checkpoint
 
+### Post-release Markdown reconciliation — 2026-10-04
+
+Owner requested a complete Markdown freshness check after accepted immutable 1.0.6. The scope is
+all 29 tracked Markdown files, including `.github/pull_request_template.md`; this is a documentation
+follow-up, with no new product gate or publication. README and other current reference pages now
+reflect delivered package provenance, bounded archive inspection, database semantics, corrected
+Marble prompt, completed snapshot-runtime acceptance and current 1.0.6 publication. The PR template
+matches the canonical single build/independent verification, advisory A+B comparison and optional
+screenshots. Dated audit findings, old releases/ISO qualification, design decisions, retained pins
+and setup-only evidence retain their original scope; unrelated release-neutral pages need no edits.
+
+`AGENTS.md` now requires inventory and reconciliation of every tracked Markdown file after successful
+release/public acceptance, with accurate historical evidence, final checks and explicit local-versus-
+published documentation status. Before completing this follow-up, bind the final review, exact
+changed paths and fresh source-suite result in the existing frozen-final-gate-candidate.json
+evidence register.
+No signing, product inputs, workflow, permissions or remote objects change. Documentation remains
+local; publication is a separate action under the existing external/Git boundaries.
+
 ### Current implementation checkpoint — 2026-10-04
 
 All15 mandatory IDs are accepted. Product delivery and public acceptance are complete; final

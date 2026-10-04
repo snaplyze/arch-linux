@@ -19,14 +19,14 @@ revalidates them immediately before mutation, rejects busy or ambiguous devices 
 resources owned by the current run. PKGBUILDs execute under a disposable unprivileged account;
 verified package bytes cross into the root executor only after the builder exits.
 
-These are required boundaries. Published 1.0.5 has documented guard/error-path and shared-ESP
-gaps in [F-01–F-03](docs/PLAN.md#review-findings); historical acceptance does not certify those
-failure paths safe.
-Published 1.0.5 also retains an unsigned-inspection decompression resource risk
-([F-04](docs/PLAN.md#review-findings)). The source candidate implements fail-closed guard and
-bounded parser corrections with independent source review; corrected-child VM/release gates
-remain pending. No signing-authority bypass
-or execution of unsigned code was demonstrated by that resource-risk review.
+Release 1.0.6 delivers fail-closed guard checks, shared-ESP collision refusal, bounded unsigned
+archive inspection, package/database semantic validation and quiescent teardown corrections.
+Its source, build, five real-root checks, nine staged VM scenarios and fresh public Marble/GDM
+acceptance passed; exact identities are in the [validation record](docs/validation.md#verified-release-106--2026-10-04).
+The [F-01–F-04 findings](docs/PLAN.md#review-findings) describe historical 1.0.5 behavior, not
+unresolved defects in the current release. That review demonstrated no signing-authority bypass
+or execution of unsigned code. Additional live cancellation/busy-resource/crash VM paths remain
+NOT_TESTED; successful installation scenarios do not certify every failure path.
 
 ## Trust bootstrap
 
