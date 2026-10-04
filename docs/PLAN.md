@@ -1600,7 +1600,23 @@ output and still excludes quoted QGA request text; fresh source checks pending.
 Focused final monitoring review PASS after atime correction, frozen runa99990f9/harness96a3cddd/static5282f2a4.
 Source28 `PYTHONDONTWRITEBYTECODE=1 bash tests/source-tests.sh` native0/session67186,
 log SHA256 8d99b2bd68ae62df695b5964230b071a4c560e451db70f7a54172e0475f985d8,96runtime and full repository10/signer14+18/deferrednone.
-Ready local diagnostic commit owns exactly PLAN/static/harness/qga-client/run/runtime files;
-no installer/bootstrap/pin/trust/workflow change or new release retry. Committed clean
-canonical harness then one focused real local Stock diagnostic on public1.0.5 inputs;
-actual new child QA/GATE/RELEASE remain open.
+Local diagnostic commit1952675995f4568ef38a6a0676f6d7341f5f83f9/treefb00b468739abba1be078b2f6bd6223ce2dacc78
+passed clean source29/native0/session82938 (log SHA25652e577aa8e51c5a189011efdba1ab23973a42ac6c4d86a273e6382dc945db8c0).
+It owns exactly PLAN/static/harness/qga-client/run/runtime; installer/bootstrap/pins/trust/workflow unchanged.
+Actual public1.0.5 Stock diagnostic/native0/session82922 passed20 assertions including full210267B
+QGA transport, genuine GDM password/Wayland/lock/unlock/update/reboot; result SHA256
+91ba844bde08edafe299d349c1b6e4b19553a1ce1a3369b3d89a372c303f7998.
+This examined changed upstream premises, without ISO reacceptance or new-child acceptance.
+A bounded installation-only diagnostic used exact fifth Phase-A childaaff86062546/installer278965467a7e
+and approved October ISO with readonly payload; no new hosted pipeline or source copy.
+First generated-runner attempt failed identity alphabet before VM creation (native1); actual
+full emitter RED→GREEN preserves unsafe-input rejection and prior logs. Second attempt/session47299
+completed real installation (install_outcome0 and exact completion status0). Wrapper/native1 arose
+at diagnostic cleanup; image check has no errors, recorded QEMU/bridge absent and exact heavy/raw/socket
+resources absent. Independent monitoring confirmed these facts, but no overall PASS is transferred.
+Actual cleanup/canonical-wait regression with owned children/Unix sockets/native qemu-img reproduced
+RED native1 for already-unlinked sockets, then GREEN5 cases after accepting absence only once exact
+writers are quiescent. Replacement/symlink/unhealthy negatives remain; generated-runner-only fix and
+historical native1 retained. No repeated installation: the child installer itself completed; hosted
+seven-variant causes remain unreproduced. Next fresh source/build/five-root gates and protected-main
+delivery of the evidenced QGA fix/typed diagnostics; nine-variant/final18/public acceptance remains open.
