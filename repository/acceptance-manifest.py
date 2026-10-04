@@ -81,6 +81,7 @@ EXPECTED_ASSERTIONS = {
         "gdm-process-scoped-overlays", "user-shell-overlay-isolation", "vendor-paths-clean",
         "project-packages-qkk-clean", "lock-password-unlock", "update-hooks-safe",
         "reboot-plymouth-gdm-reactivation", "second-gdm-login-wayland",
+        "gdm-helper-failure-honest", "gdm-explicit-deactivation",
         "gdm-stock-fallback-and-restore", "marble-package-removal-stock", "marble-package-reinstall",
         "clean-poweroff-image-health-hygiene",
     ),
