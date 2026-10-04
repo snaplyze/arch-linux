@@ -686,8 +686,10 @@ release/public acceptance, with accurate historical evidence, final checks and e
 published documentation status. Before completing this follow-up, bind the final review, exact
 changed paths and fresh source-suite result in the existing frozen-final-gate-candidate.json
 evidence register.
-No signing, product inputs, workflow, permissions or remote objects change. Documentation remains
-local; publication is a separate action under the existing external/Git boundaries.
+This reconciliation changes no signing, product inputs, workflow or permissions. The owner
+subsequently authorized publication of all final documentation to protected main through a checked
+squash PR. Its exact CI/merge/main identities and remote outcome belong in the same evidence
+register; skip only the duplicate main push CI after successful PR checks to avoid another release.
 
 ### Current implementation checkpoint — 2026-10-04
 
@@ -713,8 +715,8 @@ Unauthenticated HTTPS public18+Pages25 exactbyte proof0/session81772 ran under a
 outer deadline. Fresh configured publicMarbleGDM VM PASS19/native0 (publicartifact11308433140),
 real HMP/password/Wayland/lock/update/reboot, two bootIDs/no-QEMU/imagehealth accepted.
 ResultSHA13de92af4ecc355529ae734674a7966529c62209adbb7d0d066ebf523b0d25e8;
-release watch0/session50451, terminalSUCCESS. No PASS transferred from older releases or failed predecessors. Final documentation is localmain only; no extra push/publication
-is added merely to publish checkpoint prose. Independent final result review and clean documentation source37 passed. Goal completion requires
+release watch0/session50451, terminalSUCCESS. No PASS transferred from older releases or failed predecessors. Final documentation was initially retained on localmain. The later explicit owner request
+authorizes a separate documentation PR/main publication, without a new installer release. Independent final result review and clean documentation source37 passed. Goal completion requires
 the final outcome-record check recorded in the same register, without adding another project scope.
 
 Evidence register: the existing frozen-final-gate-candidate.json, finalizeCandidate entry, preserves
