@@ -67,7 +67,7 @@ with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
         fail("QGA socket changed while the exact peer was connected")
     stream = connection.makefile("rwb", buffering=0)
     sync = {"execute": "guest-sync-delimited", "arguments": {"id": sync_id}}
-    stream.write(json.dumps(sync, separators=(",", ":")).encode() + b"\n")
+    connection.sendall(json.dumps(sync, separators=(",", ":")).encode() + b"\n")
     while True:
         raw = stream.readline(1_048_577)
         if not raw:
@@ -82,7 +82,7 @@ with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
         if response.get("return") == sync_id:
             break
 
-    stream.write(json.dumps(request, separators=(",", ":")).encode() + b"\n")
+    connection.sendall(json.dumps(request, separators=(",", ":")).encode() + b"\n")
     while True:
         raw = stream.readline(16_777_217)
         if not raw:

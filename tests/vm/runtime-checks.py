@@ -10,6 +10,65 @@ VERIFY = ROOT / "tests/vm/guest/verify.sh"
 def function(name):
     return re.search(r"^" + name + r"\(\) \{\n.*?^\}", VERIFY.read_text(), re.M | re.S).group(0)
 class RuntimeChecks(unittest.TestCase):
+    def qga_partial_transport(self, short_sync=False, peer_mismatch=False):
+        import base64, io, json, os, runpy, socket, struct
+        from unittest.mock import patch
+        client = ROOT / "tests/vm/qga-client.py"
+        script_bytes = VERIFY.read_bytes()
+        request = {"execute": "guest-exec", "arguments": {"path": "/usr/bin/bash", "arg": ["-c", "exec 3<&0; exec /usr/bin/bash /dev/fd/3"], "input-data": base64.b64encode(script_bytes).decode(), "capture-output": True}}
+        frames = []
+        class Connection:
+            def __init__(self): self.pending = bytearray(); self.responses = []; self.timeouts = []
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+            def settimeout(self, value): self.timeouts.append(value)
+            def connect(self, path): pass
+            def getsockopt(self, *args): return struct.pack("3i", os.getpid() + int(peer_mismatch), os.getuid(), os.getgid())
+            def makefile(self, *args, **kwargs): return self
+            def send(self, data):
+                limit = 17 if short_sync else (len(data) if not frames else 4096)
+                data = data[:limit]; self.pending.extend(data)
+                while b"\n" in self.pending:
+                    line, _, remainder = self.pending.partition(b"\n"); self.pending = bytearray(remainder)
+                    frame = json.loads(line); frames.append(frame)
+                    if frame["execute"] == "guest-sync-delimited": response = {"return": frame["arguments"]["id"]}
+                    else: response = {"id": frame["id"], "return": {"pid": 42}}
+                    self.responses.append(json.dumps(response).encode() + b"\n")
+                return len(data)
+            def sendall(self, data):
+                while data: data = data[self.send(data):]
+            def write(self, data): return self.send(data)
+            def readline(self, size):
+                if not self.responses: raise TimeoutError("partial frame has no newline")
+                return self.responses.pop(0)
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "qga.sock"
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
+                server.bind(str(path)); metadata = path.lstat()
+                connection = Connection(); output = io.StringIO(); errors = io.StringIO()
+                import contextlib
+                with patch("socket.socket", return_value=connection), patch("sys.argv", [str(client), str(path), str(os.getpid()), f"{metadata.st_dev}:{metadata.st_ino}"]), patch("sys.stdin", io.StringIO(json.dumps(request))), contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
+                    runpy.run_path(str(client), run_name="__main__")
+        return frames, connection, output.getvalue(), script_bytes
+
+    def test_actual_qga_client_completes_partial_sync_and_large_guest_request(self):
+        import base64, json
+        for short_sync in (False, True):
+            with self.subTest(short_sync=short_sync):
+                frames, connection, output, script = self.qga_partial_transport(short_sync)
+                self.assertEqual(len(frames), 2)
+                self.assertEqual(frames[0]["execute"], "guest-sync-delimited")
+                self.assertEqual(base64.b64decode(frames[1]["arguments"]["input-data"]), script)
+                self.assertGreater(len(json.dumps(frames[1])), 128 * 1024)
+                self.assertEqual(json.loads(output)["id"], frames[1]["id"])
+                self.assertEqual(connection.timeouts, [30])
+                self.assertEqual(connection.pending, b"")
+
+    def test_actual_qga_client_partial_fixture_still_rejects_wrong_peer(self):
+        with self.assertRaises(SystemExit) as failure:
+            self.qga_partial_transport(peer_mismatch=True)
+        self.assertEqual(failure.exception.code, 1)
+
     def snapshot_reader(self):
         match = re.search(r"^snapshot_overlay_reader_program\(\) \{\n.*?<<'SNAPSHOT_READER_PY'\n(.*?)\nSNAPSHOT_READER_PY\n", VERIFY.read_text(), re.M | re.S)
         self.assertIsNotNone(match, "actual root-relative snapshot reader missing")

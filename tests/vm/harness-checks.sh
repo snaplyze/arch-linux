@@ -513,4 +513,61 @@ with tempfile.TemporaryDirectory(prefix="qa-extension-compaction-") as tmp:
 print("guest diagnostic compaction: extension, Shell and snapshot markers preserved, credential/raw logs removed")
 PY_EXTENSION_COMPACTION
 
+# Preserve typed failure locations/classes while discarding all raw commands and secrets.
+python3 - "${host}" <<'PY_FAILURE_DIAGNOSTICS'
+import gzip, os, re, subprocess, sys, tempfile
+from pathlib import Path
+source=Path(sys.argv[1]).read_text(); functions=[]
+for name in ("capture_failure_diagnostic", "remove_secret_bearing_evidence", "compact_run_evidence"):
+    match=re.search(r"^"+name+r"\(\) \{\n.*?^\}",source,re.M|re.S)
+    assert match, "missing production failure diagnostic helper: "+name
+    functions.append(match.group())
+for case in ("installer", "guest", "credential", "unknown", "symlink", "oversize"):
+    with tempfile.TemporaryDirectory(prefix="qa-failure-diagnostic-") as tmp, tempfile.TemporaryDirectory(prefix="qa-failure-foreign-") as other:
+        root=Path(tmp); evidence=root/"evidence"; evidence.mkdir(); secret="fixture-runtime-credential"
+        phase="install-archiso" if case != "guest" else "firstboot"
+        raw=evidence/("firstboot.stderr" if case=="guest" else "install-installer.log")
+        if case=="installer":raw.write_text("error: target not found: private-package\nCommand 'secret command /hidden/key' failed with exit code 1 in function 'exec_install_packages' (line 4321)\n")
+        elif case=="guest":raw.write_text("MINIMAL_QEMU_GUEST_FAIL phase=firstboot line=987 status=2 command=private-command\\ secret\n")
+        elif case=="credential":raw.write_text("error: target not found: "+secret+"\nraw /hidden/key\n")
+        elif case=="unknown":raw.write_text("raw /hidden/key token=value\n")
+        elif case=="symlink":
+            foreign=Path(other)/"foreign";foreign.write_text("error: target not found: "+secret+"\n");raw.symlink_to(foreign)
+        else:
+            with raw.open("wb") as f:f.truncate(16*1024*1024+1)
+        script="set -Eeuo pipefail\nrun_root=$FIXTURE evidence=$FIXTURE/evidence runtime_password=fixture-runtime-credential run_id=fixture current_phase="+phase+"\n"+"\n".join(functions)+"\ncapture_failure_diagnostic\ncompact_run_evidence\n"
+        result=subprocess.run(["bash","-c",script],env=dict(os.environ,FIXTURE=tmp),capture_output=True,text=True,timeout=10)
+        assert result.returncode==0,result.stderr
+        summary=gzip.decompress((evidence/"scenario.log.gz").read_bytes()).decode()
+        assert "QEMU_FAILURE_DIAGNOSTIC run_id=fixture phase="+phase in summary,summary
+        assert all(value not in summary for value in (secret,"private-package","private-command","secret command","/hidden/key","token=value")),summary
+        assert len(summary.encode())<=4096 and len(summary.splitlines())<=33
+        if case=="installer":assert "reason=package-missing" in summary and "line=4321 status=1" in summary,summary
+        elif case=="guest":assert "script=guest reason=script-error line=987 status=2" in summary,summary
+        elif case=="credential":assert "reason=package-missing" in summary,summary
+        else:assert "reason=unclassified" in summary and "line=unknown status=unknown" in summary,summary
+        assert not any(p.name.endswith((".log",".stderr",".txt")) and not p.is_symlink() for p in evidence.iterdir())
+        if case=="symlink":assert foreign.read_text().endswith(secret+"\n")
+# Reading may change atime; content/identity changes still reject the observation.
+import types
+from unittest.mock import patch
+helper=functions[0]; embedded=helper.split("<<'FAILURE_DIAGNOSTIC_PY'\n",1)[1].split("\nFAILURE_DIAGNOSTIC_PY",1)[0]
+for change, expected in (("atime","package-missing"),("mtime","unclassified"),("ctime","unclassified")):
+    with tempfile.TemporaryDirectory(prefix="qa-failure-stat-") as tmp:
+        evidence=Path(tmp);(evidence/"install-installer.log").write_text("error: target not found: private-package\n")
+        original=os.fstat;calls=[]
+        def observed(fd):
+            value=original(fd);calls.append(fd)
+            fields={name:getattr(value,name) for name in ("st_dev","st_ino","st_mode","st_uid","st_gid","st_nlink","st_size","st_mtime_ns","st_ctime_ns","st_atime","st_atime_ns")}
+            if len(calls)==2:fields[{"atime":"st_atime_ns","mtime":"st_mtime_ns","ctime":"st_ctime_ns"}[change]]+=1;fields["st_atime"]+=1
+            return types.SimpleNamespace(**fields)
+        with patch("sys.argv",["diagnostic",tmp,"fixture","install-archiso"]),patch("os.fstat",side_effect=observed):
+            exec(compile(embedded,"production-failure-diagnostic","exec"),{})
+        output=(evidence/"failure-diagnostic.txt").read_text()
+        assert "reason="+expected in output,(change,output)
+        assert "private-package" not in output
+print("typed failure metadata: atime-only acceptance and mtime/ctime rejection passed")
+print("typed failure diagnostics: 6 production compaction cases passed; raw command/secret retention rejected")
+PY_FAILURE_DIAGNOSTICS
+
 printf 'VM_HARNESS_CHECKS_RESULT schema=1 version_provenance=passed metadata_absent=passed; QEMU=NOT_RUN\n'
