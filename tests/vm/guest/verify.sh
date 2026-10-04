@@ -1234,6 +1234,95 @@ snapshot_runtime_fail() {
     return 1
 }
 
+snapshot_unit_program() {
+    cat <<'SNAPSHOT_UNIT_PY'
+import re
+import resource
+import subprocess
+import sys
+import tempfile
+
+KNOWN = {name + ".service": name for name in (
+    "systemd-remount-fs", "systemd-tmpfiles-setup", "systemd-vconsole-setup", "grub-btrfsd", "gdm")}
+RESULTS = {"success", "resources", "timeout", "exit-code", "signal", "core-dump", "watchdog", "start-limit-hit", "oom-kill", "exec-condition", "protocol"}
+CODES = {"0": "none", "1": "exited", "2": "killed", "3": "dumped"}
+def bounded_query(arguments):
+    def limit_output():
+        resource.setrlimit(resource.RLIMIT_FSIZE, (4096, 4096))
+    try:
+        with tempfile.TemporaryFile() as output:
+            result = subprocess.run(arguments, stdout=output, stderr=subprocess.DEVNULL,
+                                    timeout=5, preexec_fn=limit_output, check=False)
+            output.seek(0)
+            raw = output.read(4097)
+            return result.returncode == 0 and len(raw) < 4096, raw
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return False, b""
+
+def inspect_units(run, phase, query=bounded_query):
+    if not re.fullmatch(r"grub-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}", run) or phase not in {"snapshot-prelogin", "snapshot-login"}:
+        return 1
+    prefix = "SNAPSHOT_UNIT_DIAGNOSTIC run_id=" + run + " phase=" + phase
+    def summary(category, count="unavailable", unknown="unavailable"):
+        print(prefix + " query=" + category + " count=" + str(count) + " unknown_count=" + str(unknown), file=sys.stderr)
+    success, raw = query(["systemctl", "--failed", "--no-legend", "--plain"])
+    if not success:
+        summary("failed")
+        return 1
+    try:
+        lines = raw.splitlines()
+        if len(raw) >= 4096 or len(lines) > 64:
+            raise ValueError("bound")
+        units = set()
+        for line in lines:
+            if not line.strip():
+                raise ValueError("empty unit row")
+            columns = line.split(None, 4)
+            if len(columns) < 4 or columns[1] not in {b"loaded", b"not-found", b"error", b"masked", b"bad-setting"} or columns[2:4] != [b"failed", b"failed"]:
+                raise ValueError("unit row")
+            unit = columns[0].decode("ascii")
+            if not re.fullmatch(r"[A-Za-z0-9@_.:\\-]{1,256}", unit) or unit in units:
+                raise ValueError("unit identity")
+            units.add(unit)
+    except (ValueError, UnicodeError):
+        summary("malformed")
+        return 1
+    if not units:
+        return 0
+    summary("success", len(units), len(units - KNOWN.keys()))
+    for unit in sorted(units & KNOWN.keys()):
+        result = code = status = "unavailable"
+        success, raw = query(["systemctl", "show", "--property=Result,ExecMainCode,ExecMainStatus", "--", unit])
+        if success and len(raw) < 4096:
+            try:
+                fields = {}
+                for line in raw.decode("ascii").splitlines():
+                    key, separator, value = line.partition("=")
+                    if not separator or key in fields:
+                        raise ValueError("property closure")
+                    fields[key] = value
+                if set(fields) != {"Result", "ExecMainCode", "ExecMainStatus"}:
+                    raise ValueError("property closure")
+                result = fields["Result"] if fields["Result"] in RESULTS else "unavailable"
+                code = CODES.get(fields["ExecMainCode"], "unavailable")
+                value = fields["ExecMainStatus"]
+                status = value if re.fullmatch(r"0|[1-9][0-9]{0,2}", value) and int(value) <= 255 else "unavailable"
+            except (ValueError, UnicodeError):
+                result = code = status = "unavailable"
+        print(prefix + " unit=" + KNOWN[unit] + " result=" + result + " code=" + code + " status=" + status, file=sys.stderr)
+    return 1
+
+if __name__ == "__main__":
+    if len(sys.argv) != 3:
+        raise SystemExit(1)
+    raise SystemExit(inspect_units(*sys.argv[1:]))
+SNAPSHOT_UNIT_PY
+}
+
+snapshot_failed_units() {
+    python3 - "${run_id}" "${phase}" < <(snapshot_unit_program)
+}
+
 snapshot_overlay_reader_program() {
     cat <<'SNAPSHOT_READER_PY'
 import ctypes
@@ -2669,7 +2758,7 @@ verify_snapshot_runtime() {
     verify_grub_package_integrity >/dev/null || { snapshot_runtime_fail grub-package; return 1; }
     systemctl is-active --quiet NetworkManager.service qemu-guest-agent.service || { snapshot_runtime_fail services; return 1; }
     nm-online -q --timeout=60 || { snapshot_runtime_fail network; return 1; }
-    [ -z "$(systemctl --failed --no-legend --plain)" ] || { snapshot_runtime_fail failed-units; return 1; }
+    snapshot_failed_units || { snapshot_runtime_fail failed-units; return 1; }
     printf '%s' "${target}"
 }
 

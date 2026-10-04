@@ -337,10 +337,10 @@ regression → affected tests → independent review where material → status u
 | MON-01 | P2 | none | DONE | Dated advisory coverage of boot/desktop inputs |
 | UP-01 | P3 | MON-01 | DONE | Reviewed external-source decisions and synchronized metadata |
 | ARCH-01 | P2 | ISO qualification independent; corrected-candidate tests after SAFE-01…03, UP-01 | DONE | Owner-reviewed October ISO after actual Minimal/Stock PASS; corrected-child runtime remains RELEASE-01 |
-| QA-01 | P2 | SAFE-01…03, TRUST-01/02, CONFIG-01, RECOVERY-01, UP-01 | IN_PROGRESS | Fourth child7PASS/2FAIL retained; observed-read integration/source/build/root accepted in PR55; fifth child failed7install/2MinimalQGA; partial-frame transport reproduced/fixed, installer cause unknown; focused diagnostics before new acceptance |
+| QA-01 | P2 | SAFE-01…03, TRUST-01/02, CONFIG-01, RECOVERY-01, UP-01 | IN_PROGRESS | Seventh child8PASS/StockGRUBFAIL20; actual installed snapshot identifies systemd-remount-fs exit1; native Btrfs-fstab/overlay reproduction accepted; focused correction remains |
 | DOC-01 | P3 | Corrected selector and source behavior prose; final release records under RELEASE-01 | DONE | UI copy and final behavior docs; prose correction is not product fix |
-| GATE-01 | P1 | all above | IN_PROGRESS | Fresh c3e110d source26/build/five-realguest root gates accepted; PR55/main870f896 CI PASS; fifth child failed before finalization; focused QGA fix and typed failure evidence underway |
-| RELEASE-01 | final | GATE-01 | IN_PROGRESS | Fifth childaaff860/run37188752155 Phase-A verified14 but all9VM FAIL; final18/public skipped, cause-specific corrections under diagnosis; public1.0.5 retained |
+| GATE-01 | P1 | all above | IN_PROGRESS | PR57/mainb491 source31/build/five-root gates accepted; diagnostics c546 source32 PASS; remount product correction needs fresh candidate gates |
+| RELEASE-01 | final | GATE-01 | IN_PROGRESS | Seventh child4514c3/run37199471699 signed Phase-A14 verified; 8PASS/StockGRUBFAIL20, final18/public skipped; public1.0.5 retained |
 
 GATE-01 depends on preceding source/pre-merge deliverables only. DELIVERY-01 closes at reviewed
 source/design/regression acceptance; actual package-only publication requires separately defined
@@ -688,9 +688,9 @@ arrived. Root independently executed the actual DB heredoc on in-memory inconsis
 correcting recursive `tarfile.open` mocking produced the observed result. No product changes.
 Three required specialists finished read-only; final stable-doc review and safe check outcomes follow.
 
-Current next action is audit verification only. Implementation stays stopped pending a separate
-assignment; then initial safety work is SAFE-01/SAFE-02 and independent tasks may proceed.
-All product tasks remain TODO. No staging/commit/push/merge/tag/signing/deployment/new release.
+Historical audit boundary: at this October 3 checkpoint implementation awaited a separate
+assignment and all product tasks were TODO. The later owner-authorized autonomous checkpoints
+below supersede that boundary; the execution registry above gives current statuses.
 
 Completion of this document means REVIEW_PLANNED, not SOURCE_ACCEPTED or RELEASED.
 
@@ -1667,3 +1667,117 @@ fixed preboot steps. Actual loader/policy/CLI/failure sequencing regressions RED
 RED1→GREEN0 and independent monitoring PASS; raw/suffix/credential negatives retained. Stable final
 guest/runtime review PASS (monitoring actual4targeted + failure reasons/syntax/ShellCheck/diff);
 clean source/build/five-root/nextchild9VM acceptance remains pending.
+
+Seventh delivery PR57 merged to mainb49165f9499c7b395119feb8b0039d3d314d2437,
+treea19bef424f9adb0be6910590cf1a495bc3c23fad/canonical53317d952698eb30aa7cc785e86a174456c308b6c9e3ccdbdd703a1453502a74.
+Clean source31 native0/session11964 (logf857c420854ac3f93b5ed29d7640a1d8a30c2852aa6fe38a249c9a9d190489fa),
+fresh build/verify0/session66583 and five real-root gates0/session72672 accepted;
+exact owned heavy resources removed after health/quiescence, compact evidence retained.
+PR CI37199115141/mainCI37199343777 SUCCESS; same checkout returned main FF.
+Fresh configured run37199471699 child4514c3a949bc16d869a55101227365c0a38e34d6,
+treecd75164a593588a38c785cbc9e04b72cf28ccc60/canonical5b6b364a3321e41f50bd52ff293b55e08ac681bd4219a846d4f20b629d2c89c6.
+Actual source graph proof accepted after correcting verifier ordering; first native0 receipt
+retained as superseded, corrected receipt8f646b01e96e758225ee6c7fb0a243de1112c7ebbc6d3e69784a69f2a3c76317.
+Signed Phase-A14 accepted, receipt6bc7d466539ce7a06c8bfc321176028096ce5112c0ccda9d0783b19b82ba7ec2.
+All nine authenticated native results collected: eight PASS and StockBtrfsGRUB FAIL20 at
+snapshot-boot; final Marble PASS26. Run terminal FAILURE/nativewatch1/session33933;
+finalization, publication and public readback skipped. FAT preparation recovered and actual
+snapshot boot/backing/kernel/EFI/package/network guards passed before snapshot-prelogin
+reason=failed-units. Failed service identity was not retained, so the remount-fs/overlay
+hypothesis is not yet a native cause. Preserve zero-failed-units acceptance; add checked,
+finite service diagnostics and reproduce the lifecycle before any product correction.
+No final18/public1.0.6 acceptance or completion claim; QA-01/GATE-01/RELEASE-01 remain open.
+
+Snapshot failed-unit readback now checks native query status: actual nonzero/empty query
+reproduced an old false PASS and now rejects. Bounded5s/4096B queries emit only counts,
+five fixed public unit enums and finite Result/code/status; unknown names, descriptions
+and errors are discarded. Zero-failed-unit acceptance and all37 reasons remain intact.
+Worker runtime104PASS/native0/session96207, affected syntax/ShellCheck/diff0/session30689;
+root actualhelper3PASS after correcting one mistyped test selection (native1 retained).
+Independent monitoring source review PASS; host compaction RED1→GREEN0, storage_guards
+actualproducer review PASS. Committed fixture now retains full summary and per-unit row
+and rejects raw/lookalike/credential logs. This is diagnostics/query correction only.
+Bounded offline remount fixture attempt1/native1/session61288 reached normalBtrfs remounter
+exit0, but transient unit wrapper timed out: --wait plus RemainAfterExit=yes waits for
+deactivation although native unit is success/active/main0. Overlay not reached; no cause
+or fixture PASS claimed. ExactPID absent/imagehealthy/no-visible-consumers; owned heavy
+cleanup native0, compact receipt/log retained. Correct finite nonblocking unit readback
+and LF/CRLF parsing before a new attempt. Attempt2/native1/session8358 passed normal
+CLI/unit but stopped at overlay setup before native exec; no overlay verdict transferred.
+
+Current continuation: diagnostics commitc54613c67f4404f644ebcab996f0c0c142cde2a9,
+tree0c5287e35a403cfdd3d9835c5d997109a012f725 on local main, clean/ahead1, not pushed.
+Source32 native0/session42275 (logbda7d77c4ef488135a46f45067078682063224cc60e54a0e508bdba0f1d488d2),
+104runtime/full10/signer14+18/deferrednone PASS. This corrects failed-query false PASS and
+retains typed diagnostics; no new product/build/installed-acceptance claim.
+Installed diagnostic attempt1/native1/session69047 stopped before installer because fixture
+serial/model violated canonical bootstrap; exact dispatch regression corrected,30checksPASS.
+Attempt2/native1/session67697 used exact seventh-child installer and reviewed c546 harness:
+install/normalprelogin/full signed update/reboot/snapshotprepare PASS; snapshot-prelogin
+query success,count1,unknown0,unit=systemd-remount-fs,result=exit-code,code=exited,status1.
+No snapshotdesktop/GDMlogin PASS; healthy/quiescent native0, heavy retained for bounded review.
+Actual semantic attempt3/native0/session22189 with verified top-mounted overlay and fixed
+nonblocking lifecycle: normal Btrfs CLI0/unit success active main0; same Btrfs fstab on
+overlay CLI1/unit exit-code failed main1. Four-case receipt accepted, imagehealthy/quiescent;
+this reproduces remount root cause, not installed correction acceptance. Prior attempts retained.
+Focused correction: Btrfs+GRUB-only isolated Python ExecStartPre, unchanged vendor
+ExecStart/ordering. Normal Btrfs is an exact no-op. The helper requires the expected
+systemd overlay topology and unique volatile=overlay argument; retained root/etc/fstab
+mount identities, root ownership, bounded bytes and immediate pre-rename recheck. It
+atomically changes only the volatile-upper root row, preserving supported generic/security
+options and all nonroot bytes; unknown options/ambiguous roots/unsafe files fail closed.
+No config backup or persistent lower rewrite. Native snapshot lower proof remains required.
+Transform RED missing emitter then12GREEN; independent topology RED14tests1failure then
+17GREEN including bounded cmdline, changed mounts/files, partial writes, fsync/rename and
+exact temporary cleanup. Independent integration review PASS. Actual install/routing
+regressions RED missing helper and BtrfsGRUB config-only branch then7GREEN; three other
+filesystem/bootloader combinations never activate helper/Python, config failure stops.
+Source-suite hook and architecture prose updated; Bash/ShellCheck/diff/29doc/portability
+PASS. Installer functions and24boundary tests native0/session1402; zero-failed-unit gate
+and all37 runtime reasons unchanged.
+Native same-helper prototype attempt1/native1/session78672 (frozen emitteda5a30286b828f07a549fb587d5796a04d6abc8a01b909683847c3fa43c3df85d):
+six native cases reached. Normal CLI/unit0; originaloverlay CLI/unit1; adaptedoverlay
+CLI/unit0 with unchanged vendor remounter, nonroot bytes/lowerfstabSHA/RO property preserved.
+Secure setup failed BEFOREhelper at target-only remount32; exact native cause unknown.
+A fixture-fstab libmount dry-run reproduces lookup/replay, but does not prove guest errno;
+not an eight-case PASS. Normal/adapted claims are mechanism-only, not installed boot ordering.
+Changed fixture now uses explicit overlay source/type/target; actual libmount dry-run
+RED oldfstab replay / GREEN fstabskip,16offline tests PASS. Next native8-case acceptance
+includes nodev/nosuid/noexec preservation with unchanged production helper/checker.
+Prototype attempt2/native1/session89960 did not enter the payload: fixed50s HMP dispatch
+arrived in UEFI editor (zero REMOUNT markers). Root stopped exact owned launcher;
+quiescent/imagehealthy, no helper/security verdict. A new bounded handoff plus actual
+guest READY barrier must precede payload; no generic escape stripping or weakened parser.
+Actual firmware geometry varies (firstbyte mismatch1286, row25 versus24), so strict
+historical7302-byte-prefix preparation was stopped beforeGO. Changed semantic-only probe
+uses exact kernel/initrd from approved ISO and its canonicalargs plus serial/status output;
+finite VGAgetty-start witness and actual nonce-bound guestREADY precede payload. Captured
+complete preREADY framing is bounded/hash-bound perrun, native closure remains strict;
+UEFI/installed boot ordering still require fresh productionchild acceptance.
+Directboot attempt3/native1/session59271 reached colored Getty but plain-only witness
+withheld all probes; attempt4/native1/session92167 accepted that exact witness, yet three
+nonce probes produced noREADY (113B firmware framing only), zero payload/nativecases.
+Working source33: PYTHONDONTWRITEBYTECODE=1 bash tests/source-tests.sh native0/session37572,
+logSHAed45ec902cffe9da0163d3dc57e59fb2e52b42daa2ea4bc0009afc0204273ef6; all required checks/full10/signer14+18/deferrednone.
+Dirty workingtree result; clean candidate commit/tree and downstream gates remain pending.
+Both quiescent/imagehealthy; no product verdict. Independent read-only check found
+byte-identical successful HMP helper and supported READY characters. Serial override
+creates separate getty; VGA autologin completion/focus remains unknown. Next finite
+probe restores canonical ISO arguments, bounded boot wait and actual nonceREADY before
+payload; production helper/security/native closure unchanged.
+Prior semantic/native attempts preserved; closed heavy resources removed exactly after
+health/quiescence/PID/path/consumer checks. Installed diagnostic heavy remains retained.
+Root owns source/registry and final acceptance; storage prepares fresh generated build/root
+recipes without binding or running another VM. Native attempt5/native0/session24354: canonicalISO args and actual nonceREADY reached.
+Eight CLI/unit cases normal0, originaloverlay1, adapted0, secure0; unchanged native
+remounter and emitteda5 helper, nodev/nosuid/noexec/nonroot bytes/lowerfstabSHA and RO
+property verified. Receipt79cdb96e014c181283052514cff253e868d6c93d26acfb1b045d43f8dae573c2;
+quiescent/imagehealthy. Independent monitoring actual hash/parser/helper/native/lower/security
+review PASS, no material finding. Semantic fixture/synthetic cmdline only, installed boot
+ordering remains required. Optional VGA showed tty1 automatic root shell; late second
+capture failed after the completed VM removed its socket, separate diagnostic failure.
+After accepted full nativeproof: fresh clean source,
+build/verify/five-root gates, ready authorized PR/main delivery, new configured child9VM,
+final18/public gates. No mask/reset/failed-unit exemption, source-pin/signing change or
+repeated closed FAT/BPF proof. Full15-ID scope and QA-01/GATE-01/RELEASE-01 remain open;
+no final18/public1.0.6/completion claim.

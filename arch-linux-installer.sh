@@ -3771,6 +3771,259 @@ exec_prepare_disk() {
 
 # ---------------------------------------------------------------------------------------------------
 
+volatile_root_fstab_program() {
+    cat <<'VOLATILE_FSTAB_PY'
+"""Adapt only the volatile overlay's root row before the vendor remounter."""
+import os
+import posixpath
+import re
+import secrets
+import stat
+import sys
+
+LIMIT = 65536
+GENERIC = frozenset(b'defaults rw ro dev nodev suid nosuid exec noexec symfollow nosymfollow noatime relatime strictatime nodiratime lazytime'.split())
+CONFLICTS = ((b'rw', b'ro'), (b'dev', b'nodev'), (b'suid', b'nosuid'), (b'exec', b'noexec'),
+             (b'symfollow', b'nosymfollow'), (b'noatime', b'relatime'),
+             (b'noatime', b'strictatime'), (b'relatime', b'strictatime'))
+
+
+def rewrite_fstab(data):
+    if not isinstance(data, bytes) or len(data) > LIMIT or any(
+            byte < 32 and byte not in (9, 10, 13) or byte == 127 for byte in data):
+        raise ValueError('invalid fstab bytes')
+    if b'\r' in data.replace(b'\r\n', b''):
+        raise ValueError('invalid line ending')
+    output = []
+    roots = 0
+    for line in data.splitlines(keepends=True):
+        fields = line.split(b'#', 1)[0].split()
+        if not fields:
+            output.append(line)
+            continue
+        if len(fields) < 2:
+            raise ValueError('malformed fstab row')
+        target = re.sub(rb'\\([0-7]{3})', lambda match: bytes([int(match[1], 8)]), fields[1])
+        root_alias = target.startswith(b'/') and posixpath.normpath(target) in (b'/', b'//')
+        if target != b'/' and not root_alias:
+            output.append(line)
+            continue
+        roots += 1
+        if fields[1] != b'/' or roots != 1 or len(fields) != 6 or fields[4:] != [b'0', b'0']:
+            raise ValueError('ambiguous root row')
+        source, _, filesystem, options, _, _ = fields
+        adapted = source == b'overlay' and filesystem == b'overlay'
+        if not adapted and (filesystem != b'btrfs' or not (
+                re.fullmatch(rb'UUID=[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}', source)
+                or source == b'/dev/mapper/cryptroot')):
+            raise ValueError('unsupported root source')
+        kept = []
+        seen = set()
+        for option in options.split(b','):
+            if option in seen:
+                raise ValueError('duplicate root option')
+            seen.add(option)
+            if option in GENERIC:
+                kept.append(option)
+                continue
+            supported = option in (b'compress=zstd', b'subvol=@', b'subvol=/@', b'ssd',
+                                   b'nossd', b'space_cache=v2', b'discard=async')
+            supported |= bool(re.fullmatch(rb'compress=zstd:(?:[1-9]|1[0-5])', option))
+            supported |= bool(re.fullmatch(rb'subvolid=[1-9][0-9]{0,19}', option))
+            if adapted or not supported:
+                raise ValueError('unsupported root option')
+        if any(first in seen and second in seen for first, second in CONFLICTS):
+            raise ValueError('conflicting root options')
+        if adapted:
+            output.append(line)
+        else:
+            output.append(b'overlay\t/\toverlay\t' + b','.join(kept or [b'defaults']) + b'\t0\t0\n')
+    if roots != 1:
+        raise ValueError('missing root row')
+    return b''.join(output)
+
+
+def fd_mount_id(fd):
+    with open('/proc/self/fdinfo/' + str(fd), 'rb') as stream:
+        data = stream.read(4097)
+    if len(data) > 4096:
+        raise ValueError('descriptor metadata oversized')
+    rows = data.splitlines()
+    ids = [row.split()[1] for row in rows if row.startswith(b'mnt_id:')]
+    if len(ids) != 1 or not ids[0].isdigit():
+        raise ValueError('mount identity unavailable')
+    return ids[0]
+
+
+def root_mount(fd):
+    mount_id = fd_mount_id(fd)
+    with open('/proc/self/mountinfo', 'rb') as stream:
+        data = stream.read(1048577)
+    if len(data) > 1048576:
+        raise ValueError('mount table oversized')
+    rows = [row.split() for row in data.splitlines() if row.split()[0] == mount_id]
+    if len(rows) != 1 or rows[0][4] != b'/':
+        raise ValueError('root mount ambiguous')
+    row = rows[0]
+    separator = row.index(b'-')
+    filesystem = row[separator + 1]
+    if filesystem == b'overlay':
+        options = row[separator + 3].split(b',')
+        for expected in (b'lowerdir=/sysroot', b'upperdir=/run/systemd/overlay-sysroot/upper',
+                         b'workdir=/run/systemd/overlay-sysroot/work'):
+            name = expected.split(b'=', 1)[0] + b'='
+            if [option for option in options if option.startswith(name)] != [expected]:
+                raise ValueError('overlay topology unavailable')
+    return mount_id, filesystem
+
+
+def require_volatile_cmdline():
+    with open('/proc/cmdline', 'rb') as stream:
+        data = stream.read(16385)
+    if len(data) > 16384 or b'\0' in data:
+        raise ValueError('invalid command line')
+    if [word for word in data.split() if word.startswith(b'systemd.volatile=')] != [b'systemd.volatile=overlay']:
+        raise ValueError('unexpected volatile mode')
+
+
+def identity(info):
+    return (info.st_dev, info.st_ino, info.st_mode, info.st_uid, info.st_gid, info.st_nlink,
+            info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+
+def adapt():
+    if os.geteuid() != 0:
+        raise ValueError('root required')
+    descriptors = []
+    temporary = None
+    temporary_identity = None
+    directory = None
+    try:
+        root = os.open('/', os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        descriptors.append(root)
+        mount_id, filesystem = root_mount(root)
+        if filesystem == b'btrfs':
+            return
+        if filesystem != b'overlay':
+            raise ValueError('unexpected root filesystem')
+        require_volatile_cmdline()
+        directory = os.open('etc', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=root)
+        descriptors.append(directory)
+        info = os.fstat(directory)
+        if info.st_uid != 0 or info.st_gid != 0 or info.st_mode & 0o022 or fd_mount_id(directory) != mount_id:
+            raise ValueError('unsafe etc directory')
+        directory_identity = (info.st_dev, info.st_ino, info.st_uid, info.st_gid, info.st_mode)
+        original = os.open('fstab', os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=directory)
+        descriptors.append(original)
+        info = os.fstat(original)
+        before = identity(info)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid != 0 or info.st_gid != 0 or info.st_mode & 0o022 or info.st_size > LIMIT:
+            raise ValueError('unsafe fstab')
+        if fd_mount_id(original) != mount_id:
+            raise ValueError('separate fstab mount')
+        data = b''
+        while len(data) <= LIMIT:
+            block = os.read(original, min(4096, LIMIT + 1 - len(data)))
+            if not block:
+                break
+            data += block
+        rewritten = rewrite_fstab(data)
+
+        def recheck():
+            reachable_root = os.open('/', os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+            try:
+                if root_mount(reachable_root) != (mount_id, filesystem):
+                    raise ValueError('reachable root changed')
+            finally:
+                os.close(reachable_root)
+            if identity(os.fstat(original)) != before or identity(os.stat('fstab', dir_fd=directory, follow_symlinks=False)) != before:
+                raise ValueError('fstab changed')
+            if root_mount(root) != (mount_id, filesystem) or fd_mount_id(directory) != mount_id or fd_mount_id(original) != mount_id:
+                raise ValueError('mount changed')
+            current_etc = os.stat('etc', dir_fd=root, follow_symlinks=False)
+            if (current_etc.st_dev, current_etc.st_ino, current_etc.st_uid, current_etc.st_gid, current_etc.st_mode) != directory_identity:
+                raise ValueError('etc changed')
+
+        recheck()
+        if rewritten == data:
+            return
+        temporary = '.arch-linux-volatile-fstab.' + secrets.token_hex(16)
+        replacement = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600, dir_fd=directory)
+        descriptors.append(replacement)
+        temporary_identity = (os.fstat(replacement).st_dev, os.fstat(replacement).st_ino)
+        pending = memoryview(rewritten)
+        while pending:
+            written = os.write(replacement, pending)
+            if written <= 0:
+                raise ValueError('short fstab write')
+            pending = pending[written:]
+        os.fchmod(replacement, stat.S_IMODE(info.st_mode))
+        os.fsync(replacement)
+        recheck()
+        current = os.stat(temporary, dir_fd=directory, follow_symlinks=False)
+        if (current.st_dev, current.st_ino) != temporary_identity or current.st_nlink != 1:
+            raise ValueError('temporary fstab changed')
+        os.rename(temporary, 'fstab', src_dir_fd=directory, dst_dir_fd=directory)
+        temporary = None
+        os.fsync(directory)
+    finally:
+        if temporary is not None and temporary_identity is not None:
+            try:
+                current = os.stat(temporary, dir_fd=directory, follow_symlinks=False)
+                if (current.st_dev, current.st_ino) == temporary_identity:
+                    os.unlink(temporary, dir_fd=directory)
+            except FileNotFoundError:
+                pass
+        for fd in reversed(descriptors):
+            os.close(fd)
+
+
+if __name__ == '__main__':
+    try:
+        if len(sys.argv) != 1:
+            raise ValueError('unexpected arguments')
+        adapt()
+    except (OSError, ValueError, IndexError):
+        print('volatile root fstab adaptation failed', file=sys.stderr)
+        sys.exit(1)
+VOLATILE_FSTAB_PY
+}
+
+chroot_install_volatile_root_fstab() {
+    local target_root="${1:-/mnt}"
+    local helper_dir="${target_root}/usr/local/lib/arch-linux"
+    local unit_dir="${target_root}/etc/systemd/system/systemd-remount-fs.service.d"
+    local helper="${helper_dir}/volatile-root-fstab.py"
+    local dropin="${unit_dir}/arch-linux-volatile-root.conf"
+    local helper_candidate unit_candidate
+
+    [ -d "$target_root" ] && [ ! -L "$target_root" ] || return 1
+    [ ! -L "$helper_dir" ] && [ ! -L "$unit_dir" ] && [ ! -L "$helper" ] && [ ! -L "$dropin" ] || return 1
+    { [ ! -e "$helper" ] || [ -f "$helper" ]; } &&
+        { [ ! -e "$dropin" ] || [ -f "$dropin" ]; } || return 1
+    install -d -m0755 -- "$helper_dir" "$unit_dir" || return 1
+    helper_candidate="$(mktemp -- "${helper}.tmp.XXXXXXXXXX")" || return 1
+    unit_candidate="$(mktemp -- "${dropin}.tmp.XXXXXXXXXX")" || {
+        rm -f -- "$helper_candidate"
+        return 1
+    }
+    if ! volatile_root_fstab_program >"$helper_candidate" ||
+        ! printf '%s\n' '[Service]' \
+            'ExecStartPre=/usr/bin/python -I -S /usr/local/lib/arch-linux/volatile-root-fstab.py' >"$unit_candidate" ||
+        ! chmod 0644 -- "$helper_candidate" "$unit_candidate"; then
+        rm -f -- "$helper_candidate" "$unit_candidate"
+        return 1
+    fi
+    if ! mv -fT -- "$helper_candidate" "$helper"; then
+        rm -f -- "$helper_candidate" "$unit_candidate"
+        return 1
+    fi
+    if ! mv -fT -- "$unit_candidate" "$dropin"; then
+        rm -f -- "$unit_candidate"
+        return 1
+    fi
+}
+
 chroot_configure_grub_btrfs_snapshot_boot() {
     local target_root="${1:-/mnt}"
     local config="${target_root}/etc/default/grub-btrfs/config"
@@ -3858,7 +4111,7 @@ exec_pacstrap_core() {
         # Add filesystem packages
         packages+=(efibootmgr)                                                                      # Required for UEFI on all filesystems
         [ "$ARCH_LINUX_FILESYSTEM" = "btrfs" ] && packages+=(btrfs-progs)
-        [ "$ARCH_LINUX_FILESYSTEM" = "btrfs" ] && [ "$ARCH_LINUX_BOOTLOADER" = "grub" ] && packages+=(inotify-tools)
+        [ "$ARCH_LINUX_FILESYSTEM" = "btrfs" ] && [ "$ARCH_LINUX_BOOTLOADER" = "grub" ] && packages+=(inotify-tools python)
 
         # Add grub packages
         [ "$ARCH_LINUX_BOOTLOADER" = "grub" ] && packages+=(grub grub-btrfs)
@@ -4006,6 +4259,10 @@ exec_pacstrap_core() {
             if [ "$ARCH_LINUX_FILESYSTEM" = "btrfs" ]; then
                 chroot_configure_grub_btrfs_snapshot_boot /mnt || {
                     log_fail 'Failed to configure systemd-native Btrfs snapshot boot'
+                    process_return 1
+                }
+                chroot_install_volatile_root_fstab /mnt || {
+                    log_fail 'Failed to configure volatile-root fstab adaptation'
                     process_return 1
                 }
             fi

@@ -106,7 +106,11 @@ For Btrfs with GRUB, the core stage builds the systemd initramfs with mkinitcpio
 contract. It configures grub-btrfs snapshot entries with `systemd.volatile=overlay` and read-only
 root flags, so a selected snapshot is mounted as the lower layer while writes go to a temporary
 overlay. The snapshot and its lower layer remain unchanged; `/home` and the separate ESP retain
-their normal mount scope. With a separate ESP, generated entries use the current matching kernel
+their normal mount scope. Before the unchanged vendor `systemd-remount-fs` command runs, a
+Btrfs/GRUB-only prestart helper adapts the volatile upper's `/` fstab row to overlay and retains
+its generic VFS/security options. Other rows stay byte-identical. Normal Btrfs is a no-op;
+unexpected topology, ambiguous rows and unsupported options fail closed. The readonly snapshot's
+fstab is never rewritten. With a separate ESP, generated entries use the current matching kernel
 and initramfs pair available in `/boot`; the VM additionally checks that the running kernel release
 has a matching `/usr/lib/modules` tree in the selected root and in the initramfs payload. This is a
 userspace snapshot rollback contract. A snapshot that predates a kernel update can contain only an
