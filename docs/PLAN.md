@@ -673,7 +673,7 @@ Owner requested this as the end of the plan. Do not publish during review/planni
 ### Current implementation checkpoint — 2026-10-04
 
 All15 mandatory IDs are accepted. Product delivery and public acceptance are complete; final
-local document-commit verification will be bound in the existing evidence register after the check. Exact candidate a9e417304e9883aa354f5ed2cda6a9ead0438eec,
+local document-commit verification is bound in the existing evidence register. Exact candidate a9e417304e9883aa354f5ed2cda6a9ead0438eec,
 tree2d3e7f1abf454c462586cb5450ae1c79d3ccee0a/canonical6d8da82f8008f9d8d002f8a9bd0bb3c60b7db6530eb4894657ad0fcfd38d6250,
 passed clean source35 (native0/session27887), canonical6-package build+freshverify
 (native0/session24365), and all5 realroot gates (native0/session18189), each independently reviewed.
@@ -695,8 +695,8 @@ outer deadline. Fresh configured publicMarbleGDM VM PASS19/native0 (publicartifa
 real HMP/password/Wayland/lock/update/reboot, two bootIDs/no-QEMU/imagehealth accepted.
 ResultSHA13de92af4ecc355529ae734674a7966529c62209adbb7d0d066ebf523b0d25e8;
 release watch0/session50451, terminalSUCCESS. No PASS transferred from older releases or failed predecessors. Final documentation is localmain only; no extra push/publication
-is added merely to publish checkpoint prose. Goal remainsACTIVE only through independent final result review and clean local document-commit
-source verification; mark it complete after those checks, without adding another project scope.
+is added merely to publish checkpoint prose. Independent final result review and clean documentation source37 passed. Goal completion requires
+the final outcome-record check recorded in the same register, without adding another project scope.
 
 Evidence register: the existing frozen-final-gate-candidate.json, finalizeCandidate entry, preserves
 all native logs/receipts/hashes/attempts and historical remountCandidate failure. Earlier checkpoints
@@ -705,6 +705,8 @@ working-document suite passed0/session93550 before final public wording. Docs29/
 rerun after that wording; the clean final document-commit source result is retained in the same register.
 Live installer cancellation/busy-resource/crash VM paths remain NOT_TESTED as a documented
 limitation beyond the explicitly accepted RECOVERY source regressions.
+
+Clean local documentation commit `30d4a162ed99141c4ccd2b43273a90f1fda0b756` (tree `895fb77ea77e2f66ef5bf8cbb49ba6f21572004b`, canonical SHA-256 `368587520f60e525c9ede887e08b139e77aa42597dbbfc6da2705422339c04d6`) passed `PYTHONDONTWRITEBYTECODE=1 bash tests/source-tests.sh`, source37/native0/session71065; log SHA-256 `ad9f3e402e3bcfaf772d44c3b88ec422e4eba3df6a948b91d7dcd8610ece3ccd`. This result belongs to that exact documentation tree. Later documentation edits require fresh applicable checks; the evidence register preserves each exact tree/result.
 
 2026-10-02: root plus two independent read-only reviewers and one primary-source researcher
 completed bounded audit. Root independently reran both harmless installer reproductions and the
