@@ -14,17 +14,17 @@ the selected physical disk.
 
 ## Release-pinned bootstrap
 
-The commands below pin the publicly reverified release **1.0.5** (2026-09-17). Run its immutable
+The commands below pin the published immutable release **1.0.6** (2026-10-04). Run its immutable
 bootstrap from the Arch ISO:
 
 ```bash
-curl -fsS https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.5/install.sh | bash
+curl -fsS https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.6/install.sh | bash
 ```
 
 For a newer version, use the release-pinned command in the
 [latest published immutable GitHub Release](https://github.com/snaplyze/arch-linux/releases).
-These examples pin the October 3 public readback of 1.0.5; they do not track `main` or
-a moving latest-download URL. See the [release evidence](docs/validation.md#public-readback-of-release-105).
+These examples pin 1.0.6; they do not track `main` or a moving latest-download URL.
+See the [release evidence](docs/validation.md).
 
 The bootstrap is release-pinned. It downloads the installer, its SHA-256 file, detached signature
 and `arch-linux.gpg`; validates the exact public-certificate digest and fingerprints; rejects secret
@@ -32,7 +32,7 @@ key packets; then launches only the verified installer bytes from a private root
 For a verification-only run:
 
 ```bash
-curl -fsS https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.5/install.sh | bash -s -- --verify-only
+curl -fsS https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.6/install.sh | bash -s -- --verify-only
 ```
 
 The certificate fingerprints must also be compared through an independently trusted channel. HTTPS,
@@ -41,15 +41,16 @@ See the [trust model](docs/trust-model.md).
 
 ## Current audit status
 
-The [registry](docs/PLAN.md#review-findings) records open installer guard/idle-probe and shared-ESP
-issues (F-01–F-03), plus package-verifier resource hardening (F-04). Corrections are under development in this checkout;
-they have not been delivered in the published 1.0.5 installer. Review these
-limitations before destructive installation, especially when preserving another Linux.
+Release 1.0.6 delivers the installer guard, idle-probe, shared-ESP, account and recovery
+corrections recorded in the [registry](docs/PLAN.md#review-findings), together with package and
+repository verification hardening. All nine staged VM scenarios passed before its immutable
+18-asset publication and Pages deployment.
 
-The 1.0.5 public assets and Pages repository passed fresh hash/signature readback.
-[Validation](docs/validation.md) preserves the separate historical installation evidence;
-this readback does not claim a fresh VM installation. Latest Arch media availability is distinct from the
-project's accepted ISO input; see [compatibility](docs/compatibility.md).
+Fresh public Release/Pages byte and signature readback and the separate public-only
+Marble/GDM VM passed;
+[validation](docs/validation.md) records their separate outcomes and preserves historical evidence.
+Latest Arch media availability is distinct from the project's accepted ISO input; see
+[compatibility](docs/compatibility.md).
 
 ## Profiles and updates
 

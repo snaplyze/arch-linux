@@ -94,9 +94,10 @@ integrity, zero failed units, clean shutdown and `qemu-img check` are mandatory.
 dual-boot path is a separate required supplemental acceptance case alongside the three core workflow
 matrix entries. The source candidate makes all six complementary scenarios mandatory release
 jobs and requires them before finalization; their evidence stays separate from the three core
-signed verdicts. The nine-scenario workflow is deployed. The latest executed child passed
-seven scenarios and failed two before finalization; it is not a published release. Current
-corrections and fresh acceptance remain tracked in
+signed verdicts. The nine-scenario workflow is deployed. Release 1.0.6 child7af2209 passed all nine scenarios against its exact signed snapshot and
+October ISO, then finalized18 and immutable publication succeeded. The separate fresh public Marble/GDM VM passed19 assertions; exact outcomes and identities
+are in [validation](validation.md).
+Current acceptance remains tracked in
 [QA-01 / RELEASE-01](PLAN.md#qa-01--behavioral-and-vm-coverage).
 See [VM commands](../tests/vm/README.md).
 Stock additionally checks Language/Formats, input layouts and terminal shortcuts. Every run retains
@@ -120,8 +121,8 @@ single-file reader, and observes the underlying Btrfs read and stable entry/retu
 The bounded observer fails on missing records, warnings, drops or incomplete cleanup. Its tool
 is installed only in that disposable scenario's existing update transaction. The separate
 read-only snapshot readback and all boot, partition, kernel, EFI and service checks remain
-required. A disposable overlay mechanism test is not an installed snapshot-boot PASS; fresh
-end-to-end acceptance is still required for the current correction.
+required. A disposable overlay mechanism test is not an installed snapshot-boot PASS; release 1.0.6 has executed the full installed-system check with 23 PASS assertions.
+Its identity is recorded in [validation](validation.md); the mechanism-only predecessors remain historical.
 
 ## Marble GTK migration acceptance
 

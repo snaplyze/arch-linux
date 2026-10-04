@@ -2,9 +2,9 @@
 
 ## Prepare
 
-Before using destructive paths, read the [open installer findings](PLAN.md#review-findings)
-F-01–F-03. Guard/error-path and shared-ESP corrections are being implemented locally and are not present in the published 1.0.5 installer.
-Identity metadata alone does not establish that these failure paths are safe.
+Use release 1.0.6 for the delivered disk-guard, failure-path and shared-ESP corrections recorded
+in the [registry](PLAN.md#review-findings). These corrections do not remove the need to back up
+data and verify the selected target.
 
 Use the current official Arch Linux x86_64 ISO in UEFI mode. Disable Secure Boot, connect to the
 internet and synchronize the system clock. Back up every important file before opening the
@@ -15,7 +15,7 @@ metadata-less emulated SATA or SCSI disk, use virtio or configure stable model/s
 other metadata-less controller types are not supported.
 
 Use the single release-pinned bootstrap command in the [README](../README.md). It downloads
-`install.sh` from the documented immutable release tag (the verified example is `1.0.5`),
+`install.sh` from the documented immutable release tag (the published example is `1.0.6`),
 never from `main`, and the bootstrap then downloads and
 verifies the release installer, checksum, detached signature, public certificate and both
 fingerprint files. The verified installer starts as root from an exact root-owned mode-`0700`
@@ -27,7 +27,7 @@ For a non-destructive public-release or QEMU readback, run the same immutable bo
 verification-only mode:
 
 ```bash
-curl -fsS https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.5/install.sh | bash -s -- --verify-only
+curl -fsS https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.6/install.sh | bash -s -- --verify-only
 ```
 
 This mode completes the HTTPS download, checksum, certificate/fingerprint, secret-packet,
@@ -48,10 +48,9 @@ The installer asks for account, locale, console, filesystem, bootloader, target 
 desktop and feature choices. Advanced tuning includes the kernel, mirror country, dual boot,
 desktop extras, Btrfs tools, Samba, VM support and second layout. Review the final summary before
 confirming the destructive stage.
-Choose an ordinary unused account name, not `root`. Published 1.0.5 accepts that
-reserved name and fails later during account creation. The source candidate now refuses known
-reserved users/groups before disk work; [CONFIG-01](PLAN.md#config-01--reject-predictable-account-collisions)
-records the tested correction and pending corrected-child installation.
+Choose an ordinary unused account name. Release 1.0.6 refuses known reserved users/groups
+before disk work and checks both target account databases before user creation;
+[CONFIG-01](PLAN.md#config-01--reject-predictable-account-collisions) records the policy and checks.
 
 ## Minimal TTY
 
@@ -98,25 +97,23 @@ Dual boot does not rewrite the partition table or format the ESP. Select an exis
 distinct root partition on the same exact disk. The root target is formatted. GRUB enables OS
 detection and a visible menu; systemd-boot preserves vendor EFI directories but may install its
 fallback loader. Back up the existing ESP and recovery material before proceeding.
-Published 1.0.5 does not preflight shared boot-file collisions; do not use it for such a layout.
-The source candidate inspects the accepted ESP handle in a private read-only mount namespace
+Release 1.0.6 inspects the accepted ESP handle in a private read-only mount namespace
 before root encryption/formatting, rechecks identity and idle state afterward, and checks again
 before package installation. It refuses existing selected-kernel/initramfs/fallback/microcode
 files and its systemd-boot or GRUB write footprint, including FAT case variants and unsafe
 ancestors. Custom kernels are refused for dual boot because their write footprint is unknown.
 There is no automatic deletion, renaming or partition redesign to resolve a collision.
-The new VM fixture tests refusal with whole ESP/root hashes, then a separately noncolliding
-neighbor through update and real boot. Actual corrected-child VM execution remains pending
-[SAFE-03 / RELEASE-01](PLAN.md#safe-03--preserve-neighbor-esp-bytes).
+The staged dual-boot VM passed collision refusal with unchanged whole ESP/root hashes, then
+checked a separately noncolliding neighbor through update and real boot. See
+[validation](validation.md) for the exact inputs; this does not qualify every vendor layout.
 
 The generated config binds the selected disk to an opaque identity derived from stable device
 properties. Dual boot additionally binds both existing partitions; fresh installs require those
 partition identities to remain empty until the installer creates the layout. The executor reproduces
 the accepted identity snapshot immediately before mutation and refuses a disk with mounted
 descendants, active swap, active holders, an existing `/mnt` mount or an occupied `cryptroot`
-mapping. Published 1.0.5 retains [F-01/F-02](PLAN.md#review-findings) failure-path gaps. The corrected
-source explicitly aborts on failed inventories and rejected later handles; real VM acceptance
-is separate from its executed source regressions.
+mapping. Release 1.0.6 explicitly aborts on failed inventories and rejected later handles;
+[validation](validation.md) separates source failure-injection checks from staged VM acceptance.
 Cleanup may release only mounts and mappings marked as created by that exact accepted run.
 
 ## Completion
@@ -126,9 +123,9 @@ data-only config and local installer log private and only as long as useful. The
 general-purpose sanitized artifact: review it and remove credentials, identifying disk information
 and other private data before sharing any excerpt. Verify the first boot, network, failed-unit count
 and full system update.
-On failure or cancellation, do not assume all resources were released. Published 1.0.5 retains
-the unsafe reap/cleanup ordering from [F-13](PLAN.md#review-findings). Corrected source requires
+On failure or cancellation, do not assume all resources were released. Release 1.0.6 requires
 proved worker quiescence before storage teardown and preserves only validated operational
 markers in a separate private recovery directory after failure, clearing password/runtime logs.
-Real cancellation/cleanup VM acceptance remains under RELEASE-01.
+A refused teardown can leave owned resources for inspection; source failure-injection evidence
+is distinct from successful VM shutdown.
 Do not infer ownership or manually remove mounts/mappers from a name alone.

@@ -283,9 +283,9 @@ updates normally through `pacman -Syu`. Marble/profile changes increment the own
 `pkgrel` and are delivered through the signed Pages repository, so they do not require an installer
 release. Source pins change only through a reviewed pull request.
 Use the explicit [package-child procedure](../repository/README.md#package-only-updates) for a
-reviewed package intent, increased revisions and unchanged published installer bytes. Current
-installer behavior fixes reject this mode until their normal release. The source candidate
-suppresses automatic installer publication for package intent, without enabling signing for it.
+reviewed package intent, increased revisions and unchanged published installer bytes. Installer behavior drift from the selected published base rejects this mode until a normal
+installer release. Package intent suppresses automatic installer publication without enabling
+signing for it.
 External package-only signing/deployment and installed-system acceptance remain separately
 authorized and NOT_TESTED; see [DELIVERY-01](PLAN.md#delivery-01--package-only-provenance-and-procedure).
 
@@ -304,7 +304,17 @@ SOURCE
   -> one clean canonical Arch package build
   -> unsigned package and repository verification
   -> authorized Actions signing of the exact 14-file closure
-  -> three QEMU scenarios
+  -> three core plus six mandatory supplemental QEMU scenarios
+  -> exact eighteen finalized signed assets
   -> immutable GitHub Release and verified Pages deployment
   -> one public final VM test
 ```
+
+## Latest delivered release
+
+[Immutable release 1.0.6](https://github.com/snaplyze/arch-linux/releases/tag/1.0.6) was produced by
+[configured run37214392242](https://github.com/snaplyze/arch-linux/actions/runs/37214392242) after
+PR59/main delivery. Its exact14 snapshot, all9 staged VM results, unchanged14→final18,
+annotated tag and verified Pages deployment passed. Public Release/Pages byte readback and
+the fresh public Marble/GDM VM passed. Exact tree/input bindings and final status
+belong to [validation](validation.md); historical release records retain their original identities.

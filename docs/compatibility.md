@@ -12,16 +12,17 @@
 | Experimental Marble GDM | Reviewed GNOME Shell `1:50.5-1` resource and exact service/session/vendor-dconf hashes | Keep the project overlay inactive and use Stock GDM. |
 | Filesystems | Btrfs or ext4; optional LUKS2 root | Stop on validation or mount failure. |
 | Boot | GRUB or systemd-boot on UEFI | Stop before installation when UEFI prerequisites fail. |
-| Dual boot | Existing vfat ESP and distinct root partition on the selected disk; known selected-kernel/bootloader footprint must be free | Source candidate refuses collisions/uncertainty before root mutation; published 1.0.5 lacks that guard, corrected-child VM acceptance pending. |
+| Dual boot | Existing vfat ESP and distinct root partition on the selected disk; known selected-kernel/bootloader footprint must be free | Release 1.0.6 refuses collisions/uncertainty before root mutation; staged collision refusal, neighbor preservation and real boot passed. |
 
 BIOS boot, non-x86_64 systems, enabled Secure Boot and unreviewed package/resource substitutions are
 outside the support boundary.
 
 The supported boundary is a requirement, not evidence that every combination was executed.
 See [audit coverage and findings](PLAN.md#review-findings): F-01/F-02 for guard failure paths,
-F-03 for shared ESP files and F-05 for supplemental VM acceptance. Accepted ISO is `2026.10.01`, reviewed by the owner after fresh Minimal and Stock
-GNOME qualification with unchanged public 1.0.5. This media result does not accept the
-corrected product candidate; its staged runtime gates remain under RELEASE-01.
+F-03 for shared ESP files and F-05 for supplemental VM acceptance. Accepted ISO is `2026.10.01`,
+reviewed by the owner after fresh Minimal and Stock GNOME qualification with unchanged public
+1.0.5. This media result remains separate from the nine staged 1.0.6 runtime scenarios recorded
+in [validation](validation.md). Fresh public-only Marble/GDM acceptance passed separately with19 assertions.
 
 ## GNOME update rules
 
@@ -34,7 +35,7 @@ inspection; an unsupported version by itself is not proof that deactivation succ
 
 GNOME extension compatibility is evaluated per extension. A package being installed does not prove
 that its metadata or runtime supports a new GNOME major. The signed VM evidence linked from
-[validation.md](validation.md#verified-release-104) records the checks for the verified release.
+[validation.md](validation.md) records the checks for the verified release.
 The staged Marble scenario checks the eight enabled profile extensions, including User Themes;
 this does not establish support for a future GNOME major.
 

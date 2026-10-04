@@ -337,10 +337,10 @@ regression → affected tests → independent review where material → status u
 | MON-01 | P2 | none | DONE | Dated advisory coverage of boot/desktop inputs |
 | UP-01 | P3 | MON-01 | DONE | Reviewed external-source decisions and synchronized metadata |
 | ARCH-01 | P2 | ISO qualification independent; corrected-candidate tests after SAFE-01…03, UP-01 | DONE | Owner-reviewed October ISO after actual Minimal/Stock PASS; corrected-child runtime remains RELEASE-01 |
-| QA-01 | P2 | SAFE-01…03, TRUST-01/02, CONFIG-01, RECOVERY-01, UP-01 | IN_PROGRESS | Eighth child1079a9f all9 nativePASS incl plainGRUB23 snapshotruntime; finalizer strict Marble assertion consumer24 versus actual26 needs correction/fresh gates |
+| QA-01 | P2 | SAFE-01…03, TRUST-01/02, CONFIG-01, RECOVERY-01, UP-01 | DONE | Fresh child7af2209/run37214392242 all9 nativePASS incl plainGRUB23 snapshotruntime and MarbleGDM26; strict finalizer assertion regression accepted |
 | DOC-01 | P3 | Corrected selector and source behavior prose; final release records under RELEASE-01 | DONE | UI copy and final behavior docs; prose correction is not product fix |
-| GATE-01 | P1 | all above | IN_PROGRESS | Remount e310 source34/build/five-realroot gates accepted; PR58/main9291 CI passed; finalizer assertion correction requires fresh candidate binding |
-| RELEASE-01 | final | GATE-01 | IN_PROGRESS | Eighth child1079a9f/run37210253900 exactPhaseA14/all9 nativePASS; finalization rejected public Marble26 versus consumer24 before secret handoff, final18/public skipped; public1.0.5 retained |
+| GATE-01 | P1 | all above | DONE | Exact a9e4173 source35/build/five-realroot/independent review PASS; PR59 requiredCI/squash and main696b420 FF accepted; immutable input receipts retained |
+| RELEASE-01 | final | GATE-01 | DONE | Immutable1.0.6 child7af2209 exactPhaseA14/all9PASS/final18/Pages/publicbytes/publicMarble19 accepted; PR59/main696b420 delivery and final local documentation recorded |
 
 GATE-01 depends on preceding source/pre-merge deliverables only. DELIVERY-01 closes at reviewed
 source/design/regression acceptance; actual package-only publication requires separately defined
@@ -465,8 +465,10 @@ architecture/installation docs. Dependencies: SAFE-01, SAFE-02. Effort M, medium
   Always clear password state; do not retain unsanitized logs/commands/secrets.
 - [x] This is operational-marker retention, not configuration backup/recovery; do not copy config
   or agent instructions. Success still removes owned runtime.
-- [x] Run function/source checks; actual stop/cleanup and races remain NOT_TESTED until bounded
-  disposable VM error acceptance executes.
+- [x] Run function/source checks. This source deliverable accepts the actual-handler stubbed
+  failure/cancellation and concurrent-retention regressions above. Live installer cancellation,
+  busy-resource cleanup and crash paths remain NOT_TESTED until bounded disposable VM error
+  acceptance executes; ordinary successful installation/shutdown does not prove them.
 
 ### DELIVERY-01 — package-only provenance and procedure
 
@@ -626,19 +628,19 @@ testing/validation/maintenance/release process, installer appearance choice text
 Dependencies: every preceding source/pre-merge task accepted; no unresolved P1 or deferred
 pre-merge-required tests. Production-child/post-publication gates are RELEASE-01 obligations.
 
-- [ ] Recheck main/origin/dirty/index and ownership; stable independent security review of final changes.
+- [x] Recheck main/origin/dirty/index and ownership; stable independent security review of final changes.
   No simulated independent review. Resolve material findings and rerun affected checks after correction.
-- [ ] Run `bash tests/source-tests.sh` and `git diff --check` on final candidate; bind commit/tree and
+- [x] Run `bash tests/source-tests.sh` and `git diff --check` on final candidate; bind commit/tree and
   canonical mode-and-byte source SHA-256, package inputs, tool versions and selected ISO.
-- [ ] In an authorized disposable release-host boundary execute unflagged + full-namespace repository,
+- [x] In an authorized disposable release-host boundary execute unflagged + full-namespace repository,
   exact root publication and both keyring modes listed in AGENTS. Fixture signing uses ephemeral keys.
-- [ ] Build once canonically as disposable unprivileged builder and independently verify unsigned outputs.
+- [x] Build once canonically as disposable unprivileged builder and independently verify unsigned outputs.
   Do not create production signing authority to satisfy a pre-merge check. Record clean-build environment
   and preliminary checks; they do not transfer to the later deterministic release child.
 - [x] Verify all mandatory child source/build/signing/VM gates are implemented and block finalization
   on failure. Record bounded resources before execution. Production Phase A/exact-18 and authoritative
   VM execution belong to RELEASE-01 after main delivery, before tag/publication where applicable.
-- [ ] Freeze evidence for exact inputs; any source correction invalidates affected downstream PASS.
+- [x] Freeze evidence for exact inputs; any source correction invalidates affected downstream PASS.
   Package reproducibility A+B remains advisory, not an invented blocking release criterion.
 
 ### RELEASE-01 — main, annotated tag and immutable release (last)
@@ -646,27 +648,63 @@ pre-merge-required tests. Production-child/post-publication gates are RELEASE-01
 Target: `snaplyze/arch-linux`, protected main and its configured `release.yml`/Pages target.
 Owner requested this as the end of the plan. Do not publish during review/planning.
 
-- [ ] Confirm fresh GATE-01 and resources for the next candidate. Owner exception for a ready PR
+- [x] Confirm fresh GATE-01 and resources for the next candidate. Owner exception for a ready PR
   branch in this checkout, adopted baseline commits and required merge is already granted;
   preserve protected-main requirements and exact accepted input bindings.
-- [ ] Commit reviewed authorized paths; deliver through required Source checks and squash PR merge.
+- [x] Commit reviewed authorized paths; deliver through required Source checks and squash PR merge.
   Return this same checkout to main and fast-forward only. This is delivery to main, not a rejected
   direct-push attempt and not another development clone.
-- [ ] Let configured `release.yml` derive/test/build/sign a fresh version-only child from accepted main.
+- [x] Let configured `release.yml` derive/test/build/sign a fresh version-only child from accepted main.
   Do not create a competing manual tag/release; let pipeline select unused SemVer and annotated tag.
-  Current latest is 1.0.5; do not hardcode 1.0.6 before querying live inventory.
-- [ ] Require successful child source/build/signing, three staged plus supplemental gates before
+  Live inventory selected 1.0.6 for run37214392242. Query inventory before any future version; do not hardcode the next SemVer.
+- [x] Require successful child source/build/signing, three staged plus supplemental gates before
   finalization; exact 14 bytes unchanged → exact 18 finalized assets, signed acceptance/evidence.
-- [ ] Observe immutable Release/tag, verified Pages deployment and public readback, then fresh
+- [x] Observe immutable Release/tag, verified Pages deployment and public readback, then fresh
   public-only Marble/GDM VM. These public checks necessarily happen after publication; distinguish
   all pre-publication checks passed from final public acceptance passed.
-- [ ] Record origin main and child commits/trees, tag object, run URL, assets/hashes and final public
+- [x] Record origin main and child commits/trees, tag object, run URL, assets/hashes and final public
   result in validation. Keep old releases/tags/bytes intact. Post-publication defect gets new reviewed
   fix/release; no tag movement, deletion, changed-input retry or signing-key rotation.
-- [ ] Mark DONE only with actual main delivery, immutable tag/release and successful public acceptance.
+- [x] Mark DONE only with actual main delivery, immutable tag/release and successful public acceptance.
   If external gate fails, record exact blocker/next safe action and retain local accepted result.
 
 ## Checkpoint
+
+### Current implementation checkpoint — 2026-10-04
+
+All15 mandatory IDs are accepted. Product delivery and public acceptance are complete; final
+local document-commit verification will be bound in the existing evidence register after the check. Exact candidate a9e417304e9883aa354f5ed2cda6a9ead0438eec,
+tree2d3e7f1abf454c462586cb5450ae1c79d3ccee0a/canonical6d8da82f8008f9d8d002f8a9bd0bb3c60b7db6530eb4894657ad0fcfd38d6250,
+passed clean source35 (native0/session27887), canonical6-package build+freshverify
+(native0/session24365), and all5 realroot gates (native0/session18189), each independently reviewed.
+PR59 CI37214061906 PASS, guarded published-branch main-ref CAS, squash and same-checkout main FF
+produced originmain696b420bc93415d44bb3ab64b35df7539cbbe87b with unchanged tree/canonical bytes;
+mainCI37214269376 PASS. Exact6 owned root VM targets were removed after accepted evidence,
+independent review, PID/consumer/identity/imagehealth guards; build outputs and compact evidence retained.
+
+Configured [run37214392242](https://github.com/snaplyze/arch-linux/actions/runs/37214392242)
+derived child7af2209be497a0a5f0e314cd8cc20f691e52b064/tree83bd2d9de7d4883b08fbb81c78cce8fe0d36374d,
+canonicalf6b6517655429ca06afb1cd241d971fe4ccb02352a231020145853ed8b7185ff, version1.0.6.
+Actual bundle graph proof0/session45041, PhaseA14 proof0/session60683, all9 staged nativePASS
+(collector0/session20614; counts14/17/21/21/21/22/17/26/23), and final18 proof0/session10065
+were accepted and independently reviewed; original14 unchanged, signed evidence1948353B/deferredempty.
+Immutable Release403102824 was published2026-10-04T16:22:59Z after verified Pages deployment;
+annotated tag54d1208417e872bb08b5b9128752d36030205145 points to the accepted child.
+Unauthenticated HTTPS public18+Pages25 exactbyte proof0/session81772 ran under an explicit30m
+outer deadline. Fresh configured publicMarbleGDM VM PASS19/native0 (publicartifact11308433140),
+real HMP/password/Wayland/lock/update/reboot, two bootIDs/no-QEMU/imagehealth accepted.
+ResultSHA13de92af4ecc355529ae734674a7966529c62209adbb7d0d066ebf523b0d25e8;
+release watch0/session50451, terminalSUCCESS. No PASS transferred from older releases or failed predecessors. Final documentation is localmain only; no extra push/publication
+is added merely to publish checkpoint prose. Goal remainsACTIVE only through independent final result review and clean local document-commit
+source verification; mark it complete after those checks, without adding another project scope.
+
+Evidence register: the existing frozen-final-gate-candidate.json, finalizeCandidate entry, preserves
+all native logs/receipts/hashes/attempts and historical remountCandidate failure. Earlier checkpoints
+below are historical; this record and the execution registry describe current state. Final source36
+working-document suite passed0/session93550 before final public wording. Docs29/diff checks are
+rerun after that wording; the clean final document-commit source result is retained in the same register.
+Live installer cancellation/busy-resource/crash VM paths remain NOT_TESTED as a documented
+limitation beyond the explicitly accepted RECOVERY source regressions.
 
 2026-10-02: root plus two independent read-only reviewers and one primary-source researcher
 completed bounded audit. Root independently reran both harmless installer reproductions and the
