@@ -1,6 +1,6 @@
 # Project review and modernization implementation plan
 
-> Current mode (2026-10-03): owner-authorized autonomous implementation of the full registry.
+> Current mode (2026-10-04): owner-authorized autonomous implementation of the full registry.
 > Reuse completed agent setup, audit and planning outcomes; do not restart them.
 > Use bounded `codex-orchestrator` / `superpowers:subagent-driven-development`,
 > subject to [AGENTS.md](../AGENTS.md).
@@ -337,9 +337,9 @@ regression → affected tests → independent review where material → status u
 | MON-01 | P2 | none | DONE | Dated advisory coverage of boot/desktop inputs |
 | UP-01 | P3 | MON-01 | DONE | Reviewed external-source decisions and synchronized metadata |
 | ARCH-01 | P2 | ISO qualification independent; corrected-candidate tests after SAFE-01…03, UP-01 | DONE | Owner-reviewed October ISO after actual Minimal/Stock PASS; corrected-child runtime remains RELEASE-01 |
-| QA-01 | P2 | SAFE-01…03, TRUST-01/02, CONFIG-01, RECOVERY-01, UP-01 | IN_PROGRESS | Fourth child7PASS/2FAIL: GRUB QGAready/runtimeguard rejection, Marble globaldisable=true; targeted cause diagnosis active |
+| QA-01 | P2 | SAFE-01…03, TRUST-01/02, CONFIG-01, RECOVERY-01, UP-01 | IN_PROGRESS | Fourth child7PASS/2FAIL retained; actual overlay backing-read mechanism PASS, production integration underway; Marble global-disable writer still unconfirmed |
 | DOC-01 | P3 | Corrected selector and source behavior prose; final release records under RELEASE-01 | DONE | UI copy and final behavior docs; prose correction is not product fix |
-| GATE-01 | P1 | all above | IN_PROGRESS | Exactc39 source18/build/five-realguest GATE accepted, PR54/mainf9 delivered; new diagnostic/verification corrections require fresh gates |
+| GATE-01 | P1 | all above | IN_PROGRESS | Historicalc39 source/build/five-realguest GATE and PR54/mainf9 delivery accepted; diagnostic861 source21 PASS, observed-read integration requires fresh final gates |
 | RELEASE-01 | final | GATE-01 | IN_PROGRESS | Fourth childebb168bd failed7PASS/2FAIL before finalization; public1.0.5 unchanged; targeted causes under diagnosis |
 
 GATE-01 depends on preceding source/pre-merge deliverables only. DELIVERY-01 closes at reviewed
@@ -1353,8 +1353,181 @@ final candidate freeze; source/build/privileged/actualVM/public gates remain req
 Bounded primary-source research rejected name_to_handle_at lower-origin handle as data-source
 proof: copy-up can preserve lowerorigin while serving upperdata. Selected next mechanism experiment
 only: uniquePID synchronous marker read through actual systemd overlay observed at Btrfs backing
-read using guest-only BTF/BPF, exactrootid/fsUUID/immutableRO and pairedsuccessfulreturn; copied-up
-tmpfs samebytes negative must yield no lowerproof. Archive sole outside-source experiment editor,
-fresh4GiB2CPU/512MiBowneddata/privateguestnamespace/approvedISO/freshVARS/max15min, explicit
-resourceGO, no host/productioninitrd/kernel/GRUB modifications. Native proof+hashes/PID/imagehealth
-and exactownedcleanup required; source4files frozen. No production verifier replacement selected.
+read using guest-only BTF/BPF, exactinode/rootid/fsUUID/immutableRO and pairedsuccessfulreturn;
+copied-up tmpfs samebytes negative must yield no lowerproof. First BPFfixture.JKZMITD2 terminalFAIL:
+actual256MiBcowspace prerequisite corrected to2GiB inside4GiBguest, fullSyu/BTF/bpftrace0.27 PASS,
+qualifiedprobe rejected modulebtrfs-not-loaded. Unqualified empty-stderr discriminator lacked native
+status, no attachPASS inferred; data-origin proof NOT_PROVEN/uppernegative NOT_RUN. Four genuine
+overlay stages, native hashes/PIDs/imagehealth independently verified; five exactownedheavyfiles
+removed, compactreceipt23c1b599d3326c8c312d2696263e2676d6e9784ae7fc2f5f5c4eee45ce02ce62 retained.
+Next changed-prerequisite prooffixture.j7ml4zpm: unqualified matched entry/return withknowninode,
+parent-namespace retained native statuses/errors, actualsamebytes upper-copyup negative. Storage
+sole generated probe editor; root checker/PLAN/acceptance owner; archive sole other generated fixture
+editor/executor; root review GO before launch. Fresh4GiB2CPU/512MiBowneddata/privateguestnamespace/approvedISO/freshVARS/max15min,
+explicitresourceGO, no host/productioninitrd/kernel/GRUB modifications. Native proof+hashes/PID/
+imagehealth/exactownedcleanup required. Rootdiagnostics commit8614564 clean source21 EXIT0 SHA
+73c9a9602e39f6046c95e53a55d671f8b435489ba2e3a384dc470627afb8c1aa, tree98e4ebc/canonical211f43ac
+accepted before this checkpoint; source4files frozen. No production verifier replacement selected.
+
+Proof experiment j7ml4zpm attempts retained once: first actual native1 tracefs ENOENT; second
+actual native2 missing private `/tmp`; neither reached paired read proof. Third actual original-root
+BTF compile/attach native0 emitted ATTACHED+COMPLETE pending0, but strict preflight correctly
+FAIL on pointer-signedness and two discarded-delete-return compiler warnings. Only before-stage
+groundtruth executed; positive/upper-copyup negative NOT_RUN, product acceptance false. Root
+verified all receipt hashes, native output, absent PID572985 and healthy image; receipt
+ffca7d70370bcb295c04157e5cb1117253e5d1d4100c61e70e7d8248d17a579a. Aggregate live upper435s/900s.
+Fourth warning correction passed actual original-root compile/attach preflight native0 with
+empty stderr and only78B controlled stdout. Actual detached-overlay Btrfs marker read returned
+17B plus EOF0, but strict proof FAIL because signed FSID bytes serialized with `ffffff` prefixes.
+Upper-copyup negative NOT_RUN; no proof PASS transferred. Root all hashes/native outputs/four
+stages/PID574773 absence/imagehealth accepted, receipt93db02208929d63b54af6b9f9ef7d14ac41e802f189183be02644ff3c110a33f.
+Fifth unsigned-byte correction actual semantic proof PASS: preflight/positive/negative native0,
+empty stderr/warnings, exact284B positive returns17+EOF0 from expectedinode266/root257/UUID/RO;
+actual same-byte upper copyup still reads17B but zero Btrfs READ rows (95B negative) accepted.
+Root independently re-ran strict checker against retained native buffers, all hashes/four stages/
+PID576318 absence/imagehealth verified; receiptac600c248f6c001a196d4e09c6225826d879b1b4990261b1908fd4b31e330b5d.
+Exact owned heavy resources removed after immutable attempt5 history; cleanedreceipt
+bc2c95c3a173a9583e72350c0edc51f4c3488cf3905eb419d20c4d5055a3ca40. Source unchanged; this is
+mechanism acceptance only, not installed snapshot or product PASS. Aggregate725s/900s,175s
+remaining for required actual backing-mount RO/single-physical-device/entry-return stability
+field extension: storage sole generated probe/checker editor, archive other fixture/executor,
+root integration/review/PLAN. Sixth generated extension RED17failures+3errors→GREEN10tests and
+independent stable review passed, but actual native compile FAIL134: entry BPF stack limit
+exceeded,2451B stderrSHA0be1830a8f5e1b04ccf85b1f605df409e0439f9b29bec95ca8915892952fae11.
+Only before stage ran; physical/mount fields and positive/negative NOT_RUN. Root all hashes,
+exact sixth-only native suffix/PID583853 absence/imagehealth verified; original appended logs
+retained and old COMPLETE false wrapper0 match rejected. Receipt3c9941aa86c66583529afd41f09dc7da07b6d1a4d4651f85c67f9e02eb16176f;
+exact owned cleanup after immutable attempt6 history, cleanedreceipt
+3264918fecf9014f401fa524837af7c46cee7f05d5be67e82039cd201927ce34. Generated fresh-log exclusive
+creation guard/regressions fix historical-match hazard. Original live upper869s/900s retained;
+31s insufficient for another fresh boot, no automatic seventh. Next changed algorithm: small
+incremental map groups reduce stack use while retaining every field and entry/return comparison;
+root bounded next experiment decision required, no kernel-limit increase or check weakening.
+Future production proof must additionally bind actual backing mount RO and single physical
+partition identity via actual guest BTF; UUID/root property alone is insufficient. Independent
+review requires marker FD opened under root overlay without symlinks/mount crossings and with
+matching root mount ID; expected snapshot root ID/inode captured before boot; dynamic marker
+length, bounded paired read/EOF, strict warning/drop/pending rejection and owned cleanup. Tool
+installation belongs to existing GRUB update transaction before reboot, not a second upgrade
+during snapshot preparation. Existing cmdline/kernel/EFI/package/service/network guards retained.
+
+Next focused implementation decision: generated observer uses48 exact scalar map cells with
+immediate stores/comparisons and four small CORE/UUID/DEVICE/STATE records keyed by paired-read
+event1..2; strict consumer rejects missing/duplicate/mixed/gapped groups. Prior869s and original
+900s ceiling retained; changed algorithm will receive a separate210s maximum live stage only
+after stable review, cumulative bound1079s, no attempt reset or kernel limit override. In
+parallel root solely edits guest/verify.sh and runtime-checks.py for the independent marker
+reader leaf: root-relative openat2 BENEATH/NO_SYMLINKS/NO_XDEV, same root mount ID, safe regular
+owned file, exact dynamic run-id bytes/EOF and stable before/after identity. RED→GREEN precedes
+helper; no runtime integration until backing proof ready. Other source files remain frozen;
+new source gates required after integration, historical source21 belongs only to8614564.
+
+Reader leaf accepted independently: nine focused regressions and full runtime83 tests EXIT0
+(14.569s); exact Linux openat2 mount/symlink/metadata/bytes/stable-identity rejection verified.
+Reader remains unused until integration, installed guest NOT_TESTED; new fullsource gate pending.
+Stage7 scalar-map generated observer stable root/independent12 tests PASS; fresh exact-input
+VM launched PID589570/start106487408 after resourceGO,210s live cap/prior869 retained. Native
+compile/physicalmount proof/upper negative pending, no product PASS inferred.
+
+Stage7 terminal FAIL: actual entry compiler stack exceeded, native153/wrapper1 on freshlogs.
+Only before-stage ran; positive/negative/effective features NOT_RUN. Root all retained hashes,
+native status/stage/PID absence/image health verified; receipt24aa3f6443bf5681b6728bb61921f42626f576a256eefa39ec6ada259700dcb3.
+Full8192B native stderr advertised hash is guest-only; retained4096B excerpt independently
+verified, no full-output claim. Live141s/cumulative1010s preserved; exact owned cleanup
+authorized after immutable history. Next hypothesis is six small attached entry/return pairs (CORE, UUID_A, UUID_B, MOUNT_DEVICE,
+FS_STATE, DEV_STATE), with bounded tuples and every old field retained. Each group binds
+start position/request count/end position/retval for the same single-thread reader FD;
+independent ordinal mixing was rejected by review. Stage8 preparation only: cap240s, prior
+1010s retained/cumulative planned1250s, no source integration or VM launch before stable
+generated review and resourceGO. Exact stage7 owned cleanup receipt
+0b98faafb17d6766624fdf8bc2da6cb2e8590c1ede181dfba2e4d5f6dec22978; retained history unchanged.
+
+Six-group stable generated review accepted: all48 fields retained, tuples10/17/17/15/17/13
+words and printf payloads at most128B; root/independent14 checker regressions EXIT0.
+Before nativeGO, focused required fix: END unsignedsum can cancel MAXinflight+broken1 to0.
+Root and independent review confirmed arithmetic; proposed map-failure path NOT_REPRODUCED.
+Replace with booleanOR of all12 nonzero counters and regress actual emitted predicate.
+Stage8 remains NOT_LAUNCHED; same prior1010/cap240, sourceintegration NOT_RUN.
+
+Focused counter correction RED→GREEN15 tests and independent stable review PASS: reconstructing
+oldsum reproduces oldprobe hash, all12 counters exactly once/newOR and actualexpression
+regressions accepted. Final generated probe dca09cc3/checker eb18e0f5, payloadISO8ebc7f7b,
+preparation0450e6f1 closure independently verified. Stage8 GO after resource recheck, max240s
+/prior1010 retained; actual canonical31B root-overlay reader with six commonfield groups and
+upper-copyup negative. Native results pending, no sourceintegration/product PASS inferred.
+
+Stage8 terminal diagnostic FAIL: compiler warnings filled native8192B stdout, native153/
+wrapper1; stdout f4fc1bcd and215B stderr de033bb5 fully retained/advertised hashes matched.
+Signed map-counter arithmetic and redundant uint64 casts are confirmed. Compile/attach after
+warningcap UNKNOWN; no inferred stack PASS/FAIL, positive/negative/features NOT_RUN. Root
+all hashes/nativebeforegroundtruth/PID599435 absence/imagehealth accepted; receiptccee6050.
+Exact owned cleanup after immutable attempt8 history, cleanedreceipt29114359. Actual live
+upper140s/cumulative1150 retained. Next focused generated typing correction preserves every
+field/comparison and strictwarning rejection; sourceintegration still NOT_RUN.
+
+Focused type correction accepted stable root/independent review: signed bounded inflight
++1/-1 and28 redundant U64 casts removed; raw pointer casts/unsigned narrow UUID widening,
+all48 identity fields, six call groups and OR12 cleanup predicate unchanged. RED1→GREEN16
+self-tests; native warnings after oldcap remain UNKNOWN. Stage9 exactprobe4f413093/checker
+d1d9a324/ISO b2b2fe9e/preparationf784f0f6 closure verified, GO after fresh resource recheck:
+max240s/prior1150 retained/planned1390, no automatic10. Nativecompile/proof pending.
+
+Stage9 actual strict compile/attach PASS: native0/78B stdout84d653d4/empty stderr, exact
+controls plus permitted blank lines, no compilerwarning. Native IR programcount NOT_TESTED,
+no data-origin proof inferred. Generated feature observer then FAIL on its single-record
+mountpoint assumption: covered lower and effective overlay legitimately share pathname.
+Before+covered actual groundtruth verified; positive/negative NOT_RUN. Root all input/native
+hashes/PID602092 absence/imagehealth accepted, receipt38493b32; actual142s/cumulative1292
+retained. Exact owned cleanup authorized. Focused stage10 preparation: choose actual openedFD
+mnt_id and exact overlay mountinfo record, stableFD identity; strict stackedmount regressions.
+Same frozenprobe/checker, new240s max/planned1532/noreset; no sourceintegration or productPASS.
+
+Stage9 exactownedcleanup complete, cleanedreceipt d614370e. Stage10 focusedfeaturefix
+RED actualstackedrecords→GREEN6 tests plus independentstable review/syntax/ShellCheck PASS.
+Actualreader mount_id/identity helper selectsone effectiveFD-overlay mountrecord, checks
+stability, finitefeatureJSON unchanged/no rawpaths. Feature6ee44db6/preparationf815383c/ISO
+d3c499f5 closure independently verified; probe4f413093/checkerd1d9a324 unchanged. Stage10GO
+with fresh resource recheck, cap240/prior1292 retained/planned1532. Full backingpositive/
+uppernegative still pending, sourceintegration NOT_RUN; QA/GATE/RELEASE remain open.
+
+Stage10 actual full semantic proof PASS: preflight/positive/negative native0, exact retained
+buffers and six common-field groups independently checked by root; lower31B+EOF resolves
+to expected root257/inode266/UUID/RO backing mount/sole physical254:1, real same-bytes upper
+copyup produces zero Btrfs read events. All4 held-FD groundtruth stages PASS including detached
+oldroot; effective module metacopy/redirect/index/xino Y despite absent listed options, so
+absence is not inferred off. Receipt9a35ba94; installed-product acceptance remains NOT_TESTED.
+Executor automatic protection error occurred after actual launch; root adopted existing
+PID604035/start106807536 within unchanged240s bound, no second launch/protection changes.
+Wrapper status NOT_CAPTURED; actual guest COMPLETE/native0/PID absence/imagehealth verified.
+Actual upper145s/cumulative1437s, original history and caps retained. Exact3 owned heavyfiles
+removed after accepted hashes/health; cleaned receipt 0f18e176ef2e0121cef09a7e01e3ea8e1ab191731dc0cbadc2cef4e7690ffb49.
+Next ready work delegated to storage_guards: sole writer guest/verify.sh+runtime-checks.py
+for selfcontained observed-read integration, strict12-field preboot state, independent RO
+readback, tool in existing exact GRUB update and useful regressions. Root PLAN/evidence and
+monitoring independent read-only proof review; all final fresh gates still required.
+
+Independent monitoring stage10 native review PASS:29 compact hashes/exact framed buffers,
+pinned checker positive1data+1EOF versus upperzero, fourgroundtruth stages/effectivefeatures
+and nativecontrol completeness all agree. No installed-system acceptance inferred.
+
+Production integration first test boundary: embedded proven observer/consumer, strict12-field
+preboot identity, private namespace/RO readback/tracer cleanup and exact GRUB update-tool route
+implemented by storage_guards. Initial full runtime run has28 old8-field fixture mismatches,
+no unrelated failure reported; fixtures and meaningful helper/cleanup regressions in progress.
+Stable independent review/fullsource/build/root/installed child gates not yet executed.
+
+Production integration focused acceptance:92 runtime tests PASS15.782s plus syntax/ShellCheck/
+diff. Original30 guard negatives retain their precise finite reasons; producer4f413093 and
+reader2c95755d unchanged. Independent stable review accepted integration except overly broad
+second-GRUB tool route; root also bounded independent marker read before cat. Actual-helper
+RED6failures→GREEN2 and final92tests PASS confirm exact snapshot-only tool route and unsafe/
+oversized/failed marker metadata rejection before reading. Frozen guest5fee2674/tests38dfc4e7;
+focused rereview and fullsource pending, installed new candidate NOT_TESTED. No fresh BPF
+experiment or source-setting change; next final clean candidate/build/root/child acceptance.
+
+Final focused stable review PASS (monitoring) and full source23 EXIT0/native session74362:
+`PYTHONDONTWRITEBYTECODE=1 bash tests/source-tests.sh`, log SHA256
+acc6b52196776d2774b7598af5c271dc31105eacf181d3d8344de6244623dd12, full namespace10/
+signer/14+18/deferrednone and all required source tests. Exact five authorized paths are ready
+for local candidate commit; clean tree-bound source/build/five real-root gates follow before
+new protected-main PR delivery. Historical fourth child stays7PASS/2FAIL/public1.0.5 unchanged.

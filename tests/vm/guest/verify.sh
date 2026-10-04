@@ -1234,6 +1234,1051 @@ snapshot_runtime_fail() {
     return 1
 }
 
+snapshot_overlay_reader_program() {
+    cat <<'SNAPSHOT_READER_PY'
+import ctypes
+import os
+import platform
+import re
+import stat
+import sys
+
+class OpenHow(ctypes.Structure):
+    _fields_ = [("flags", ctypes.c_uint64), ("mode", ctypes.c_uint64), ("resolve", ctypes.c_uint64)]
+
+libc = ctypes.CDLL(None, use_errno=True)
+libc.syscall.restype = ctypes.c_long
+libc.syscall.argtypes = [ctypes.c_long, ctypes.c_int, ctypes.c_char_p, ctypes.c_void_p, ctypes.c_size_t]
+
+def mount_id(fd):
+    with open("/proc/self/fdinfo/" + str(fd), "rb") as stream:
+        raw = stream.read(4097)
+    values = re.findall(rb"^mnt_id:[ \t]*([1-9][0-9]*)$", raw, re.M)
+    if len(raw) > 4096 or len(values) != 1:
+        raise ValueError("mount identity unavailable")
+    return int(values[0])
+
+def identity(metadata):
+    return (metadata.st_dev, metadata.st_ino, metadata.st_mode, metadata.st_uid,
+            metadata.st_gid, metadata.st_nlink, metadata.st_size,
+            metadata.st_mtime_ns, metadata.st_ctime_ns)
+
+def read_marker(run, root_path="/", relative="var/lib/arch-linux-vm/snapshot-marker"):
+    if not re.fullmatch(r"grub-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}", run) or platform.machine() != "x86_64":
+        raise ValueError("reader inputs unsupported")
+    expected = (run + "\n").encode("ascii")
+    root_fd = os.open(root_path, os.O_PATH | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW)
+    marker_fd = -1
+    try:
+        root_mount = mount_id(root_fd)
+        # Linux x86-64 openat2; no symlink, escape or mount crossing is permitted.
+        how = OpenHow(os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK, 0, 0x0d)
+        marker_fd = libc.syscall(437, root_fd, relative.encode("ascii"), ctypes.byref(how), ctypes.sizeof(how))
+        if marker_fd < 0:
+            raise OSError(ctypes.get_errno(), "root-relative marker open failed")
+        before = os.fstat(marker_fd)
+        if (not stat.S_ISREG(before.st_mode) or before.st_uid != os.geteuid()
+                or before.st_mode & 0o7022 or before.st_nlink != 1
+                or before.st_size != len(expected) or mount_id(marker_fd) != root_mount):
+            raise ValueError("unsafe marker identity")
+        data = os.read(marker_fd, len(expected) + 1)
+        eof = os.read(marker_fd, 1)
+        after = os.fstat(marker_fd)
+        if (data != expected or eof or identity(before) != identity(after)
+                or mount_id(marker_fd) != root_mount or mount_id(root_fd) != root_mount):
+            raise ValueError("marker read changed")
+        return data
+    finally:
+        if marker_fd >= 0:
+            os.close(marker_fd)
+        os.close(root_fd)
+
+if __name__ == "__main__":
+    try:
+        if len(sys.argv) != 2:
+            raise ValueError("reader arguments")
+        data = read_marker(sys.argv[1])
+        if os.write(1, data) != len(data):
+            raise ValueError("reader output incomplete")
+    except (OSError, ValueError, UnicodeError):
+        print("SNAPSHOT_OVERLAY_READER_FAIL reason=read", file=sys.stderr)
+        raise SystemExit(1)
+SNAPSHOT_READER_PY
+}
+
+snapshot_backing_probe_program() {
+    cat <<'SNAPSHOT_BACKING_BPF'
+#!/usr/bin/env bpftrace
+// Read-only QA observer. $1: accepted lower inode; $2: exact marker byte length.
+// Six independent pairs bound tuple/printf stack; no attachment order is assumed.
+BEGIN
+{
+    assert($1 > 0 && $2 > 0 && $2 <= 128, "marker inputs missing");
+    printf("QA_OVERLAY_BPF_ATTACHED schema=1\n");
+}
+
+kprobe:btrfs_file_read_iter
+/pid == cpid && tid == cpid/
+{
+    $iocb = (struct kiocb *)arg0;
+    $iter = (struct iov_iter *)arg1;
+    $file = (struct file *)0;
+    $match = (uint64)1;
+    if ($iocb != 0) { $file = $iocb->ki_filp; }
+    if ($file != 0) {
+        $inode = $file->f_inode;
+        if ($inode != 0) { $match = (uint64)($inode->i_ino == $1); }
+    }
+    if ($match == 1) {
+        if (@core_pending[tid]) {
+            @core_broken = (uint64)1;
+        } else {
+            @core_pending[tid] = 1;
+            @core_inflight = @core_inflight + 1;
+            $v_p_iocb = (uint64)0;
+            $v_p_file = (uint64)0;
+            $v_p_inode = (uint64)0;
+            $v_p_root = (uint64)0;
+            $v_start = (uint64)0;
+            $v_count = (uint64)0;
+            $v_valid = (uint64)0;
+            $v_inode_number = (uint64)0;
+            $v_root_id = (uint64)0;
+            $v_root_flags = (uint64)0;
+            $valid = (uint64)0;
+            if ($iocb != 0) { $v_start = (uint64)$iocb->ki_pos; }
+            if ($iter != 0) { $v_count = $iter->count; }
+    if ($iocb != 0) {
+        $v_p_iocb = (uint64)($iocb);
+        $file = $iocb->ki_filp;
+        if ($file != 0) {
+            $v_p_file = (uint64)($file);
+            $inode = $file->f_inode;
+            if ($inode != 0) {
+                $v_p_inode = (uint64)($inode);
+                $v_inode_number = ($inode->i_ino);
+                $root = ((struct btrfs_inode *)((int64)$inode - (int64)offsetof(struct btrfs_inode, vfs_inode)))->root;
+                if ($root != 0) {
+                    $v_p_root = (uint64)($root);
+                    $v_root_id = ($root->root_key.objectid);
+                    $v_root_flags = ($root->root_item.flags);
+                    if ($iter != 0) { $valid = (uint64)1; }
+                }
+            }
+        }
+    }
+    $v_valid = ($valid);
+            @core_saved[tid] = ($v_p_iocb, $v_p_file, $v_p_inode, $v_p_root, $v_start, $v_count, $v_valid, $v_inode_number, $v_root_id, $v_root_flags);
+        }
+    }
+}
+
+kretprobe:btrfs_file_read_iter
+/pid == cpid && tid == cpid && @core_pending[tid]/
+{
+    $saved = @core_saved[tid];
+    $iocb = (struct kiocb *)(int64)$saved.0;
+    $valid = (uint64)0;
+    $stable = (uint64)1;
+    $end = (uint64)0;
+    if ($iocb != 0) { $end = (uint64)$iocb->ki_pos; }
+    if ($iocb != 0) {
+        if ((uint64)($iocb) != $saved.0) { $stable = (uint64)0; }
+        $file = $iocb->ki_filp;
+        if ($file != 0) {
+            if ((uint64)($file) != $saved.1) { $stable = (uint64)0; }
+            $inode = $file->f_inode;
+            if ($inode != 0) {
+                if ((uint64)($inode) != $saved.2) { $stable = (uint64)0; }
+                if (($inode->i_ino) != $saved.7) { $stable = (uint64)0; }
+                $root = ((struct btrfs_inode *)((int64)$inode - (int64)offsetof(struct btrfs_inode, vfs_inode)))->root;
+                if ($root != 0) {
+                    if ((uint64)($root) != $saved.3) { $stable = (uint64)0; }
+                    if (($root->root_key.objectid) != $saved.8) { $stable = (uint64)0; }
+                    if (($root->root_item.flags) != $saved.9) { $stable = (uint64)0; }
+                    if (1) { $valid = (uint64)1; }
+                }
+            }
+        }
+    }
+    if ($valid != 1 || $saved.6 != 1) { $stable = (uint64)0; }
+    if (@core_broken) { $stable = (uint64)0; }
+    $event = (uint64)0;
+    if ($saved.4 == 0) { $event = (uint64)1; }
+    else if ($saved.4 == $2) { $event = (uint64)2; }
+    printf("QA_OVERLAY_BPF_CORE event=%llu start=%llu count=%llu end=%llu retval=%lld valid=%llu stable=%llu inode=%llu root_id=%llu ro=%llu\n", $event, $saved.4, $saved.5, $end, (int64)retval, $valid, $stable, $saved.7, $saved.8, (uint64)(($saved.9 & (uint64)1) != 0));
+    $saved_deleted = delete(@core_saved, tid);
+    $pending_deleted = delete(@core_pending, tid);
+    if ($saved_deleted && $pending_deleted) {
+        @core_inflight = @core_inflight - 1;
+    } else {
+        @core_broken = (uint64)1;
+    }
+}
+
+kprobe:btrfs_file_read_iter
+/pid == cpid && tid == cpid/
+{
+    $iocb = (struct kiocb *)arg0;
+    $iter = (struct iov_iter *)arg1;
+    $file = (struct file *)0;
+    $match = (uint64)1;
+    if ($iocb != 0) { $file = $iocb->ki_filp; }
+    if ($file != 0) {
+        $inode = $file->f_inode;
+        if ($inode != 0) { $match = (uint64)($inode->i_ino == $1); }
+    }
+    if ($match == 1) {
+        if (@uuid_a_pending[tid]) {
+            @uuid_a_broken = (uint64)1;
+        } else {
+            @uuid_a_pending[tid] = 1;
+            @uuid_a_inflight = @uuid_a_inflight + 1;
+            $v_p_iocb = (uint64)0;
+            $v_p_file = (uint64)0;
+            $v_p_inode = (uint64)0;
+            $v_p_root = (uint64)0;
+            $v_p_info = (uint64)0;
+            $v_p_fsdev = (uint64)0;
+            $v_start = (uint64)0;
+            $v_count = (uint64)0;
+            $v_valid = (uint64)0;
+            $v_uuid0 = (uint64)0;
+            $v_uuid1 = (uint64)0;
+            $v_uuid2 = (uint64)0;
+            $v_uuid3 = (uint64)0;
+            $v_uuid4 = (uint64)0;
+            $v_uuid5 = (uint64)0;
+            $v_uuid6 = (uint64)0;
+            $v_uuid7 = (uint64)0;
+            $valid = (uint64)0;
+            if ($iocb != 0) { $v_start = (uint64)$iocb->ki_pos; }
+            if ($iter != 0) { $v_count = $iter->count; }
+    if ($iocb != 0) {
+        $v_p_iocb = (uint64)($iocb);
+        $file = $iocb->ki_filp;
+        if ($file != 0) {
+            $v_p_file = (uint64)($file);
+            $inode = $file->f_inode;
+            if ($inode != 0) {
+                $v_p_inode = (uint64)($inode);
+                $root = ((struct btrfs_inode *)((int64)$inode - (int64)offsetof(struct btrfs_inode, vfs_inode)))->root;
+                if ($root != 0) {
+                    $v_p_root = (uint64)($root);
+                    $info = $root->fs_info;
+                    if ($info != 0) {
+                        $v_p_info = (uint64)($info);
+                        $fsdev = $info->fs_devices;
+                        if ($fsdev != 0) {
+                            $v_p_fsdev = (uint64)($fsdev);
+                            $v_uuid0 = (uint64)((uint8)$fsdev->fsid[0]);
+                            $v_uuid1 = (uint64)((uint8)$fsdev->fsid[1]);
+                            $v_uuid2 = (uint64)((uint8)$fsdev->fsid[2]);
+                            $v_uuid3 = (uint64)((uint8)$fsdev->fsid[3]);
+                            $v_uuid4 = (uint64)((uint8)$fsdev->fsid[4]);
+                            $v_uuid5 = (uint64)((uint8)$fsdev->fsid[5]);
+                            $v_uuid6 = (uint64)((uint8)$fsdev->fsid[6]);
+                            $v_uuid7 = (uint64)((uint8)$fsdev->fsid[7]);
+                            if ($iter != 0) { $valid = (uint64)1; }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    $v_valid = ($valid);
+            @uuid_a_saved[tid] = ($v_p_iocb, $v_p_file, $v_p_inode, $v_p_root, $v_p_info, $v_p_fsdev, $v_start, $v_count, $v_valid, $v_uuid0, $v_uuid1, $v_uuid2, $v_uuid3, $v_uuid4, $v_uuid5, $v_uuid6, $v_uuid7);
+        }
+    }
+}
+
+kretprobe:btrfs_file_read_iter
+/pid == cpid && tid == cpid && @uuid_a_pending[tid]/
+{
+    $saved = @uuid_a_saved[tid];
+    $iocb = (struct kiocb *)(int64)$saved.0;
+    $valid = (uint64)0;
+    $stable = (uint64)1;
+    $end = (uint64)0;
+    if ($iocb != 0) { $end = (uint64)$iocb->ki_pos; }
+    if ($iocb != 0) {
+        if ((uint64)($iocb) != $saved.0) { $stable = (uint64)0; }
+        $file = $iocb->ki_filp;
+        if ($file != 0) {
+            if ((uint64)($file) != $saved.1) { $stable = (uint64)0; }
+            $inode = $file->f_inode;
+            if ($inode != 0) {
+                if ((uint64)($inode) != $saved.2) { $stable = (uint64)0; }
+                $root = ((struct btrfs_inode *)((int64)$inode - (int64)offsetof(struct btrfs_inode, vfs_inode)))->root;
+                if ($root != 0) {
+                    if ((uint64)($root) != $saved.3) { $stable = (uint64)0; }
+                    $info = $root->fs_info;
+                    if ($info != 0) {
+                        if ((uint64)($info) != $saved.4) { $stable = (uint64)0; }
+                        $fsdev = $info->fs_devices;
+                        if ($fsdev != 0) {
+                            if ((uint64)($fsdev) != $saved.5) { $stable = (uint64)0; }
+                            if ((uint64)((uint8)$fsdev->fsid[0]) != $saved.9) { $stable = (uint64)0; }
+                            if ((uint64)((uint8)$fsdev->fsid[1]) != $saved.10) { $stable = (uint64)0; }
+                            if ((uint64)((uint8)$fsdev->fsid[2]) != $saved.11) { $stable = (uint64)0; }
+                            if ((uint64)((uint8)$fsdev->fsid[3]) != $saved.12) { $stable = (uint64)0; }
+                            if ((uint64)((uint8)$fsdev->fsid[4]) != $saved.13) { $stable = (uint64)0; }
+                            if ((uint64)((uint8)$fsdev->fsid[5]) != $saved.14) { $stable = (uint64)0; }
+                            if ((uint64)((uint8)$fsdev->fsid[6]) != $saved.15) { $stable = (uint64)0; }
+                            if ((uint64)((uint8)$fsdev->fsid[7]) != $saved.16) { $stable = (uint64)0; }
+                            if (1) { $valid = (uint64)1; }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if ($valid != 1 || $saved.8 != 1) { $stable = (uint64)0; }
+    if (@uuid_a_broken) { $stable = (uint64)0; }
+    $event = (uint64)0;
+    if ($saved.6 == 0) { $event = (uint64)1; }
+    else if ($saved.6 == $2) { $event = (uint64)2; }
+    printf("QA_OVERLAY_BPF_UUID_A event=%llu start=%llu count=%llu end=%llu retval=%lld valid=%llu stable=%llu fsid=%02x%02x%02x%02x%02x%02x%02x%02x\n", $event, $saved.6, $saved.7, $end, (int64)retval, $valid, $stable, $saved.9, $saved.10, $saved.11, $saved.12, $saved.13, $saved.14, $saved.15, $saved.16);
+    $saved_deleted = delete(@uuid_a_saved, tid);
+    $pending_deleted = delete(@uuid_a_pending, tid);
+    if ($saved_deleted && $pending_deleted) {
+        @uuid_a_inflight = @uuid_a_inflight - 1;
+    } else {
+        @uuid_a_broken = (uint64)1;
+    }
+}
+
+kprobe:btrfs_file_read_iter
+/pid == cpid && tid == cpid/
+{
+    $iocb = (struct kiocb *)arg0;
+    $iter = (struct iov_iter *)arg1;
+    $file = (struct file *)0;
+    $match = (uint64)1;
+    if ($iocb != 0) { $file = $iocb->ki_filp; }
+    if ($file != 0) {
+        $inode = $file->f_inode;
+        if ($inode != 0) { $match = (uint64)($inode->i_ino == $1); }
+    }
+    if ($match == 1) {
+        if (@uuid_b_pending[tid]) {
+            @uuid_b_broken = (uint64)1;
+        } else {
+            @uuid_b_pending[tid] = 1;
+            @uuid_b_inflight = @uuid_b_inflight + 1;
+            $v_p_iocb = (uint64)0;
+            $v_p_file = (uint64)0;
+            $v_p_inode = (uint64)0;
+            $v_p_root = (uint64)0;
+            $v_p_info = (uint64)0;
+            $v_p_fsdev = (uint64)0;
+            $v_start = (uint64)0;
+            $v_count = (uint64)0;
+            $v_valid = (uint64)0;
+            $v_uuid8 = (uint64)0;
+            $v_uuid9 = (uint64)0;
+            $v_uuid10 = (uint64)0;
+            $v_uuid11 = (uint64)0;
+            $v_uuid12 = (uint64)0;
+            $v_uuid13 = (uint64)0;
+            $v_uuid14 = (uint64)0;
+            $v_uuid15 = (uint64)0;
+            $valid = (uint64)0;
+            if ($iocb != 0) { $v_start = (uint64)$iocb->ki_pos; }
+            if ($iter != 0) { $v_count = $iter->count; }
+    if ($iocb != 0) {
+        $v_p_iocb = (uint64)($iocb);
+        $file = $iocb->ki_filp;
+        if ($file != 0) {
+            $v_p_file = (uint64)($file);
+            $inode = $file->f_inode;
+            if ($inode != 0) {
+                $v_p_inode = (uint64)($inode);
+                $root = ((struct btrfs_inode *)((int64)$inode - (int64)offsetof(struct btrfs_inode, vfs_inode)))->root;
+                if ($root != 0) {
+                    $v_p_root = (uint64)($root);
+                    $info = $root->fs_info;
+                    if ($info != 0) {
+                        $v_p_info = (uint64)($info);
+                        $fsdev = $info->fs_devices;
+                        if ($fsdev != 0) {
+                            $v_p_fsdev = (uint64)($fsdev);
+                            $v_uuid8 = (uint64)((uint8)$fsdev->fsid[8]);
+                            $v_uuid9 = (uint64)((uint8)$fsdev->fsid[9]);
+                            $v_uuid10 = (uint64)((uint8)$fsdev->fsid[10]);
+                            $v_uuid11 = (uint64)((uint8)$fsdev->fsid[11]);
+                            $v_uuid12 = (uint64)((uint8)$fsdev->fsid[12]);
+                            $v_uuid13 = (uint64)((uint8)$fsdev->fsid[13]);
+                            $v_uuid14 = (uint64)((uint8)$fsdev->fsid[14]);
+                            $v_uuid15 = (uint64)((uint8)$fsdev->fsid[15]);
+                            if ($iter != 0) { $valid = (uint64)1; }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    $v_valid = ($valid);
+            @uuid_b_saved[tid] = ($v_p_iocb, $v_p_file, $v_p_inode, $v_p_root, $v_p_info, $v_p_fsdev, $v_start, $v_count, $v_valid, $v_uuid8, $v_uuid9, $v_uuid10, $v_uuid11, $v_uuid12, $v_uuid13, $v_uuid14, $v_uuid15);
+        }
+    }
+}
+
+kretprobe:btrfs_file_read_iter
+/pid == cpid && tid == cpid && @uuid_b_pending[tid]/
+{
+    $saved = @uuid_b_saved[tid];
+    $iocb = (struct kiocb *)(int64)$saved.0;
+    $valid = (uint64)0;
+    $stable = (uint64)1;
+    $end = (uint64)0;
+    if ($iocb != 0) { $end = (uint64)$iocb->ki_pos; }
+    if ($iocb != 0) {
+        if ((uint64)($iocb) != $saved.0) { $stable = (uint64)0; }
+        $file = $iocb->ki_filp;
+        if ($file != 0) {
+            if ((uint64)($file) != $saved.1) { $stable = (uint64)0; }
+            $inode = $file->f_inode;
+            if ($inode != 0) {
+                if ((uint64)($inode) != $saved.2) { $stable = (uint64)0; }
+                $root = ((struct btrfs_inode *)((int64)$inode - (int64)offsetof(struct btrfs_inode, vfs_inode)))->root;
+                if ($root != 0) {
+                    if ((uint64)($root) != $saved.3) { $stable = (uint64)0; }
+                    $info = $root->fs_info;
+                    if ($info != 0) {
+                        if ((uint64)($info) != $saved.4) { $stable = (uint64)0; }
+                        $fsdev = $info->fs_devices;
+                        if ($fsdev != 0) {
+                            if ((uint64)($fsdev) != $saved.5) { $stable = (uint64)0; }
+                            if ((uint64)((uint8)$fsdev->fsid[8]) != $saved.9) { $stable = (uint64)0; }
+                            if ((uint64)((uint8)$fsdev->fsid[9]) != $saved.10) { $stable = (uint64)0; }
+                            if ((uint64)((uint8)$fsdev->fsid[10]) != $saved.11) { $stable = (uint64)0; }
+                            if ((uint64)((uint8)$fsdev->fsid[11]) != $saved.12) { $stable = (uint64)0; }
+                            if ((uint64)((uint8)$fsdev->fsid[12]) != $saved.13) { $stable = (uint64)0; }
+                            if ((uint64)((uint8)$fsdev->fsid[13]) != $saved.14) { $stable = (uint64)0; }
+                            if ((uint64)((uint8)$fsdev->fsid[14]) != $saved.15) { $stable = (uint64)0; }
+                            if ((uint64)((uint8)$fsdev->fsid[15]) != $saved.16) { $stable = (uint64)0; }
+                            if (1) { $valid = (uint64)1; }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if ($valid != 1 || $saved.8 != 1) { $stable = (uint64)0; }
+    if (@uuid_b_broken) { $stable = (uint64)0; }
+    $event = (uint64)0;
+    if ($saved.6 == 0) { $event = (uint64)1; }
+    else if ($saved.6 == $2) { $event = (uint64)2; }
+    printf("QA_OVERLAY_BPF_UUID_B event=%llu start=%llu count=%llu end=%llu retval=%lld valid=%llu stable=%llu fsid=%02x%02x%02x%02x%02x%02x%02x%02x\n", $event, $saved.6, $saved.7, $end, (int64)retval, $valid, $stable, $saved.9, $saved.10, $saved.11, $saved.12, $saved.13, $saved.14, $saved.15, $saved.16);
+    $saved_deleted = delete(@uuid_b_saved, tid);
+    $pending_deleted = delete(@uuid_b_pending, tid);
+    if ($saved_deleted && $pending_deleted) {
+        @uuid_b_inflight = @uuid_b_inflight - 1;
+    } else {
+        @uuid_b_broken = (uint64)1;
+    }
+}
+
+kprobe:btrfs_file_read_iter
+/pid == cpid && tid == cpid/
+{
+    $iocb = (struct kiocb *)arg0;
+    $iter = (struct iov_iter *)arg1;
+    $file = (struct file *)0;
+    $match = (uint64)1;
+    if ($iocb != 0) { $file = $iocb->ki_filp; }
+    if ($file != 0) {
+        $inode = $file->f_inode;
+        if ($inode != 0) { $match = (uint64)($inode->i_ino == $1); }
+    }
+    if ($match == 1) {
+        if (@mount_device_pending[tid]) {
+            @mount_device_broken = (uint64)1;
+        } else {
+            @mount_device_pending[tid] = 1;
+            @mount_device_inflight = @mount_device_inflight + 1;
+            $v_p_iocb = (uint64)0;
+            $v_p_file = (uint64)0;
+            $v_p_inode = (uint64)0;
+            $v_p_root = (uint64)0;
+            $v_p_info = (uint64)0;
+            $v_p_fsdev = (uint64)0;
+            $v_p_device = (uint64)0;
+            $v_p_bdev = (uint64)0;
+            $v_p_mnt = (uint64)0;
+            $v_start = (uint64)0;
+            $v_count = (uint64)0;
+            $v_valid = (uint64)0;
+            $v_mount_flags = (uint64)0;
+            $v_physical = (uint64)0;
+            $v_devt = (uint64)0;
+            $valid = (uint64)0;
+            if ($iocb != 0) { $v_start = (uint64)$iocb->ki_pos; }
+            if ($iter != 0) { $v_count = $iter->count; }
+    if ($iocb != 0) {
+        $v_p_iocb = (uint64)($iocb);
+        $file = $iocb->ki_filp;
+        if ($file != 0) {
+            $v_p_file = (uint64)($file);
+            $mnt = $file->f_path.mnt;
+            if ($mnt != 0) {
+                $v_p_mnt = (uint64)($mnt);
+                $v_mount_flags = (uint64)($mnt->mnt_flags);
+            }
+            $inode = $file->f_inode;
+            if ($inode != 0) {
+                $v_p_inode = (uint64)($inode);
+                $root = ((struct btrfs_inode *)((int64)$inode - (int64)offsetof(struct btrfs_inode, vfs_inode)))->root;
+                if ($root != 0) {
+                    $v_p_root = (uint64)($root);
+                    $info = $root->fs_info;
+                    if ($info != 0) {
+                        $v_p_info = (uint64)($info);
+                        $fsdev = $info->fs_devices;
+                        if ($fsdev != 0) {
+                            $v_p_fsdev = (uint64)($fsdev);
+                            $device = $fsdev->latest_dev;
+                            if ($device != 0) {
+                                $v_p_device = (uint64)($device);
+                                $v_devt = (uint64)($device->devt);
+                                $bdev = $device->bdev;
+                                if ($bdev != 0) {
+                                    $v_p_bdev = (uint64)($bdev);
+                                    $v_physical = (uint64)($bdev->bd_dev);
+                                    if ($iter != 0 && $mnt != 0) { $valid = (uint64)1; }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    $v_valid = ($valid);
+            @mount_device_saved[tid] = ($v_p_iocb, $v_p_file, $v_p_inode, $v_p_root, $v_p_info, $v_p_fsdev, $v_p_device, $v_p_bdev, $v_p_mnt, $v_start, $v_count, $v_valid, $v_mount_flags, $v_physical, $v_devt);
+        }
+    }
+}
+
+kretprobe:btrfs_file_read_iter
+/pid == cpid && tid == cpid && @mount_device_pending[tid]/
+{
+    $saved = @mount_device_saved[tid];
+    $iocb = (struct kiocb *)(int64)$saved.0;
+    $valid = (uint64)0;
+    $stable = (uint64)1;
+    $end = (uint64)0;
+    if ($iocb != 0) { $end = (uint64)$iocb->ki_pos; }
+    if ($iocb != 0) {
+        if ((uint64)($iocb) != $saved.0) { $stable = (uint64)0; }
+        $file = $iocb->ki_filp;
+        if ($file != 0) {
+            if ((uint64)($file) != $saved.1) { $stable = (uint64)0; }
+            $mnt = $file->f_path.mnt;
+            if ($mnt != 0) {
+                if ((uint64)($mnt) != $saved.8) { $stable = (uint64)0; }
+                if ((uint64)($mnt->mnt_flags) != $saved.12) { $stable = (uint64)0; }
+            }
+            $inode = $file->f_inode;
+            if ($inode != 0) {
+                if ((uint64)($inode) != $saved.2) { $stable = (uint64)0; }
+                $root = ((struct btrfs_inode *)((int64)$inode - (int64)offsetof(struct btrfs_inode, vfs_inode)))->root;
+                if ($root != 0) {
+                    if ((uint64)($root) != $saved.3) { $stable = (uint64)0; }
+                    $info = $root->fs_info;
+                    if ($info != 0) {
+                        if ((uint64)($info) != $saved.4) { $stable = (uint64)0; }
+                        $fsdev = $info->fs_devices;
+                        if ($fsdev != 0) {
+                            if ((uint64)($fsdev) != $saved.5) { $stable = (uint64)0; }
+                            $device = $fsdev->latest_dev;
+                            if ($device != 0) {
+                                if ((uint64)($device) != $saved.6) { $stable = (uint64)0; }
+                                if ((uint64)($device->devt) != $saved.14) { $stable = (uint64)0; }
+                                $bdev = $device->bdev;
+                                if ($bdev != 0) {
+                                    if ((uint64)($bdev) != $saved.7) { $stable = (uint64)0; }
+                                    if ((uint64)($bdev->bd_dev) != $saved.13) { $stable = (uint64)0; }
+                                    if (1 && $mnt != 0) { $valid = (uint64)1; }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if ($valid != 1 || $saved.11 != 1) { $stable = (uint64)0; }
+    if (@mount_device_broken) { $stable = (uint64)0; }
+    $event = (uint64)0;
+    if ($saved.9 == 0) { $event = (uint64)1; }
+    else if ($saved.9 == $2) { $event = (uint64)2; }
+    printf("QA_OVERLAY_BPF_MOUNT_DEVICE event=%llu start=%llu count=%llu end=%llu retval=%lld valid=%llu stable=%llu mount_ro=%llu major=%llu minor=%llu dev_major=%llu dev_minor=%llu\n", $event, $saved.9, $saved.10, $end, (int64)retval, $valid, $stable, (uint64)(($saved.12 & (uint64)64) != 0), $saved.13 >> 20, $saved.13 & (uint64)1048575, $saved.14 >> 20, $saved.14 & (uint64)1048575);
+    $saved_deleted = delete(@mount_device_saved, tid);
+    $pending_deleted = delete(@mount_device_pending, tid);
+    if ($saved_deleted && $pending_deleted) {
+        @mount_device_inflight = @mount_device_inflight - 1;
+    } else {
+        @mount_device_broken = (uint64)1;
+    }
+}
+
+kprobe:btrfs_file_read_iter
+/pid == cpid && tid == cpid/
+{
+    $iocb = (struct kiocb *)arg0;
+    $iter = (struct iov_iter *)arg1;
+    $file = (struct file *)0;
+    $match = (uint64)1;
+    if ($iocb != 0) { $file = $iocb->ki_filp; }
+    if ($file != 0) {
+        $inode = $file->f_inode;
+        if ($inode != 0) { $match = (uint64)($inode->i_ino == $1); }
+    }
+    if ($match == 1) {
+        if (@fs_state_pending[tid]) {
+            @fs_state_broken = (uint64)1;
+        } else {
+            @fs_state_pending[tid] = 1;
+            @fs_state_inflight = @fs_state_inflight + 1;
+            $v_p_iocb = (uint64)0;
+            $v_p_file = (uint64)0;
+            $v_p_inode = (uint64)0;
+            $v_p_root = (uint64)0;
+            $v_p_info = (uint64)0;
+            $v_p_fsdev = (uint64)0;
+            $v_start = (uint64)0;
+            $v_count = (uint64)0;
+            $v_valid = (uint64)0;
+            $v_num_devices = (uint64)0;
+            $v_open_devices = (uint64)0;
+            $v_total_devices = (uint64)0;
+            $v_missing_devices = (uint64)0;
+            $v_seeding = (uint64)0;
+            $v_temp_fsid = (uint64)0;
+            $v_seed_next = (uint64)0;
+            $v_seed_prev = (uint64)0;
+            $valid = (uint64)0;
+            if ($iocb != 0) { $v_start = (uint64)$iocb->ki_pos; }
+            if ($iter != 0) { $v_count = $iter->count; }
+    if ($iocb != 0) {
+        $v_p_iocb = (uint64)($iocb);
+        $file = $iocb->ki_filp;
+        if ($file != 0) {
+            $v_p_file = (uint64)($file);
+            $inode = $file->f_inode;
+            if ($inode != 0) {
+                $v_p_inode = (uint64)($inode);
+                $root = ((struct btrfs_inode *)((int64)$inode - (int64)offsetof(struct btrfs_inode, vfs_inode)))->root;
+                if ($root != 0) {
+                    $v_p_root = (uint64)($root);
+                    $info = $root->fs_info;
+                    if ($info != 0) {
+                        $v_p_info = (uint64)($info);
+                        $fsdev = $info->fs_devices;
+                        if ($fsdev != 0) {
+                            $v_p_fsdev = (uint64)($fsdev);
+                            $v_num_devices = ($fsdev->num_devices);
+                            $v_open_devices = ($fsdev->open_devices);
+                            $v_total_devices = ($fsdev->total_devices);
+                            $v_missing_devices = ($fsdev->missing_devices);
+                            $v_seeding = (uint64)($fsdev->seeding);
+                            $v_temp_fsid = (uint64)($fsdev->temp_fsid);
+                            $v_seed_next = (uint64)($fsdev->seed_list.next);
+                            $v_seed_prev = (uint64)($fsdev->seed_list.prev);
+                            if ($iter != 0) { $valid = (uint64)1; }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    $v_valid = ($valid);
+            @fs_state_saved[tid] = ($v_p_iocb, $v_p_file, $v_p_inode, $v_p_root, $v_p_info, $v_p_fsdev, $v_start, $v_count, $v_valid, $v_num_devices, $v_open_devices, $v_total_devices, $v_missing_devices, $v_seeding, $v_temp_fsid, $v_seed_next, $v_seed_prev);
+        }
+    }
+}
+
+kretprobe:btrfs_file_read_iter
+/pid == cpid && tid == cpid && @fs_state_pending[tid]/
+{
+    $saved = @fs_state_saved[tid];
+    $iocb = (struct kiocb *)(int64)$saved.0;
+    $valid = (uint64)0;
+    $stable = (uint64)1;
+    $end = (uint64)0;
+    if ($iocb != 0) { $end = (uint64)$iocb->ki_pos; }
+    if ($iocb != 0) {
+        if ((uint64)($iocb) != $saved.0) { $stable = (uint64)0; }
+        $file = $iocb->ki_filp;
+        if ($file != 0) {
+            if ((uint64)($file) != $saved.1) { $stable = (uint64)0; }
+            $inode = $file->f_inode;
+            if ($inode != 0) {
+                if ((uint64)($inode) != $saved.2) { $stable = (uint64)0; }
+                $root = ((struct btrfs_inode *)((int64)$inode - (int64)offsetof(struct btrfs_inode, vfs_inode)))->root;
+                if ($root != 0) {
+                    if ((uint64)($root) != $saved.3) { $stable = (uint64)0; }
+                    $info = $root->fs_info;
+                    if ($info != 0) {
+                        if ((uint64)($info) != $saved.4) { $stable = (uint64)0; }
+                        $fsdev = $info->fs_devices;
+                        if ($fsdev != 0) {
+                            if ((uint64)($fsdev) != $saved.5) { $stable = (uint64)0; }
+                            if (($fsdev->num_devices) != $saved.9) { $stable = (uint64)0; }
+                            if (($fsdev->open_devices) != $saved.10) { $stable = (uint64)0; }
+                            if (($fsdev->total_devices) != $saved.11) { $stable = (uint64)0; }
+                            if (($fsdev->missing_devices) != $saved.12) { $stable = (uint64)0; }
+                            if ((uint64)($fsdev->seeding) != $saved.13) { $stable = (uint64)0; }
+                            if ((uint64)($fsdev->temp_fsid) != $saved.14) { $stable = (uint64)0; }
+                            if ((uint64)($fsdev->seed_list.next) != $saved.15) { $stable = (uint64)0; }
+                            if ((uint64)($fsdev->seed_list.prev) != $saved.16) { $stable = (uint64)0; }
+                            if (1) { $valid = (uint64)1; }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if ($valid != 1 || $saved.8 != 1) { $stable = (uint64)0; }
+    if (@fs_state_broken) { $stable = (uint64)0; }
+    $event = (uint64)0;
+    if ($saved.6 == 0) { $event = (uint64)1; }
+    else if ($saved.6 == $2) { $event = (uint64)2; }
+    printf("QA_OVERLAY_BPF_FS_STATE event=%llu start=%llu count=%llu end=%llu retval=%lld valid=%llu stable=%llu num_devices=%llu open_devices=%llu total_devices=%llu missing_devices=%llu seeding=%llu temp_fsid=%llu seed_empty=%llu\n", $event, $saved.6, $saved.7, $end, (int64)retval, $valid, $stable, $saved.9, $saved.10, $saved.11, $saved.12, $saved.13, $saved.14, (uint64)($saved.15 == ($saved.5 + (uint64)offsetof(struct btrfs_fs_devices, seed_list)) && $saved.16 == ($saved.5 + (uint64)offsetof(struct btrfs_fs_devices, seed_list))));
+    $saved_deleted = delete(@fs_state_saved, tid);
+    $pending_deleted = delete(@fs_state_pending, tid);
+    if ($saved_deleted && $pending_deleted) {
+        @fs_state_inflight = @fs_state_inflight - 1;
+    } else {
+        @fs_state_broken = (uint64)1;
+    }
+}
+
+kprobe:btrfs_file_read_iter
+/pid == cpid && tid == cpid/
+{
+    $iocb = (struct kiocb *)arg0;
+    $iter = (struct iov_iter *)arg1;
+    $file = (struct file *)0;
+    $match = (uint64)1;
+    if ($iocb != 0) { $file = $iocb->ki_filp; }
+    if ($file != 0) {
+        $inode = $file->f_inode;
+        if ($inode != 0) { $match = (uint64)($inode->i_ino == $1); }
+    }
+    if ($match == 1) {
+        if (@dev_state_pending[tid]) {
+            @dev_state_broken = (uint64)1;
+        } else {
+            @dev_state_pending[tid] = 1;
+            @dev_state_inflight = @dev_state_inflight + 1;
+            $v_p_iocb = (uint64)0;
+            $v_p_file = (uint64)0;
+            $v_p_inode = (uint64)0;
+            $v_p_root = (uint64)0;
+            $v_p_info = (uint64)0;
+            $v_p_fsdev = (uint64)0;
+            $v_p_device = (uint64)0;
+            $v_p_bdev = (uint64)0;
+            $v_start = (uint64)0;
+            $v_count = (uint64)0;
+            $v_valid = (uint64)0;
+            $v_device_state = (uint64)0;
+            $v_device_fsdev_address = (uint64)0;
+            $valid = (uint64)0;
+            if ($iocb != 0) { $v_start = (uint64)$iocb->ki_pos; }
+            if ($iter != 0) { $v_count = $iter->count; }
+    if ($iocb != 0) {
+        $v_p_iocb = (uint64)($iocb);
+        $file = $iocb->ki_filp;
+        if ($file != 0) {
+            $v_p_file = (uint64)($file);
+            $inode = $file->f_inode;
+            if ($inode != 0) {
+                $v_p_inode = (uint64)($inode);
+                $root = ((struct btrfs_inode *)((int64)$inode - (int64)offsetof(struct btrfs_inode, vfs_inode)))->root;
+                if ($root != 0) {
+                    $v_p_root = (uint64)($root);
+                    $info = $root->fs_info;
+                    if ($info != 0) {
+                        $v_p_info = (uint64)($info);
+                        $fsdev = $info->fs_devices;
+                        if ($fsdev != 0) {
+                            $v_p_fsdev = (uint64)($fsdev);
+                            $device = $fsdev->latest_dev;
+                            if ($device != 0) {
+                                $v_p_device = (uint64)($device);
+                                $v_device_state = ($device->dev_state);
+                                $v_device_fsdev_address = (uint64)($device->fs_devices);
+                                $bdev = $device->bdev;
+                                if ($bdev != 0) {
+                                    $v_p_bdev = (uint64)($bdev);
+                                    if ($iter != 0) { $valid = (uint64)1; }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    $v_valid = ($valid);
+            @dev_state_saved[tid] = ($v_p_iocb, $v_p_file, $v_p_inode, $v_p_root, $v_p_info, $v_p_fsdev, $v_p_device, $v_p_bdev, $v_start, $v_count, $v_valid, $v_device_state, $v_device_fsdev_address);
+        }
+    }
+}
+
+kretprobe:btrfs_file_read_iter
+/pid == cpid && tid == cpid && @dev_state_pending[tid]/
+{
+    $saved = @dev_state_saved[tid];
+    $iocb = (struct kiocb *)(int64)$saved.0;
+    $valid = (uint64)0;
+    $stable = (uint64)1;
+    $end = (uint64)0;
+    if ($iocb != 0) { $end = (uint64)$iocb->ki_pos; }
+    if ($iocb != 0) {
+        if ((uint64)($iocb) != $saved.0) { $stable = (uint64)0; }
+        $file = $iocb->ki_filp;
+        if ($file != 0) {
+            if ((uint64)($file) != $saved.1) { $stable = (uint64)0; }
+            $inode = $file->f_inode;
+            if ($inode != 0) {
+                if ((uint64)($inode) != $saved.2) { $stable = (uint64)0; }
+                $root = ((struct btrfs_inode *)((int64)$inode - (int64)offsetof(struct btrfs_inode, vfs_inode)))->root;
+                if ($root != 0) {
+                    if ((uint64)($root) != $saved.3) { $stable = (uint64)0; }
+                    $info = $root->fs_info;
+                    if ($info != 0) {
+                        if ((uint64)($info) != $saved.4) { $stable = (uint64)0; }
+                        $fsdev = $info->fs_devices;
+                        if ($fsdev != 0) {
+                            if ((uint64)($fsdev) != $saved.5) { $stable = (uint64)0; }
+                            $device = $fsdev->latest_dev;
+                            if ($device != 0) {
+                                if ((uint64)($device) != $saved.6) { $stable = (uint64)0; }
+                                if (($device->dev_state) != $saved.11) { $stable = (uint64)0; }
+                                if ((uint64)($device->fs_devices) != $saved.12) { $stable = (uint64)0; }
+                                $bdev = $device->bdev;
+                                if ($bdev != 0) {
+                                    if ((uint64)($bdev) != $saved.7) { $stable = (uint64)0; }
+                                    if (1) { $valid = (uint64)1; }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if ($valid != 1 || $saved.10 != 1) { $stable = (uint64)0; }
+    if (@dev_state_broken) { $stable = (uint64)0; }
+    $event = (uint64)0;
+    if ($saved.8 == 0) { $event = (uint64)1; }
+    else if ($saved.8 == $2) { $event = (uint64)2; }
+    printf("QA_OVERLAY_BPF_DEV_STATE event=%llu start=%llu count=%llu end=%llu retval=%lld valid=%llu stable=%llu device_link=%llu device_clean=%llu\n", $event, $saved.8, $saved.9, $end, (int64)retval, $valid, $stable, (uint64)($saved.12 == $saved.5), (uint64)(($saved.11 & (uint64)12) == 0));
+    $saved_deleted = delete(@dev_state_saved, tid);
+    $pending_deleted = delete(@dev_state_pending, tid);
+    if ($saved_deleted && $pending_deleted) {
+        @dev_state_inflight = @dev_state_inflight - 1;
+    } else {
+        @dev_state_broken = (uint64)1;
+    }
+}
+
+END
+{
+    printf("QA_OVERLAY_BPF_COMPLETE schema=1 pending=%llu\n", (uint64)(@core_inflight != 0 || @core_broken != 0 || @uuid_a_inflight != 0 || @uuid_a_broken != 0 || @uuid_b_inflight != 0 || @uuid_b_broken != 0 || @mount_device_inflight != 0 || @mount_device_broken != 0 || @fs_state_inflight != 0 || @fs_state_broken != 0 || @dev_state_inflight != 0 || @dev_state_broken != 0));
+    clear(@core_saved);
+    clear(@core_pending);
+    clear(@core_inflight);
+    clear(@core_broken);
+    clear(@uuid_a_saved);
+    clear(@uuid_a_pending);
+    clear(@uuid_a_inflight);
+    clear(@uuid_a_broken);
+    clear(@uuid_b_saved);
+    clear(@uuid_b_pending);
+    clear(@uuid_b_inflight);
+    clear(@uuid_b_broken);
+    clear(@mount_device_saved);
+    clear(@mount_device_pending);
+    clear(@mount_device_inflight);
+    clear(@mount_device_broken);
+    clear(@fs_state_saved);
+    clear(@fs_state_pending);
+    clear(@fs_state_inflight);
+    clear(@fs_state_broken);
+    clear(@dev_state_saved);
+    clear(@dev_state_pending);
+    clear(@dev_state_inflight);
+    clear(@dev_state_broken);
+}
+SNAPSHOT_BACKING_BPF
+}
+
+snapshot_backing_checker_program() {
+    cat <<'SNAPSHOT_CHECKER_PY'
+#!/usr/bin/env python3
+"""Strictly consume the bounded disposable overlay BPF fixture protocol."""
+import json
+import os
+import re
+import stat
+import sys
+
+MARKER = "grub-20261004T000000Z-aabbccdd\n"
+ATTACHED = "QA_OVERLAY_BPF_ATTACHED schema=1"
+COMPLETE = "QA_OVERLAY_BPF_COMPLETE schema=1 pending=0"
+BANNER = "Attaching 14 probes..."
+
+class ProofError(Exception):
+    pass
+
+def verify(phase, stdout, stderr, expected, status):
+    if phase not in {"positive", "negative"} or type(status) is not int or status != 0:
+        raise ProofError("native-status")
+    if not isinstance(expected, dict) or set(expected) != {"markerInode", "rootId", "fsUuid", "readOnly", "markerText", "major", "minor"}:
+        raise ProofError("expected-schema")
+    if (any(type(expected[key]) is not int or not 0 < expected[key] < 2**64 for key in ("markerInode", "rootId"))
+            or type(expected["major"]) is not int or not 0 < expected["major"] < 4096
+            or type(expected["minor"]) is not int or not 0 <= expected["minor"] < 1048576
+            or not isinstance(expected["fsUuid"], str)
+            or not re.fullmatch(r"[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}", expected["fsUuid"])
+            or expected["fsUuid"].replace("-", "") == "0" * 32
+            or expected["readOnly"] is not True or not isinstance(expected["markerText"], str)
+            or not re.fullmatch(r"grub-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}\n", expected["markerText"])):
+        raise ProofError("expected-value")
+    marker = expected["markerText"]
+    if stderr:
+        raise ProofError("stderr")
+    if len(stdout) > 65536:
+        raise ProofError("stdout-bound")
+    try:
+        lines = stdout.decode("ascii", errors="strict").splitlines()
+    except UnicodeError:
+        raise ProofError("stdout-encoding") from None
+    if (lines.count(ATTACHED) != 1 or lines.count(COMPLETE) != 1 or lines.count(BANNER) > 1
+            or lines.index(ATTACHED) >= lines.index(COMPLETE)):
+        raise ProofError("control")
+    if (lines.count(marker.strip()) != 1 or stdout.count(marker.encode()) != 1
+            or not lines.index(ATTACHED) < lines.index(marker.strip()) < lines.index(COMPLETE)):
+        raise ProofError("marker")
+    number = r"(0|[1-9][0-9]{0,19})"
+    common = ("start", "count", "end", "retval", "valid", "stable")
+    layouts = {
+        "CORE": ("inode", "root_id", "ro"),
+        "UUID_A": ("fsid",),
+        "UUID_B": ("fsid",),
+        "MOUNT_DEVICE": ("mount_ro", "major", "minor", "dev_major", "dev_minor"),
+        "FS_STATE": ("num_devices", "open_devices", "total_devices", "missing_devices", "seeding", "temp_fsid", "seed_empty"),
+        "DEV_STATE": ("device_link", "device_clean"),
+    }
+    patterns = {}
+    for group, fields in layouts.items():
+        pattern = "QA_OVERLAY_BPF_" + group + r" event=([12])"
+        for field in common + fields:
+            value = r"([a-f0-9]{16})" if field == "fsid" else (r"(0|[1-9][0-9]{0,18}|-[1-9][0-9]{0,18})" if field == "retval" else number)
+            pattern += " " + field + "=" + value
+        patterns[group] = re.compile(pattern)
+    events = {}
+    for position, line in enumerate(lines):
+        if line in {"", BANNER, ATTACHED, COMPLETE, marker.strip()}:
+            continue
+        found = None
+        for group, pattern in patterns.items():
+            match = pattern.fullmatch(line)
+            if match:
+                found = group, match
+                break
+        if (found is None or len(line.encode("ascii")) > 256
+                or not lines.index(ATTACHED) < position < lines.index(COMPLETE)):
+            raise ProofError("stdout-row")
+        group, match = found
+        event, *values = match.groups()
+        groups = events.setdefault(int(event), {})
+        if group in groups:
+            raise ProofError("group-duplicate")
+        groups[group] = dict(zip(common + layouts[group], values))
+    if phase == "negative":
+        if events:
+            raise ProofError("negative-count")
+        return 0, 0
+    if set(events) not in ({1}, {1, 2}):
+        raise ProofError("event-count")
+    data = eof = 0
+    required = {"mount_ro": 1, "major": expected["major"], "minor": expected["minor"], "dev_major": expected["major"], "dev_minor": expected["minor"], "num_devices": 1, "open_devices": 1, "total_devices": 1, "missing_devices": 0, "seeding": 0, "temp_fsid": 0, "seed_empty": 1, "device_link": 1, "device_clean": 1}
+    length = len(marker.encode("ascii"))
+    for event, groups in events.items():
+        if set(groups) != set(layouts):
+            raise ProofError("group-count")
+        core = groups["CORE"]
+        for group in groups.values():
+            if group["valid"] != "1" or group["stable"] != "1":
+                raise ProofError("read-backing")
+            if any(group[field] != core[field] for field in common):
+                raise ProofError("call-mismatch")
+        wanted = (0, length + 1, length, length) if event == 1 else (length, 1, length, 0)
+        if tuple(int(core[field]) for field in common[:4]) != wanted:
+            raise ProofError("call-identity")
+        if (int(core["inode"]) != expected["markerInode"] or int(core["root_id"]) != expected["rootId"] or core["ro"] != "1"
+                or groups["UUID_A"]["fsid"] + groups["UUID_B"]["fsid"] != expected["fsUuid"].replace("-", "")):
+            raise ProofError("read-identity")
+        backing = {field: int(value) for group in ("MOUNT_DEVICE", "FS_STATE", "DEV_STATE") for field, value in groups[group].items() if field not in common}
+        if backing != required:
+            raise ProofError("read-backing")
+        if event == 1:
+            data += 1
+        else:
+            eof += 1
+    if data != 1 or eof > 1:
+        raise ProofError("positive-count")
+    return data, eof
+
+def unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ProofError("duplicate-json")
+        result[key] = value
+    return result
+
+def bounded_file(path, cap):
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise ProofError("input-type")
+        with os.fdopen(fd, "rb", closefd=False) as stream:
+            raw = stream.read(cap + 1)
+        if len(raw) > cap:
+            raise ProofError("input-bound")
+        return raw
+    finally:
+        os.close(fd)
+
+def main(args):
+    try:
+        if len(args) != 5 or not re.fullmatch(r"0|-?[1-9][0-9]{0,8}", args[4]):
+            raise ProofError("arguments")
+        phase, stdout, stderr, expected, status = args
+        expected = json.loads(bounded_file(expected, 4096), object_pairs_hook=unique_object)
+        data, eof = verify(phase, bounded_file(stdout, 65536), bounded_file(stderr, 4096), expected, int(status))
+    except ProofError as error:
+        print("QA_OVERLAY_BPF_CHECK_FAIL reason=" + str(error), file=sys.stderr)
+        return 1
+    except (OSError, ValueError, UnicodeError, TypeError):
+        print("QA_OVERLAY_BPF_CHECK_FAIL reason=input", file=sys.stderr)
+        return 1
+    print(f"QA_OVERLAY_BPF_CHECK_PASS phase={phase} read_events={data} eof_events={eof} marker_bytes={len(expected['markerText'].encode('ascii'))}")
+    return 0
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
+SNAPSHOT_CHECKER_PY
+}
+
 snapshot_lowerdir_matches() {
     local lower="$1" subvol="$2" options
     [ "$(findmnt -nro FSTYPE --target "${lower}")" = btrfs ] || { snapshot_runtime_fail lower-filesystem; return 1; }
@@ -1317,9 +2362,176 @@ remove_snapshot_selector() {
     rm -- "${fragment}" || return 1
 }
 
+snapshot_state_program() {
+    cat <<'SNAPSHOT_STATE_PY'
+import os
+import re
+import stat
+import sys
+
+FIELDS = {"run_id", "subvol", "root_uuid", "normal_boot_id", "root_device", "root_partuuid", "selector_sha256", "production_cfg_sha256", "snapshot_root_id", "snapshot_marker_inode", "root_major", "root_minor"}
+def parse_state(raw, run, subvol):
+    if len(raw) > 4096 or not raw.endswith(b"\n"):
+        raise ValueError("state bound")
+    lines = raw.decode("ascii").splitlines()
+    fields = {}
+    for line in lines:
+        key, separator, value = line.partition("=")
+        if not separator or key in fields or key not in FIELDS:
+            raise ValueError("state closure")
+        fields[key] = value
+    if len(lines) != 12 or set(fields) != FIELDS:
+        raise ValueError("state closure")
+    if (not re.fullmatch(r"grub-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}", run)
+            or fields["run_id"] != run or fields["subvol"] != subvol
+            or subvol != "@snapshots/qa-" + run):
+        raise ValueError("state identity")
+    for key in ("root_uuid", "normal_boot_id", "root_partuuid"):
+        if not re.fullmatch(r"[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}", fields[key]):
+            raise ValueError("state UUID")
+    for key in ("selector_sha256", "production_cfg_sha256"):
+        if not re.fullmatch(r"[a-f0-9]{64}", fields[key]):
+            raise ValueError("state hash")
+    if not re.fullmatch(r"/dev/[a-zA-Z0-9_/-]{1,128}", fields["root_device"]):
+        raise ValueError("state device")
+    for key in ("snapshot_root_id", "snapshot_marker_inode", "root_major", "root_minor"):
+        if not re.fullmatch(r"0|[1-9][0-9]{0,19}", fields[key]):
+            raise ValueError("state number")
+    if (not 0 < int(fields["snapshot_root_id"]) < 2**64
+            or not 0 < int(fields["snapshot_marker_inode"]) < 2**64
+            or not 0 < int(fields["root_major"]) < 4096
+            or not 0 <= int(fields["root_minor"]) < 1048576):
+        raise ValueError("state range")
+    return fields
+
+def load_state(path, run, subvol):
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        before = os.fstat(fd)
+        if not stat.S_ISREG(before.st_mode) or (before.st_uid, stat.S_IMODE(before.st_mode), before.st_nlink) != (0, 0o600, 1):
+            raise ValueError("state ownership")
+        raw = os.read(fd, 4097)
+        fields = parse_state(raw, run, subvol)
+        after = os.fstat(fd)
+        def identity(value):
+            return (value.st_dev, value.st_ino, value.st_mode, value.st_uid, value.st_gid, value.st_nlink, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+        if len(raw) != before.st_size or identity(before) != identity(after):
+            raise ValueError("state changed")
+        return fields
+    finally:
+        os.close(fd)
+
+if __name__ == "__main__":
+    try:
+        load_state(*sys.argv[1:])
+    except (OSError, ValueError, UnicodeError, TypeError):
+        raise SystemExit(1)
+
+SNAPSHOT_STATE_PY
+}
+
+snapshot_validate_state() {
+    python3 - "$1" "${run_id}" "$2" < <(snapshot_state_program)
+}
+
+snapshot_device_numbers() {
+    python3 - "$1" <<'SNAPSHOT_DEVICE_PY'
+import os
+import stat
+import sys
+try:
+    fd = os.open(sys.argv[1], os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        value = os.fstat(fd)
+        if not stat.S_ISBLK(value.st_mode):
+            raise ValueError("not a partition")
+        print(str(os.major(value.st_rdev)) + ":" + str(os.minor(value.st_rdev)))
+    finally:
+        os.close(fd)
+except (OSError, ValueError):
+    raise SystemExit(1)
+SNAPSHOT_DEVICE_PY
+}
+
+snapshot_expected_readback() {
+    local path="$1" device="$2" subvol="$3" uuid="$4" root_id="$5" inode="$6" marker metadata
+    mount -o "ro,nosuid,nodev,noexec,subvol=${subvol}" -- "${device}" "${path}" || { snapshot_runtime_fail lower-source-query; return 1; }
+    snapshot_lowerdir_matches "${path}" "${subvol}" || return 1
+    [ "$(findmnt -nro UUID --target "${path}")" = "${uuid}" ] || { snapshot_runtime_fail lower-uuid; return 1; }
+    [ "$(mounted_source_device "${path}")" = "${device}" ] || { snapshot_runtime_fail target-partition; return 1; }
+    [ "$(btrfs property get -ts "${path}" ro)" = ro=true ] || { snapshot_runtime_fail lower-property; return 1; }
+    [ "$(btrfs inspect-internal rootid "${path}")" = "${root_id}" ] || { snapshot_runtime_fail lower-subvolume; return 1; }
+    marker="${path}/var/lib/arch-linux-vm/snapshot-marker"
+    [ -f "${marker}" ] && [ ! -L "${marker}" ] || { snapshot_runtime_fail lower-marker; return 1; }
+    metadata="$(stat -Lc '%u:%a:%h:%s' -- "${marker}")" || { snapshot_runtime_fail lower-marker; return 1; }
+    if [[ ! "${metadata}" =~ ^0:([0-7]{3,4}):1:$(( ${#run_id} + 1 ))$ ]]; then
+        snapshot_runtime_fail lower-marker; return 1
+    fi
+    if (( (8#${BASH_REMATCH[1]} & 022) != 0 )); then
+        snapshot_runtime_fail lower-marker; return 1
+    fi
+    [ "$(stat -Lc '%i' -- "${marker}")" = "${inode}" ] &&
+        [ "$(cat -- "${marker}")" = "${run_id}" ] || { snapshot_runtime_fail lower-marker; return 1; }
+}
+
+snapshot_backing_executor_program() {
+    cat <<'SNAPSHOT_EXECUTOR_SH'
+set -euo pipefail
+work=$1 device=$2 subvol=$3 uuid=$4 root_id=$5 inode=$6 run_id=$7 phase=$8
+trace_owned=0 tmp_owned=0
+trap 'status=$?; trap - EXIT; if [ "$trace_owned" = 1 ]; then umount -- /sys/kernel/tracing || status=1; fi; if [ "$tmp_owned" = 1 ]; then umount -- /tmp || status=1; fi; if mountpoint -q "$work/readback"; then umount -- "$work/readback" || status=1; fi; exit "$status"' EXIT
+snapshot_expected_readback "$work/readback" "$device" "$subvol" "$uuid" "$root_id" "$inode" || exit 1
+# This mount validates expected identities only. The observed reader always opens '/'.
+umount -- "$work/readback" || exit 1
+mount -t tmpfs -o size=128m,mode=1777,nosuid,nodev tmpfs /tmp || exit 1
+tmp_owned=1
+mount -t tracefs -o nosuid,nodev,noexec tracefs /sys/kernel/tracing || exit 1
+trace_owned=1
+status=0
+(ulimit -f 128; timeout -k 2 -s INT 60 bpftrace -q -c "/usr/bin/python3 -B -I -S $work/reader.py $run_id" "$work/probe.bt" "$inode" "$(( ${#run_id} + 1 ))") >"$work/probe.stdout" 2>"$work/probe.stderr" || status=$?
+python3 -B -I -S "$work/checker.py" positive "$work/probe.stdout" "$work/probe.stderr" "$work/expected.json" "$status" || exit 1
+SNAPSHOT_EXECUTOR_SH
+}
+
+verify_snapshot_backing() {
+(
+    local device="$1" subvol="$2" uuid="$3" root_id="$4" inode="$5" major="$6" minor="$7"
+    local work status=0 diagnostic=0 tool reason
+    for tool in bpftrace unshare python3 timeout mount umount mountpoint; do
+        command -v "${tool}" >/dev/null || { snapshot_runtime_fail lower-source-query; return 1; }
+    done
+    work="$(mktemp -d /run/qa-snapshot.XXXXXXXX)" || { snapshot_runtime_fail lower-source-query; return 1; }
+    trap 'status=$?; trap - EXIT; rm -f -- "$work/probe.bt" "$work/reader.py" "$work/checker.py" "$work/expected.json" "$work/executor.sh" "$work/probe.stdout" "$work/probe.stderr" "$work/executor.stdout" "$work/executor.stderr" || status=1; rmdir -- "$work/readback" "$work" || status=1; if [ "$status" != 0 ] && [ "$diagnostic" = 0 ]; then snapshot_runtime_fail lower-source-query; fi; exit "$status"' EXIT
+    mkdir -- "${work}/readback" || return 1
+    snapshot_backing_probe_program >"${work}/probe.bt" || return 1
+    snapshot_overlay_reader_program >"${work}/reader.py" || return 1
+    snapshot_backing_checker_program >"${work}/checker.py" || return 1
+    {
+        declare -f snapshot_runtime_fail snapshot_lowerdir_matches mounted_source_device snapshot_expected_readback || return 1
+        snapshot_backing_executor_program
+    } >"${work}/executor.sh" || return 1
+    python3 - "${work}/expected.json" "${uuid}" "${root_id}" "${inode}" "${major}" "${minor}" "${run_id}" <<'SNAPSHOT_EXPECTED_PY' || return 1
+import json
+import sys
+path, uuid, root_id, inode, major, minor, run = sys.argv[1:]
+with open(path, "x", encoding="ascii") as output:
+    json.dump({"markerInode": int(inode), "rootId": int(root_id), "fsUuid": uuid.lower(), "readOnly": True, "markerText": run + "\n", "major": int(major), "minor": int(minor)}, output)
+SNAPSHOT_EXPECTED_PY
+    (ulimit -f 128; timeout -k 2 90 unshare --mount --propagation private -- /usr/bin/bash --noprofile --norc "${work}/executor.sh" "${work}" "${device}" "${subvol}" "${uuid}" "${root_id}" "${inode}" "${run_id}" "${phase}") >"${work}/executor.stdout" 2>"${work}/executor.stderr" || status=$?
+    if [ "${status}" -ne 0 ]; then
+        reason="$(sed -n "s/^SNAPSHOT_RUNTIME_DIAGNOSTIC run_id=${run_id} phase=${phase} reason=\([a-z-]*\)$/\1/p" "${work}/executor.stderr")"
+        [[ "${reason}" != *$'\n'* ]] && [ -n "${reason}" ] || reason="lower-source-query"
+        diagnostic=1
+        snapshot_runtime_fail "${reason}"
+        return 1
+    fi
+    return 0
+)
+}
+
 prepare_snapshot_boot() {
     local subvol="@snapshots/qa-${run_id}" path="/.snapshots/qa-${run_id}"
-    local state="/boot/qa-snapshot-${run_id}.state" uuid entry device partuuid target
+    local state="/boot/qa-snapshot-${run_id}.state" uuid entry device partuuid target root_id inode physical
     [ "${scenario}" = stock-gnome-btrfs-grub ]
     [[ "${run_id}" =~ ^grub-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}$ ]] || return 1
     [ ! -e "/etc/grub.d/42_qa_snapshot_${run_id}" ] &&
@@ -1329,7 +2541,7 @@ prepare_snapshot_boot() {
     [ ! -e "${path}" ] && [ ! -L "${path}" ] || return 1
     [ ! -e "${state}" ] && [ ! -L "${state}" ] || return 1
     install -d -m0700 /var/lib/arch-linux-vm
-    [ ! -e /var/lib/arch-linux-vm/snapshot-marker ] || return 1
+    [ ! -e /var/lib/arch-linux-vm/snapshot-marker ] && [ ! -L /var/lib/arch-linux-vm/snapshot-marker ] || return 1
     printf '%s\n' "${run_id}" >/var/lib/arch-linux-vm/snapshot-marker
     target="$(find_target)" || return 1
     device="$(mounted_source_device /)" || return 1
@@ -1342,6 +2554,13 @@ prepare_snapshot_boot() {
         "${run_id}" "${subvol}" "${uuid}" "$(cat /proc/sys/kernel/random/boot_id)" "${device}" "${partuuid}" >"${state}"
     btrfs subvolume snapshot -r / "${path}"
     [ "$(btrfs property get -ts "${path}" ro)" = ro=true ]
+    root_id="$(btrfs inspect-internal rootid "${path}")" || return 1
+    inode="$(stat -Lc '%i' -- "${path}/var/lib/arch-linux-vm/snapshot-marker")" || return 1
+    physical="$(snapshot_device_numbers "${device}")" || return 1
+    [[ "${root_id}" =~ ^[1-9][0-9]*$ ]] && [[ "${inode}" =~ ^[1-9][0-9]*$ ]] &&
+        [[ "${physical}" =~ ^[1-9][0-9]*:[0-9]+$ ]] || return 1
+    printf 'snapshot_root_id=%s\nsnapshot_marker_inode=%s\nroot_major=%s\nroot_minor=%s\n' \
+        "${root_id}" "${inode}" "${physical%%:*}" "${physical#*:}" >>"${state}" || return 1
     # Discover the entry using the installed production grub-btrfs generator.
     grub-mkconfig -o /boot/grub/grub.cfg
     grub-script-check /boot/grub/grub.cfg
@@ -1350,17 +2569,18 @@ prepare_snapshot_boot() {
     install_snapshot_selector "${state}" "${entry}" || return 1
     [ "$(blkid -s UUID -o value -- "${device}")" = "${uuid}" ] &&
         [ "$(blkid -s PARTUUID -o value -- "${device}")" = "${partuuid}" ] || return 1
+    snapshot_validate_state "${state}" "${subvol}" || return 1
     grub-reboot "qa-snapshot-${run_id}"
     emit_runtime_action_pass snapshot-production-entry-selected
 }
 
 verify_snapshot_runtime() {
     local state="/boot/qa-snapshot-${run_id}.state" subvol="@snapshots/qa-${run_id}"
-    local options lower uuid cmdline target source device partuuid
+    local options lower uuid cmdline target device partuuid root_id inode major minor
     [ "${scenario}" = stock-gnome-btrfs-grub ] || { snapshot_runtime_fail scenario; return 1; }
     [ -f "${state}" ] && [ ! -L "${state}" ] || { snapshot_runtime_fail state-file; return 1; }
     [ "$(stat -Lc '%u:%a:%h' -- "${state}")" = '0:600:1' ] || { snapshot_runtime_fail state-mode; return 1; }
-    [ "$(wc -l <"${state}")" -eq 8 ] || { snapshot_runtime_fail state-lines; return 1; }
+    [ "$(wc -l <"${state}")" -eq 12 ] || { snapshot_runtime_fail state-lines; return 1; }
     grep -qxF "run_id=${run_id}" "${state}" || { snapshot_runtime_fail state-run; return 1; }
     grep -qxF "subvol=${subvol}" "${state}" || { snapshot_runtime_fail state-subvolume; return 1; }
     [ "$(grep -c '^production_cfg_sha256=' "${state}")" -eq 1 ] || { snapshot_runtime_fail cfg-record; return 1; }
@@ -1372,26 +2592,31 @@ verify_snapshot_runtime() {
     [ "$(findmnt -nro FSTYPE --target /)" = overlay ] || { snapshot_runtime_fail root-filesystem; return 1; }
     options="$(findmnt -nro OPTIONS --target /)" || { snapshot_runtime_fail root-options-query; return 1; }
     lower="$(tr ',' '\n' <<<"${options}" | sed -n 's/^lowerdir=//p')"
-    [[ "${lower}" = /* ]] && [[ "${lower}" != *:* ]] && [[ "${lower}" != *\\* ]] || { snapshot_runtime_fail lower-shape; return 1; }
-    snapshot_lowerdir_matches "${lower}" "${subvol}" || return 1
-    [ "$(findmnt -nro UUID --target "${lower}")" = "${uuid}" ] || { snapshot_runtime_fail lower-uuid; return 1; }
-    [ "$(btrfs property get -ts "${lower}" ro)" = ro=true ] || { snapshot_runtime_fail lower-property; return 1; }
-    [ "$(cat -- "${lower}/var/lib/arch-linux-vm/snapshot-marker")" = "${run_id}" ] || { snapshot_runtime_fail lower-marker; return 1; }
-    source="$(mounted_source_device "${lower}")" || { snapshot_runtime_fail lower-source-query; return 1; }
+    [[ "${lower}" = /* ]] && [[ "${lower}" != *:* ]] && [[ "${lower}" != *\\* ]] && [[ "${lower}" != *$'\n'* ]] || { snapshot_runtime_fail lower-shape; return 1; }
     target="$(find_target)" || { snapshot_runtime_fail target-query; return 1; }
-    [ "${source}" = "$(partition_name "${target}" 2)" ] || { snapshot_runtime_fail target-partition; return 1; }
     cmdline="$(cat /proc/cmdline)" || { snapshot_runtime_fail cmdline-query; return 1; }
     device="$(sed -n 's/^root_device=//p' "${state}")"
     partuuid="$(sed -n 's/^root_partuuid=//p' "${state}")"
-    [ "${device}" = "${source}" ] && [ -b "${device}" ] || { snapshot_runtime_fail device-shape; return 1; }
+    [ -b "${device}" ] || { snapshot_runtime_fail device-shape; return 1; }
+    [ "${device}" = "$(partition_name "${target}" 2)" ] || { snapshot_runtime_fail target-partition; return 1; }
     [[ "${partuuid}" =~ ^[a-fA-F0-9-]{36}$ ]] || { snapshot_runtime_fail partuuid-shape; return 1; }
     [ "$(blkid -s UUID -o value -- "${device}")" = "${uuid}" ] &&
         [ "$(blkid -s PARTUUID -o value -- "${device}")" = "${partuuid}" ] || { snapshot_runtime_fail device-identity; return 1; }
+    snapshot_validate_state "${state}" "${subvol}" || { snapshot_runtime_fail state-lines; return 1; }
+    root_id="$(sed -n 's/^snapshot_root_id=//p' "${state}")"
+    inode="$(sed -n 's/^snapshot_marker_inode=//p' "${state}")"
+    major="$(sed -n 's/^root_major=//p' "${state}")"
+    minor="$(sed -n 's/^root_minor=//p' "${state}")"
+    [ "$(snapshot_device_numbers "${device}")" = "${major}:${minor}" ] || { snapshot_runtime_fail device-identity; return 1; }
     snapshot_root_argument_matches "${cmdline}" "${device}" "${uuid}" "${partuuid}" || { snapshot_runtime_fail root-argument; return 1; }
     require_kernel_argument_once "${cmdline}" systemd.volatile=overlay || { snapshot_runtime_fail volatile-argument; return 1; }
     options="$(tr ' ' '\n' <<<"${cmdline}" | sed -n 's/^rootflags=//p')"
     require_prefixed_kernel_argument_once "${cmdline}" rootflags= "rootflags=${options}" || { snapshot_runtime_fail rootflags-argument; return 1; }
     [ "$(tr ',' '\n' <<<"${options}" | sed -n 's/^subvol=//p')" = "${subvol}" ] || { snapshot_runtime_fail rootflags-subvolume; return 1; }
+    verify_snapshot_backing "${device}" "${subvol}" "${uuid}" "${root_id}" "${inode}" "${major}" "${minor}" || return 1
+    [ "$(blkid -s UUID -o value -- "${device}")" = "${uuid}" ] &&
+        [ "$(blkid -s PARTUUID -o value -- "${device}")" = "${partuuid}" ] &&
+        [ "$(snapshot_device_numbers "${device}")" = "${major}:${minor}" ] || { snapshot_runtime_fail device-identity; return 1; }
     verify_kernel_initramfs_pair /boot/initramfs-linux.img || { snapshot_runtime_fail kernel-initramfs; return 1; }
     verify_grub_efi_target || { snapshot_runtime_fail grub-efi; return 1; }
     verify_grub_package_integrity >/dev/null || { snapshot_runtime_fail grub-package; return 1; }
@@ -1653,11 +2878,20 @@ verify_stock_greeter() {
         "${root_contract}" "${bootloader_contract}" "${greeter_session}"
 }
 
+upgrade_stock_runtime_tools() {
+    [ "${phase}" = update ] || return 1
+    if [ "${scenario}" = stock-gnome-btrfs-grub ]; then
+        pacman -Syu --noconfirm --disable-download-timeout --needed bpftrace
+    else
+        pacman -Syu --noconfirm --disable-download-timeout
+    fi
+}
+
 verify_stock_session() {
     local target config user_session uid session_uid shell_pid shell_environment
     local enabled_extensions installed_extensions expected_extensions cursor_theme gtk_theme icon_theme
     local boot_id ptyxis_version root_contract='root=ext4' bootloader_contract='systemd-boot'
-    [ "${phase}" = update ] && pacman -Syu --noconfirm --disable-download-timeout
+    if [ "${phase}" = update ]; then upgrade_stock_runtime_tools || return 1; fi
     if [ "${phase}" = update ] && is_grub_stock; then
         verify_grub_regeneration
     fi

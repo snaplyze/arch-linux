@@ -10,6 +10,294 @@ VERIFY = ROOT / "tests/vm/guest/verify.sh"
 def function(name):
     return re.search(r"^" + name + r"\(\) \{\n.*?^\}", VERIFY.read_text(), re.M | re.S).group(0)
 class RuntimeChecks(unittest.TestCase):
+    def snapshot_reader(self):
+        match = re.search(r"^snapshot_overlay_reader_program\(\) \{\n.*?<<'SNAPSHOT_READER_PY'\n(.*?)\nSNAPSHOT_READER_PY\n", VERIFY.read_text(), re.M | re.S)
+        self.assertIsNotNone(match, "actual root-relative snapshot reader missing")
+        namespace = {"__name__": "snapshot_reader_fixture"}
+        exec(compile(match.group(1), "actual-snapshot-reader", "exec"), namespace)
+        return namespace, match.group(1)
+
+    def reader_marker(self, root, contents=None, mode=0o600):
+        import os
+        run = "grub-20261004T000000Z-aabbccdd"
+        path = root / "marker"
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
+        try:
+            os.write(fd, (run + "\n").encode() if contents is None else contents)
+        finally:
+            os.close(fd)
+        return run, path
+
+    def test_snapshot_reader_real_root_relative_read(self):
+        namespace, _ = self.snapshot_reader()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); run, _ = self.reader_marker(root)
+            self.assertEqual(namespace["read_marker"](run, root_path=str(root), relative="marker"), (run + "\n").encode())
+
+    def test_snapshot_reader_symlink_file_and_parent_reject(self):
+        namespace, _ = self.snapshot_reader()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); run, path = self.reader_marker(root)
+            (root / "link").symlink_to(path)
+            (root / "parent").symlink_to(root, target_is_directory=True)
+            for relative in ("link", "parent/marker"):
+                with self.subTest(relative=relative), self.assertRaises(OSError):
+                    namespace["read_marker"](run, root_path=str(root), relative=relative)
+
+    def test_snapshot_reader_actual_mount_crossing_reject(self):
+        import errno
+        namespace, _ = self.snapshot_reader()
+        with self.assertRaises(OSError) as caught:
+            namespace["read_marker"]("grub-20261004T000000Z-aabbccdd", relative="proc/version")
+        self.assertEqual(caught.exception.errno, errno.EXDEV)
+
+    def test_snapshot_reader_unsafe_metadata_reject(self):
+        import os
+        from contextlib import ExitStack
+        from unittest.mock import patch
+        namespace, _ = self.snapshot_reader()
+        for case in ("writable", "hardlink", "directory"):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                run, path = self.reader_marker(root)
+                if case == "hardlink": os.link(path, root / "second")
+                if case == "directory": path.unlink(); path.mkdir()
+                real_fstat = os.fstat
+                def writable_metadata(fd):
+                    fields = list(real_fstat(fd)); fields[0] |= 0o022
+                    return os.stat_result(fields)
+                with ExitStack() as stack:
+                    if case == "writable": stack.enter_context(patch.object(namespace["os"], "fstat", writable_metadata))
+                    with self.assertRaises(ValueError): namespace["read_marker"](run, root_path=str(root), relative="marker")
+
+    def test_snapshot_reader_exact_dynamic_bytes_and_eof(self):
+        namespace, _ = self.snapshot_reader()
+        run = "grub-20261004T000000Z-aabbccdd"
+        for contents in ((run + "x\n").encode(), run.encode(), (run.replace("aabb", "ccdd") + "\n").encode()):
+            with self.subTest(contents=contents), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary); self.reader_marker(root, contents)
+                with self.assertRaises(ValueError): namespace["read_marker"](run, root_path=str(root), relative="marker")
+
+    def test_snapshot_reader_unsupported_syscall_has_no_fallback(self):
+        import errno
+        from unittest.mock import patch
+        namespace, _ = self.snapshot_reader()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); run, _ = self.reader_marker(root)
+            with patch.object(namespace["libc"], "syscall", return_value=-1), patch.object(namespace["ctypes"], "get_errno", return_value=errno.ENOSYS):
+                with self.assertRaises(OSError) as caught:
+                    namespace["read_marker"](run, root_path=str(root), relative="marker")
+                self.assertEqual(caught.exception.errno, errno.ENOSYS)
+
+    def test_snapshot_reader_mount_identity_change_reject(self):
+        from unittest.mock import patch
+        namespace, _ = self.snapshot_reader()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); run, _ = self.reader_marker(root)
+            with patch.dict(namespace, {"mount_id": lambda fd: fd}):
+                with self.assertRaises(ValueError): namespace["read_marker"](run, root_path=str(root), relative="marker")
+
+    def test_snapshot_reader_changed_identity_after_read_reject(self):
+        import os
+        from unittest.mock import patch
+        namespace, _ = self.snapshot_reader()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); run, path = self.reader_marker(root)
+            original_read = os.read
+            previous = path.stat()
+            def changed_read(fd, count):
+                data = original_read(fd, count)
+                os.utime(path, ns=(previous.st_atime_ns, previous.st_mtime_ns + 1000000000))
+                return data
+            with patch.object(namespace["os"], "read", changed_read):
+                with self.assertRaises(ValueError): namespace["read_marker"](run, root_path=str(root), relative="marker")
+
+    def test_snapshot_reader_cli_error_is_controlled(self):
+        _, source = self.snapshot_reader()
+        result = subprocess.run(["python3", "-B", "-I", "-S", "-", "SECRET_INVALID_RUN"], input=source, text=True, capture_output=True, timeout=5)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, "")
+        self.assertEqual(result.stderr, "SNAPSHOT_OVERLAY_READER_FAIL reason=read\n")
+
+    def snapshot_program(self, name, marker):
+        text = VERIFY.read_text()
+        match = re.search(r"^" + name + r"\(\) \{\n.*?<<'" + marker + r"'\n(.*?)\n" + marker + r"\n", text, re.M | re.S)
+        self.assertIsNotNone(match, "actual snapshot program missing: " + name)
+        return match.group(1)
+
+    def snapshot_proof(self):
+        namespace = {"__name__": "snapshot_proof_fixture"}
+        exec(compile(self.snapshot_program("snapshot_backing_checker_program", "SNAPSHOT_CHECKER_PY"), "actual-snapshot-consumer", "exec"), namespace)
+        return namespace
+
+    def proof_fixture(self, event=1):
+        run = "grub-20261004T000000Z-aabbccdd"
+        expected = {"markerInode": 1234, "rootId": 257, "fsUuid": "12345678-1234-1234-1234-123456789abc", "readOnly": True, "markerText": run + "\n", "major": 254, "minor": 2}
+        common = "event=1 start=0 count=32 end=31 retval=31 valid=1 stable=1" if event == 1 else "event=2 start=31 count=1 end=31 retval=0 valid=1 stable=1"
+        groups = {"CORE": "inode=1234 root_id=257 ro=1", "UUID_A": "fsid=1234567812341234", "UUID_B": "fsid=1234123456789abc", "MOUNT_DEVICE": "mount_ro=1 major=254 minor=2 dev_major=254 dev_minor=2", "FS_STATE": "num_devices=1 open_devices=1 total_devices=1 missing_devices=0 seeding=0 temp_fsid=0 seed_empty=1", "DEV_STATE": "device_link=1 device_clean=1"}
+        rows = ["QA_OVERLAY_BPF_" + group + " " + common + " " + fields for group, fields in groups.items()]
+        return expected, rows
+
+    def proof_output(self, rows):
+        return ("\n".join(["QA_OVERLAY_BPF_ATTACHED schema=1", "grub-20261004T000000Z-aabbccdd", *rows, "QA_OVERLAY_BPF_COMPLETE schema=1 pending=0"]) + "\n").encode()
+
+    def test_snapshot_observed_proof_actual_consumer_positive_and_reordered(self):
+        namespace = self.snapshot_proof(); expected, rows = self.proof_fixture()
+        self.assertEqual(namespace["verify"]("positive", self.proof_output(rows), b"", expected, 0), (1, 0))
+        _, eof = self.proof_fixture(2)
+        self.assertEqual(namespace["verify"]("positive", self.proof_output(list(reversed(rows + eof))), b"", expected, 0), (1, 1))
+
+    def test_snapshot_proof_refuses_copyup_wrong_physical_ro_and_mixed_groups(self):
+        namespace = self.snapshot_proof(); expected, rows = self.proof_fixture(); _, eof = self.proof_fixture(2)
+        cases = [[], rows[:-1], rows + [rows[1]], [rows[0], eof[1].replace("event=2", "event=1"), *rows[2:]]]
+        for field, bad in (("mount_ro", "0"), ("major", "253"), ("minor", "3"), ("num_devices", "2"), ("missing_devices", "1"), ("seed_empty", "0"), ("device_link", "0"), ("device_clean", "0"), ("valid", "0"), ("stable", "0"), ("root_id", "256"), ("inode", "1235"), ("ro", "0")):
+            cases.append([re.sub(r"(?<![a-z_])" + field + r"=[0-9]+", field + "=" + bad, row) for row in rows])
+        for case in cases:
+            with self.subTest(case=case), self.assertRaises(namespace["ProofError"]):
+                namespace["verify"]("positive", self.proof_output(case), b"", expected, 0)
+
+    def test_snapshot_proof_native_warning_drop_controls_and_bounds(self):
+        namespace = self.snapshot_proof(); expected, rows = self.proof_fixture(); good = self.proof_output(rows)
+        for status, stderr in ((1, b""), (124, b""), (0, b"WARNING SECRET"), (0, b"Lost events")):
+            with self.subTest(status=status, stderr=stderr), self.assertRaises(namespace["ProofError"]):
+                namespace["verify"]("positive", good, stderr, expected, status)
+        for raw in (good.replace(b"pending=0", b"pending=1"), good + b"SECRET_UNKNOWN\n", good + b"QA_OVERLAY_BPF_ATTACHED schema=1\n", b"x" * 65537):
+            with self.assertRaises(namespace["ProofError"]): namespace["verify"]("positive", raw, b"", expected, 0)
+
+    def snapshot_state(self):
+        namespace = {"__name__": "snapshot_state_fixture"}
+        exec(compile(self.snapshot_program("snapshot_state_program", "SNAPSHOT_STATE_PY"), "actual-snapshot-state", "exec"), namespace)
+        run = "grub-20261004T000000Z-aabbccdd"
+        fields = {"run_id": run, "subvol": "@snapshots/qa-" + run, "root_uuid": "11111111-1111-1111-1111-111111111111", "normal_boot_id": "22222222-2222-2222-2222-222222222222", "root_device": "/dev/vda2", "root_partuuid": "33333333-3333-3333-3333-333333333333", "selector_sha256": "a" * 64, "production_cfg_sha256": "b" * 64, "snapshot_root_id": "257", "snapshot_marker_inode": "1234", "root_major": "254", "root_minor": "2"}
+        raw = "".join(key + "=" + value + "\n" for key, value in fields.items()).encode()
+        return namespace, fields, raw
+
+    def test_snapshot_state_actual_twelve_field_closure(self):
+        namespace, fields, raw = self.snapshot_state()
+        self.assertEqual(namespace["parse_state"](raw, fields["run_id"], fields["subvol"]), fields)
+        cases = [raw + b"root_major=254\n", raw.replace(b"root_major=", b"UNKNOWN="), raw.replace(b"snapshot_root_id=257\n", b""), raw[:-1], b"x" * 4097]
+        for field, bad in (("snapshot_root_id", "0"), ("snapshot_marker_inode", "18446744073709551616"), ("root_major", "0"), ("root_major", "4096"), ("root_minor", "1048576"), ("root_minor", "02"), ("root_device", "SECRET PATH"), ("normal_boot_id", "SECRET")):
+            cases.append(raw.replace((field + "=" + fields[field]).encode(), (field + "=" + bad).encode()))
+        for case in cases:
+            with self.subTest(case=case), self.assertRaises((ValueError, UnicodeError)):
+                namespace["parse_state"](case, fields["run_id"], fields["subvol"])
+
+    def test_snapshot_state_fd_owner_symlink_change_and_read_atime(self):
+        import os
+        from unittest.mock import patch
+        namespace, fields, raw = self.snapshot_state()
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "state"; path.write_bytes(raw); path.chmod(0o600)
+            (Path(temporary) / "link").symlink_to(path)
+            with self.assertRaises(OSError): namespace["load_state"](str(Path(temporary) / "link"), fields["run_id"], fields["subvol"])
+            original = os.fstat
+            def root_metadata(fd):
+                value = list(original(fd)); value[4] = 0
+                return os.stat_result(value)
+            with patch.object(namespace["os"], "fstat", root_metadata):
+                self.assertEqual(namespace["load_state"](str(path), fields["run_id"], fields["subvol"]), fields)
+            def unsafe_metadata(fd):
+                value = list(original(fd)); value[4] = 0; value[0] |= 0o022
+                return os.stat_result(value)
+            with patch.object(namespace["os"], "fstat", unsafe_metadata), self.assertRaises(ValueError):
+                namespace["load_state"](str(path), fields["run_id"], fields["subvol"])
+
+    def test_snapshot_update_tool_install_exact_grub_full_transaction(self):
+        body = function("is_grub_stock") + "\n" + function("upgrade_stock_runtime_tools")
+        for scenario, phase, status, extra in (("stock-gnome-btrfs-grub", "update", 0, True), ("stock-gnome-btrfs-luks2-plymouth-grub", "update", 0, False), ("stock-gnome-ext4-systemdboot", "update", 0, False), ("stock-gnome-btrfs-grub", "snapshot-prepare", 1, False)):
+            script = "pacman(){ printf '%s' \"$*\"; }\n" + body + "\nupgrade_stock_runtime_tools\n"
+            result = subprocess.run(["bash", "-c", "scenario=$1 phase=$2\n" + script, "snapshot-update", scenario, phase], capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, status)
+            if status == 0:
+                self.assertEqual(result.stdout, "-Syu --noconfirm --disable-download-timeout" + (" --needed bpftrace" if extra else ""))
+            else:
+                self.assertEqual(result.stdout, "")
+
+    def test_snapshot_readback_rejects_metadata_before_marker_read(self):
+        import shlex
+        body = "\n".join(function(name) for name in ("snapshot_runtime_fail", "snapshot_lowerdir_matches", "snapshot_expected_readback"))
+        for case in ("valid", "oversize", "owner", "writable", "hardlink", "stat-failure"):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary); marker = root / "var/lib/arch-linux-vm/snapshot-marker"
+                marker.parent.mkdir(parents=True); marker.write_text("grub-20261004T000000Z-aabbccdd\n")
+                script = "fixture=" + shlex.quote(str(root)) + "\ncase_fixture=" + shlex.quote(case) + "\n" + r'''
+run_id=grub-20261004T000000Z-aabbccdd phase=snapshot-prelogin
+mount(){ :; }
+findmnt(){ case "$*" in *FSTYPE*) printf btrfs;; *FSROOT*) printf '/@snapshots/qa-%s' "$run_id";; *OPTIONS*) printf ro;; *UUID*) printf 12345678-1234-1234-1234-123456789abc;; esac; }
+mounted_source_device(){ printf /dev/vda2; }
+btrfs(){ case "$*" in *rootid*) printf 257;; *) printf ro=true;; esac; }
+stat(){
+    if [[ "$*" = *'%i'* ]]; then printf 1234; return; fi
+    case "$case_fixture" in
+        valid) printf '0:600:1:31';; oversize) printf '0:600:1:32';;
+        owner) printf '1000:600:1:31';; writable) printf '0:622:1:31';;
+        hardlink) printf '0:600:2:31';; stat-failure) return 1;;
+    esac
+}
+cat(){ printf called >"$fixture/cat-called"; command cat "$@"; }
+''' + body + "\nsnapshot_expected_readback \"$fixture\" /dev/vda2 @snapshots/qa-$run_id 12345678-1234-1234-1234-123456789abc 257 1234\n"
+                result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=5)
+                self.assertEqual(result.returncode, 0 if case == "valid" else 1, result.stderr)
+                self.assertEqual((root / "cat-called").exists(), case == "valid", "unsafe or oversized marker must be rejected before cat")
+                if case != "valid": self.assertIn("reason=lower-marker", result.stderr)
+
+    def test_snapshot_executor_actual_consumer_cleanup_and_missing_observation(self):
+        import json
+        program = self.snapshot_program("snapshot_backing_executor_program", "SNAPSHOT_EXECUTOR_SH")
+        checker = self.snapshot_program("snapshot_backing_checker_program", "SNAPSHOT_CHECKER_PY")
+        expected, rows = self.proof_fixture()
+        for case in ("success", "readback-only", "native-fail", "cleanup-fail"):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as temporary:
+                work = Path(temporary); (work / "readback").mkdir(); (work / "checker.py").write_text(checker)
+                (work / "expected.json").write_text(json.dumps(expected))
+                (work / "fixture.stdout").write_bytes(self.proof_output(rows if case != "readback-only" else []))
+                (work / "case").write_text(case)
+                prefix = r'''
+snapshot_expected_readback(){ printf 'readback\n' >>"$1/../calls"; }
+mount(){ printf 'mount %s\n' "$*" >>"$work/calls"; }
+mountpoint(){ return 1; }
+umount(){ printf 'umount %s\n' "$*" >>"$work/calls"; if [ "$(cat "$work/case")" = cleanup-fail ] && [ "$*" = '-- /sys/kernel/tracing' ]; then return 1; fi; }
+timeout(){
+    printf 'observer %s\n' "$*" >>"$work/calls"
+    cat "$work/fixture.stdout"
+    [ "$(cat "$work/case")" != native-fail ]
+}
+'''
+                result = subprocess.run(["bash", "-c", prefix + program, "snapshot-executor", str(work), "/dev/vda2", "@snapshots/qa-grub-20261004T000000Z-aabbccdd", expected["fsUuid"], "257", "1234", "grub-20261004T000000Z-aabbccdd", "snapshot-prelogin"], capture_output=True, text=True, timeout=5)
+                self.assertEqual(result.returncode, 0 if case == "success" else 1, result.stderr)
+                calls = (work / "calls").read_text()
+                self.assertLess(calls.index("readback"), calls.index("observer"))
+                self.assertIn("reader.py grub-20261004T000000Z-aabbccdd", calls)
+                self.assertIn("probe.bt 1234 31", calls)
+                self.assertIn("umount -- /sys/kernel/tracing", calls)
+                self.assertIn("umount -- /tmp", calls)
+
+    def test_snapshot_backing_owned_cleanup_and_target_stdout(self):
+        import shlex
+        names = ("snapshot_runtime_fail", "snapshot_lowerdir_matches", "mounted_source_device", "snapshot_expected_readback", "verify_snapshot_backing")
+        body = "\n".join(function(name) for name in names)
+        for name, delimiter in (("snapshot_backing_probe_program", "SNAPSHOT_BACKING_BPF"), ("snapshot_overlay_reader_program", "SNAPSHOT_READER_PY"), ("snapshot_backing_checker_program", "SNAPSHOT_CHECKER_PY"), ("snapshot_backing_executor_program", "SNAPSHOT_EXECUTOR_SH")):
+            body += "\n" + name + "(){ printf '%s\\n' " + shlex.quote(self.snapshot_program(name, delimiter)) + "; }\n"
+        for case in ("success", "foreign-file", "cleanup-fail"):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as temporary:
+                work = Path(temporary) / "owned"; work.mkdir()
+                if case == "foreign-file": (work / "foreign").write_text("preserve")
+                prefix = "work_fixture=" + shlex.quote(str(work)) + "\ncase_fixture=" + shlex.quote(case) + "\n" + r'''
+set -euo pipefail
+run_id=grub-20261004T000000Z-aabbccdd phase=snapshot-prelogin
+bpftrace(){ :; }
+unshare(){ :; }
+mktemp(){ printf '%s\n' "$work_fixture"; }
+timeout(){ printf 'NOT_A_TARGET_PATH\n'; }
+rm(){ if [ "$case_fixture" = cleanup-fail ]; then return 1; fi; command rm "$@"; }
+'''
+                result = subprocess.run(["bash", "-c", prefix + body + "\nverify_snapshot_backing /dev/vda2 @snapshots/qa-$run_id 12345678-1234-1234-1234-123456789abc 257 1234 254 2\n"], capture_output=True, text=True, timeout=5)
+                self.assertEqual(result.returncode, 0 if case == "success" else 1, result.stderr)
+                self.assertEqual(result.stdout, "", "observer output must not replace the target pathname")
+                if case == "success": self.assertFalse(work.exists())
+                else: self.assertIn("reason=lower-source-query", result.stderr)
+                if case == "foreign-file": self.assertEqual((work / "foreign").read_text(), "preserve")
+
     def shell_lifecycle(self, case="normal", checkpoint="extension-timeout"):
         text = VERIFY.read_text()
         match = re.search(r"^emit_gnome_shell_lifecycle_diagnostic\(\) \{\n.*?<<'PY'\n(.*?)\nPY\n", text, re.M | re.S)
@@ -613,43 +901,64 @@ sleep(){ if [ "$fixture_case" != delayed ]; then SECONDS=$((SECONDS+181)); fi; }
     def snapshot_runtime(self, argument="root=/dev/vda2", changed=""):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary); state = root / "snapshot.state"; lower = root / "lower"; lower.mkdir()
-            marker = lower / "var/lib/arch-linux-vm/snapshot-marker"; marker.parent.mkdir(parents=True); marker.write_text("fixture")
+            marker = lower / "var/lib/arch-linux-vm/snapshot-marker"; marker.parent.mkdir(parents=True); marker.write_text("grub-20261004T000000Z-aabbccdd")
             uuid = "11111111-1111-1111-1111-111111111111"; partuuid = "22222222-2222-2222-2222-222222222222"
-            state.write_text("run_id=fixture\nsubvol=@snapshots/qa-fixture\nroot_uuid=" + uuid + "\nnormal_boot_id=33333333-3333-3333-3333-333333333333\nroot_device=/dev/vda2\nroot_partuuid=" + partuuid + "\nselector_sha256=" + "a" * 64 + "\nproduction_cfg_sha256=" + "b" * 64 + "\n")
+            state.write_text("run_id=grub-20261004T000000Z-aabbccdd\nsubvol=@snapshots/qa-grub-20261004T000000Z-aabbccdd\nroot_uuid=" + uuid + "\nnormal_boot_id=33333333-3333-3333-3333-333333333333\nroot_device=/dev/vda2\nroot_partuuid=" + partuuid + "\nselector_sha256=" + "a" * 64 + "\nproduction_cfg_sha256=" + "b" * 64 + "\nsnapshot_root_id=257\nsnapshot_marker_inode=1234\nroot_major=254\nroot_minor=2\n")
+            import json
+            expected, rows = self.proof_fixture()
+            expected["fsUuid"] = uuid
+            rows = [row.replace("fsid=1234567812341234", "fsid=" + uuid.replace("-", "")[:16]).replace("fsid=1234123456789abc", "fsid=" + uuid.replace("-", "")[16:]) for row in rows]
+            (root / "checker.py").write_text(self.snapshot_program("snapshot_backing_checker_program", "SNAPSHOT_CHECKER_PY"))
+            (root / "state.py").write_text(self.snapshot_program("snapshot_state_program", "SNAPSHOT_STATE_PY"))
+            (root / "proof.stdout").write_bytes(self.proof_output(rows)); (root / "proof.stderr").write_bytes(b"")
+            (root / "expected.json").write_text(json.dumps(expected))
             if changed == "state-lines": state.write_text(state.read_text() + "SECRET_EXTRA\n")
-            if changed == "state-run": state.write_text(state.read_text().replace("run_id=fixture", "run_id=SECRET_ID"))
-            if changed == "state-subvol": state.write_text(state.read_text().replace("subvol=@snapshots/qa-fixture", "subvol=SECRET_PATH"))
+            if changed == "state-run": state.write_text(state.read_text().replace("run_id=grub-20261004T000000Z-aabbccdd", "run_id=SECRET_ID"))
+            if changed == "state-subvol": state.write_text(state.read_text().replace("subvol=@snapshots/qa-grub-20261004T000000Z-aabbccdd", "subvol=SECRET_PATH"))
             if changed == "cfg-record": state.write_text(state.read_text().replace("production_cfg_sha256=", "unknown="))
             if changed == "cfg-hash": state.write_text(state.read_text().replace("b" * 64, "c" * 64))
             if changed == "root-uuid": state.write_text(state.read_text().replace(uuid, "SECRET_UUID"))
             if changed == "marker": marker.write_text("SECRET_MARKER")
-            commandline = root / "cmdline"; commandline.write_text(argument.replace("uuid", uuid).replace("part-id", partuuid) + " rootflags=subvol=@snapshots/qa-fixture systemd.volatile=overlay")
-            body = "\n".join(function(name) for name in ("snapshot_root_argument_matches", "snapshot_lowerdir_matches", "require_kernel_argument_once", "require_prefixed_kernel_argument_once", "verify_snapshot_runtime"))
+            commandline = root / "cmdline"; commandline.write_text(argument.replace("uuid", uuid).replace("part-id", partuuid) + " rootflags=subvol=@snapshots/qa-grub-20261004T000000Z-aabbccdd systemd.volatile=overlay")
+            body = "\n".join(function(name) for name in ("snapshot_root_argument_matches", "snapshot_lowerdir_matches", "snapshot_expected_readback", "require_kernel_argument_once", "require_prefixed_kernel_argument_once", "verify_snapshot_runtime"))
             if "snapshot_runtime_fail() {" in VERIFY.read_text(): body = function("snapshot_runtime_fail") + "\n" + body
             body = body.replace('/boot/qa-snapshot-${run_id}.state', str(state)).replace('/proc/cmdline', str(commandline))
             script = r'''set -euo pipefail
-run_id=fixture scenario=stock-gnome-btrfs-grub phase=snapshot-prelogin
+run_id=grub-20261004T000000Z-aabbccdd scenario=stock-gnome-btrfs-grub phase=snapshot-prelogin
 fixture_lower=$1
 fixture_uuid=$2
 fixture_partuuid=$3
 changed=$4
+fixture_root=${fixture_lower%/lower}
 [(){ if [[ "$*" = '-b /dev/vda2 ]' ]]; then return 0; fi; builtin [ "$@"; }
-stat(){ if [ "$changed" = state-mode ]; then printf '1000:644:1'; else printf '0:600:1'; fi; }
+stat(){ if [[ "$*" = *'%i'* ]]; then printf 1234; elif [[ "$*" = *'%u:%a:%h:%s'* ]]; then printf '0:600:1:31'; elif [ "$changed" = state-mode ]; then printf '1000:644:1'; else printf '0:600:1'; fi; }
 sha256sum(){ printf '%s fixture' bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb; }
 findmnt(){
     case "$*" in
         *FSTYPE*'target /') if [ "$changed" = root-type ]; then printf btrfs; else printf overlay; fi;;
         *FSTYPE*) if [ "$changed" = lower-type ]; then printf SECRET_VALUE; else printf btrfs; fi;;
-        *FSROOT*) if [ "$changed" = lower-subvol ]; then printf /SECRET_PATH; else printf /@snapshots/qa-fixture; fi;;
+        *FSROOT*) if [ "$changed" = lower-subvol ]; then printf /SECRET_PATH; else printf /@snapshots/qa-grub-20261004T000000Z-aabbccdd; fi;;
         *OPTIONS*'target /') if [ "$changed" = root-options-query ]; then return 1; elif [ "$changed" = lower-shape ]; then printf lowerdir=SECRET_RELATIVE; else printf 'lowerdir=%s' "$fixture_lower"; fi;;
         *OPTIONS*) if [ "$changed" = lower-options-query ]; then return 1; elif [ "$changed" = lower-rw ]; then printf rw; else printf ro; fi;;
         *UUID*) if [ "$changed" = lower-uuid ]; then printf wrong; else printf '%s' "$fixture_uuid"; fi;;
     esac
 }
-btrfs(){ if [ "$changed" = property ]; then printf ro=false; else printf ro=true; fi; }
+btrfs(){ if [[ "$*" = *rootid* ]]; then printf 257; elif [ "$changed" = property ]; then printf ro=false; else printf ro=true; fi; }
 mounted_source_device(){ if [ "$changed" = device ]; then printf /dev/vda3; else printf /dev/vda2; fi; }
 find_target(){ printf /dev/vda; }
-partition_name(){ printf /dev/vda2; }
+partition_name(){ if [ "$changed" = device ]; then printf /dev/vda3; else printf /dev/vda2; fi; }
+mount(){ return 0; }
+snapshot_validate_state(){ python3 - "$fixture_root/state.py" "$1" "$run_id" "$2" <<'FIXTURE_STATE_PY'
+import runpy, sys
+from pathlib import Path
+runpy.run_path(sys.argv[1])["parse_state"](Path(sys.argv[2]).read_bytes(), sys.argv[3], sys.argv[4])
+FIXTURE_STATE_PY
+}
+snapshot_device_numbers(){ printf 254:2; }
+verify_snapshot_backing(){
+    snapshot_expected_readback "$fixture_lower" "$1" "$2" "$3" "$4" "$5" || return 1
+    python3 "$fixture_root/checker.py" positive "$fixture_root/proof.stdout" "$fixture_root/proof.stderr" "$fixture_root/expected.json" 0 >/dev/null || { snapshot_runtime_fail lower-source-query; return 1; }
+}
 blkid(){
     if [[ "$*" = *PARTUUID* ]]; then
         if [ "$changed" = partuuid ]; then printf wrong; else printf '%s' "$fixture_partuuid"; fi
@@ -683,7 +992,7 @@ nm-online(){ [ "$changed" != network ]; }
                 result = self.snapshot_runtime(changed=changed)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertEqual(result.stdout, "")
-                self.assertEqual(result.stderr, "SNAPSHOT_RUNTIME_DIAGNOSTIC run_id=unavailable phase=snapshot-prelogin reason=" + reason + "\n")
+                self.assertEqual(result.stderr, "SNAPSHOT_RUNTIME_DIAGNOSTIC run_id=grub-20261004T000000Z-aabbccdd phase=snapshot-prelogin reason=" + reason + "\n")
                 self.assertNotIn("SECRET", result.stderr)
         result = self.snapshot_runtime(argument="root=/dev/vda3")
         self.assertIn("reason=root-argument\n", result.stderr)
