@@ -332,6 +332,71 @@ print(lines[0])
 BOOT_DIAGNOSTIC_PY
 }
 
+capture_failure_diagnostic() {
+    # Classify privately before raw evidence is scrubbed; never retain commands or paths.
+    python3 - "${evidence}" "${run_id}" "${current_phase}" <<'FAILURE_DIAGNOSTIC_PY'
+import os
+from pathlib import Path
+import re
+import stat
+import sys
+
+root=Path(sys.argv[1]); run_id, phase=sys.argv[2:]
+if not re.fullmatch(r"[A-Za-z0-9-]{1,80}",run_id) or not re.fullmatch(r"[a-z0-9-]{1,64}",phase):
+    raise SystemExit(1)
+classes=(
+    ("package-missing", r"error: target not found:|could not find all required packages|could not resolve all dependencies"),
+    ("download", r"failed retrieving file|failed to download|Could not resolve host|Connection timed out|The requested URL returned error"),
+    ("package-trust", r"invalid or corrupted package|unknown trust|invalid PGP|signature from .* is unknown"),
+    ("package-conflict", r"conflicting dependencies|conflicting files|exists in filesystem"),
+    ("disk-full", r"No space left on device"),
+    ("transaction", r"error: failed to prepare transaction|error: failed to commit transaction"),
+)
+records=[]
+def identity(info):
+    return tuple(getattr(info,name) for name in ("st_dev","st_ino","st_mode","st_uid","st_gid","st_nlink","st_size","st_mtime_ns","st_ctime_ns"))
+def add(script,reason,line="unknown",status="unknown"):
+    row=f"QEMU_FAILURE_DIAGNOSTIC run_id={run_id} phase={phase} script={script} reason={reason} line={line} status={status}"
+    if row not in records and len(records)<32 and sum(len(x)+1 for x in records)+len(row)+1<=4096:records.append(row)
+paths=[root/"install-installer.log",root/"install-serial.log"] if phase=="install-archiso" else sorted(root.glob("*.stderr"))[-32:]
+for path in paths:
+    try:
+        fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
+        try:
+            info=os.fstat(fd)
+            if (not stat.S_ISREG(info.st_mode) or info.st_uid!=os.getuid() or info.st_nlink!=1
+                    or info.st_mode&0o022 or info.st_size>16*1024*1024):continue
+            chunks=[];remaining=16*1024*1024+1
+            while remaining:
+                chunk=os.read(fd,min(65536,remaining))
+                if not chunk:break
+                chunks.append(chunk);remaining-=len(chunk)
+            raw=b"".join(chunks)
+            if len(raw)>16*1024*1024 or len(raw)!=info.st_size or identity(os.fstat(fd))!=identity(info):continue
+        finally:os.close(fd)
+    except OSError:continue
+    for raw_line in raw.splitlines():
+        if len(raw_line)>16384:continue
+        line=raw_line.decode("utf-8",errors="replace")
+        line=re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]","",line)
+        if phase=="install-archiso":
+            for reason,pattern in classes:
+                if re.search(pattern,line,re.I):add("installer",reason)
+            match=re.search(r"failed with exit code ([1-9][0-9]{0,2}) in function '[^']{1,128}' \(line ([1-9][0-9]{0,6})\)",line)
+            if match and int(match[1])<=255:add("installer","script-error",match[2],match[1])
+        else:
+            match=re.fullmatch(r"(?:MINIMAL|STOCK|BTRFS|GRUB|LUKS|LUKSGRUB|MARBLE|MARBLESTOCK)_QEMU_GUEST_FAIL phase=[a-z0-9-]{1,64} line=([1-9][0-9]{0,6}) status=([1-9][0-9]{0,2}) command=.*",line)
+            if match and int(match[2])<=255:add("guest","script-error",match[1],match[2])
+            if "syntax error" in line:
+                match=re.search(r"line ([1-9][0-9]{0,6}):",line)
+                add("guest","shell-syntax",match[1] if match else "unknown")
+if not records:add("installer" if phase=="install-archiso" else "guest","unclassified")
+text="\n".join(records)+"\n"
+assert len(text.encode())<=4096
+with (root/"failure-diagnostic.txt").open("x",encoding="ascii") as target:target.write(text)
+FAILURE_DIAGNOSTIC_PY
+}
+
 compact_run_evidence() {
     local candidate basename summary
     [ -d "${evidence}" ] && [ ! -L "${evidence}" ] || return 0
@@ -342,7 +407,7 @@ compact_run_evidence() {
         case "${candidate}" in
         *.ppm | *.request.json | *.start.json | *.status.json) continue ;;
         esac
-        grep -aEh '^[[:space:]]*([A-Z]+_QEMU_(READY|INSTALLER_EXIT|INSTALL_COMPLETE|NEIGHBOR_PRESERVED|ESP_COLLISION_REFUSAL_PASS|COLLISION_PROBE_READY|COLLISION_PROBE_EXIT|FAIL|GUEST_PASS|GUEST_FAIL)|QEMU_HOST_FAIL|QEMU_DIAGNOSTIC_WARNING:|SCREENSHOT_WARNING:|GTK4_APP_(DIAGNOSTIC|LAUNCH_FAIL)|GTK4_SESSION_DIAGNOSTIC|SNAPSHOT_ENTRY_DIAGNOSTIC|SNAPSHOT_RUNTIME_DIAGNOSTIC[[:space:]]|QEMU_BOOT_DIAGNOSTIC|GNOME_EXTENSION_DIAGNOSTIC|GNOME_SHELL_DIAGNOSTIC[[:space:]]|GDM_ACTIVATION_DIAGNOSTIC|exit_status=|qemu-img|signed repository checks passed|release asset checks passed)' \
+        grep -aEh '^[[:space:]]*([A-Z]+_QEMU_(READY|INSTALLER_EXIT|INSTALL_COMPLETE|NEIGHBOR_PRESERVED|ESP_COLLISION_REFUSAL_PASS|COLLISION_PROBE_READY|COLLISION_PROBE_EXIT|FAIL|GUEST_PASS)|QEMU_HOST_FAIL|QEMU_FAILURE_DIAGNOSTIC[[:space:]]|QEMU_DIAGNOSTIC_WARNING:|SCREENSHOT_WARNING:|GTK4_APP_(DIAGNOSTIC|LAUNCH_FAIL)|GTK4_SESSION_DIAGNOSTIC|SNAPSHOT_ENTRY_DIAGNOSTIC|SNAPSHOT_RUNTIME_DIAGNOSTIC[[:space:]]|QEMU_BOOT_DIAGNOSTIC|GNOME_EXTENSION_DIAGNOSTIC|GNOME_SHELL_DIAGNOSTIC[[:space:]]|GDM_ACTIVATION_DIAGNOSTIC|exit_status=|qemu-img|signed repository checks passed|release asset checks passed)' \
             "${candidate}" 2>/dev/null || true
     done < <(find "${evidence}" -maxdepth 1 -type f -print0 | LC_ALL=C sort -z) |
         awk 'NR <= 2000 { print substr($0, 1, 4096) }' >>"${summary}" || return 1
@@ -502,6 +567,9 @@ cleanup() {
             "${status}" "${current_phase}" "${run_id:-unassigned}" >"${run_root}/FAILURE.txt"
         printf 'FAIL run_id=%s phase=%s exit_status=%s\n' \
             "${run_id:-unassigned}" "${current_phase}" "${status}" >&2
+    fi
+    if [ "${status}" -ne 0 ] && [ -d "${evidence}" ] && [ ! -L "${evidence}" ]; then
+        capture_failure_diagnostic || status=1
     fi
     if [ -n "${run_root}" ] && [ -d "${run_root}" ] && [ "${run_storage_finalized}" != true ]; then
         if ! finalize_run_storage; then

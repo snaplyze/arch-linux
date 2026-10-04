@@ -957,7 +957,8 @@ for failure in (False, True):
         actual = ('MINIMAL_QEMU_INSTALLER_EXIT status=0\n'
                   'MINIMAL_QEMU_INSTALL_COMPLETE run_id=fixture\n')
         if failure:
-            actual += 'MINIMAL_QEMU_GUEST_FAIL phase=firstboot status=1\n'
+            actual += 'QEMU_FAILURE_DIAGNOSTIC run_id=fixture phase=firstboot script=guest reason=script-error line=123 status=1\n'
+            (evidence / 'runtime.stderr').write_text('MINIMAL_QEMU_GUEST_FAIL phase=firstboot line=123 status=1 command=private-command\n')
         (evidence / 'runtime.stdout').write_text(actual)
         (evidence / 'firstboot.request.json').write_text(json.dumps({
             'arguments': {'script': 'printf "MINIMAL_QEMU_GUEST_FAIL status=1"'}}) + '\n')

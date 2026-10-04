@@ -337,10 +337,10 @@ regression → affected tests → independent review where material → status u
 | MON-01 | P2 | none | DONE | Dated advisory coverage of boot/desktop inputs |
 | UP-01 | P3 | MON-01 | DONE | Reviewed external-source decisions and synchronized metadata |
 | ARCH-01 | P2 | ISO qualification independent; corrected-candidate tests after SAFE-01…03, UP-01 | DONE | Owner-reviewed October ISO after actual Minimal/Stock PASS; corrected-child runtime remains RELEASE-01 |
-| QA-01 | P2 | SAFE-01…03, TRUST-01/02, CONFIG-01, RECOVERY-01, UP-01 | IN_PROGRESS | Fourth child7PASS/2FAIL retained; actual overlay backing-read mechanism PASS, production integration underway; Marble global-disable writer still unconfirmed |
+| QA-01 | P2 | SAFE-01…03, TRUST-01/02, CONFIG-01, RECOVERY-01, UP-01 | IN_PROGRESS | Fourth child7PASS/2FAIL retained; observed-read integration/source/build/root accepted in PR55; fifth child failed7install/2MinimalQGA; partial-frame transport reproduced/fixed, installer cause unknown; focused diagnostics before new acceptance |
 | DOC-01 | P3 | Corrected selector and source behavior prose; final release records under RELEASE-01 | DONE | UI copy and final behavior docs; prose correction is not product fix |
-| GATE-01 | P1 | all above | IN_PROGRESS | Historicalc39 source/build/five-realguest GATE and PR54/mainf9 delivery accepted; diagnostic861 source21 PASS, observed-read integration requires fresh final gates |
-| RELEASE-01 | final | GATE-01 | IN_PROGRESS | Fourth childebb168bd failed7PASS/2FAIL before finalization; public1.0.5 unchanged; targeted causes under diagnosis |
+| GATE-01 | P1 | all above | IN_PROGRESS | Fresh c3e110d source26/build/five-realguest root gates accepted; PR55/main870f896 CI PASS; fifth child failed before finalization; focused QGA fix and typed failure evidence underway |
+| RELEASE-01 | final | GATE-01 | IN_PROGRESS | Fifth childaaff860/run37188752155 Phase-A verified14 but all9VM FAIL; final18/public skipped, cause-specific corrections under diagnosis; public1.0.5 retained |
 
 GATE-01 depends on preceding source/pre-merge deliverables only. DELIVERY-01 closes at reviewed
 source/design/regression acceptance; actual package-only publication requires separately defined
@@ -1546,3 +1546,77 @@ owner/presence cases, stable runtime886edcd6/guest5fee2674. New exact source/bui
 gates precede updating the same PR55; no unchanged CI retry or acceptance transfer.
 QA-01/GATE-01/RELEASE-01 remain open; fourth child7PASS/2FAIL and immutable public1.0.5
 remain historical. Next prepared build t3c0kny3/root bv6a7sh0 are not executed yet.
+
+
+Fixture correction accepted in clean c3e110df/tree3cdc8e42/canonical77e77d34:
+source26 native0, 94runtime/full10/signer14+18/deferrednone, log4e395848;
+fresh build+independent read-only verification native0, receipt696cd2c6; all five actual
+release-host root gates native0/ordered0, independent monitoring review PASS,
+receipt1d38bd9f before exact8 owned-heavy cleanup; four launcher socket paths already absent, final901f7be8.
+Receipt collector first checked terminal marker in wrong console channel (exit1/no receipt);
+correct strict serial channel + streaming1MiB hashes accepted without repeating gates.
+PR55 corrected required CI37188447011 SUCCESS (previous failed37187167926 retained),
+protected squash merged 2026-10-04T08:20:54Z; same checkout main fast-forward to870f89655e5,
+exact tree/mode-byte identity retained, fresh main CI37188622423 SUCCESS. PR candidate is
+preserved locally/remotely; no protected-main bypass or foreign work loss.
+
+Fifth immutable release attempt37188752155 executing: main870f89655e5 → childaaff86062546,
+treee0a6725e8c3e/canonicalf1a2232ff7ad/version1.0.6. Actual source bundle requires that exact
+main, hashcfd6d892 verified without object import. Prepare/build/readback/snapshot native
+jobs SUCCESS; public Phase-A exact14/signed12/schema2/DB six payloads/deterministic child
+verification native0 and independent review PASS, receiptf0c444b9. All nine hosted real VM
+scenarios running with accepted October ISO; results NOT_ACCEPTED yet. Final18/tag/Pages/
+public readback/public VM remain pending. No historical PASS transferred to new child;
+QA-01/GATE-01/RELEASE-01 remain IN_PROGRESS and the full15-ID scope is unchanged.
+
+
+Fifth run37188752155 terminal FAILURE/nativewatch1: all9 authenticated results retained;
+seven graphical variants FAIL0assertions at install-archiso with actualinstallerexit1,
+Minimal and dualboot install complete then FAIL3assertions at firstboot. Finalization/
+publication skipped; no1.0.6 tag/assets, immutable1.0.5 unchanged. Independent install-entry
+comparison confirms unchanged installer/bootstrap/workflow/ISO/packages/trust; new verifier
+runs only after installation. Compact archives discard ordinary installer error details,
+so seven installer causes remain UNKNOWN and snapshot/Shell were not reached there.
+Direct Minimal job evidence shows qga-client87 correlated-response timeout30s before guest
+verification starts; new script210267B vs141202B. Actual-client partialsync/requestwrite
+reproducer RED2TimeoutErrors→GREEN after both sends use sendall,96runtimePASS and narrow
+independent review PASS; peer/owner/socket identity/caps/timeout unchanged. This confirms
+transport mechanism, not yet native VM recovery or installer-failure cause.
+Root typed failure capture privately classifies bounded rawlogs into fixedclass/line/status
+before scrub/compaction; no commands/paths/package values. Six meaningful actual-helper/
+scrubber/compactor fixtures PASS after rejecting rawGUEST_FAIL command retention; foreign
+symlink contents preserved outside owned run, oversize rejected. Narrow review/fullsource
+and committed diagnostic slice pending; next focused localreal Stock diagnostic uses the
+previous accepted public1.0.5/October inputs to examine changed upstream premise, without
+relabeling ISO/product acceptance or retrying the unchanged hosted matrix.
+
+Narrow diagnostic review found atime-only false rejection: actual parser RED→GREEN now
+compares identity/content metadata excluding access time, retaining nanosecond mtime/ctime
+negatives. Six compaction cases + three metadata cases PASS. Source27 first run FAIL at
+old static compact fixture expecting rawGUEST_FAIL retention; no source PASS claimed.
+Static regression now requires typed runtime failure preservation, rejects raw command
+output and still excludes quoted QGA request text; fresh source checks pending.
+
+Focused final monitoring review PASS after atime correction, frozen runa99990f9/harness96a3cddd/static5282f2a4.
+Source28 `PYTHONDONTWRITEBYTECODE=1 bash tests/source-tests.sh` native0/session67186,
+log SHA256 8d99b2bd68ae62df695b5964230b071a4c560e451db70f7a54172e0475f985d8,96runtime and full repository10/signer14+18/deferrednone.
+Local diagnostic commit1952675995f4568ef38a6a0676f6d7341f5f83f9/treefb00b468739abba1be078b2f6bd6223ce2dacc78
+passed clean source29/native0/session82938 (log SHA25652e577aa8e51c5a189011efdba1ab23973a42ac6c4d86a273e6382dc945db8c0).
+It owns exactly PLAN/static/harness/qga-client/run/runtime; installer/bootstrap/pins/trust/workflow unchanged.
+Actual public1.0.5 Stock diagnostic/native0/session82922 passed20 assertions including full210267B
+QGA transport, genuine GDM password/Wayland/lock/unlock/update/reboot; result SHA256
+91ba844bde08edafe299d349c1b6e4b19553a1ce1a3369b3d89a372c303f7998.
+This examined changed upstream premises, without ISO reacceptance or new-child acceptance.
+A bounded installation-only diagnostic used exact fifth Phase-A childaaff86062546/installer278965467a7e
+and approved October ISO with readonly payload; no new hosted pipeline or source copy.
+First generated-runner attempt failed identity alphabet before VM creation (native1); actual
+full emitter RED→GREEN preserves unsafe-input rejection and prior logs. Second attempt/session47299
+completed real installation (install_outcome0 and exact completion status0). Wrapper/native1 arose
+at diagnostic cleanup; image check has no errors, recorded QEMU/bridge absent and exact heavy/raw/socket
+resources absent. Independent monitoring confirmed these facts, but no overall PASS is transferred.
+Actual cleanup/canonical-wait regression with owned children/Unix sockets/native qemu-img reproduced
+RED native1 for already-unlinked sockets, then GREEN5 cases after accepting absence only once exact
+writers are quiescent. Replacement/symlink/unhealthy negatives remain; generated-runner-only fix and
+historical native1 retained. No repeated installation: the child installer itself completed; hosted
+seven-variant causes remain unreproduced. Next fresh source/build/five-root gates and protected-main
+delivery of the evidenced QGA fix/typed diagnostics; nine-variant/final18/public acceptance remains open.
