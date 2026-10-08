@@ -510,7 +510,7 @@ rm(){ if [ "$case_fixture" = cleanup-fail ]; then return 1; fi; command rm "$@";
                 else: self.assertIn("reason=lower-source-query", result.stderr)
                 if case == "foreign-file": self.assertEqual((work / "foreign").read_text(), "preserve")
 
-    def shell_lifecycle(self, case="normal", checkpoint="extension-timeout", requested_uid=None):
+    def shell_lifecycle(self, case="normal", checkpoint="extension-timeout", requested_uid=None, stat_change=None):
         text = VERIFY.read_text()
         match = re.search(r"^emit_gnome_shell_lifecycle_diagnostic\(\) \{\n.*?<<'PY'\n(.*?)\nPY\n", text, re.M | re.S)
         self.assertIsNotNone(match, "actual lifecycle diagnostic helper missing")
@@ -556,9 +556,32 @@ rm(){ if [ "$case_fixture" = cleanup-fail ]; then return 1; fi; command rm "$@";
                 kwargs["stdout"].write(raw.encode())
                 return subprocess.CompletedProcess(args, 0)
             real_fstat = os.fstat
+            unit_stats = []
             def fstat(fd):
                 value = real_fstat(fd)
-                return os.stat_result(tuple(value)[:4] + (0,) + tuple(value)[5:])
+                fields = list(value)
+                fields[4] = 0
+                times = {name: getattr(value, name) for name in
+                         ("st_atime", "st_mtime", "st_ctime",
+                          "st_atime_ns", "st_mtime_ns", "st_ctime_ns")}
+                if os.readlink(f"/proc/self/fd/{fd}") == str(unit):
+                    if not unit_stats:
+                        unit_stats.append((fields.copy(), times.copy()))
+                    elif stat_change is not None:
+                        # Freeze unrelated metadata so each read-race regression is deterministic.
+                        fields, times = unit_stats[0][0].copy(), unit_stats[0][1].copy()
+                        if stat_change == "st_atime":
+                            fields[7] += 1
+                            times["st_atime"] += 1
+                            times["st_atime_ns"] += 1_000_000_000
+                        elif stat_change in ("st_mtime_ns", "st_ctime_ns"):
+                            times[stat_change] += 1
+                        else:
+                            index = {"st_mode": 0, "st_ino": 1, "st_dev": 2,
+                                     "st_nlink": 3, "st_uid": 4, "st_gid": 5,
+                                     "st_size": 6}[stat_change]
+                            fields[index] += 1
+                return os.stat_result(fields, times)
             output = io.StringIO()
             with patch("subprocess.run", run), patch("os.fstat", fstat), contextlib.redirect_stderr(output):
                 namespace["diagnose"](str(os.getuid() if requested_uid is None else requested_uid), str(os.getgid()), "fixture", "return-user-login", checkpoint)
@@ -573,6 +596,18 @@ rm(){ if [ "$case_fixture" = cleanup-fail ]; then return 1; fi; command rm "$@";
             self.assertRegex(output, r"recovery_unit_sha256=[a-f0-9]{64}")
             self.assertIn("stop_events=" + ("1" if case == "normal" else "0"), output)
             self.assertFalse(any("set" in call for call in calls))
+
+    def test_shell_lifecycle_atime_only_read_preserves_recovery_digest(self):
+        output, _ = self.shell_lifecycle(stat_change="st_atime")
+        self.assertRegex(output, r"recovery_unit_sha256=[a-f0-9]{64}")
+
+    def test_shell_lifecycle_recovery_digest_rejects_protected_metadata_changes(self):
+        for field in ("st_dev", "st_ino", "st_mode", "st_uid", "st_gid", "st_nlink",
+                      "st_size", "st_mtime_ns", "st_ctime_ns"):
+            with self.subTest(field=field):
+                output, _ = self.shell_lifecycle(stat_change=field)
+                self.assertIn("recovery_unit_sha256=unknown", output)
+                self.assertNotRegex(output, r"recovery_unit_sha256=[a-f0-9]{64}")
 
     def test_shell_lifecycle_actual_helper_under_ci_uid_model(self):
         import os
