@@ -879,6 +879,16 @@ is_marble_scenario() {
     [[ "${scenario_id}" = marble-gnome-* ]]
 }
 
+scenario_needs_repository() {
+    case "$1" in
+    stock-gnome-ext4-systemdboot | stock-gnome-btrfs-systemdboot | stock-gnome-btrfs-grub | \
+        stock-gnome-btrfs-luks2-plymouth-systemdboot | stock-gnome-btrfs-luks2-plymouth-grub | \
+        marble-gnome-btrfs-luks2-plymouth-systemdboot | \
+        marble-gnome-btrfs-luks2-plymouth-systemdboot-stock-gdm) return 0 ;;
+    *) return 1 ;;
+    esac
+}
+
 is_grub_scenario() {
     case "${scenario_id}" in
     stock-gnome-btrfs-grub | stock-gnome-btrfs-luks2-plymouth-grub) return 0 ;;
@@ -1072,7 +1082,7 @@ load_marble_repository_metadata() {
     local -a expected_packages=()
     local -A seen=()
     mapfile -t expected_packages <"${repository_root}/repository/package-set"
-    [ "${#expected_packages[@]}" -eq 6 ] || die 'repository metadata package closure is not six'
+    [ "${#expected_packages[@]}" -eq 7 ] || die 'repository metadata package closure is not seven'
     [ -f "${metadata}" ] && [ ! -L "${metadata}" ] || die 'repository metadata is unsafe'
     while IFS= read -r line || [ -n "${line}" ]; do
         [[ "${line}" =~ ^([A-Za-z0-9_]+)=([A-Fa-f0-9]{40,64})$ ]] ||
@@ -1121,7 +1131,7 @@ load_marble_repository_metadata() {
         *) die "repository metadata contains unknown key: ${key}" ;;
         esac
     done <"${metadata}"
-    [ "${metadata_count}" -eq 19 ] || die 'repository metadata key closure differs'
+    [ "${metadata_count}" -eq $((13 + ${#expected_packages[@]})) ] || die 'repository metadata key closure differs'
     [[ "${repository_public_key_sha256}" =~ ^[a-f0-9]{64}$ ]]
     [[ "${repository_primary_fingerprint}" =~ ^[A-F0-9]{40}$ ]]
     [[ "${repository_signing_fingerprint}" =~ ^[A-F0-9]{40}$ ]]
@@ -1191,7 +1201,7 @@ retain_repository_manifest() {
         .buildMetadataSha256 == $build_metadata_sha256 and
         .unsignedManifestSha256 == $unsigned_manifest_sha256 and
         (.sourceDateEpoch | type == "number" and . > 0 and floor == .) and
-        (.files | type == "array" and length == 23 and all(.[];
+        (.files | type == "array" and length == 25 and all(.[];
           type == "object" and keys == ["name","sha256","size"] and
           (.name | type == "string" and test("^[A-Za-z0-9][A-Za-z0-9+._-]*$")) and
           (.sha256 | type == "string" and test("^[a-f0-9]{64}$")) and
@@ -1200,7 +1210,7 @@ retain_repository_manifest() {
 
     temporary_tsv="${run_root}/.repository-objects.tsv"
     jq -r '.files[] | [.name,.sha256,(.size|tostring)] | @tsv' "${manifest}" >"${temporary_tsv}"
-    [ "$(wc -l <"${temporary_tsv}")" -eq 23 ] || die 'repository object closure is not 23 files'
+    [ "$(wc -l <"${temporary_tsv}")" -eq 25 ] || die 'repository object closure is not 25 files'
     actual_names="$(cut -f1 -- "${temporary_tsv}")"
     [ "${actual_names}" = "$(printf '%s\n' "${actual_names}" | LC_ALL=C sort -u)" ] ||
         die 'repository object names are not strictly sorted and unique'
@@ -1671,7 +1681,7 @@ capture_public_repository_evidence() {
     [ "$(grep -c '^MARBLE_PUBLIC_SNAPSHOT_BINDING_PASS ' "${stdout_file}")" -eq 1 ] ||
         die 'public snapshot binding marker count differs'
     binding_line="$(grep '^MARBLE_PUBLIC_SNAPSHOT_BINDING_PASS ' "${stdout_file}")"
-    [[ "${binding_line}" =~ ^MARBLE_PUBLIC_SNAPSHOT_BINDING_PASS\ run_id=${run_id}\ snapshot_sha256=${snapshot_sha256}\ release_sums_sha256=([a-f0-9]{64})\ repository_manifest_sha256=([a-f0-9]{64})\ repository_manifest_signature_sha256=([a-f0-9]{64})\ pages_objects=23\ package_signatures=6\ database_signatures=2$ ]] ||
+    [[ "${binding_line}" =~ ^MARBLE_PUBLIC_SNAPSHOT_BINDING_PASS\ run_id=${run_id}\ snapshot_sha256=${snapshot_sha256}\ release_sums_sha256=([a-f0-9]{64})\ repository_manifest_sha256=([a-f0-9]{64})\ repository_manifest_signature_sha256=([a-f0-9]{64})\ pages_objects=25\ package_signatures=7\ database_signatures=2$ ]] ||
         die 'public snapshot binding marker differs'
     release_sha256sums_sha256="${BASH_REMATCH[1]}"
     repository_manifest_sha256="${BASH_REMATCH[2]}"
@@ -1898,7 +1908,7 @@ run_marble_acceptance() {
     first_boot_id="${last_boot_id}"
     if [ "${input_mode}" = public ]; then
         record_assertion public-release-pages-snapshot-binding \
-            'signed public RELEASE-SHA256SUMS and archive bytes bound the exact snapshot digest to the byte-identical signed Pages manifest and all 23 HTTPS object hashes/signatures'
+            'signed public RELEASE-SHA256SUMS and archive bytes bound the exact snapshot digest to the byte-identical signed Pages manifest and all 25 HTTPS object hashes/signatures'
     fi
     capture_screen firstboot-gdm
     if [[ "${scenario_id}" = *-stock-gdm ]]; then
@@ -2452,7 +2462,7 @@ main() {
         fi
         snapshot_verification='PENDING_PUBLIC_RELEASE_PAGES_BINDING'
     fi
-    if [ "${input_mode}" = staged ] && is_marble_scenario; then
+    if [ "${input_mode}" = staged ] && scenario_needs_repository "${scenario_id}"; then
         start_marble_repository_runtime
     fi
     printf 'scenario=%s\ninput_mode=%s\nrelease_version=%s\nrun_id=%s\nsource_commit=%s\nsource_tree=%s\ninstaller_sha256=%s\nbootstrap_sha256=%s\nharness_sha256=%s\niso_sha256=%s\nsnapshot_sha256=%s\nbuild_metadata_sha256=%s\nunsigned_manifest_sha256=%s\ntarget_serial=%s\ntarget_vendor=SNAPLYZE\ntarget_model=%s\n' \
@@ -2466,7 +2476,7 @@ main() {
         "${repository_signing_fingerprint}" "${repository_package_set_sha256}" \
         >>"${run_root}/identity.txt"
     [ "${input_mode}" != staged ] || append_repository_identity
-    if [ "${input_mode}" = staged ] && is_marble_scenario; then
+    if [ "${input_mode}" = staged ] && scenario_needs_repository "${scenario_id}"; then
         printf 'repository_server_port=%s\n' "${repository_server_port}" >>"${run_root}/identity.txt"
         if [ "${scenario_id}" = marble-gnome-btrfs-luks2-plymouth-systemdboot ]; then
             printf 'legacy_release_version=%s\nlegacy_snapshot_sha256=%s\nlegacy_source_commit=%s\nlegacy_source_tree=%s\nlegacy_manifest_sha256=%s\nlegacy_profile_version=%s\nlegacy_gtk3_version=%s\n' \
@@ -2499,7 +2509,7 @@ main() {
             >"${run_root}/payload/public.contract"
         chmod 0444 -- "${run_root}/payload/public.contract"
     fi
-    if [ "${input_mode}" = staged ] && is_marble_scenario; then
+    if [ "${input_mode}" = staged ] && scenario_needs_repository "${scenario_id}"; then
         install -m 0444 -- "${repository_ca_file}" "${run_root}/payload/acceptance-ca.crt"
         install -m 0444 -- "${run_root}/repository.contract" \
             "${run_root}/payload/repository.contract"
@@ -2521,7 +2531,7 @@ main() {
         cd -- "${run_root}/payload"
         if [ "${input_mode}" = public ]; then
             sha256sum -- IDENTITY b public.contract >MANIFEST.sha256
-        elif is_marble_scenario; then
+        elif scenario_needs_repository "${scenario_id}"; then
             sha256sum -- IDENTITY acceptance-ca.crt arch-linux-installer.sh b \
                 repository.contract >MANIFEST.sha256
         else

@@ -411,7 +411,7 @@ mkdir -p -- "$fixture_project/repository/lib" "$fixture_project/repository/trust
     "$fixture_project/maintenance" "$fixture_packages"
 PACKAGE_FIXTURE_OUTPUT_DIR="$fixture_packages" bash "$repo_root/tests/package-checks.sh" >/dev/null
 cp -- "$repo_root/repository/lib/common.sh" "$fixture_project/repository/lib/common.sh"
-printf '%s\n' arch-linux-keyring arch-linux-marble-profile >"$fixture_project/repository/package-set"
+printf '%s\n' arch-linux-keyring arch-linux-gnome-extensions arch-linux-marble-profile >"$fixture_project/repository/package-set"
 cp -- "$repo_root/repository/source-date-epoch" "$fixture_project/repository/source-date-epoch"
 cp -- "$repo_root/repository/safe-extract-snapshot.py" "$fixture_project/repository/safe-extract-snapshot.py"
 cp -- "$repo_root/repository/acceptance-manifest.py" "$fixture_project/repository/acceptance-manifest.py"
@@ -427,21 +427,29 @@ for harness_file in \
     tests/vm/prepare-marble-repository.sh tests/vm/guest/bootstrap.sh tests/vm/guest/verify.sh; do
     cp -- "$repo_root/$harness_file" "$fixture_project/$harness_file"
 done
-for package in arch-linux-keyring arch-linux-marble-profile; do
+for package in arch-linux-keyring arch-linux-gnome-extensions arch-linux-marble-profile; do
     cp -a -- "$repo_root/packages/$package" "$fixture_project/packages/$package"
 done
 python3 - "$fixture_project/repository/verify-package-metadata.py" \
-    "$repo_root/repository/verify-package-metadata.py" <<'PY'
-import pathlib, sys
-destination=pathlib.Path(sys.argv[1])
-verifier=sys.argv[2]
+    "$repo_root/repository/verify-package-metadata.py" \
+    "$fixture_packages/extensions-fixture-hashes.json" <<'PYFIXTURE'
+import json, pathlib, sys
+destination = pathlib.Path(sys.argv[1])
+verifier = sys.argv[2]
+synthetic = json.loads(pathlib.Path(sys.argv[3]).read_text())
+# Only this disposable test wrapper substitutes synthetic extension bytes.
+# The production verifier must still reject the synthetic archive directly.
 destination.write_text(
-    '#!/usr/bin/env python3\nimport os,sys,runpy\n'
-    f'if __name__ == \"__main__\": os.execv(sys.executable,[sys.executable,{verifier!r},*sys.argv[1:]])\n'
-    f'globals().update(runpy.run_path({verifier!r}))\n',
-    encoding='utf-8',
-)
-PY
+    '#!/usr/bin/env python3\nimport sys\nfrom pathlib import Path\n'
+    f'p=Path({verifier!r}); n=dict(__file__=str(p),__name__="fixture_verifier")\n'
+    'exec(compile(p.read_bytes(),str(p),"exec"),n)\n'
+    f'synthetic={synthetic!r}\n'
+    'real=n["expected_payload_hashes"]\n'
+    'if set(synthetic)!=set(real("arch-linux-gnome-extensions")): raise SystemExit("fixture hash closure differs")\n'
+    'n["expected_payload_hashes"]=lambda package: synthetic if package=="arch-linux-gnome-extensions" else real(package)\n'
+    'if __name__=="__main__": n["main"]()\n'
+    'else: globals().update(n)\n', encoding='utf-8')
+PYFIXTURE
 chmod 0755 -- "$fixture_project/repository/lib/common.sh" \
     "$fixture_project/repository/safe-extract-snapshot.py" \
     "$fixture_project/repository/acceptance-manifest.py" \

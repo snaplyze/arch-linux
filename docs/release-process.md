@@ -77,6 +77,33 @@ mode-and-byte tree. It tests, builds and signs that child; the origin main commi
 child commit/tree are both bound into provenance. A generated child never bypasses review of the
 origin merge, and no result from an earlier tree is transferred to it.
 
+The child also renders the explicitly marked README/installation bootstrap blocks from the
+selected release version, regardless of the origin installer's source floor or the previous
+documentation pin. Both command URLs and their prose change together. Exactly one nonempty
+`Unreleased` changelog section becomes the selected version heading; missing, malformed,
+duplicate or conflicting inputs reject preparation. Historical release dates, acceptance text
+and older changelog sections remain unchanged. A generated heading or command does not establish
+publication or acceptance; follow the separately bound evidence before using it.
+
+Package revisions use the reviewed source `pkgrel` plus
+`selected patch - source-floor patch + 1`. For example, if source floor 1.0.2 selects 1.0.7,
+the offset is 6: candidate profile `pkgrel=6` becomes 12 and GDM `pkgrel=4` becomes 10.
+This example is not a published version. Versioned package provides must stay aligned with
+applicable package metadata, and every generated package must advance above the active baseline;
+do not publish raw source revisions that pacman would consider older.
+
+The GNOME 51 candidate adds a seventh package, `arch-linux-gnome-extensions`, for signed
+delivery of five curated extensions and four AUR replacement identities in both Stock and Marble.
+The Marble profile depends on this independent bundle. It provides exact legacy No Screenshot Box
+retirement; the theme packages retain separate GNOME 50/51 GDM closures. The profile tuples are GNOME 50 / GTK 4.22.x / libadwaita 1.9.x and GNOME 51 /
+GTK 4.24.x / libadwaita 1.10.x. Before accepting delivery, execute the
+[real upgrade and functionality gates](testing.md#gnome-51-candidate-upgrade-acceptance).
+No current source result or historical release PASS establishes those candidate gates. The new
+installer bootstraps the strict signed repository for Stock as well as Marble; Stock still installs
+no Colloid/Marble theme packages. This requires a new full installer release. The old immutable
+1.0.6 flow requests the four AUR packages and is incompatible with treating the new bundle as an
+unchanged six-package update. Package-only mode must reject that closure/installer transition.
+
 The manual **Run workflow** action resumes an existing release for the current reviewed `main`
 commit; it cannot start a fresh candidate. To retry preparation before a tag exists, rerun that
 commit's CI push run and let its successful completion trigger the release workflow.
@@ -267,7 +294,7 @@ public key, and installs/updates Marble through the exact Pages repository befor
 real GDM password login. The guest must also verify signed public `RELEASE-SHA256SUMS`, require the
 downloaded signed repository archive to match the frozen snapshot SHA-256, verify its detached
 signature, and require its embedded signed manifest/signature to be byte-identical to Pages. It then
-checks the manifest's exact source/tree/installer/build identity, downloads all 23 manifest objects
+checks the manifest's exact source/tree/installer/build identity, downloads every manifest-listed object
 over canonical Pages HTTPS, and verifies every object hash/size plus all package and canonical
 database signatures. A passed Pages manifest without this Release-archive binding is not sufficient.
 
@@ -279,13 +306,15 @@ remains at most 500 MiB.
 ## 8. Updates
 
 Installer changes are new immutable SemVer releases. Arch Linux
-updates normally through `pacman -Syu`. Marble/profile changes increment the owning package's
+updates normally through `pacman -Syu`. Theme and extension changes within an unchanged accepted
+closure increment the owning package's
 `pkgrel` and are delivered through the signed Pages repository, so they do not require an installer
 release. Source pins change only through a reviewed pull request.
 Use the explicit [package-child procedure](../repository/README.md#package-only-updates) for a
 reviewed package intent, increased revisions and unchanged published installer bytes. Installer behavior drift from the selected published base rejects this mode until a normal
 installer release. Package intent suppresses automatic installer publication without enabling
-signing for it.
+signing for it. Adding `arch-linux-gnome-extensions` to the historical six-package closure and
+changing Stock/Marble installer repository behavior require a full installer release instead.
 External package-only signing/deployment and installed-system acceptance remain separately
 authorized and NOT_TESTED; see [DELIVERY-01](PLAN.md#delivery-01--package-only-provenance-and-procedure).
 

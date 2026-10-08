@@ -2973,7 +2973,8 @@ verify_stock_profile() {
     systemctl is-enabled --quiet gdm.service
     systemctl is-active --quiet gdm.service
     systemctl is-active --quiet graphical.target
-    [ -z "$(pacman -Qq | grep '^arch-linux-' || true)" ]
+    verify_stock_project_packages
+    verify_public_repository_contract
     [ ! -e /etc/dconf/profile/gdm ] && [ ! -L /etc/dconf/profile/gdm ]
     [ ! -e /etc/systemd/system/gdm.service.d/50-arch-linux-marble.conf ] &&
         [ ! -L /etc/systemd/system/gdm.service.d/50-arch-linux-marble.conf ]
@@ -3118,6 +3119,7 @@ marble_gdm_enabled() {
 marble_project_packages() {
     printf '%s\n' \
         arch-linux-keyring \
+        arch-linux-gnome-extensions \
         arch-linux-marble-shell \
         arch-linux-colloid-gtk \
         arch-linux-colloid-icons \
@@ -3125,6 +3127,32 @@ marble_project_packages() {
     if marble_gdm_enabled; then
         printf '%s\n' arch-linux-marble-gdm
     fi
+}
+
+marble_theme_packages() {
+    printf '%s\n' arch-linux-marble-shell arch-linux-colloid-gtk arch-linux-colloid-icons arch-linux-marble-profile
+    if marble_gdm_enabled; then
+        printf '%s\n' arch-linux-marble-gdm
+    fi
+}
+
+graphical_project_packages() {
+    case "${scenario}" in
+    stock-gnome-*) printf '%s\n' arch-linux-keyring arch-linux-gnome-extensions ;;
+    marble-gnome-*) marble_project_packages ;;
+    *) return 1 ;;
+    esac
+}
+
+verify_stock_project_packages() {
+    local expected
+    expected="$(printf '%s\n' arch-linux-keyring arch-linux-gnome-extensions | LC_ALL=C sort)"
+    [ "$(pacman -Qq | grep '^arch-linux-' | LC_ALL=C sort)" = "${expected}" ]
+    package_installed_exact arch-linux-keyring
+    package_installed_exact arch-linux-gnome-extensions
+    verify_package_qkk_zero arch-linux-keyring arch-linux-gnome-extensions >/dev/null
+    (cd /usr/share/gnome-shell/extensions && sha256sum --check --status \
+        /usr/share/arch-linux-gnome-extensions/extensions.sha256)
 }
 
 installed_package_record_exact() {
@@ -3193,7 +3221,7 @@ verify_public_repository_contract() {
         info="$(pacman -Qi -- "${package}")"
         grep -Eq "^Name[[:space:]]*:[[:space:]]*${package}$" <<<"${info}"
         grep -Eq '^Validated By[[:space:]]*:[[:space:]]*Signature([[:space:]]|$)' <<<"${info}"
-    done < <(marble_project_packages)
+    done < <(graphical_project_packages)
     printf 'MARBLE_PUBLIC_REPOSITORY_POLICY_PASS run_id=%s phase=%s server=pages package_signatures=required database_signatures=required private_key=absent\n' \
         "${run_id}" "${phase}"
 }
@@ -3364,7 +3392,7 @@ verify_public_release_pages_binding() (
         .buildMetadataSha256 == $build_metadata_sha256 and
         .unsignedManifestSha256 == $unsigned_manifest_sha256 and
         (.sourceDateEpoch | type == "number" and . > 0 and floor == .) and
-        (.files | type == "array" and length == 23 and all(.[];
+        (.files | type == "array" and length == 25 and all(.[];
           type == "object" and keys == ["name","sha256","size"] and
           (.name | type == "string" and test("^[A-Za-z0-9][A-Za-z0-9+._-]*$")) and
           (.sha256 | type == "string" and test("^[a-f0-9]{64}$")) and
@@ -3426,9 +3454,9 @@ verify_public_release_pages_binding() (
     [ "${database_filenames}" = "${expected_package_files}" ]
     files_desc_count="$(bsdtar -tf "${pages_dir}/arch-linux.files.tar.gz" | grep -c '/desc$')"
     files_list_count="$(bsdtar -tf "${pages_dir}/arch-linux.files.tar.gz" | grep -c '/files$')"
-    [ "${files_desc_count}" -eq 6 ] && [ "${files_list_count}" -eq 6 ]
+    [ "${files_desc_count}" -eq 7 ] && [ "${files_list_count}" -eq 7 ]
 
-    printf 'MARBLE_PUBLIC_SNAPSHOT_BINDING_PASS run_id=%s snapshot_sha256=%s release_sums_sha256=%s repository_manifest_sha256=%s repository_manifest_signature_sha256=%s pages_objects=23 package_signatures=6 database_signatures=2\n' \
+    printf 'MARBLE_PUBLIC_SNAPSHOT_BINDING_PASS run_id=%s snapshot_sha256=%s release_sums_sha256=%s repository_manifest_sha256=%s repository_manifest_signature_sha256=%s pages_objects=25 package_signatures=7 database_signatures=2\n' \
         "${run_id}" "${snapshot_sha256}" "${release_sums_hash}" "${repository_manifest_hash}" \
         "${repository_manifest_signature_hash}"
     printf 'PUBLIC_REPOSITORY_MANIFEST_BASE64 run_id=%s value=%s\n' \
@@ -3480,12 +3508,21 @@ verify_marble_packages() {
     printf 'MARBLE_QEMU_PROJECT_QKK run_id=%s phase=%s\n%s\n' "${run_id}" "${phase}" "${qkk}"
 }
 
+marble_gdm_major() {
+    local version major
+    version="$(installed_package_version_exact gnome-shell)" || return 1
+    version="${version#*:}"
+    major="${version%%.*}"
+    case "${major}" in 50 | 51) printf '%s\n' "${major}" ;; *) return 1 ;; esac
+}
+
 verify_vendor_integrity() {
-    local qkk
+    local qkk major
     qkk="$(verify_package_qkk_zero gnome-shell gdm)"
     if marble_gdm_enabled; then
+        major="$(marble_gdm_major)" || return 1
         sha256sum --check --strict \
-            /usr/share/arch-linux-marble-gdm/known-gnome-50.sha256 >/dev/null
+            "/usr/share/arch-linux-marble-gdm/known-gnome-${major}.sha256" >/dev/null
     fi
     [ "$(pacman -Qo /usr/share/gnome-shell/gnome-shell-theme.gresource | awk '{ print $5 }')" = gnome-shell ]
     [ "$(pacman -Qo /usr/share/dconf/profile/gdm | awk '{ print $5 }')" = gdm ]
@@ -3494,7 +3531,7 @@ verify_vendor_integrity() {
 
 gdm_shell_pid() {
     local greeter_session="$1" greeter_uid candidate
-    # GDM 50 uses the logind gdm-greeter identity without requiring a passwd entry named gdm.
+    # GDM uses the logind gdm-greeter identity without requiring a passwd entry named gdm.
     # Bind the process check to the already validated greeter session instead of a legacy account.
     greeter_uid="$(session_property "${greeter_session}" User)" || return 1
     [[ "${greeter_uid}" =~ ^[1-9][0-9]*$ ]] || return 1
@@ -3516,20 +3553,22 @@ stock_gdm_process_environment_is_valid() {
 }
 
 verify_marble_gdm_process() {
-    local expected="$1" greeter_session="$2" shell_pid environment helper_status
+    local expected="$1" greeter_session="$2" shell_pid environment helper_status major version_root
     helper_status="$(/usr/lib/arch-linux-marble-gdm/update-compatibility --status)"
     shell_pid="$(gdm_shell_pid "${greeter_session}")"
     environment="$(tr '\0' '\n' <"/proc/${shell_pid}/environ")"
     if [ "${expected}" = active ]; then
+        major="$(marble_gdm_major)" || return 1
+        version_root="/usr/share/arch-linux-marble-gdm/${major}.0.0"
         [ "${helper_status}" = active ]
         [ -L /etc/systemd/user/org.gnome.Shell@gdm.service.d/50-arch-linux-marble-gdm.conf ]
         [ "$(readlink -- /etc/systemd/user/org.gnome.Shell@gdm.service.d/50-arch-linux-marble-gdm.conf)" = \
-            /usr/share/arch-linux-marble-gdm/systemd/50-arch-linux-marble-gdm.conf ]
-        grep -qx 'G_RESOURCE_OVERLAYS=/org/gnome/shell/theme=/usr/share/arch-linux-marble-gdm/50.0.0/theme' \
+            "/usr/share/arch-linux-marble-gdm/systemd/${major}-arch-linux-marble-gdm.conf" ]
+        grep -qx "G_RESOURCE_OVERLAYS=/org/gnome/shell/theme=${version_root}/theme" \
             <<<"${environment}"
-        grep -qx 'DCONF_PROFILE=/usr/share/arch-linux-marble-gdm/50.0.0/dconf/profile' \
+        grep -qx "DCONF_PROFILE=${version_root}/dconf/profile" \
             <<<"${environment}"
-        [ "$(DCONF_PROFILE=/usr/share/arch-linux-marble-gdm/50.0.0/dconf/profile \
+        [ "$(DCONF_PROFILE="${version_root}/dconf/profile" \
             XDG_CONFIG_HOME=/dev/null gsettings get org.gnome.desktop.interface icon-theme)" = \
             "'Colloid-Dark'" ]
     else
@@ -3604,7 +3643,7 @@ verify_marble_greeter() {
         verify_marble_gdm_process stock "${greeter_session}"
         ;;
     removed)
-        [ -z "$(pacman -Qq | grep '^arch-linux-' || true)" ]
+        verify_stock_project_packages
         [ ! -e /usr/share/arch-linux-marble ] && [ ! -e /usr/share/arch-linux-marble-gdm ]
         [ ! -e "/home/${username}/.config/gtk-4.0/gtk.css" ]
         [ ! -e "/home/${username}/.config/gtk-4.0/gtk-dark.css" ]
@@ -3677,7 +3716,7 @@ verify_marble_user_session() {
         [ "${enabled_extensions}" = "${expected_extensions}" ]
         [ "${gtk_theme}" = "'Adwaita'" ]
         [ "${icon_theme}" = "'Adwaita'" ]
-        [ -z "$(pacman -Qq | grep '^arch-linux-' || true)" ]
+        verify_stock_project_packages
         [ ! -e /usr/share/arch-linux-marble ] && [ ! -e /usr/share/arch-linux-marble-gdm ]
         [ ! -e "/home/${username}/.config/gtk-4.0/gtk.css" ]
         [ ! -e "/home/${username}/.config/gtk-4.0/gtk-dark.css" ]
@@ -3942,11 +3981,12 @@ run_gtk4_app_smoke() {
 
 prepare_fresh_marble_user() {
     local account=marblefresh
-    local uid password_hash greeter_session shell_pid environment
+    local uid password_hash greeter_session shell_pid environment major
     local profile='/run/arch-linux-qemu-gdm-profile'
     local database='/run/arch-linux-qemu-gdm-db'
     local keyfiles='/run/arch-linux-qemu-gdm-db.d'
     local dropin='/run/systemd/user/org.gnome.Shell@gdm.service.d/99-arch-linux-qemu-login.conf'
+    major="$(marble_gdm_major)" || return 1
     [ ! -e "/home/${account}" ]
     [ ! -e "${profile}" ] && [ ! -e "${database}" ] && [ ! -e "${keyfiles}" ] && [ ! -e "${dropin}" ]
     useradd --create-home --user-group --shell /bin/bash marblefresh
@@ -3962,7 +4002,7 @@ prepare_fresh_marble_user() {
     printf '%s\n' \
         'user-db:user' \
         "file-db:${database}" \
-        'file-db:/usr/share/arch-linux-marble-gdm/50.0.0/dconf/colloid-gdm-defaults' \
+        "file-db:/usr/share/arch-linux-marble-gdm/${major}.0.0/dconf/colloid-gdm-defaults" \
         'file-db:/usr/share/gdm/greeter-dconf-defaults' >"${profile}"
     chmod 0644 -- "${profile}"
     printf '%s\n%s\n' '[Service]' "Environment=DCONF_PROFILE=${profile}" >"${dropin}"
@@ -4117,7 +4157,7 @@ exercise_gdm_helper_failure() {
 }
 
 run_marble_phase() {
-    local expected_profile
+    local expected_profile gdm_major
     case "${phase}" in
     prelogin)
         verify_marble_greeter active
@@ -4192,9 +4232,10 @@ run_marble_phase() {
         emit_marble_action_pass pacman-syu-hooks-active-qkk-clean
         ;;
     helper-failure)
+        gdm_major="$(marble_gdm_major)" || return 1
         exercise_gdm_helper_failure /etc/systemd/user/org.gnome.Shell@gdm.service.d \
             /usr/lib/arch-linux-marble-gdm/update-compatibility \
-            /usr/share/arch-linux-marble-gdm/systemd/50-arch-linux-marble-gdm.conf
+            "/usr/share/arch-linux-marble-gdm/systemd/${gdm_major}-arch-linux-marble-gdm.conf"
         # Failure retained activation; inspect the actual existing authenticated
         # session as Marble instead of inferring a successful Stock transition.
         verify_marble_user_session marble
@@ -4229,9 +4270,9 @@ run_marble_phase() {
         emit_marble_action_pass marble-reactivated-after-fixture
         ;;
     remove-marble)
-        mapfile -t expected_profile < <(marble_project_packages)
+        mapfile -t expected_profile < <(marble_theme_packages)
         pacman -Rns --noconfirm "${expected_profile[@]}"
-        [ -z "$(pacman -Qq | grep '^arch-linux-' || true)" ]
+        verify_stock_project_packages
         [ ! -e /usr/share/arch-linux-marble ] && [ ! -e /usr/share/arch-linux-marble-gdm ]
         [ ! -e "/home/${username}/.config/gtk-4.0/gtk.css" ]
         [ ! -e "/home/${username}/.config/gtk-4.0/gtk-dark.css" ]

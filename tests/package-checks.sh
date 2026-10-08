@@ -28,6 +28,9 @@ trap cleanup EXIT HUP INT TERM
 
 python3 -B - "$repo_root" "$fixture_root" <<'PY'
 import io
+import hashlib
+import importlib.util
+import json
 import pathlib
 import re
 import subprocess
@@ -36,6 +39,9 @@ import tarfile
 
 root = pathlib.Path(sys.argv[1])
 output = pathlib.Path(sys.argv[2])
+spec = importlib.util.spec_from_file_location("package_fixture_verifier", root / "repository/verify-package-metadata.py")
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
 profile = root / "packages" / "arch-linux-marble-profile"
 keyring = root / "packages" / "arch-linux-keyring"
 trust = root / "repository" / "trust"
@@ -110,22 +116,33 @@ transform_fixture()
 for mutation in ("missing", "symlink", "hardlink", "duplicate", "relative", "single-quote", "missing-attribute"):
     transform_fixture(mutation)
 
-profile_dependencies = [
-    "arch-linux-keyring>=1.0.0",
-    "arch-linux-marble-shell>=50.0.0",
-    "arch-linux-colloid-gtk>=20260808-5",
-    "arch-linux-colloid-icons>=20260817",
-    "bash",
-    "coreutils",
-    "dconf",
-    "gnome-shell",
-    "gnome-shell-extensions",
-    "grep",
-    "pacman",
-    "python",
-    "systemd",
-    "util-linux",
-]
+# Pinning accepts only the canonical EGO upload path and one decimal version_tag.
+upload = "https://extensions.gnome.org/download-extension/blur-my-shell@aunetx.shell-extension.zip"
+module.assert_immutable_url("arch-linux-marble-profile", upload + "?version_tag=75939", upload + "?version_tag=75939")
+for query in ("", "?version_tag=0", "?version_tag=75939&version_tag=75939",
+              "?version_tag=75939&extra=1", "?%76ersion_tag=75939", "?version_tag=+75939"):
+    try:
+        module.assert_immutable_url("arch-linux-marble-profile", upload + query, upload + query)
+    except SystemExit:
+        pass
+    else:
+        raise AssertionError("unreviewed EGO URL accepted: " + query)
+
+profile_dependencies = module.EXPECTED_DEPENDENCIES["arch-linux-marble-profile"]
+# Unit fixtures preserve the real manifest path set and all source bindings. Synthetic
+# leaf bytes are verified only by a test runner; production CLI verifies actual hashes.
+profile_hashes = module.expected_payload_hashes("arch-linux-gnome-extensions")
+synthetic_extension_files = {name: ("unit fixture: " + name + "\n").encode() for name in profile_hashes}
+for row in module.reviewed_extension_sources():
+    base = "usr/share/gnome-shell/extensions/" + row["uuid"]
+    metadata = {"uuid": row["uuid"], "shell-version": ["50", "51"], "version": row["version"] or 71}
+    if row["project_port"]:
+        metadata["version-name"] = "6-arch-linux-gnome51-port"
+    synthetic_extension_files[base + "/metadata.json"] = (json.dumps(metadata) + "\n").encode()
+    synthetic_extension_files["usr/share/licenses/arch-linux-gnome-extensions/" + row["uuid"] + ".license"] = synthetic_extension_files[base + "/" + row["license_file"]]
+(output / "extensions-fixture-hashes.json").write_text(json.dumps({
+    name: hashlib.sha256(data).hexdigest() for name, data in synthetic_extension_files.items()
+}, sort_keys=True) + "\n")
 
 
 def pkginfo(package, version, dependencies):
@@ -134,9 +151,12 @@ def pkginfo(package, version, dependencies):
         f"pkgbase = {package}",
         f"pkgver = {version}",
         "arch = any",
-        "license = GPL-3.0-only",
+        "license = " + module.EXPECTED_LICENSES[package][0],
     ]
     lines.extend(f"depend = {dependency}" for dependency in dependencies)
+    for field, values in module.migration_fields(package).items():
+        key = "conflict" if field == "conflicts" else field
+        lines.extend(f"{key} = {value}" for value in values)
     return ("\n".join(lines) + "\n").encode()
 
 
@@ -206,6 +226,7 @@ def write_profile(name, mutation="positive"):
     }
     files["usr/lib/arch-linux-marble-profile/gtk4-session"] = (profile / "gtk4-session").read_bytes()
     files["usr/lib/systemd/user/arch-linux-marble-gtk4.service"] = (profile / "arch-linux-marble-gtk4.service").read_bytes()
+    files.update({name: source.read_bytes() for name, source in module.EXPECTED_FILE_SOURCES["arch-linux-marble-profile"].items()})
     service_link = "usr/lib/systemd/user/gnome-session-pre.target.wants/arch-linux-marble-gtk4.service"
     if mutation == "hook":
         files["usr/share/libalpm/hooks/90-arch-linux-marble-profile.hook"] += b"# changed\n"
@@ -221,13 +242,37 @@ def write_profile(name, mutation="positive"):
         add_parents(archive, files | {service_link: b""} | ({link_path: b""} if mutation == "link" else {}))
         add_link(archive, service_link, "../arch-linux-marble-gtk4.service")
         for path, data in sorted(files.items()):
-            mode = 0o755 if path in {"usr/lib/arch-linux-marble-profile/update-compatibility", "usr/lib/arch-linux-marble-profile/gtk4-session"} else 0o644
+            mode = 0o755 if path in {"usr/lib/arch-linux-marble-profile/update-compatibility", "usr/lib/arch-linux-marble-profile/gtk4-session", "usr/lib/arch-linux-marble/extension-session"} else 0o644
             uid = 1000 if mutation == "owner" and path.endswith("LICENSE-project") else 0
             if mutation == "mode" and path.endswith("90-arch-linux-marble-profile.hook"):
                 mode = 0o600
             add_file(archive, path, data, mode=mode, uid=uid)
         if mutation == "link":
             add_link(archive, link_path, "../../../../etc/passwd")
+
+
+def write_extensions(name, mutation=None):
+    package = "arch-linux-gnome-extensions"
+    files = {path: source.read_bytes() for path, source in module.EXPECTED_FILE_SOURCES[package].items()}
+    files.update(synthetic_extension_files)
+    files.update({
+        ".PKGINFO": pkginfo(package, module.expected_pkgver(package), module.EXPECTED_DEPENDENCIES[package]),
+        ".BUILDINFO": b"pkgname = arch-linux-gnome-extensions\n",
+        ".MTREE": b"#mtree\n",
+    })
+    base = "usr/share/gnome-shell/extensions/blur-my-shell@aunetx/"
+    if mutation == "extension":
+        files[base + "extension.js"] += b"changed\n"
+    elif mutation == "extension-extra":
+        files[base + "unreviewed.js"] = b"extra\n"
+    elif mutation == "extension-metadata":
+        files[base + "metadata.json"] = b'{"uuid":"foreign"}\n'
+    link = "usr/lib/systemd/user/gnome-session-pre.target.wants/arch-linux-gnome-extensions.service"
+    with tarfile.open(output / f"{name}.tar", "w", format=tarfile.PAX_FORMAT) as archive:
+        add_parents(archive, files | {link: b""})
+        add_link(archive, link, "../arch-linux-gnome-extensions.service")
+        for path, data in sorted(files.items()):
+            add_file(archive, path, data, mode=0o755 if path == "usr/lib/arch-linux-gnome-extensions/extension-session" else 0o644)
 
 
 def write_keyring():
@@ -254,9 +299,29 @@ write_keyring()
 write_profile("positive-profile")
 for case in ("owner", "mode", "path", "deps", "hook", "license", "link", "stale-revision"):
     write_profile(f"wrong-{case}", case)
+write_extensions("positive-extensions")
+for case in ("extension", "extension-extra", "extension-metadata"):
+    write_extensions(f"wrong-{case}", case)
 for index, name in enumerate(colloid_names):
     with tarfile.open(output / f"wrong-export-{index}.tar", "w", format=tarfile.PAX_FORMAT) as archive:
         add_file(archive, "usr/share/icons/" + name, svg_bytes(name))
+PY
+
+cat >"$fixture_root/verify-extension-fixture.py" <<'PY'
+import importlib.util
+import json
+import pathlib
+import sys
+
+spec = importlib.util.spec_from_file_location("package_unit_verifier", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+module.verify_metadata(report=False)
+real_hashes = module.expected_payload_hashes
+synthetic = json.loads((pathlib.Path(__file__).parent / "extensions-fixture-hashes.json").read_text())
+assert set(synthetic) == set(real_hashes("arch-linux-gnome-extensions"))
+module.expected_payload_hashes = lambda package: synthetic if package == "arch-linux-gnome-extensions" else real_hashes(package)
+module.verify_package_archive(pathlib.Path(sys.argv[2]), sys.argv[3])
 PY
 
 python3 -B - "$verifier" <<'PY'
@@ -358,12 +423,17 @@ if [ -n "${PACKAGE_FIXTURE_OUTPUT_DIR:-}" ]; then
         printf 'package checks failed: PACKAGE_FIXTURE_OUTPUT_DIR is not a real directory\n' >&2
         exit 1
     }
-    for fixture_package in keyring marble-profile; do
+    install -m0644 -- "$fixture_root/extensions-fixture-hashes.json" "$PACKAGE_FIXTURE_OUTPUT_DIR/extensions-fixture-hashes.json"
+    for fixture_package in keyring marble-profile gnome-extensions; do
         fixture_version="$(awk '$1 == "pkgver" { version=$3 } $1 == "pkgrel" { revision=$3 }
             END { print version "-" revision }' \
             "$repo_root/packages/arch-linux-${fixture_package}/.SRCINFO")"
         fixture_name=keyring
-        [ "$fixture_package" = keyring ] || fixture_name=profile
+        case "$fixture_package" in
+            keyring) fixture_name=keyring ;;
+            marble-profile) fixture_name=profile ;;
+            gnome-extensions) fixture_name=extensions ;;
+        esac
         install -m0644 -- "$fixture_root/positive-${fixture_name}.pkg.tar.zst" \
             "$PACKAGE_FIXTURE_OUTPUT_DIR/arch-linux-${fixture_package}-${fixture_version}-any.pkg.tar.zst"
     done
@@ -371,12 +441,15 @@ fi
 
 python3 "$verifier" --verify-package \
     "$fixture_root/positive-keyring.pkg.tar.zst" arch-linux-keyring
-python3 "$verifier" --verify-package \
+python3 "$fixture_root/verify-extension-fixture.py" "$verifier" \
     "$fixture_root/positive-profile.pkg.tar.zst" arch-linux-marble-profile
+
+python3 "$fixture_root/verify-extension-fixture.py" "$verifier" \
+    "$fixture_root/positive-extensions.pkg.tar.zst" arch-linux-gnome-extensions
 
 expect_package_rejection() {
     local label="$1" expected="$2" archive="$3" package="${4:-arch-linux-marble-profile}" result
-    if result="$(python3 "$verifier" --verify-package "$archive" "$package" 2>&1)"; then
+    if result="$(python3 "$fixture_root/verify-extension-fixture.py" "$verifier" "$archive" "$package" 2>&1)"; then
         printf 'package checks failed: negative fixture accepted: %s\n' "$label" >&2
         return 1
     fi
@@ -386,6 +459,12 @@ expect_package_rejection() {
     }
 }
 
+# The production CLI must reject the synthetic fixture even though its test runner accepts it.
+if result="$(python3 "$verifier" --verify-package "$fixture_root/positive-extensions.pkg.tar.zst" arch-linux-gnome-extensions 2>&1)"; then
+    printf 'package checks failed: production verifier accepted synthetic extension bytes\n' >&2
+    exit 1
+fi
+grep -Fq 'payload SHA-256 differs' <<<"$result"
 expect_package_rejection owner 'archive uid/gid differs from 0' \
     "$fixture_root/wrong-owner.pkg.tar.zst"
 expect_package_rejection mode 'archive mode differs' \
@@ -402,6 +481,12 @@ expect_package_rejection license 'payload bytes differ from reviewed source' \
     "$fixture_root/wrong-license.pkg.tar.zst"
 expect_package_rejection link 'unsafe symlink target' \
     "$fixture_root/wrong-link.pkg.tar.zst"
+expect_package_rejection extension 'payload SHA-256 differs' \
+    "$fixture_root/wrong-extension.pkg.tar.zst" arch-linux-gnome-extensions
+expect_package_rejection extension-extra 'unexpected package path' \
+    "$fixture_root/wrong-extension-extra.pkg.tar.zst" arch-linux-gnome-extensions
+expect_package_rejection extension-metadata 'extension metadata differs' \
+    "$fixture_root/wrong-extension-metadata.pkg.tar.zst" arch-linux-gnome-extensions
 expect_package_rejection compression 'not a Zstandard frame' \
     "$fixture_root/not-zstd.pkg.tar.zst"
 for index in 0 1 2 3; do

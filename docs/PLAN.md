@@ -1,5 +1,111 @@
 # Project review and modernization implementation plan
 
+## GNOME 51 update recovery — 2026-10-09
+
+Owner requests compatible Marble updates through `pacman -Syu`, review of current
+upstream documentation, agent instructions for future desktop upgrades, and correct
+documentation in newly generated release tags. Work remains in this checkout on
+`main`; pre-existing README/testing/runner-checkpoint edits and the empty index are
+preserved. Existing immutable releases and their evidence must not be rewritten.
+
+| ID | Work and acceptance | Status |
+| --- | --- | --- |
+| G51-01 | Diagnose installed package/session state and upstream compatibility; bind findings to versions and authoritative sources. | DONE |
+| G51-02 | Prepare reviewed package/extension upgrade paths, preserve user overrides and safe unsupported-version handling; reproduce failures before fixes and test recovery. | IN_PROGRESS: seven-package candidate; actual upgrade acceptance pending |
+| G51-03 | Correct deterministic release documentation rendering; test independently differing source/document/release versions and preserve historical evidence. | DONE: deterministic overview/bootstrap/changelog rendering; 52 regressions PASS |
+| G51-04 | Update agent, update/release and user documentation with package delivery and real upgrade acceptance requirements. | DONE for local candidate; publication reconciliation remains conditional |
+| G51-05 | Independent diff review, affected checks and full source suite; record package, real session/VM and publication results separately. | Source/review PASS; real signed upgrade, GDM/VM and publication NOT_TESTED |
+
+Confirmed host evidence: GNOME Shell/Mutter/GDM 51.0; GTK 4.24.1 and libadwaita
+1.10.0. Installed Marble Shell/GDM remain 50.0.0-7/-8, profile 1.0.0-10.
+The published profile supports GNOME 50 + GTK 4.22 + libadwaita 1.9 only; GDM reports
+`stock`, GTK4 helper reports `inactive`. Blur my Shell 72, Clipboard Indicator 71
+and user-local No Screenshot Box 6 report `OUT OF DATE`; Dash to Dock 106 reports
+`ERROR`, with a missing `resource:///org/gnome/shell/ui/pointerWatcher.js` import.
+The [GNOME 51 porting guide](https://gjs.guide/extensions/upgrading/gnome-shell-51.html)
+confirms this API removal. Enabled-extension preferences remain present. Shell,
+GTK and icon user overrides are absent, so compatible defaults can recover without
+resetting user preferences. A new login is necessary to load updated extensions.
+
+Release documentation finding: `repository/release-source.py` formerly substituted
+only bootstrap URLs matching the installer's source version (1.0.2), while README
+and installation commands pinned 1.0.6. The candidate now renders bounded canonical
+bootstrap blocks for the selected child version and promotes exactly one nonempty
+Unreleased changelog section. Historical acceptance remains bound to its original
+release. Existing immutable tag 1.0.6 and its bytes are not modified.
+
+Current implementation: the seventh package `arch-linux-gnome-extensions` owns
+five reviewed non-distribution extensions and four versioned AUR replacements.
+Stock and Marble use it through the strict signed repository; Marble profile
+depends on it, while theme removal preserves it. The new installer removes both
+profiles' obsolete AUR/local-extension installation paths. Minimal TTY remains
+repository-independent. Exact package/build/signature closure checks expand to
+seven; the outer 14/18 release asset closures and historical six-package evidence
+remain unchanged. A full installer release is required: package-only delivery
+cannot change the old package set, and the unmodified 1.0.6 installer would install
+conflicting AUR owners after the new profile. Old Stock installations have no
+project repository; their migration is a separate authenticated bootstrap gate.
+
+The user service moves only the exact known installer-created local No Screenshot
+Box tree into private custody outside GNOME extension discovery. It retains the
+original directory and inodes, including later writes through held descriptors;
+modified/unknown copies stay active and are reported. User preferences remain
+untouched. Independent review reproduced a check-to-unlink data-loss race in the
+initial candidate; recursive deletion was removed and 27 migration regressions
+now pass. Custody is a move, not an extra settings copy, and package removal does
+not erase or reactivate it.
+
+Upstream review: Dash to Dock 109 and Blur my Shell 74 have GNOME 51 catalog
+releases; Just Perfection 37 already supports 51. Clipboard Indicator uses the
+reviewed candidate from [upstream PR 641](https://github.com/Tudmotu/gnome-shell-extension-clipboard-indicator/pull/641)
+(still unmerged when checked). No Screenshot Box uses pinned GPL source with a
+project metadata port. Upstream Marble remains 50.0.0. The candidate retains
+GNOME 50 and adds a separately pinned GNOME 51 GDM composition/platform closure;
+profile GTK tuples are exactly 50/4.22/1.9 and 51/4.24/1.10. Unknown versions and
+unverified resource changes remain fail-closed.
+
+Scoped evidence: Marble lifecycle regressions, exact seven-package metadata and
+archive fixtures, 13 desktop routing checks, 27 migration checks and all six
+pinned-input preparation checks pass. Native Shell 51 / GTK 4.24 parsers accepted
+the CSS. An isolated DynamicUser headless GNOME 51 session loaded all eight
+Marble extensions with state 1 and no extension errors; it did not establish
+actual menu/clipboard/screenshot behavior, visual appearance or GDM login. The
+final standalone extension bundle and profile built with actual makepkg in an
+isolated, network-disabled DynamicUser unit and both passed the production archive
+verifier. Bundle archive SHA-256 is
+`dc5b328e7f3c73aa5b23b0c4f6c9c13612407a0c1923a76fb361dd6626ab10cb`, profile
+`817445a1860b21d196c76efb933a4272630c8bd6eb431f0f0e39df2a1bd5d063`.
+These are raw-source package revisions, not installable upgrade recommendations.
+A private copy of the actual installed package database resolved the proposed
+profile revision 12 and bundle revision 7 with `pacman --print -Su`; no transaction
+or signature-delivery PASS is implied. Both units and owned temporary copies were
+removed. Repository checks passed with full namespaces, ten scenarios, signer
+PASS, exact 14/18 closures and no deferrals. The final VM harness covers seven packages, Stock repository routing and GNOME
+50/51 GDM selection; 115 executable fixture checks pass. Independent review found
+that the initial selector retained Arch's `1:` epoch; real epoch-bearing regressions
+reproduced the failure and passed after stripping the epoch. The historical
+six-package GTK3 verifier remains unchanged. Actual GDM package build and production
+archive verification passed (26 assets/eight licenses), archive SHA-256
+`fb6864f33f5e3848a7ecad120242d0e5f3bf589aa703382556b2192e70712038`.
+`bash tests/source-tests.sh` passed, including full repository namespaces with no
+deferrals, and `git diff --check` passed. A final run follows the checkpoint edit.
+The 29-page Markdown inventory retains historical identities and separates current
+candidate instructions. Generated release overviews/commands/changelog are tested
+against differing source, documentation and child versions.
+
+Checkpoint: concurrent runner documentation and atime-only recovery fixes are
+preserved on main `bc135f0` (following PR #62). This task has made no host upgrade,
+live session restart, production signing or publication. The advisory detected
+GNOME/GTK drift; unavailable AUR queries are errors, not evidence of no update.
+Real signed upgrade/GDM/functionality, release and public pacman delivery remain
+open. The existing GTK3 migration scenario leaves the extension bundle installed;
+it does not construct the old four AUR owners or local No Screenshot Box copy.
+Its PASS must not close the new migration gate. Source is reviewable locally.
+GitHub rules for main currently require a pull request and successful `Source checks`;
+the checkout contract requires an owner exception before a PR branch is created.
+No branch exception has yet been supplied for this task. Canonical build and runtime receipts must bind
+the final committed tree; earlier scoped results cannot close those gates.
+
 ## Local runner migration — 2026-10-08
 
 Owner request: move all five GitHub Actions workflows for `snaplyze/arch-linux`

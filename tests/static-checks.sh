@@ -504,10 +504,12 @@ grep -Fq 'org.gnome.Shell@gdm.service.d' "$repo_root/packages/arch-linux-marble-
     fail 'Marble GDM override is not scoped to the GDM Shell unit'
 ! grep -Rqs -- '/etc/environment' "$repo_root/packages/arch-linux-marble-gdm" ||
     fail 'Marble GDM writes a global environment'
-grep -Fq 'Environment=G_RESOURCE_OVERLAYS=' "$repo_root/packages/arch-linux-marble-gdm/50-arch-linux-marble-gdm.conf" ||
-    fail 'GDM resource overlay is absent'
-grep -Fq 'Environment=DCONF_PROFILE=' "$repo_root/packages/arch-linux-marble-gdm/50-arch-linux-marble-gdm.conf" ||
-    fail 'GDM dconf overlay is absent'
+for major in 50 51; do
+    grep -Fq 'Environment=G_RESOURCE_OVERLAYS=' "$repo_root/packages/arch-linux-marble-gdm/${major}-arch-linux-marble-gdm.conf" ||
+        fail "GDM ${major} resource overlay is absent"
+    grep -Fq 'Environment=DCONF_PROFILE=' "$repo_root/packages/arch-linux-marble-gdm/${major}-arch-linux-marble-gdm.conf" ||
+        fail "GDM ${major} dconf overlay is absent"
+done
 
 grep -Fq 'post_upgrade()' "$repo_root/packages/arch-linux-marble-profile/arch-linux-marble-profile.install" ||
     fail 'Marble profile lacks pacman upgrade hook'

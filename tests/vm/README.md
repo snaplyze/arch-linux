@@ -87,12 +87,19 @@ the installer does not provision those in that OS.
 The main staged Marble case additionally exercises GDM administrator-profile fallback and restore,
 then real pacman removal and reinstallation followed by password logins. The Stock-GDM Marble case
 checks that the optional GDM package is absent and the greeter retains its Stock environment.
+Theme removal keeps the signed keyring and neutral GNOME extension bundle, and the resulting
+Stock session must retain all seven extensions. GDM resource, dconf and vendor-integrity checks
+select the reviewed GNOME 50 or 51 payload; the desktop Shell theme intentionally reuses its
+separately tested GNOME 50 asset.
 
 The staged helper accepts only `arch-linux-repository-$RELEASE_VERSION.tar.zst` from the exact release-asset
 closure. For every staged scenario it invokes the schema-2 release verifier with commit, tree,
 build-metadata and unsigned-manifest hashes, checks the archive SHA-256, safely extracts it and
-verifies the signed repository again. Minimal and Stock retain only its signed manifest and compact
-object-hash map; Marble additionally serves the same public bytes over its disposable TLS transport.
+verifies the signed seven-package repository again. Minimal retains its signed manifest and compact
+object-hash map. Stock and Marble also serve the same public bytes over disposable TLS with a
+test-owned CA: Stock installs only the keyring and neutral extension bundle, while Marble adds
+its theme packages and optional GDM package. The repository payload and CA are part of each
+graphical staged guest's exact manifest closure.
 The helper never creates a key or signs anything.
 
 After the Release and Pages deployment have passed independent readback, run the public-only final
@@ -136,8 +143,8 @@ The public guest independently downloads signed `RELEASE-SHA256SUMS`, the exact 
 and its detached signature from the canonical Release. It requires the signed/archive digest to
 equal `--snapshot-sha256`, extracts only the archive manifest bytes, and requires the Pages manifest
 and signature to be byte-identical. It then verifies schema-2 commit/tree/installer/build identities,
-downloads all 23 signed-manifest objects from the canonical Pages HTTPS URL, checks every size/hash,
-and verifies all six package plus both canonical database signatures with the exact public key.
+downloads all 25 signed-manifest objects from the canonical Pages HTTPS URL, checks every size/hash,
+and verifies all seven package plus both canonical database signatures with the exact public key.
 Pages manifest bytes alone are not treated as proof of the enclosing archive digest.
 
 By default, `run.sh` attaches the target as `virtio-blk-pci` without serial, vendor or product fields.

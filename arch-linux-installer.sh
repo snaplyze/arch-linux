@@ -2588,8 +2588,8 @@ validate_properties_with_reporter() {
     is_choice "${ARCH_LINUX_DESKTOP_GRAPHICS_DRIVER:-none}" mesa intel_i915 nvidia amd ati none || validate_fail "ARCH_LINUX_DESKTOP_GRAPHICS_DRIVER has an unsupported value"
     is_choice "${ARCH_LINUX_GNOME_THEME_PROFILE:-}" stock marble || validate_fail "ARCH_LINUX_GNOME_THEME_PROFILE must be stock or marble"
     is_choice "${ARCH_LINUX_GDM_THEME_PROFILE:-}" stock marble-experimental || validate_fail "ARCH_LINUX_GDM_THEME_PROFILE must be stock or marble-experimental"
-    if [ "${ARCH_LINUX_DESKTOP_ENABLED:-false}" = "true" ] && [ "${ARCH_LINUX_GNOME_THEME_PROFILE:-}" = "marble" ]; then
-        repository_configuration_ready || validate_fail "Marble is unavailable because its signed repository is not ready; choose Stock"
+    if [ "${ARCH_LINUX_DESKTOP_ENABLED:-false}" = "true" ]; then
+        repository_configuration_ready || validate_fail "GNOME extensions require the verified project repository; its trust configuration is not ready"
     fi
     if [ "${ARCH_LINUX_GDM_THEME_PROFILE:-}" = "marble-experimental" ]; then
         [ "${ARCH_LINUX_DESKTOP_ENABLED:-false}" = "true" ] || validate_fail "Marble GDM requires the GNOME desktop"
@@ -3199,7 +3199,7 @@ select_enable_aur() {
     fi
     gum_property "AUR Helper" "$ARCH_LINUX_AUR_HELPER"
     if [ "$ARCH_LINUX_AUR_HELPER" = "none" ] && [ "$ARCH_LINUX_DESKTOP_ENABLED" = "true" ]; then
-        gum_warn "Four required GNOME extensions and Bibata are still installed from AUR; without a helper their future updates are manual."
+        gum_warn "Bibata is installed from AUR; without a helper its future updates are manual. GNOME extensions update through pacman."
     fi
     return 0
 }
@@ -4448,8 +4448,8 @@ exec_install_desktop() {
 
             local packages=()
 
-            # GNOME base packages. git/base-devel are explicit because four requested extensions
-            # and the Bibata cursor package are built through the reviewed AUR helper below.
+            # GNOME base packages. git/base-devel are explicit for the Bibata cursor
+            # package and optional packages built through the reviewed AUR helper below.
             packages+=(gnome ptyxis git base-devel)
 
             # Extension Manager is an application; the other two packages are extensions from the
@@ -4522,30 +4522,11 @@ exec_install_desktop() {
 
             chroot_install_desktop_multilib
 
-            # Project-owned Marble/Colloid packages use the signed native repository and update
-            # through ordinary pacman -Syu. This is outside Extras/Slim and never runs for Stock.
-            if [ "$ARCH_LINUX_GNOME_THEME_PROFILE" = "marble" ]; then
-                chroot_install_marble_profile
-            fi
-
-            # These requested extensions are not packaged in the official repositories. Build the
-            # current AUR package as the unprivileged user; chroot_aur_install works independently
-            # of the optional ARCH_LINUX_AUR_HELPER setting. The root executor installs strictly
-            # parsed dependencies before the user build, which receives no sudo authority.
-            local aur_extension
-            for aur_extension in \
-                gnome-shell-extension-dash-to-dock \
-                gnome-shell-extension-blur-my-shell \
-                gnome-shell-extension-just-perfection-desktop \
-                gnome-shell-extension-clipboard-indicator; do
-                chroot_aur_install "$aur_extension"
-            done
+            # Project-owned Marble/Colloid packages and the theme-independent extension
+            # bundle use the signed repository. Stock requests only the extension bundle.
+            # Both profiles avoid obsolete AUR owners and user-local extension shadowing.
+            chroot_install_marble_profile
             chroot_aur_install "$BIBATA_CURSOR_AUR_PACKAGE"
-
-            # No Screenshot Box is distributed as a reviewed GNOME Extensions bundle rather than
-            # an Arch/AUR package. Install it as the target user so GNOME Shell and Extension
-            # Manager own it in the normal per-user location and can update it later.
-            chroot_install_no_screenshot_box
 
             chroot_remove_gnome_console
             desktop_configure_ptyxis_defaults
@@ -5402,6 +5383,7 @@ chroot_rollback_marble_bootstrap() {
     for managed_package in \
         "$MARBLE_PROFILE_PACKAGE" \
         "$MARBLE_GDM_PACKAGE" \
+        arch-linux-gnome-extensions \
         arch-linux-keyring \
         arch-linux-marble-shell \
         arch-linux-colloid-gtk \
@@ -5550,7 +5532,7 @@ chroot_activate_marble_gdm() {
 }
 
 chroot_install_marble_profile() {
-    # This helper is called only by the Marble branch inside exec_install_desktop. Keep the trust
+    # Both GNOME profiles use this shared repository bootstrap. Keep the trust
     # gate here as well as in validate_properties: installer.conf may have been edited after
     # validation, and no package/database download may happen without every real trust anchor.
     if ! repository_configuration_ready; then
@@ -5563,7 +5545,10 @@ chroot_install_marble_profile() {
         return 1
     fi
 
-    local marble_packages=("$MARBLE_PROFILE_PACKAGE")
+    local marble_packages=('arch-linux-gnome-extensions')
+    if [ "$ARCH_LINUX_GNOME_THEME_PROFILE" = 'marble' ]; then
+        marble_packages+=("$MARBLE_PROFILE_PACKAGE")
+    fi
     if [ "$ARCH_LINUX_GDM_THEME_PROFILE" = 'marble-experimental' ]; then
         marble_packages+=("$MARBLE_GDM_PACKAGE")
     fi
@@ -5834,11 +5819,13 @@ chroot_install_marble_profile() {
         return 1
     fi
 
-    if ! arch-chroot /mnt pacman -Q -- "$MARBLE_PROFILE_PACKAGE" >/dev/null; then
-        log_fail "Signed Marble profile package is missing after installation"
+    if ! arch-chroot /mnt pacman -Q -- "${marble_packages[@]}" >/dev/null; then
+        log_fail "A requested signed GNOME package is missing after installation"
         chroot_rollback_marble_bootstrap "$repo_created" "$include_created" "$key_created" "$include_preexisting" "$key_trusted_this_attempt" || true
         return 1
     fi
+    # Stock has no Marble/Colloid payload or activation helper.
+    [ "$ARCH_LINUX_GNOME_THEME_PROFILE" = 'marble' ] || return 0
     if [ "$ARCH_LINUX_GDM_THEME_PROFILE" = 'marble-experimental' ] && \
         ! arch-chroot /mnt pacman -Q -- "$MARBLE_GDM_PACKAGE" >/dev/null; then
         log_fail "Signed Marble GDM package is missing after installation"

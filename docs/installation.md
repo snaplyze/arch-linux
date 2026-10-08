@@ -14,9 +14,11 @@ kernel disk sequence and boot-local identity, which the installer rechecks befor
 metadata-less emulated SATA or SCSI disk, use virtio or configure stable model/serial metadata;
 other metadata-less controller types are not supported.
 
+<!-- BEGIN release-bootstrap -->
 Use the single release-pinned bootstrap command in the [README](../README.md). It downloads
-`install.sh` from the documented immutable release tag (the published example is `1.0.6`),
-never from `main`, and the bootstrap then downloads and
+`install.sh` from the documented immutable release tag `1.0.6`. Confirm publication and
+acceptance in [validation](validation.md) before using that tag. The bootstrap never downloads
+from `main`; it downloads and
 verifies the release installer, checksum, detached signature, public certificate and both
 fingerprint files. The verified installer starts as root from an exact root-owned mode-`0700`
 single-link file inside its private root-owned mode-`0700` working directory. Every ancestor is
@@ -29,6 +31,7 @@ verification-only mode:
 ```bash
 curl -fsS https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.6/install.sh | bash -s -- --verify-only
 ```
+<!-- END release-bootstrap -->
 
 This mode completes the HTTPS download, checksum, certificate/fingerprint, secret-packet,
 detached-signature and root-owned stable-copy checks, prints one installer SHA-256 success line,
@@ -65,6 +68,13 @@ only graphical path. Ptyxis is the desktop terminal. The system receives the rev
 extension defaults, Bibata cursor, locale-matched GNOME Formats and optional Latin/Russian layouts
 with verified shortcut alternatives. `evolution-data-server` is installed explicitly so the GNOME
 CalendarServer integration has its `libecal` runtime dependency in slim installations.
+
+The GNOME 51 candidate uses `arch-linux-gnome-extensions` from the authenticated
+project repository for both Stock and Marble. It replaces the four former AUR
+extension owners and the fresh installer's local No Screenshot Box installation;
+Bibata remains an AUR package. This requires a new published installer release.
+The commands above still identify the existing immutable release until a new
+release child is generated and accepted; see the [candidate status](PLAN.md#gnome-51-update-recovery--2026-10-09).
 
 At the first real user login, a one-time initializer applies the selected GNOME Formats and keyboard
 settings. Each required operation is read back before it is recorded as complete. Its combined

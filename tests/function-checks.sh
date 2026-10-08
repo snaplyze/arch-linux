@@ -1883,7 +1883,15 @@ if validate_properties; then
 fi
 ARCH_LINUX_GDM_THEME_PROFILE='stock'
 
-# A failed signed-repository gate blocks Marble before disk work.
+# A failed signed-repository gate blocks either GNOME profile before disk work.
+ARCH_LINUX_GNOME_THEME_PROFILE='stock'
+if (
+    repository_configuration_ready() { return 1; }
+    validate_properties
+); then
+    echo 'function check failed: disabled extension repository passed Stock pre-install validation' >&2
+    exit 1
+fi
 ARCH_LINUX_GNOME_THEME_PROFILE='marble'
 ARCH_LINUX_GDM_THEME_PROFILE='stock'
 if (

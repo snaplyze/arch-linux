@@ -211,6 +211,63 @@ layers distinct and bind results to the exact candidate, legacy fixture and harn
 Until each check executes, report it as `NOT_RUN_ENVIRONMENT`; source tests and builds alone do
 not establish migration, real-session or visual acceptance. See [VM commands](../tests/vm/README.md).
 
+## GNOME 51 candidate upgrade acceptance
+
+The source candidate adds a seventh package, `arch-linux-gnome-extensions`, for five curated
+extensions in both Stock and Marble. The theme profile depends on this independent bundle.
+The source suite checks archive bounds, metadata, payload inventories,
+versioned AUR replacement metadata and conservative user-local migration. The explicit pinned-input
+extension preparation check is separate:
+
+```bash
+python3 tests/profile-extension-checks.py --input-dir "$EXTENSION_INPUT_DIR"
+```
+
+`EXTENSION_INPUT_DIR` contains the reviewed archives named by
+[extension-sources.json](../packages/arch-linux-gnome-extensions/extension-sources.json).
+Without that option, the source-only run explicitly skips the actual upstream-payload build;
+passing synthetic archive tests does not close the clean Arch package-build gate. Parser-only CSS
+checks and mocked package/session tests do not establish GDM appearance or extension behavior.
+
+Fresh-install acceptance must use the new installer for both GNOME options: each bootstraps the
+strict signed project repository and installs the extension bundle. Minimal TTY must retain its
+independence, and Stock must retain vendor appearance and absence of theme packages. The immutable
+1.0.6 installer and historical six-package package-only mode cannot qualify this changed path.
+A new full installer release is required; no historical fresh-install PASS transfers to it.
+
+Real acceptance must bind the older installed state, new signed package set, GNOME/GTK/libadwaita
+versions and harness inputs, then execute these checks in a disposable installation:
+
+1. Establish old Stock and old Marble installations with the four replaced AUR extensions,
+   preserving existing preferences. Include the older theme profile only for Marble and
+   the exact installer-created No Screenshot Box v6 local tree. Record package versions,
+   local payload hashes and the editable settings before the transaction.
+2. For older Stock systems without the project repository, first perform reviewed authenticated
+   trust setup and record its exact public inputs; pacman alone cannot discover an unconfigured
+   repository. Update through the strict signed repository with normal `pacman -Syu`. Require replacement of
+   the four AUR packages, higher package versions and package integrity. Verify that only the exact
+   legacy local No Screenshot Box tree is retired; a separately modified copy must survive and
+   report shadowing. Check that preferences and unrelated user files remain intact. Stock must
+   receive the independent bundle without Colloid/Marble theme packages; Marble must retain its
+   separate profile dependency.
+3. Perform an actual GDM password login and inspect the Wayland user session. Exercise dock
+   launch/window switching, Blur my Shell behavior, Just Perfection settings and restoration,
+   Clipboard copy/history/paste, and No Screenshot Box selection/capture and disable behavior.
+   Metadata support, an enabled flag or process startup alone is insufficient.
+4. For Marble, check the GNOME 51 / GTK 4.24.x / libadwaita 1.10.x profile and separate opt-in GDM overlay,
+   including appearance, GTK applications, lock/unlock, reboot and another password login.
+   Repeat applicable GNOME 50 / GTK 4.22.x / libadwaita 1.9.x retention and unsupported-input
+   fallback checks. GDM must match its exact reviewed platform/resource hashes and leave ordinary
+   user Shell resources and environment unaffected.
+5. Exercise package removal/reinstall and extension disable/restore paths, check journal/helper
+   diagnostics and zero failed units, then cleanly shut down and check the VM disk.
+
+Clipboard Indicator's selected PR and No Screenshot Box's project metadata port require these
+functional checks specifically. Do not substitute autologin or a QGA-started session for password
+login. As of 2026-10-09, the GNOME 51 candidate is not published and has no real GDM/functionality/VM acceptance;
+report each unexecuted gate separately. Historical release 1.0.6 results retain their own
+source and input identities.
+
 ## Release/public acceptance
 
 The authorized release workflow signs only in its release-environment `snapshot` and `finalize`
@@ -228,5 +285,5 @@ installer/key assets and the public Pages repository; local installer, key, snap
 repository bytes are forbidden from its payload. Inside the public guest, signed
 `RELEASE-SHA256SUMS` binds the expected archive digest, the archive detached signature is verified,
 and its manifest/signature must be byte-identical to Pages. The guest validates schema-2
-commit/tree/installer/build identities, all 23 Pages object sizes/hashes and all package/database
+commit/tree/installer/build identities, all manifest-listed Pages object sizes/hashes and all package/database
 signatures before `PUBLIC_RELEASE_PAGES_BINDING_PASS` may be recorded.

@@ -32,6 +32,16 @@ trim_value() {
     sed 's/^[[:space:]]*//; s/[[:space:]]*$//'
 }
 
+scenario_needs_repository() {
+    case "$1" in
+    stock-gnome-ext4-systemdboot | stock-gnome-btrfs-systemdboot | stock-gnome-btrfs-grub | \
+        stock-gnome-btrfs-luks2-plymouth-systemdboot | stock-gnome-btrfs-luks2-plymouth-grub | \
+        marble-gnome-btrfs-luks2-plymouth-systemdboot | \
+        marble-gnome-btrfs-luks2-plymouth-systemdboot-stock-gdm) return 0 ;;
+    *) return 1 ;;
+    esac
+}
+
 partition_name() {
     local disk="$1" number="$2"
     if [[ "${disk}" =~ [0-9]$ ]]; then
@@ -363,7 +373,7 @@ main() {
         expected_names="$(printf '%s\n' IDENTITY MANIFEST.sha256 b public.contract | LC_ALL=C sort)"
     elif [ -f "${payload_mount}/repository.contract" ] || [ -f "${payload_mount}/acceptance-ca.crt" ]; then
         [ -f "${payload_mount}/repository.contract" ] && [ -f "${payload_mount}/acceptance-ca.crt" ] ||
-            fail 'Marble repository payload is incomplete'
+            fail 'graphical repository payload is incomplete'
         expected_names="$(printf '%s\n' IDENTITY MANIFEST.sha256 acceptance-ca.crt \
             arch-linux-installer.sh b repository.contract | LC_ALL=C sort)"
     else
@@ -451,23 +461,19 @@ main() {
         [[ "${IDENTITY[RUN_ID]}" =~ ^marble-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}$ ]] || fail 'run identity is invalid'
         [[ "${IDENTITY[TARGET_SERIAL]}" =~ ^ALI100A[A-F0-9]{12}$ ]] || fail 'target serial is invalid'
         [[ "${IDENTITY[TARGET_MODEL]}" =~ ^ALI_MAR_[A-F0-9]{8}$ ]] || fail 'target model is invalid'
-        if [ "${IDENTITY[INPUT_MODE]}" = staged ]; then
-            [ -f "${payload_mount}/repository.contract" ] && [ -f "${payload_mount}/acceptance-ca.crt" ] ||
-                fail 'staged Marble scenario lacks its repository contract'
-        fi
         ;;
     marble-gnome-btrfs-luks2-plymouth-systemdboot-stock-gdm)
         marker_prefix='MARBLE'
         [[ "${IDENTITY[RUN_ID]}" =~ ^marblestock-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}$ ]] || fail 'run identity is invalid'
         [[ "${IDENTITY[TARGET_SERIAL]}" =~ ^ALI100A[A-F0-9]{12}$ ]] || fail 'target serial is invalid'
         [[ "${IDENTITY[TARGET_MODEL]}" =~ ^ALI_MAR_[A-F0-9]{8}$ ]] || fail 'target model is invalid'
-        if [ "${IDENTITY[INPUT_MODE]}" = staged ]; then
-            [ -f "${payload_mount}/repository.contract" ] && [ -f "${payload_mount}/acceptance-ca.crt" ] ||
-                fail 'staged Marble scenario lacks its repository contract'
-        fi
         ;;
     *) fail 'scenario identity is invalid' ;;
     esac
+    if [ "${IDENTITY[INPUT_MODE]}" = staged ] && scenario_needs_repository "${IDENTITY[SCENARIO]}"; then
+        [ -f "${payload_mount}/repository.contract" ] && [ -f "${payload_mount}/acceptance-ca.crt" ] ||
+            fail 'staged graphical scenario lacks its repository contract'
+    fi
     [ "${IDENTITY[TARGET_VENDOR]}" = SNAPLYZE ] || fail 'target vendor is invalid'
     for key in SOURCE_COMMIT SOURCE_TREE; do
         [[ "${IDENTITY[${key}]}" =~ ^[a-f0-9]{40}$ ]] || fail "${key} is malformed"
@@ -581,7 +587,7 @@ main() {
             "${work_root}/arch-linux-installer.sh"
     fi
     if [ "${IDENTITY[INPUT_MODE]}" = staged ] && \
-        [[ "${IDENTITY[SCENARIO]}" = marble-gnome-* ]]; then
+        scenario_needs_repository "${IDENTITY[SCENARIO]}"; then
         install -o 0 -g 0 -m 0400 -- "${payload_mount}/repository.contract" \
             "${work_root}/repository.contract"
         install -o 0 -g 0 -m 0400 -- "${payload_mount}/acceptance-ca.crt" \
@@ -613,7 +619,7 @@ main() {
         # Match the official Arch ISO root shell. The bootstrap's own files remain under umask 077.
         umask 022
         if [ "${IDENTITY[INPUT_MODE]}" = staged ] && \
-            [[ "${IDENTITY[SCENARIO]}" = marble-gnome-* ]]; then
+            scenario_needs_repository "${IDENTITY[SCENARIO]}"; then
             ARCH_LINUX_QEMU_ACCEPTANCE=true \
                 ARCH_LINUX_QEMU_REPOSITORY_CONTRACT="${work_root}/repository.contract" \
                 FORCE=true DEBUG=false bash ./arch-linux-installer.sh

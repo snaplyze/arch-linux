@@ -1,0 +1,12 @@
+[Unit]
+Description=Select the verified project system extension before GNOME starts
+Before=gnome-session-pre.target
+PartOf=gnome-session-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/arch-linux-gnome-extensions/extension-session
+
+[Install]
+WantedBy=gnome-session-pre.target

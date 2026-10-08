@@ -3,6 +3,29 @@
 Validation is layered and tree-bound. No old report or status document is evidence for the current
 source candidate.
 
+## GNOME 51 candidate — 2026-10-09
+
+The [active plan](PLAN.md#gnome-51-update-recovery--2026-10-09) records the installed
+GNOME 51 regression and the seven-package recovery candidate. No new release,
+signed package update, real GDM/upgrade VM or public pacman delivery has been
+accepted for it. Historical release 1.0.6 evidence below remains unchanged.
+
+Scoped native checks used installed Shell/Mutter/GDM 51.0, GTK 4.24.1 and libadwaita
+1.10.0. The existing Shell/GTK stylesheets parsed. An isolated DynamicUser,
+headless Wayland session loaded eight Marble extensions with enabled state 1 and
+empty extension errors. Shell's diagnostic Eval interface rejected functional
+exercises: menu/clipboard/screenshot behavior, visual appearance, password login,
+lock/unlock and real package migration are NOT_TESTED by that smoke check.
+All owned transient units, processes and headless input fixtures were removed.
+
+Native disposable package builds for the final extension bundle, profile and dual
+GDM payload passed the production archive verifier. A separate private installed
+package database copy resolved the proposed profile/bundle upgrade with
+`pacman --print -Su`; it did not install packages. The exact scoped receipts and
+source checks are in the plan. The legacy GTK3 VM scenario does not create the old
+four AUR extension owners or the user-local No Screenshot Box tree, so that
+existing scenario cannot establish the new upgrade's acceptance.
+
 ## Verified release 1.0.6 — 2026-10-04
 
 [Configured run37214392242](https://github.com/snaplyze/arch-linux/actions/runs/37214392242)

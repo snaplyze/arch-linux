@@ -27,7 +27,7 @@ readonly gtk4_manifest_sha256='718bb29a28acdf6ed3d7d10c033a4ecd01c0d4ba88eeebd50
 readonly gtk4_enabled="${root_prefix}/var/lib/arch-linux-marble/gtk4-enabled"
 
 gtk_libraries_supported() {
-    local gtk adw
+    local gnome_major="$1" gtk adw
     if [ -n "${root_prefix}" ]; then
         gtk="${ARCH_LINUX_MARBLE_TEST_GTK_PKGVER:-}"
         adw="${ARCH_LINUX_MARBLE_TEST_ADW_PKGVER:-}"
@@ -39,7 +39,11 @@ gtk_libraries_supported() {
     fi
     gtk="${gtk#*:}"
     adw="${adw#*:}"
-    [[ "$gtk" =~ ^4\.22\.[0-9]+- ]] && [[ "$adw" =~ ^1\.9\.[0-9]+- ]]
+    case "$gnome_major" in
+        50) [[ "$gtk" =~ ^4\.22\.[0-9]+- ]] && [[ "$adw" =~ ^1\.9\.[0-9]+- ]] ;;
+        51) [[ "$gtk" =~ ^4\.24\.[0-9]+- ]] && [[ "$adw" =~ ^1\.10\.[0-9]+- ]] ;;
+        *) return 1 ;;
+    esac
 }
 
 gnome_major_from_pkgver() {
@@ -178,7 +182,7 @@ main() {
 
     local gnome_major
     if ! gnome_major="$(installed_gnome_major)" || [ ! -f "${supported_majors}" ] || \
-        ! /usr/bin/grep -Fxq -- "${gnome_major}" "${supported_majors}" || ! gtk_libraries_supported; then
+        ! /usr/bin/grep -Fxq -- "${gnome_major}" "${supported_majors}" || ! gtk_libraries_supported "${gnome_major}"; then
         printf 'Marble profile disabled: installed GNOME/GTK/libadwaita combination is unsupported or unknown.\n' >&2
         deactivate_profile
         return 0

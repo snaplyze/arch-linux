@@ -102,6 +102,46 @@ chroot_pacman_install gnome 'glibc>=2.39'
 
 
 class DesktopPackageChecks(unittest.TestCase):
+    def test_both_gnome_profiles_have_one_native_extension_update_owner(self):
+        body = function('exec_install_desktop')
+        start = body.index('            # Project-owned Marble/Colloid packages')
+        end = body.index('            chroot_remove_gnome_console', start)
+        program = '''
+ARCH_LINUX_GNOME_THEME_PROFILE="$1"
+BIBATA_CURSOR_AUR_PACKAGE=bibata-cursor-theme-bin
+chroot_install_marble_profile() { printf 'native-profile\\n'; }
+chroot_aur_install() { printf 'aur:%s\\n' "$1"; }
+chroot_install_no_screenshot_box() { printf 'user-extension\\n'; }
+install_extensions() {
+''' + body[start:end] + '\n}\ninstall_extensions\n'
+        marble = run_bash(program, 'marble')
+        self.assertEqual(marble.returncode, 0, marble.stderr)
+        self.assertEqual(marble.stdout.splitlines(),
+                         ['native-profile', 'aur:bibata-cursor-theme-bin'])
+        stock = run_bash(program, 'stock')
+        self.assertEqual(stock.returncode, 0, stock.stderr)
+        self.assertEqual(stock.stdout.splitlines(),
+                         ['native-profile', 'aur:bibata-cursor-theme-bin'])
+
+    def test_native_extension_and_theme_package_selection_are_separate(self):
+        for profile, gdm, expected in (
+            ('stock', 'stock', ['arch-linux-gnome-extensions']),
+            ('marble', 'stock', ['arch-linux-gnome-extensions', 'arch-linux-marble-profile']),
+            ('marble', 'marble-experimental', ['arch-linux-gnome-extensions',
+                                             'arch-linux-marble-profile', 'arch-linux-marble-gdm']),
+        ):
+            with self.subTest(profile=profile, gdm=gdm):
+                body = function('chroot_install_marble_profile')
+                start = body.index('    local marble_packages=')
+                end = body.index('    local key_host=', start)
+                program = ('ARCH_LINUX_GNOME_THEME_PROFILE="$1"\nARCH_LINUX_GDM_THEME_PROFILE="$2"\n'
+                           'MARBLE_PROFILE_PACKAGE=arch-linux-marble-profile\n'
+                           'MARBLE_GDM_PACKAGE=arch-linux-marble-gdm\nselect_packages() {\n' +
+                           body[start:end] + 'printf "%s\\n" "${marble_packages[@]}"\n}\nselect_packages\n')
+                result = run_bash(program, profile, gdm)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.splitlines(), expected)
+
     def test_aur_targets_are_not_sent_to_official_pacman(self):
         for args in matrix():
             with self.subTest(configuration=args):

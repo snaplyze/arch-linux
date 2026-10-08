@@ -199,6 +199,41 @@ Do not overwrite vendor-owned GNOME/GDM resources. Unsupported GNOME versions mu
 profile safely and retain Stock. Installation, upgrade, removal, reinstall and fallback require
 regression coverage.
 
+## Desktop update acceptance
+
+Treat an Arch GNOME major upgrade as an installed-system migration. Before changing
+compatibility data, inspect current Arch package metadata, the GNOME Shell porting
+guide, and the actual upstream source of every enabled extension. Record Shell,
+Mutter, GDM, GTK and libadwaita versions separately. An extension metadata entry or
+a stylesheet parser PASS does not prove functionality. Preserve source/license
+provenance for project ports; identify an unmerged patch as a project candidate.
+
+The promised `pacman -Syu` path must cover every required desktop component. The
+theme-independent `arch-linux-gnome-extensions` package owns the curated extensions
+for Stock and Marble; the Marble profile depends on it. Keep its migration and
+updates independent of theme activation/removal. Test repository bootstrap for
+both graphical profiles; Minimal TTY remains independent of that repository. An AUR
+build or a user-local GNOME Extensions installation is not automatically updated
+by pacman. Account for those existing installations, package conflicts and local
+copies shadowing system extensions before claiming automatic recovery. Preserve
+user settings and modified local extension copies; never force extension version
+validation off or reset all GNOME settings to make a candidate pass.
+
+Test the transition from the previous signed package set and installer-created
+extension layout through a real full pacman transaction, then an actual GDM
+password login. Require the selected Shell/GTK/icon appearance, every expected
+extension active and functionally exercised, optional GDM, lock/unlock and a
+subsequent update/reboot. Also cover fresh install, reinstall/removal, user
+overrides and unknown-major deactivation. Theme deactivation alone does not prove
+a working Stock session. Keep source, package, upgrade-VM and public repository
+readback results separate. Only verified signed repository delivery establishes
+that another machine can obtain the repair with `pacman -Syu`.
+
+Prepare compatibility before the next GNOME major reaches users when possible;
+advisory drift is a maintenance trigger, not permission to promote untested
+inputs. Do not promise perpetual compatibility, freeze individual Arch packages
+or weaken signature/resource checks to avoid fallback.
+
 ## Required source tests
 
 Before a source candidate, run `bash tests/source-tests.sh`. That command includes Bash syntax,
@@ -282,6 +317,14 @@ deletion, tag movement or any unrelated publication. Those actions still require
 authorization. Source-candidate completion is not `RELEASED`.
 
 ## Documentation after a successful release
+
+Prepare current release instructions before freezing a release child. The
+README and installation guide's generated bootstrap blocks must use the child
+version even when main's installer version and the last published documentation
+pin differ. Render reviewed Unreleased changelog notes for the selected version
+without copying previous acceptance claims. Test generated documentation as part
+of the candidate source suite. Post-publication documentation edits on main
+cannot repair an immutable tag; never move the tag or replace published bytes.
 
 After immutable publication, verified Pages/public readback and the required public VM acceptance
 succeed, inventory every tracked Markdown file, including the root README, nested READMEs,

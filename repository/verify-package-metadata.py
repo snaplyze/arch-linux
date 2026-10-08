@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import pathlib
 import posixpath
@@ -29,6 +30,7 @@ PACKAGE_SET = ROOT / "repository" / "package-set"
 TRUST = ROOT / "repository" / "trust"
 EXPECTED_PACKAGE_SET = [
     "arch-linux-keyring",
+    "arch-linux-gnome-extensions",
     "arch-linux-marble-shell",
     "arch-linux-colloid-gtk",
     "arch-linux-colloid-icons",
@@ -40,6 +42,9 @@ EXPECTED_LICENSES = {
 }
 EXPECTED_LICENSES["arch-linux-marble-gdm"] = [
     "GPL-3.0-only AND GPL-2.0-or-later AND LGPL-2.1-only"
+]
+EXPECTED_LICENSES["arch-linux-gnome-extensions"] = [
+    "GPL-3.0-only AND GPL-2.0-or-later AND BSD-1-Clause AND MIT AND GPL-3.0-or-later"
 ]
 EXPECTED_INSTALL = {
     "arch-linux-keyring": ["arch-linux-keyring.install"],
@@ -53,6 +58,7 @@ EXPECTED_DEPENDENCIES = {
     "arch-linux-colloid-icons": ["hicolor-icon-theme", "gtk-update-icon-cache"],
     "arch-linux-marble-profile": [
         "arch-linux-keyring>=1.0.0",
+        "arch-linux-gnome-extensions>=1.0.0",
         "arch-linux-marble-shell>=50.0.0",
         "arch-linux-colloid-gtk>=20260808-5",
         "arch-linux-colloid-icons>=20260817",
@@ -66,6 +72,10 @@ EXPECTED_DEPENDENCIES = {
         "python",
         "systemd",
         "util-linux",
+    ],
+    "arch-linux-gnome-extensions": [
+        "arch-linux-keyring>=1.0.0", "gnome-shell",
+        "gnome-shell-extension-appindicator", "gnome-shell-extension-caffeine", "python", "systemd",
     ],
     "arch-linux-marble-gdm": [
         "arch-linux-colloid-icons>=20260817",
@@ -140,6 +150,27 @@ EXPECTED_SOURCE_ALIASES = {
         "THIRD-PARTY-NOTICES",
     ],
 }
+EXPECTED_SOURCE_ALIASES["arch-linux-marble-gdm"].extend([
+    "gnome-shell-1_51.0-1-x86_64.pkg.tar.zst",
+    "GNOME-Shell-source-2177bdf9624b2d285de7c1d34274073d3769d6b8.tar.gz",
+    "known-gnome-51.sha256", "assets-51.sha256", "dconf-profile-51",
+    "51-arch-linux-marble-gdm.conf", "NOTICE-GNOME-Shell-51-common.scss",
+])
+EXPECTED_SOURCE_ALIASES["arch-linux-gnome-extensions"] = [
+    "LICENSE-project",
+    "prepare-extensions.py", "extension-sources.json", "extensions.sha256",
+    "legacy-no-screenshot-box.sha256", "THIRD-PARTY-EXTENSIONS", "extension-session",
+    "arch-linux-gnome-extensions.service", "dash-to-dock.zip", "blur-my-shell.zip",
+    "just-perfection.zip", "clipboard-indicator.tar.gz", "no-screenshot-box.tar.gz",
+    "no-screenshot-box-old.zip",
+]
+EXPECTED_EXTENSION_UUIDS = {
+    "dash-to-dock@micxgx.gmail.com",
+    "blur-my-shell@aunetx",
+    "just-perfection-desktop@just-perfection",
+    "clipboard-indicator@tudmotu.com",
+    "no-screenshot-box@screenshot",
+}
 NAME = re.compile(r"^[a-z0-9][a-z0-9+._-]*$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 COMMIT = re.compile(r"(?<![0-9a-f])[0-9a-f]{40}(?![0-9a-f])")
@@ -159,7 +190,8 @@ PACKAGE_PREFIXES = {
         "usr/share/icons/Colloid-Dark/",
     ],
     "arch-linux-marble-profile": [],
-    "arch-linux-marble-gdm": ["usr/share/arch-linux-marble-gdm/"],
+    "arch-linux-gnome-extensions": [],
+    "arch-linux-marble-gdm": [],
 }
 
 PACKAGE_EXACT_PATHS = {
@@ -186,6 +218,9 @@ PACKAGE_EXACT_PATHS = {
         "usr/lib/arch-linux-marble-profile/gtk4-session",
         "usr/lib/systemd/user/arch-linux-marble-gtk4.service",
         "usr/lib/systemd/user/gnome-session-pre.target.wants/arch-linux-marble-gtk4.service",
+    },
+    "arch-linux-gnome-extensions": {
+        "usr/share/licenses/arch-linux-gnome-extensions/LICENSE-project",
     },
     "arch-linux-marble-gdm": {
         "usr/lib/arch-linux-marble-gdm/update-compatibility",
@@ -252,6 +287,9 @@ EXPECTED_FILE_SOURCES = {
         "usr/lib/arch-linux-marble-profile/gtk4-session": PACKAGES / "arch-linux-marble-profile" / "gtk4-session",
         "usr/lib/systemd/user/arch-linux-marble-gtk4.service": PACKAGES / "arch-linux-marble-profile" / "arch-linux-marble-gtk4.service",
     },
+    "arch-linux-gnome-extensions": {
+        "usr/share/licenses/arch-linux-gnome-extensions/LICENSE-project": PACKAGES / "arch-linux-gnome-extensions" / "LICENSE-project",
+    },
     "arch-linux-marble-gdm": {
         ".INSTALL": PACKAGES / "arch-linux-marble-gdm" / "arch-linux-marble-gdm.install",
         "usr/lib/arch-linux-marble-gdm/update-compatibility": PACKAGES / "arch-linux-marble-gdm" / "update-compatibility",
@@ -278,6 +316,30 @@ EXPECTED_FILE_SOURCES = {
         },
     },
 }
+
+for name in (
+    "assets-51.sha256", "known-gnome-51.sha256",
+):
+    EXPECTED_FILE_SOURCES["arch-linux-marble-gdm"][f"usr/share/arch-linux-marble-gdm/{name}"] = PACKAGES / "arch-linux-marble-gdm" / name
+for payload, source in {
+    "51.0.0/dconf/profile": "dconf-profile-51",
+    "51.0.0/dconf/source/00-arch-linux-marble-gdm-icons": "00-arch-linux-marble-gdm-icons",
+    "51.0.0/dconf/source/locks/icon-theme": "icon-theme.lock",
+    "systemd/51-arch-linux-marble-gdm.conf": "51-arch-linux-marble-gdm.conf",
+}.items():
+    EXPECTED_FILE_SOURCES["arch-linux-marble-gdm"][f"usr/share/arch-linux-marble-gdm/{payload}"] = PACKAGES / "arch-linux-marble-gdm" / source
+EXPECTED_FILE_SOURCES["arch-linux-marble-gdm"]["usr/share/licenses/arch-linux-marble-gdm/NOTICE-GNOME-Shell-51-common.scss"] = PACKAGES / "arch-linux-marble-gdm" / "NOTICE-GNOME-Shell-51-common.scss"
+PACKAGE_EXACT_PATHS["arch-linux-marble-gdm"].add("usr/share/licenses/arch-linux-marble-gdm/NOTICE-GNOME-Shell-51-common.scss")
+for payload, source in {
+    "usr/lib/arch-linux-gnome-extensions/extension-session": "extension-session",
+    "usr/lib/systemd/user/arch-linux-gnome-extensions.service": "arch-linux-gnome-extensions.service",
+    "usr/share/arch-linux-gnome-extensions/extensions.sha256": "extensions.sha256",
+    "usr/share/arch-linux-gnome-extensions/legacy-no-screenshot-box.sha256": "legacy-no-screenshot-box.sha256",
+    "usr/share/licenses/arch-linux-gnome-extensions/THIRD-PARTY-EXTENSIONS": "THIRD-PARTY-EXTENSIONS",
+}.items():
+    EXPECTED_FILE_SOURCES["arch-linux-gnome-extensions"][payload] = PACKAGES / "arch-linux-gnome-extensions" / source
+PACKAGE_EXACT_PATHS["arch-linux-gnome-extensions"].add("usr/lib/systemd/user/gnome-session-pre.target.wants/arch-linux-gnome-extensions.service")
+PACKAGE_REQUIRED_PATHS["arch-linux-gnome-extensions"].add("usr/lib/systemd/user/gnome-session-pre.target.wants/arch-linux-gnome-extensions.service")
 
 
 def fail(message: str) -> NoReturn:
@@ -316,6 +378,14 @@ def assert_immutable_url(package: str, source: str, url: str) -> None:
     if any(token in lower for token in ("/main/", "/master/", "/latest/", "?ref=main", "?ref=master")):
         fail(f"{package}: mutable branch/latest source: {url}")
 
+    if parsed.netloc == "extensions.gnome.org":
+        # EGO version_tag identifies one immutable upload; no other queries or paths qualify.
+        if (not re.fullmatch(r"/download-extension/[A-Za-z0-9@._-]+\.shell-extension\.zip", parsed.path)
+                or not re.fullmatch(r"version_tag=[1-9][0-9]*", parsed.query)):
+            fail(f"{package}: extension upload URL is not pinned: {url}")
+        return
+    if parsed.query:
+        fail(f"{package}: unreviewed source query: {url}")
     immutable = bool(COMMIT.search(url))
     immutable |= bool(
         parsed.netloc == "api.github.com"
@@ -382,7 +452,8 @@ def parse_hash_manifest(path: pathlib.Path) -> dict[str, str]:
         if "  " not in line:
             fail(f"{path.relative_to(ROOT)}:{number}: malformed hash manifest line")
         digest, name = line.split("  ", 1)
-        if not SHA256.fullmatch(digest) or not name or name.startswith("/"):
+        if (not SHA256.fullmatch(digest) or not name or name.startswith("/")
+                or "\\" in name or has_control(name)):
             fail(f"{path.relative_to(ROOT)}:{number}: invalid hash manifest entry")
         if posixpath.normpath(name) != name or any(part in {"", ".", ".."} for part in name.split("/")):
             fail(f"{path.relative_to(ROOT)}:{number}: unsafe hash manifest path")
@@ -394,14 +465,87 @@ def parse_hash_manifest(path: pathlib.Path) -> dict[str, str]:
     return result
 
 
+def reviewed_extension_sources() -> list[dict]:
+    path = PACKAGES / "arch-linux-gnome-extensions" / "extension-sources.json"
+    checked_file(path, "extension source manifest")
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        rows = data["extensions"]
+        if (data["schema"] != 1 or len(rows) != 5
+                or {row["uuid"] for row in rows} != EXPECTED_EXTENSION_UUIDS):
+            raise ValueError("extension source closure differs")
+        for row in [*rows, data["legacy"]]:
+            if not SHA256.fullmatch(row["sha256"]):
+                raise ValueError("extension source hash differs")
+            assert_immutable_url("arch-linux-gnome-extensions", row["source"], row["source"])
+            parsed = urlparse(row["source"])
+            if parsed.netloc == "extensions.gnome.org" and parsed.path != f"/download-extension/{row['uuid']}.shell-extension.zip":
+                raise ValueError("extension upload UUID differs")
+
+        if data["legacy"]["uuid"] != "no-screenshot-box@screenshot":
+            raise ValueError("legacy extension UUID differs")
+    except (KeyError, TypeError, ValueError, UnicodeError) as error:
+        fail(f"extension source manifest differs: {error}")
+    return rows
+
+
+def reviewed_extension_hashes() -> dict[str, str]:
+    path = PACKAGES / "arch-linux-gnome-extensions" / "extensions.sha256"
+    checked_file(path, "extension payload manifest")
+    hashes = parse_hash_manifest(path)
+    rows = reviewed_extension_sources()
+    if {name.split("/")[0] for name in hashes} != EXPECTED_EXTENSION_UUIDS:
+        fail("extension payload manifest UUID closure differs")
+    for row in rows:
+        uuid = row["uuid"]
+        required = {"metadata.json", "extension.js", row["license_file"], "schemas/gschemas.compiled"}
+        schema_xml = [name for name in hashes
+                      if name.startswith(f"{uuid}/schemas/") and name.endswith(".gschema.xml")]
+        if not schema_xml or not {f"{uuid}/{name}" for name in required} <= hashes.keys():
+            fail(f"extension payload manifest lacks required runtime inputs: {uuid}")
+    return hashes
+
+
+def verify_extension_metadata(archive: tarfile.TarFile, members: dict[str, tarfile.TarInfo]) -> None:
+    for row in reviewed_extension_sources():
+        name = f"usr/share/gnome-shell/extensions/{row['uuid']}/metadata.json"
+        try:
+            data = json.loads(read_member(archive, members[name]))
+            if (not isinstance(data, dict) or data["uuid"] != row["uuid"]
+                    or not isinstance(data["shell-version"], list)
+                    or not all(isinstance(major, str) for major in data["shell-version"])
+                    or not {"50", "51"} <= set(data["shell-version"])
+                    or (row["version"] is not None and data["version"] != row["version"])):
+                raise ValueError("UUID, Shell majors or version differs")
+            if row["project_port"] and data.get("version-name") != "6-arch-linux-gnome51-port":
+                raise ValueError("project port identity differs")
+        except (KeyError, TypeError, ValueError, UnicodeError) as error:
+            fail(f"extension metadata differs: {row['uuid']}: {error}")
+
+
 def expected_payload_hashes(package: str) -> dict[str, str]:
     gdm = PACKAGES / "arch-linux-marble-gdm"
     assets = parse_hash_manifest(gdm / "assets.sha256")
     if package == "arch-linux-marble-gdm":
+        assets_51 = parse_hash_manifest(gdm / "assets-51.sha256")
+        if len(assets) != 13 or len(assets_51) != 13 or assets.keys() & assets_51.keys():
+            fail("arch-linux-marble-gdm: dual asset closure differs")
         return {
             f"usr/share/arch-linux-marble-gdm/{name}": digest
-            for name, digest in assets.items()
+            for name, digest in (assets | assets_51).items()
         }
+    if package == "arch-linux-gnome-extensions":
+        extension_hashes = reviewed_extension_hashes()
+        hashes = {
+            f"usr/share/gnome-shell/extensions/{name}": digest
+            for name, digest in extension_hashes.items()
+        }
+        hashes.update({
+            f"usr/share/licenses/arch-linux-gnome-extensions/{row['uuid']}.license":
+                extension_hashes[f"{row['uuid']}/{row['license_file']}"]
+            for row in reviewed_extension_sources()
+        })
+        return hashes
     if package == "arch-linux-marble-shell":
         shell_root = "usr/share/arch-linux-marble/shell/50.0.0/Marble-blue-dark/gnome-shell"
         source_names = {
@@ -459,7 +603,9 @@ def package_path_allowed(package: str, name: str, is_directory: bool) -> bool:
     if name in metadata:
         return True
 
-    exact = PACKAGE_EXACT_PATHS[package]
+    exact = PACKAGE_EXACT_PATHS[package] | set(EXPECTED_FILE_SOURCES[package])
+    if package in {"arch-linux-gnome-extensions", "arch-linux-marble-gdm"}:
+        exact |= set(expected_payload_hashes(package))
     prefixes = [prefix.rstrip("/") for prefix in PACKAGE_PREFIXES[package]]
     if not is_directory:
         return name in exact or any(name.startswith(f"{prefix}/") for prefix in prefixes)
@@ -583,6 +729,15 @@ def migration_fields(package: str) -> dict[str, list[str]]:
             "provides": ["arch-linux-colloid-gtk3=" + expected_pkgver(package)],
             "conflicts": ["arch-linux-colloid-gtk3"],
             "replaces": ["arch-linux-colloid-gtk3"],
+        }
+    if package == "arch-linux-gnome-extensions":
+        names = ["gnome-shell-extension-" + name for name in (
+            "dash-to-dock", "blur-my-shell", "just-perfection-desktop", "clipboard-indicator"
+        )]
+        return {
+            "provides": [f"{name}={version}" for name, version in zip(names, ("1:109", "74", "37", "71"), strict=True)],
+            "conflicts": names,
+            "replaces": names,
         }
     return {"provides": [], "conflicts": [], "replaces": []}
 
@@ -737,6 +892,7 @@ def verify_package_tar(archive: tarfile.TarFile, package: str) -> None:
             expected_mode = 0o755 if name in {
                 "usr/lib/arch-linux-marble-profile/update-compatibility",
                 "usr/lib/arch-linux-marble-profile/gtk4-session",
+                "usr/lib/arch-linux-gnome-extensions/extension-session",
                 "usr/lib/arch-linux-marble-gdm/update-compatibility",
             } else 0o644
         elif member.issym():
@@ -775,7 +931,10 @@ def verify_package_tar(archive: tarfile.TarFile, package: str) -> None:
     service_links = {
         "usr/lib/systemd/user/gnome-session-pre.target.wants/arch-linux-marble-gtk4.service":
             "../arch-linux-marble-gtk4.service",
-    } if package == "arch-linux-marble-profile" else {}
+    } if package == "arch-linux-marble-profile" else {
+        "usr/lib/systemd/user/gnome-session-pre.target.wants/arch-linux-gnome-extensions.service":
+            "../arch-linux-gnome-extensions.service",
+    } if package == "arch-linux-gnome-extensions" else {}
     for name, target in service_links.items():
         if not members[name].issym() or members[name].linkname != target:
             fail(f"{package}: session service activation link differs: {name}")
@@ -792,9 +951,11 @@ def verify_package_tar(archive: tarfile.TarFile, package: str) -> None:
             name for name, member in members.items()
             if name.startswith(license_root) and not member.isdir()
         }
-        if actual_licenses != expected_licenses or len(actual_licenses) != 7:
-            fail("arch-linux-marble-gdm: license payload must contain exactly seven reviewed files")
+        if actual_licenses != expected_licenses or len(actual_licenses) != 8:
+            fail("arch-linux-marble-gdm: license payload must contain exactly eight reviewed files")
 
+    if package == "arch-linux-gnome-extensions":
+        verify_extension_metadata(archive, members)
     verify_pkginfo(package, read_member(archive, members[".PKGINFO"]))
     for name, source in EXPECTED_FILE_SOURCES[package].items():
         checked_file(source, "reviewed package payload source")
@@ -927,6 +1088,16 @@ def verify_metadata(report: bool = True) -> None:
             fail(f"{package}: duplicate source output name")
         if source_names != EXPECTED_SOURCE_ALIASES[package]:
             fail(f"{package}: immutable source-name/pin closure differs")
+        if package == "arch-linux-gnome-extensions":
+            source_bindings = {
+                alias_and_locator(source)[0]: (alias_and_locator(source)[1], checksum)
+                for source, checksum in zip(sources, sums, strict=True)
+            }
+            manifest = json.loads((directory / "extension-sources.json").read_text(encoding="utf-8"))
+            for row in [*reviewed_extension_sources(), manifest["legacy"]]:
+                if source_bindings.get(row["archive"]) != (row["source"], row["sha256"]):
+                    fail("extension bundle source is not bound to its exact archive/hash")
+            reviewed_extension_hashes()
         install_values = info.get("install", [])
         if len(install_values) > 1:
             fail(f"{package}: multiple install scripts")
@@ -937,8 +1108,10 @@ def verify_metadata(report: bool = True) -> None:
         project_dependencies[package] = deps & set(package_names)
 
     expected_edges = {
+        "arch-linux-gnome-extensions": {"arch-linux-keyring"},
         "arch-linux-marble-profile": {
             "arch-linux-keyring",
+            "arch-linux-gnome-extensions",
             "arch-linux-marble-shell",
             "arch-linux-colloid-gtk",
             "arch-linux-colloid-icons",

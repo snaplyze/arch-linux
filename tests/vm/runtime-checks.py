@@ -10,6 +10,248 @@ VERIFY = ROOT / "tests/vm/guest/verify.sh"
 def function(name):
     return re.search(r"^" + name + r"\(\) \{\n.*?^\}", VERIFY.read_text(), re.M | re.S).group(0)
 class RuntimeChecks(unittest.TestCase):
+    def test_current_repository_metadata_accepts_exact_seven_package_closure(self):
+        packages = ['arch-linux-keyring', 'arch-linux-gnome-extensions', 'arch-linux-marble-shell',
+                    'arch-linux-colloid-gtk', 'arch-linux-colloid-icons', 'arch-linux-marble-profile',
+                    'arch-linux-marble-gdm']
+        keys = ['PUBLIC_KEY_SHA256', 'PACKAGE_SET_SHA256', 'SNAPSHOT_SHA256',
+                'BUILD_METADATA_SHA256', 'UNSIGNED_MANIFEST_SHA256', 'REPOSITORY_MANIFEST_SHA256',
+                'REPOSITORY_MANIFEST_SIGNATURE_SHA256', 'REPOSITORY_DATABASE_SHA256',
+                'REPOSITORY_DATABASE_SIGNATURE_SHA256', 'REPOSITORY_FILES_SHA256',
+                'REPOSITORY_FILES_SIGNATURE_SHA256']
+        rows = [key + '=' + 'a' * 64 for key in keys]
+        rows += ['PRIMARY_FINGERPRINT=' + 'B' * 40, 'SIGNING_SUBKEY_FINGERPRINT=' + 'C' * 40]
+        rows += ['PACKAGE_SHA256_' + package.upper().replace('-', '_') + '=' + 'd' * 64
+                 for package in packages]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); (root / 'repository').mkdir()
+            (root / 'repository/package-set').write_text('\n'.join(packages) + '\n')
+            metadata = root / 'metadata.env'
+            script = ('set -euo pipefail\nrepository_root="$1"\n'
+                      'snapshot_sha256=' + 'a' * 64 + '\nbuild_metadata_sha256=' + 'a' * 64 +
+                      '\nunsigned_manifest_sha256=' + 'a' * 64 +
+                      '\ndeclare -A repository_package_hashes=()\ndie(){ echo "$*" >&2; exit 1; }\n' +
+                      self.host_function('load_marble_repository_metadata') +
+                      '\nload_marble_repository_metadata "$2"\nprintf "%s" "${#repository_package_hashes[@]}"\n')
+            for label, contents, accepted in [('exact', rows, True), ('missing', rows[:-1], False),
+                    ('duplicate', rows + rows[-1:], False), ('unknown', rows + ['FOREIGN=' + 'a' * 64], False)]:
+                with self.subTest(label=label):
+                    metadata.write_text('\n'.join(contents) + '\n')
+                    result = subprocess.run(['bash', '-c', script, 'fixture', str(root), str(metadata)],
+                                            capture_output=True, text=True, timeout=5)
+                    self.assertEqual(result.returncode == 0, accepted, result.stderr)
+                    if accepted: self.assertEqual(result.stdout, '7')
+
+    def test_staged_repository_server_routes_all_graphical_profiles_only(self):
+        host = (ROOT / 'tests/vm/run.sh').read_text()
+        block = re.search(r'^    if .*?; then\n        start_marble_repository_runtime\n    fi', host, re.M).group(0)
+        helpers = self.host_function('is_marble_scenario')
+        predicate = re.search(r'^scenario_needs_repository\(\) \{\n.*?^\}', host, re.M | re.S)
+        if predicate: helpers += '\n' + predicate.group(0)
+        script = ('set -euo pipefail\nscenario_id="$1" input_mode="$2"\n' + helpers +
+                  '\nstart_marble_repository_runtime(){ printf served; }\n' + block)
+        graphical = ['stock-gnome-ext4-systemdboot', 'stock-gnome-btrfs-systemdboot',
+                     'stock-gnome-btrfs-grub', 'stock-gnome-btrfs-luks2-plymouth-systemdboot',
+                     'stock-gnome-btrfs-luks2-plymouth-grub',
+                     'marble-gnome-btrfs-luks2-plymouth-systemdboot',
+                     'marble-gnome-btrfs-luks2-plymouth-systemdboot-stock-gdm']
+        for scenario in graphical + ['minimal-ext4-systemdboot', 'minimal-dualboot-ext4-systemdboot',
+                                      'stock-gnome-unknown', 'marble-gnome-unknown']:
+            for mode in ('staged', 'public'):
+                with self.subTest(scenario=scenario, mode=mode):
+                    result = subprocess.run(['bash', '-c', script, 'fixture', scenario, mode],
+                                            capture_output=True, text=True, timeout=5)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout, 'served' if mode == 'staged' and scenario in graphical else '')
+
+    def test_marble_package_closure_includes_neutral_extension_bundle(self):
+        script = 'set -euo pipefail\n' + function('marble_gdm_enabled') + '\n' + function('marble_project_packages')
+        for scenario, gdm in [('marble-gnome-btrfs-luks2-plymouth-systemdboot', True),
+                              ('marble-gnome-btrfs-luks2-plymouth-systemdboot-stock-gdm', False)]:
+            result = subprocess.run(['bash', '-c', script + '\nscenario="$1"\nmarble_project_packages',
+                                     'fixture', scenario], capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            expected = ['arch-linux-keyring', 'arch-linux-gnome-extensions', 'arch-linux-marble-shell',
+                        'arch-linux-colloid-gtk', 'arch-linux-colloid-icons', 'arch-linux-marble-profile']
+            if gdm: expected.append('arch-linux-marble-gdm')
+            self.assertEqual(result.stdout.splitlines(), expected)
+
+    def test_theme_removal_keeps_keyring_and_neutral_extensions(self):
+        branch = function('run_marble_phase').split('    remove-marble)\n', 1)[1].split('        ;;', 1)[0]
+        helpers = function('marble_project_packages') + '\n' + function('marble_gdm_enabled')
+        candidate = re.search(r'^marble_theme_packages\(\) \{\n.*?^\}', VERIFY.read_text(), re.M | re.S)
+        if candidate: helpers += '\n' + candidate.group(0)
+        with tempfile.TemporaryDirectory() as temporary:
+            branch = branch.replace('/usr/share/arch-linux-marble', temporary + '/absent-theme')
+            branch = branch.replace('/home/${username}', temporary + '/absent-home')
+            script = ('set -euo pipefail\nscenario=marble-gnome-btrfs-luks2-plymouth-systemdboot\nusername=fixture\n' +
+                      helpers + '\n' + '''
+pacman(){
+ if [ "$1" = -Rns ]; then
+  shift 2
+  for package in "$@"; do
+   case "$package" in arch-linux-keyring | arch-linux-gnome-extensions) return 93 ;; esac
+   printf 'REMOVE:%s\n' "$package"
+  done
+ elif [ "$1" = -Qq ]; then printf '%s\n' arch-linux-keyring arch-linux-gnome-extensions
+ else return 1; fi
+}
+verify_stock_project_packages(){ :; }
+verify_package_qkk_zero(){ :; }
+restart_gdm_after_profile_transition(){ :; }
+emit_marble_action_pass(){ :; }
+''' + branch)
+            result = subprocess.run(['bash', '-c', script], capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.splitlines(), ['REMOVE:arch-linux-marble-shell',
+                'REMOVE:arch-linux-colloid-gtk', 'REMOVE:arch-linux-colloid-icons',
+                'REMOVE:arch-linux-marble-profile', 'REMOVE:arch-linux-marble-gdm'])
+
+    def test_vendor_integrity_chooses_reviewed_gdm_manifest_for_installed_shell(self):
+        helpers = function('verify_vendor_integrity')
+        candidate = re.search(r'^marble_gdm_major\(\) \{\n.*?^\}', VERIFY.read_text(), re.M | re.S)
+        if candidate: helpers += '\n' + candidate.group(0)
+        script = ('set -euo pipefail\nrun_id=fixture phase=fixture\n' + helpers + '\n' + '''
+installed_package_version_exact(){ printf '%s' "$fixture_version"; }
+marble_gdm_enabled(){ return 0; }
+verify_package_qkk_zero(){ :; }
+sha256sum(){ printf 'MANIFEST:%s\n' "$3" >&2; }
+pacman(){ if [[ "$2" = */gnome-shell-theme.gresource ]]; then printf 'fixture is owned by gnome-shell 1'; else printf 'fixture is owned by gdm 1'; fi; }
+verify_vendor_integrity
+''')
+        import os
+        for version, major in (('1:50.5-1', '50'), ('1:51.0-1', '51'), ('51.0-1', '51'),
+                               ('1:52.0-1', '52')):
+            with self.subTest(version=version):
+                result = subprocess.run(['bash', '-c', script], env={**os.environ, 'fixture_version': version},
+                                        capture_output=True, text=True, timeout=5)
+                self.assertEqual(result.returncode == 0, major in ('50', '51'), result.stderr)
+                if major in ('50', '51'):
+                    self.assertIn('MANIFEST:/usr/share/arch-linux-marble-gdm/known-gnome-' + major + '.sha256', result.stderr)
+
+    def test_stock_project_package_guard_accepts_bundle_but_rejects_themes(self):
+        import hashlib, os
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            extensions = root / 'extensions'; extensions.mkdir()
+            (extensions / 'payload').write_bytes(b'reviewed extension fixture')
+            manifest = root / 'extensions.sha256'
+            manifest.write_text(hashlib.sha256(b'reviewed extension fixture').hexdigest() + '  payload\n')
+            helper = function('verify_stock_project_packages').replace('/usr/share/gnome-shell/extensions', str(extensions))
+            helper = helper.replace('/usr/share/arch-linux-gnome-extensions/extensions.sha256', str(manifest))
+            helpers = '\n'.join(function(name) for name in ('installed_package_record_exact', 'package_installed_exact'))
+            script = 'set -euo pipefail\n' + helpers + '\n' + helper + '\n' + '''
+pacman(){
+ if [ "$1" = -Qq ]; then printf '%s\n' "$fixture_packages"
+ elif [ "$1" = -Q ] && [ "$2" = -- ]; then
+  grep -Fxq "$3" <<<"$fixture_packages" || return 1
+  printf '%s 1.0-1\n' "$3"
+ else return 1; fi
+}
+verify_package_qkk_zero(){ [ "$*" = 'arch-linux-keyring arch-linux-gnome-extensions' ]; }
+verify_stock_project_packages
+'''
+            packages = 'arch-linux-keyring\narch-linux-gnome-extensions'
+            for contents, accepted in [(packages, True), (packages + '\narch-linux-marble-shell', False),
+                                      (packages + '\narch-linux-marble-gdm', False), ('arch-linux-keyring', False),
+                                      (packages + '\narch-linux-foreign', False)]:
+                with self.subTest(packages=contents):
+                    result = subprocess.run(['bash', '-c', script],
+                        env={**os.environ, 'fixture_packages': contents}, capture_output=True, text=True, timeout=5)
+                    self.assertEqual(result.returncode == 0, accepted, result.stderr)
+            (extensions / 'payload').write_bytes(b'changed extension bytes')
+            result = subprocess.run(['bash', '-c', script], env={**os.environ, 'fixture_packages': packages},
+                                    capture_output=True, text=True, timeout=5)
+            self.assertNotEqual(result.returncode, 0)
+
+    def test_host_retains_exact_twenty_five_object_seven_package_manifest(self):
+        import json
+        packages = ['arch-linux-keyring', 'arch-linux-gnome-extensions', 'arch-linux-marble-shell',
+                    'arch-linux-colloid-gtk', 'arch-linux-colloid-icons', 'arch-linux-marble-profile',
+                    'arch-linux-marble-gdm']
+        names = ['arch-linux.db', 'arch-linux.db.sig', 'arch-linux.db.tar.gz', 'arch-linux.db.tar.gz.sig',
+                 'arch-linux.files', 'arch-linux.files.sig', 'arch-linux.files.tar.gz', 'arch-linux.files.tar.gz.sig',
+                 'arch-linux.gpg', 'primary-fingerprint', 'signing-subkey-fingerprint']
+        for package in packages:
+            names.extend([package + '-1.0-1-any.pkg.tar.zst', package + '-1.0-1-any.pkg.tar.zst.sig'])
+        metadata = {'schema': 2, 'architecture': 'x86_64', 'repository': 'arch-linux', 'releaseVersion': '1.2.3',
+                    'sourceCommit': 'a' * 40, 'sourceTree': 'b' * 40, 'sourceDateEpoch': 1}
+        for field in ('installerSha256', 'packageSetSha256', 'buildMetadataSha256', 'unsignedManifestSha256'):
+            metadata[field] = 'c' * 64
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); (root / 'repository').mkdir(); (root / 'evidence').mkdir()
+            (root / 'repository/package-set').write_text('\n'.join(packages) + '\n')
+            manifest = root / 'manifest.json'; signature = root / 'signature'; signature.write_text('fixture signature')
+            setup = ('set -euo pipefail\nrepository_root="$1" run_root="$1" evidence="$1/evidence"\n'
+                     'release_version=1.2.3 source_commit=' + 'a' * 40 + ' source_tree=' + 'b' * 40 + '\n')
+            for field in ('installer_sha256', 'repository_package_set_sha256', 'build_metadata_sha256', 'unsigned_manifest_sha256'):
+                setup += field + '=' + 'c' * 64 + '\n'
+            setup += ('repository_manifest_sha256=- repository_database_sha256=-\n'
+                      'declare -A repository_package_hashes=()\ndie(){ echo "$*" >&2; exit 1; }\n'
+                      'verify_retained_manifest_signature(){ :; }\n')
+            script = setup + self.host_function('repository_hash_from_tsv_from') + '\n' + self.host_function('retain_repository_manifest')
+            script += '\nretain_repository_manifest "$1/manifest.json" "$1/signature"\n'
+            metadata['files'] = [{'name': name, 'sha256': 'd' * 64, 'size': 1} for name in sorted(names)]
+            manifest.write_text(json.dumps(metadata))
+            result = subprocess.run(['bash', '-c', script, 'fixture', temporary], capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(len((root / 'evidence/repository-objects.tsv').read_text().splitlines()), 25)
+
+    def test_guest_installer_acceptance_environment_routes_graphical_profiles(self):
+        bootstrap = (ROOT / 'tests/vm/guest/bootstrap.sh').read_text()
+        predicate = re.search(r'^scenario_needs_repository\(\) \{\n.*?^\}', bootstrap, re.M | re.S).group(0)
+        stage = bootstrap.split("# Match the official Arch ISO root shell.", 1)[1]
+        branch = re.search(r'^        if .*?^        fi', stage, re.M | re.S).group(0)
+        script = ('set -euo pipefail\ndeclare -A IDENTITY=([SCENARIO]="$1" [INPUT_MODE]="$2")\n'
+                  'work_root=/fixture\n' + predicate + '\n' +
+                  'bash(){ printf "%s:%s" "${ARCH_LINUX_QEMU_ACCEPTANCE:-false}" "${ARCH_LINUX_QEMU_REPOSITORY_CONTRACT:-none}"; }\n' + branch)
+        for scenario in ('stock-gnome-ext4-systemdboot', 'marble-gnome-btrfs-luks2-plymouth-systemdboot',
+                         'minimal-ext4-systemdboot', 'stock-gnome-unknown'):
+            for mode in ('staged', 'public'):
+                with self.subTest(scenario=scenario, mode=mode):
+                    result = subprocess.run(['bash', '-c', script, 'fixture', scenario, mode],
+                                            capture_output=True, text=True, timeout=5)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    repository = mode == 'staged' and scenario in ('stock-gnome-ext4-systemdboot',
+                                                                  'marble-gnome-btrfs-luks2-plymouth-systemdboot')
+                    self.assertEqual(result.stdout, 'true:/fixture/repository.contract' if repository else 'false:none')
+
+    def test_gdm_process_uses_exact_major_payload_and_rejects_stale_environment(self):
+        import os
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            override = root / 'etc/systemd/user/org.gnome.Shell@gdm.service.d/50-arch-linux-marble-gdm.conf'
+            override.parent.mkdir(parents=True)
+            process = root / 'proc/44'; process.mkdir(parents=True)
+            payload_root = root / 'usr/share/arch-linux-marble-gdm'
+            (payload_root / 'systemd').mkdir(parents=True)
+            helper = root / 'helper'; helper.write_text('#!/bin/sh\nprintf active\n'); helper.chmod(0o755)
+            body = function('verify_marble_gdm_process')
+            body = body.replace('/usr/lib/arch-linux-marble-gdm/update-compatibility', str(helper))
+            for prefix in ('/etc/systemd', '/usr/share/arch-linux-marble-gdm', '/proc/'):
+                body = body.replace(prefix, temporary + prefix)
+            script = 'set -euo pipefail\n' + function('marble_gdm_major') + '\n' + body + '\n' + '''
+installed_package_version_exact(){ printf '1:%s.0-1' "$fixture_major"; }
+gdm_shell_pid(){ printf 44; }
+gsettings(){ [ "$DCONF_PROFILE" = "$fixture_profile" ]; printf "'Colloid-Dark'"; }
+verify_marble_gdm_process active fixture
+'''
+            for major, environment_major, accepted in [('50', '50', True), ('51', '51', True),
+                                                       ('51', '50', False), ('52', '51', False)]:
+                with self.subTest(major=major, environment_major=environment_major):
+                    payload = payload_root / ('systemd/' + major + '-arch-linux-marble-gdm.conf')
+                    payload.write_text('fixture')
+                    if override.is_symlink(): override.unlink()
+                    override.symlink_to(payload)
+                    profile = str(payload_root / (environment_major + '.0.0/dconf/profile'))
+                    environment = ('G_RESOURCE_OVERLAYS=/org/gnome/shell/theme=' + str(payload_root / (environment_major + '.0.0/theme')) +
+                                   '\0DCONF_PROFILE=' + profile + '\0').encode()
+                    (process / 'environ').write_bytes(environment)
+                    result = subprocess.run(['bash', '-c', script],
+                        env={**os.environ, 'fixture_major': major, 'fixture_profile': profile},
+                        capture_output=True, text=True, timeout=5)
+                    self.assertEqual(result.returncode == 0, accepted, result.stderr)
+
     def qga_partial_transport(self, short_sync=False, peer_mismatch=False):
         import base64, io, json, os, runpy, socket, struct
         from unittest.mock import patch

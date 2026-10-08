@@ -8,6 +8,7 @@ import hashlib
 import io
 import json
 from pathlib import Path
+import re
 from unittest.mock import patch
 import subprocess
 import sys
@@ -44,6 +45,9 @@ class ReleaseSourceChecks(unittest.TestCase):
             "packages/arch-linux-keyring/.SRCINFO": "pkgbase = arch-linux-keyring\n\tpkgver = 1.0.0\n\tpkgrel = 2\n\tsha256sums = unchanged\n",
             "repository/trust/primary-fingerprint": "A" * 40 + "\n",
             "repository/release-source.py": HELPER.read_text(),
+            "CHANGELOG.md": "# Changelog\n\n## Unreleased\n\n- Correct release bootstrap instructions; acceptance is separate.\n\n## 1.0.6 — 2026-10-04\n\nHistorical acceptance remains bound to release 1.0.6.\n",
+            "README.md": self.document_fixture("README.md"),
+            "docs/installation.md": self.document_fixture("docs/installation.md"),
         }
         for name, contents in files.items():
             path = self.root / name
@@ -53,6 +57,15 @@ class ReleaseSourceChecks(unittest.TestCase):
         self.git("add", ".")
         self.git("commit", "-m", "reviewed main")
         self.main = self.git("rev-parse", "HEAD")
+
+    def document_fixture(self, path: str) -> str:
+        # Keep the real document structure, including history, but make the prior pin
+        # independent of the tree running this suite (main or a generated release child).
+        raw = (ROOT / path).read_text()
+        begin, end = "<!-- BEGIN release-bootstrap -->\n", "<!-- END release-bootstrap -->"
+        prefix, remaining = raw.split(begin, 1)
+        content, suffix = remaining.split(end, 1)
+        return prefix + begin + re.sub(r"[0-9]+\.[0-9]+\.[0-9]+", "1.0.6", content) + end + suffix
 
     def git(self, *args: str, input_data: bytes | None = None) -> str:
         return subprocess.check_output(["git", "-C", str(self.root), *args], input=input_data,
@@ -85,6 +98,170 @@ class ReleaseSourceChecks(unittest.TestCase):
         self.assertIn(b"releases/download/1.0.3'", bootstrap)
         self.assertNotIn(b"1.0.2", bootstrap)
         self.assertIn("pkgrel=4", self.git("show", f"{identity['source_commit']}:packages/arch-linux-keyring/PKGBUILD"))
+
+    def test_document_pins_follow_selected_release_not_installer_or_prior_doc_version(self) -> None:
+        identity = self.prepare("1.0.7")
+        child = identity["source_commit"]
+        for path, count in (("README.md", 2), ("docs/installation.md", 1)):
+            with self.subTest(path=path):
+                generated = self.module.blob(self.root, child, path)
+                self.assertEqual(generated.count(
+                    b"https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.7/install.sh"), count)
+                self.assertNotIn(b"https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.6/install.sh", generated)
+                self.assertIn(b"Release 1.0.6", generated)
+        readme = self.module.blob(self.root, child, "README.md")
+        installation = self.module.blob(self.root, child, "docs/installation.md")
+        self.assertIn(b"immutable release **1.0.7**", readme)
+        self.assertIn(b"These examples pin 1.0.7", readme)
+        self.assertIn(b"documented immutable release tag `1.0.7`", installation)
+        self.assertIn(b"2026-10-04", readme)
+        repeated = self.module.prepare(self.root, self.main, "1.0.7", Path(self.temporary.name) / "retry-docs")
+        self.assertEqual(identity, repeated)
+        self.module.verify(self.root, child, self.main, "1.0.7")
+        for path in ("README.md", "docs/installation.md"):
+            original = self.module.blob(self.root, self.main, path)
+            generated = self.module.blob(self.root, child, path)
+            begin, end = b"<!-- BEGIN release-bootstrap -->\n", b"<!-- END release-bootstrap -->"
+            self.assertEqual(original.split(begin)[0], generated.split(begin)[0])
+            self.assertEqual(
+                re.sub(rb"<!-- BEGIN release-overview -->\n.*?<!-- END release-overview -->", b"", original.split(end)[1], flags=re.S),
+                re.sub(rb"<!-- BEGIN release-overview -->\n.*?<!-- END release-overview -->", b"", generated.split(end)[1], flags=re.S))
+            tampered = generated.replace(b"1.0.7/install.sh", b"1.0.6/install.sh", 1)
+            tree = self.module.replace_tree(self.root, child, {path: ("100644", tampered)})
+            forged = self.git("commit-tree", tree, "-p", self.main, input_data=b"forged docs\n")
+            with self.assertRaises(ValueError):
+                self.module.verify(self.root, forged, self.main, "1.0.7")
+
+    def test_release_overview_replaces_candidate_verdict_without_relabelling_history(self) -> None:
+        identity = self.prepare("1.0.7")
+        child = identity["source_commit"]
+        generated = self.module.blob(self.root, child, "README.md")
+        self.assertIn(b"This tree describes release **1.0.7**", generated)
+        self.assertIn(b"arch-linux-acceptance-1.0.7.json", generated)
+        self.assertIn(b"https://github.com/snaplyze/arch-linux/releases/tag/1.0.7", generated)
+        self.assertNotIn(b"are an unpublished", generated)
+        self.assertNotIn(b"not yet\navailable through", generated)
+        original = self.module.blob(self.root, self.main, "README.md")
+        history = b"Release 1.0.6 delivers"
+        stop = b"## Profiles and updates"
+        self.assertEqual(original.split(history, 1)[1].split(stop, 1)[0],
+                         generated.split(history, 1)[1].split(stop, 1)[0])
+        self.assertIn(b"2026-10-04", generated)
+        tampered = generated.replace(b"arch-linux-acceptance-1.0.7.json", b"arch-linux-acceptance-1.0.6.json")
+        tree = self.module.replace_tree(self.root, child, {"README.md": ("100644", tampered)})
+        forged = self.git("commit-tree", tree, "-p", self.main, input_data=b"forged overview\n")
+        with self.assertRaises(ValueError):
+            self.module.verify(self.root, forged, self.main, "1.0.7")
+        repeated = self.module.prepare(self.root, self.main, "1.0.7", Path(self.temporary.name) / "overview-repeat")
+        self.assertEqual(identity, repeated)
+
+    def test_prior_release_overview_advances_without_touching_historical_acceptance(self) -> None:
+        identity = self.prepare("1.0.7")
+        rendered = self.module.blob(self.root, identity["source_commit"], "README.md")
+        begin, end = b"<!-- BEGIN release-overview -->\n", b"<!-- END release-overview -->"
+        prior_content = rendered.split(begin, 1)[1].split(end, 1)[0].replace(b"1.0.7", b"1.0.6")
+        original = self.module.blob(self.root, self.main, "README.md")
+        prefix, remaining = original.split(begin, 1)
+        _, suffix = remaining.split(end, 1)
+        (self.root / "README.md").write_bytes(prefix + begin + prior_content + end + suffix)
+        self.git("add", "README.md")
+        self.git("commit", "-m", "review prior-version overview")
+        self.main = self.git("rev-parse", "HEAD")
+        child = self.prepare("1.0.8")
+        generated = self.module.blob(self.root, child["source_commit"], "README.md")
+        overview = generated.split(begin, 1)[1].split(end, 1)[0]
+        self.assertIn(b"This tree describes release **1.0.8**", overview)
+        self.assertIn(b"arch-linux-acceptance-1.0.8.json", overview)
+        self.assertNotIn(b"1.0.6", overview)
+        self.assertIn(b"Release 1.0.6 delivers", generated)
+        self.module.verify(self.root, child["source_commit"], self.main, "1.0.8")
+
+    def test_missing_duplicate_or_malformed_release_overviews_are_rejected(self) -> None:
+        original = self.module.blob(self.root, self.main, "README.md")
+        begin, end = b"<!-- BEGIN release-overview -->", b"<!-- END release-overview -->"
+        for defect, damaged in {
+            "missing-start": original.replace(begin, b"", 1),
+            "missing-end": original.replace(end, b"", 1),
+            "duplicate": original + b"\n" + begin + b"\n" + end + b"\n",
+            "malformed-marker": original.replace(end, b"<!-- END release-overview -- >", 1),
+            "unreviewed-verdict": original.replace(begin + b"\n", begin + b"\nUnreviewed PASS claim.\n", 1),
+        }.items():
+            with self.subTest(defect=defect):
+                (self.root / "README.md").write_bytes(damaged)
+                self.git("add", "README.md")
+                self.git("commit", "-m", "malformed overview")
+                broken_main = self.git("rev-parse", "HEAD")
+                with self.assertRaisesRegex(ValueError, "release overview"):
+                    self.module.transformed_tree(self.root, broken_main, "1.0.7")
+                self.git("restore", "--source", self.main, "--staged", "--worktree", "README.md")
+                self.git("commit", "-m", "restore fixture overview")
+
+    def test_missing_duplicate_or_malformed_document_blocks_are_rejected(self) -> None:
+        for path in ("README.md", "docs/installation.md"):
+            original = self.module.blob(self.root, self.main, path)
+            prefix, instructions = original.split(b"<!-- BEGIN release-bootstrap -->", 1)
+            for defect in ("missing-file", "missing-start", "missing-end", "duplicate", "wrong-url", "wrong-prose", "mismatched-pin", "malformed-version", "malformed-marker", "reversed-markers"):
+                with self.subTest(path=path, defect=defect):
+                    if defect == "missing-file":
+                        self.git("rm", path)
+                    else:
+                        damaged = {
+                            "missing-start": original.replace(b"<!-- BEGIN release-bootstrap -->", b"", 1),
+                            "missing-end": original.replace(b"<!-- END release-bootstrap -->", b"", 1),
+                            "duplicate": original + b"\n<!-- BEGIN release-bootstrap -->\n<!-- END release-bootstrap -->\n",
+                            "wrong-url": original.replace(b"1.0.6/install.sh", b"main/install.sh", 1),
+                            "wrong-prose": prefix + b"<!-- BEGIN release-bootstrap -->" + instructions.replace(b"immutable release", b"moving release", 1),
+                            "mismatched-pin": original.replace(b"1.0.6/install.sh", b"1.0.8/install.sh", 1),
+                            "malformed-version": prefix + b"<!-- BEGIN release-bootstrap -->" + instructions.replace(b"1.0.6", b"01.0.6"),
+                            "malformed-marker": original.replace(b"<!-- END release-bootstrap -->", b"<!-- END release-bootstrap -- >", 1),
+                            "reversed-markers": original.replace(b"<!-- BEGIN release-bootstrap -->", b"<!-- SWAP release-bootstrap -->").replace(b"<!-- END release-bootstrap -->", b"<!-- BEGIN release-bootstrap -->").replace(b"<!-- SWAP release-bootstrap -->", b"<!-- END release-bootstrap -->"),
+                        }[defect]
+                        (self.root / path).write_bytes(damaged)
+                        self.git("add", path)
+                    self.git("commit", "-m", "malformed bootstrap instructions")
+                    broken_main = self.git("rev-parse", "HEAD")
+                    with self.assertRaisesRegex(ValueError, "release bootstrap"):
+                        self.module.transformed_tree(self.root, broken_main, "1.0.7")
+                    self.git("restore", "--source", self.main, "--staged", "--worktree", path)
+                    self.git("commit", "-m", "restore fixture instructions")
+
+    def test_selected_version_names_authored_changes_and_preserves_history(self) -> None:
+        identity = self.prepare("1.0.7")
+        child = identity["source_commit"]
+        original = self.module.blob(self.root, self.main, "CHANGELOG.md")
+        generated = self.module.blob(self.root, child, "CHANGELOG.md")
+        self.assertIn(b"## 1.0.7\n\n- Correct release bootstrap instructions; acceptance is separate.", generated)
+        self.assertNotIn(b"## Unreleased", generated)
+        self.assertEqual(generated, original.replace(b"## Unreleased\n", b"## 1.0.7\n", 1))
+        tree = self.module.replace_tree(self.root, child, {
+            "CHANGELOG.md": ("100644", generated.replace(b"## 1.0.7\n", b"## 1.0.8\n"))})
+        forged = self.git("commit-tree", tree, "-p", self.main, input_data=b"forged changelog\n")
+        with self.assertRaises(ValueError):
+            self.module.verify(self.root, forged, self.main, "1.0.7")
+
+    def test_missing_duplicate_empty_or_conflicting_unreleased_changes_are_rejected(self) -> None:
+        original = self.module.blob(self.root, self.main, "CHANGELOG.md")
+        _, history = original.split(b"## 1.0.6", 1)
+        for defect in ("missing-file", "missing-section", "duplicate", "empty", "conflicting-version", "malformed-heading"):
+            with self.subTest(defect=defect):
+                if defect == "missing-file":
+                    self.git("rm", "CHANGELOG.md")
+                else:
+                    damaged = {
+                        "missing-section": b"# Changelog\n\n## 1.0.6" + history,
+                        "duplicate": original + b"\n## Unreleased\n\n- Duplicate changes.\n",
+                        "empty": b"# Changelog\n\n## Unreleased\n\n## 1.0.6" + history,
+                        "conflicting-version": original + "\n## 1.0.7 — old entry\n\n- Already named.\n".encode(),
+                        "malformed-heading": original.replace(b"## Unreleased\n", "## Unreleased — draft\n".encode()),
+                    }[defect]
+                    (self.root / "CHANGELOG.md").write_bytes(damaged)
+                    self.git("add", "CHANGELOG.md")
+                self.git("commit", "-m", "malformed authored changes")
+                broken_main = self.git("rev-parse", "HEAD")
+                with self.assertRaisesRegex(ValueError, "release changelog"):
+                    self.module.transformed_tree(self.root, broken_main, "1.0.7")
+                self.git("restore", "--source", self.main, "--staged", "--worktree", "CHANGELOG.md")
+                self.git("commit", "-m", "restore fixture changes")
 
     def test_revision_updates_versioned_legacy_package_provides(self) -> None:
         pkg = self.root / "packages/arch-linux-keyring/PKGBUILD"
@@ -156,9 +333,9 @@ class ReleaseSourceChecks(unittest.TestCase):
 
 
 class PackageSourceChecks(ReleaseSourceChecks):
-    def baseline(self, with_snapshot=True):
-        # Frozen primary inputs; six-package closure, as in the actual repository.
-        names = ["arch-linux-keyring"] + [f"arch-linux-fixture-{i}" for i in range(5)]
+    def baseline(self, with_snapshot=True, package_count=6):
+        # Frozen primary inputs; preserve historical six and current seven packages.
+        names = ["arch-linux-keyring"] + [f"arch-linux-fixture-{i}" for i in range(package_count - 1)]
         for name in names[1:]:
             folder = self.root / "packages" / name
             folder.mkdir()
@@ -240,6 +417,17 @@ class PackageSourceChecks(ReleaseSourceChecks):
         self.assertEqual(origin['baselineRepositorySnapshotSha256'],
                          self.intent['published']['repositorySnapshotSha256'])
         self.assertEqual(origin['baselineTag'], '1.0.5')
+
+    def test_seven_package_baseline_allows_revision_updates_but_not_closure_changes(self):
+        self.baseline(package_count=7)
+        result = self.package_prepare()
+        origin = json.loads(self.module.blob(self.root, result['source_commit'], 'repository/package-origin.json'))
+        self.assertEqual(len(origin['packageRevisions']), 7)
+        package_set = self.root / 'repository/package-set'
+        package_set.write_text('\n'.join(package_set.read_text().splitlines()[:-1]) + '\n')
+        self.commit_candidate()
+        with self.assertRaisesRegex(ValueError, 'package closure differs'):
+            self.package_prepare()
 
     def test_missing_active_snapshot_binding_is_refused(self):
         self.baseline(with_snapshot=False)

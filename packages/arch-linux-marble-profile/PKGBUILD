@@ -3,13 +3,14 @@
 
 pkgname=arch-linux-marble-profile
 pkgver=1.0.0
-pkgrel=5
+pkgrel=6
 pkgdesc='Editable Stock-fallback defaults for the arch-linux Marble GNOME profile'
 arch=('any')
 url='https://github.com/snaplyze/arch-linux'
 license=('GPL-3.0-only')
 depends=(
     'arch-linux-keyring>=1.0.0'
+    'arch-linux-gnome-extensions>=1.0.0'
     'arch-linux-marble-shell>=50.0.0'
     'arch-linux-colloid-gtk>=20260808-5'
     'arch-linux-colloid-icons>=20260817'
@@ -38,8 +39,8 @@ source=(
 )
 sha256sums=(
     '49a819ccd35f5b5617acda6ea3a648ce08c30088f362c6348f70d732765e178a'
-    'c13f7d30cd7263a9d09c9f5984d7be3b05e033181440fcca35ba6adc3cb6141a'
-    '7ea9844ae84eccbf55e8330640865e36c43521e45a1baec24233327aab7e6595'
+    '3f1017a283cf78e1c75a0c1bce917e621ffefad868c6e6b0e7f650fc34436937'
+    '89d7371df6c37ec7e82cca2adc5b278ea9bc1acb64b0b2e7d449383dae05ba6a'
     '9d9e95a987b88a58a0d9c0012d1f5c6ecc6a0b98c228a81a724027634bce3e54'
     '3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986'
     'dd1c1dcabf67c18d54f5322cb857ad5180edaf1e2df3270d964313f0ecfa6125'

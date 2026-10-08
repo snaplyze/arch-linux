@@ -25,6 +25,65 @@ HEX40 = re.compile(r"[a-f0-9]{40}\Z")
 VERSION = re.compile(r"(0|[1-9][0-9]{0,3})\.(0|[1-9][0-9]{0,3})\.(0|[1-9][0-9]{0,3})\Z")
 
 
+# Only these instruction blocks are generated; acceptance and dated evidence stay outside.
+BOOTSTRAP_DOCUMENTS = {
+    "README.md": """The commands below pin immutable release **@RELEASE_VERSION@**. Use them from the Arch ISO only after
+confirming publication and acceptance in the [release evidence](docs/validation.md):
+
+```bash
+curl -fsS https://raw.githubusercontent.com/snaplyze/arch-linux/@RELEASE_VERSION@/install.sh | bash
+```
+
+For a newer version, use the release-pinned command in the
+[latest published immutable GitHub Release](https://github.com/snaplyze/arch-linux/releases).
+These examples pin @RELEASE_VERSION@; they do not track `main` or a moving latest-download URL.
+
+The bootstrap is release-pinned. It downloads the installer, its SHA-256 file, detached signature
+and `arch-linux.gpg`; validates the exact public-certificate digest and fingerprints; rejects secret
+key packets; then launches only the verified installer bytes from a private root-owned directory.
+For a verification-only run:
+
+```bash
+curl -fsS https://raw.githubusercontent.com/snaplyze/arch-linux/@RELEASE_VERSION@/install.sh | bash -s -- --verify-only
+```
+""",
+    "docs/installation.md": """Use the single release-pinned bootstrap command in the [README](../README.md). It downloads
+`install.sh` from the documented immutable release tag `@RELEASE_VERSION@`. Confirm publication and
+acceptance in [validation](validation.md) before using that tag. The bootstrap never downloads
+from `main`; it downloads and
+verifies the release installer, checksum, detached signature, public certificate and both
+fingerprint files. The verified installer starts as root from an exact root-owned mode-`0700`
+single-link file inside its private root-owned mode-`0700` working directory. Every ancestor is
+root-owned and not writable by group or others; the user-owned download directory is removed before
+the installer starts.
+
+For a non-destructive public-release or QEMU readback, run the same immutable bootstrap in
+verification-only mode:
+
+```bash
+curl -fsS https://raw.githubusercontent.com/snaplyze/arch-linux/@RELEASE_VERSION@/install.sh | bash -s -- --verify-only
+```
+""",
+}
+
+
+SOURCE_RELEASE_OVERVIEW = """As of 2026-10-09, the GNOME 51 recovery changes currently in this checkout are an unpublished
+candidate. They add a shared signed extension package, reviewed desktop/GDM
+compatibility and safe migration of the old local extension. They are not yet
+available through `pacman -Syu`; see the [current gates](docs/PLAN.md#gnome-51-update-recovery--2026-10-09).
+"""
+RELEASE_OVERVIEW = """This tree describes release **@RELEASE_VERSION@**. Its reviewed changes are recorded in the
+[changelog](CHANGELOG.md).
+
+Before installation or update, verify immutable publication, exact package delivery and the signed
+`arch-linux-acceptance-@RELEASE_VERSION@.json` assets for
+[release @RELEASE_VERSION@](https://github.com/snaplyze/arch-linux/releases/tag/@RELEASE_VERSION@).
+Follow the [release verification procedure](docs/release-process.md) and
+[validation records](docs/validation.md), whose results remain bound to their own release inputs.
+A tagged source tree alone does not establish installed-system, GNOME/GDM or public acceptance.
+"""
+
+
 def git(root: Path, *args: str, data: bytes | None = None,
         extra_env: dict[str, str] | None = None) -> bytes:
     environment = dict(os.environ, GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL="/dev/null")
@@ -314,7 +373,7 @@ def package_tree(root: Path, main: str, tag: str, directory: Path) -> tuple[str,
         raise ValueError("repository baseline installer hash or bytes differ")
     package_set = blob(root, main, "repository/package-set")
     names = package_set.decode("ascii").splitlines()
-    if len(names) != 6 or len(set(names)) != 6 or any(not re.fullmatch(r"arch-linux-[a-z0-9-]+", name) for name in names) or package_set != blob(root, baseline_commit, "repository/package-set") or hashlib.sha256(package_set).hexdigest() != baseline["packageSetSha256"]:
+    if len(names) not in (6, 7) or len(set(names)) != len(names) or any(not re.fullmatch(r"arch-linux-[a-z0-9-]+", name) for name in names) or package_set != blob(root, baseline_commit, "repository/package-set") or hashlib.sha256(package_set).hexdigest() != baseline["packageSetSha256"]:
         raise ValueError("package closure differs from active baseline")
     revisions = {}
     expected_names = set()
@@ -327,7 +386,7 @@ def package_tree(root: Path, main: str, tag: str, directory: Path) -> tuple[str,
         revisions[name] = after[2]
     files = baseline["files"]
     actual_names = [row["name"] for row in files if row["name"].endswith(".pkg.tar.zst")]
-    if len(actual_names) != 6 or set(actual_names) != expected_names:
+    if len(actual_names) != len(names) or set(actual_names) != expected_names:
         raise ValueError("repository baseline package inventory differs")
     release_entries = tree_entries(root, release)
     # Trust and keyring payload remain byte/mode identical to the installer release.
@@ -396,6 +455,57 @@ def prepare_packages(root: Path, main: str, tag: str, directory: Path, output: P
     return identity
 
 
+def release_bootstrap_document(raw: bytes, path: str, version: str) -> bytes:
+    begin = b"<!-- BEGIN release-bootstrap -->\n"
+    end = b"<!-- END release-bootstrap -->"
+    if raw.count(b"<!-- BEGIN release-bootstrap") != 1 or raw.count(b"<!-- END release-bootstrap") != 1:
+        raise ValueError(f"release bootstrap requires one instruction block in {path}")
+    if raw.count(begin) != 1 or raw.count(end) != 1:
+        raise ValueError(f"release bootstrap block markers are malformed in {path}")
+    prefix, remaining = raw.split(begin, 1)
+    content, suffix = remaining.split(end, 1) if end in remaining else (b"", b"")
+    template = BOOTSTRAP_DOCUMENTS[path].encode("ascii")
+    fragments = template.split(b"@RELEASE_VERSION@")
+    canonical_version = rb"(?:0|[1-9][0-9]{0,3})\.(?:0|[1-9][0-9]{0,3})\.(?:0|[1-9][0-9]{0,3})"
+    pattern = re.escape(fragments[0]) + b"(?P<version>" + canonical_version + b")"
+    pattern += b"".join(re.escape(fragment) + (b"(?P=version)" if index < len(fragments) - 1 else b"")
+                        for index, fragment in enumerate(fragments[1:], 1))
+    if re.fullmatch(pattern, content) is None:
+        raise ValueError(f"release bootstrap instructions are malformed in {path}")
+    return prefix + begin + template.replace(b"@RELEASE_VERSION@", version.encode("ascii")) + end + suffix
+
+
+def release_overview(raw: bytes, version: str) -> bytes:
+    begin, end = b"<!-- BEGIN release-overview -->\n", b"<!-- END release-overview -->"
+    if raw.count(b"<!-- BEGIN release-overview") != 1 or raw.count(b"<!-- END release-overview") != 1:
+        raise ValueError("release overview requires one exact block")
+    if raw.count(begin) != 1 or raw.count(end) != 1:
+        raise ValueError("release overview markers are malformed")
+    prefix, remaining = raw.split(begin, 1)
+    content, suffix = remaining.split(end, 1) if end in remaining else (b"", b"")
+    source = SOURCE_RELEASE_OVERVIEW.encode("ascii")
+    template = RELEASE_OVERVIEW.encode("ascii")
+    if content != source:
+        match = re.match(rb"This tree describes release \*\*([0-9]+\.[0-9]+\.[0-9]+)\*\*", content)
+        if (match is None or VERSION.fullmatch(match[1].decode("ascii")) is None or
+                content != template.replace(b"@RELEASE_VERSION@", match[1])):
+            raise ValueError("release overview content is malformed")
+    return prefix + begin + template.replace(b"@RELEASE_VERSION@", version.encode("ascii")) + end + suffix
+
+
+def release_changelog(raw: bytes, version: str) -> bytes:
+    if len(re.findall(rb"^## Unreleased\b[^\n]*$", raw, re.M)) != 1 or raw.count(b"## Unreleased\n") != 1:
+        raise ValueError("release changelog requires one exact Unreleased section")
+    if re.search(rb"^## " + re.escape(version.encode("ascii")) + rb"(?:\s|$)", raw, re.M):
+        raise ValueError("release changelog already names the selected version")
+    start = raw.index(b"## Unreleased\n") + len(b"## Unreleased\n")
+    next_heading = re.search(rb"^## ", raw[start:], re.M)
+    end = start + next_heading.start() if next_heading else len(raw)
+    if not raw[start:end].strip():
+        raise ValueError("release changelog Unreleased section is empty")
+    return raw[:start - len(b"## Unreleased\n")] + b"## " + version.encode("ascii") + b"\n" + raw[start:]
+
+
 def transformed_tree(root: Path, main: str, version: str) -> str:
     if HEX40.fullmatch(main) is None or oid(root, f"{main}^{{commit}}") != main:
         raise ValueError("reviewed main commit is malformed")
@@ -438,13 +548,14 @@ def transformed_tree(root: Path, main: str, version: str) -> str:
         if before in bootstrap:
             bootstrap = replace_once(bootstrap, before, after, "bootstrap diagnostic version")
     changes["install.sh"] = entries["install.sh"][0], bootstrap
-    for path in ("README.md", "docs/installation.md"):
-        if path in entries:
-            raw = blob(root, main, path)
-            # Only the canonical immutable install commands are release-generated prose.
-            before = f"https://raw.githubusercontent.com/snaplyze/arch-linux/{old}/install.sh".encode()
-            after = f"https://raw.githubusercontent.com/snaplyze/arch-linux/{version}/install.sh".encode()
-            changes[path] = entries[path][0], raw.replace(before, after)
+    for path in BOOTSTRAP_DOCUMENTS:
+        if path not in entries:
+            raise ValueError(f"release bootstrap document is missing: {path}")
+        changes[path] = entries[path][0], release_bootstrap_document(blob(root, main, path), path, version)
+    changes["README.md"] = entries["README.md"][0], release_overview(changes["README.md"][1], version)
+    if "CHANGELOG.md" not in entries:
+        raise ValueError("release changelog document is missing")
+    changes["CHANGELOG.md"] = entries["CHANGELOG.md"][0], release_changelog(blob(root, main, "CHANGELOG.md"), version)
     revisions = {}
     packages = blob(root, main, "repository/package-set").decode("ascii").splitlines()
     if len(packages) != len(set(packages)) or not packages:

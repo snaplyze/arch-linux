@@ -130,7 +130,7 @@ repo_dir="$output/repo/x86_64"
     --unsigned-manifest-sha256 "$unsigned_manifest_sha256" >/dev/null
 
 mapfile -t packages < <(repository_read_package_set "$repository_dir/package-set")
-[ "${#packages[@]}" -eq 6 ] || die 'VM package set must contain exactly six packages'
+[ "${#packages[@]}" -eq 7 ] || die 'VM package set must contain exactly seven packages'
 primary="$(repository_read_fingerprint "$repository_dir/trust/primary-fingerprint")"
 signing="$(repository_read_fingerprint "$repository_dir/trust/signing-subkey-fingerprint")"
 public_key_sha256="$(sha256sum --binary -- "$repository_dir/trust/arch-linux.gpg" | awk '{print $1}')"
