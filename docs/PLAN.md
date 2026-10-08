@@ -44,6 +44,14 @@ QEMU acceptance and protected-main delivery. Baseline: clean `main` / remote
   PR/main source CI. Full installer/release acceptance remains a separate run;
   this migration does not authorize replacing any published release assets.
 
+PR #61 live CI exposed three environment contracts absent from local probes:
+runner hooks require `.sh` filenames, the checkout leaf must permit traversal
+by container validation users, and this Docker runtime starts `docker exec`
+with umask `0000` (unlike `docker run`, which used `0022`). Hook names and the
+checkout leaf were corrected without changing private project-home permissions.
+Source preparation and validation now explicitly set `umask 022`; regression
+checks reject removing it. Package mode checks remain strict.
+
 The current release workflow starts after a successful main push CI, including
 workflow-only changes. The established documentation-publication procedure can
 avoid an unrelated installer release: first require successful exact-head PR CI,

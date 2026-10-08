@@ -159,6 +159,7 @@ jobs:
           SOURCE_TREE: ${{ inputs.source_tree }}
         run: |
           set -euo pipefail
+          umask 022
           canonical_source=/opt/arch-linux-canonical
           useradd --create-home --shell /bin/bash package-builder
           workspace_parent="$(dirname -- "${GITHUB_WORKSPACE}")"

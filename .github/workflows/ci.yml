@@ -59,6 +59,7 @@ jobs:
       - name: Prepare unprivileged source checker
         run: |
           set -euo pipefail
+          umask 022
           canonical_source=/opt/arch-linux-canonical
           workspace_parent="$(dirname -- "${GITHUB_WORKSPACE}")"
           source_parent="${workspace_parent}/arch-linux-source-validation"
@@ -162,6 +163,7 @@ jobs:
         working-directory: /opt/arch-linux-canonical
         run: |
           set -euo pipefail
+          umask 022
           checker_home="$(getent passwd source-checker | cut -d: -f6)"
           test -n "${checker_home}"
           runuser -u source-checker -- env -i \

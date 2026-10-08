@@ -204,6 +204,8 @@ def validate_ci(text: str) -> None:
                     'install -m0755 -o root -g root'):
         demand(literal in install_step, f'CI dependency contract differs: {literal}')
     prepare_step = block(text, steps[2], steps[3])
+    demand('set -euo pipefail\n          umask 022\n' in prepare_step,
+           'CI source checkout inherits an unsafe container exec umask')
     for literal in (
         f'canonical_source={CANONICAL_SOURCE}',
         'test -d /opt', 'test ! -L /opt',
@@ -267,6 +269,8 @@ def validate_ci(text: str) -> None:
            prepare_step.count('test ! -L "${checker_home}/.gitconfig"') >= 2,
            'CI temporary source trust is not removed')
     source_step = block(text, steps[3], steps[4])
+    demand('set -euo pipefail\n          umask 022\n' in source_step,
+           'CI source checks inherit an unsafe container exec umask')
     for literal in (
         PROTECTED_WORKDIR,
         'runuser -u source-checker -- env -i', *RUNNER_MARKERS,
@@ -327,6 +331,8 @@ def validate_packages(text: str) -> None:
     demand('useradd ' not in exact_step,
            'package user exists before protected source canonicalization')
     source_step = block(build_job, steps[3], steps[4])
+    demand('set -euo pipefail\n          umask 022\n' in source_step,
+           'package validation inherits an unsafe container exec umask')
     for literal in (
         PROTECTED_WORKDIR, f'canonical_source={CANONICAL_SOURCE}',
         'useradd --create-home --shell /bin/bash package-builder',
@@ -410,6 +416,11 @@ except ValueError as error:
 package_readback_container = packages.split("\n  readback:\n", 1)[1].split("    steps:\n", 1)[0]
 
 mutations = (
+    ('CI source checkout umask', validate_ci, ci, '          umask 022\n', '', 1),
+    ('CI source checks umask', validate_ci, ci,
+     'umask 022\n          checker_home=', 'umask 000\n          checker_home=', 1),
+    ('package source validation umask', validate_packages, packages,
+     '          umask 022\n', '', 1),
     ('CI masked system paths', validate_ci, ci,
      '--security-opt systempaths=unconfined', '', 1),
     ('package build masked system paths', validate_packages, packages,
