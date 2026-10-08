@@ -690,7 +690,10 @@ def diagnose(uid, gid, run_id, phase, checkpoint, account="vmtest"):
             if stat.S_ISREG(info.st_mode) and info.st_uid == 0 and info.st_nlink == 1 and not info.st_mode & 0o022 and 0 < info.st_size <= 16384:
                 raw = os.read(fd, 16385)
                 after = os.fstat(fd)
-                if info == after and len(raw) == info.st_size:
+                # Reading may update atime; identity and mutation-sensitive timestamps must stay fixed.
+                protected = ("st_dev", "st_ino", "st_mode", "st_uid", "st_gid", "st_nlink",
+                             "st_size", "st_mtime_ns", "st_ctime_ns")
+                if all(getattr(info, field) == getattr(after, field) for field in protected) and len(raw) == info.st_size:
                     digest = hashlib.sha256(raw).hexdigest()
         finally:
             os.close(fd)
