@@ -19,6 +19,7 @@ python3 tests/volatile-fstab-checks.py
 python3 tests/retained-multilib-checks.py
 bash tests/vm/harness-checks.sh
 python3 tests/vm/runtime-checks.py
+python3 tests/vm/gnome51-input-checks.py
 python3 tests/release-source-checks.py
 python3 tests/actions-release-checks.py
 python3 tests/actions-signing-checks.py

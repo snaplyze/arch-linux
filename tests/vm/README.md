@@ -49,10 +49,36 @@ common=(
 bash tests/vm/run.sh minimal-ext4-systemdboot "${common[@]}"
 bash tests/vm/run.sh stock-gnome-btrfs-luks2-plymouth-grub "${common[@]}"
 bash tests/vm/run.sh marble-gnome-btrfs-luks2-plymouth-systemdboot "${common[@]}" \
+  --gnome51-upgrade-inputs "$GNOME51_UPGRADE_INPUTS" \
+  --gnome51-upgrade-manifest-sha256 "$GNOME51_UPGRADE_MANIFEST_SHA256" \
   --legacy-release-assets "$LEGACY_RELEASE_ASSETS" \
   --legacy-release-version "$(jq -r .version tests/vm/legacy-marble-release.json)" \
   --legacy-snapshot-sha256 "$(jq -r .snapshotSha256 tests/vm/legacy-marble-release.json)"
 ```
+
+The main staged Marble case requires both `--gnome51-upgrade-inputs` and
+`--gnome51-upgrade-manifest-sha256`. Capture the digest directly from the trusted preparer execution:
+
+```bash
+GNOME51_UPGRADE_MANIFEST_SHA256="$(python3 tests/vm/prepare-gnome51-upgrade-inputs.py \
+  --source-root "$PWD" --output "$GNOME51_UPGRADE_INPUTS")"
+```
+
+Keep that captured digest as a separate trusted input; do not derive its authority by hashing a
+mutable manifest afterward. The harness verifies it before consuming inputs and revalidates the
+entire copied closure against the same digest before starting the private TLS server.
+That directory binds the authentic signed 1.0.6 six-package
+baseline, four actual pinned AUR packages built by disposable unprivileged builders, and the exact
+installer No Screenshot Box v6 archive. Other scenarios and public mode reject this input.
+
+After the existing GTK3 migration round trip, a separate GNOME51 phase installs this baseline with
+the new bundle absent, authenticates through GDM, and checks the four old extension failures.
+It records explicit non-default preference witnesses, then runs plain `pacman -Syu` against the
+signed candidate repository. A second actual password login must verify replacement of the four
+AUR owners, all eight extensions active, preserved settings, the original v6 file bytes and inodes
+retained outside extension discovery, and the candidate GDM resource isolation. No synthetic
+package database or missing-input shortcut satisfies this gate. The baseline and recovery receipts
+are retained in the compact scenario log; this source implementation is not an executed VM PASS.
 
 The main staged Marble case additionally requires the ten public legacy assets from the immutable
 release recorded in `legacy-marble-release.json`: build metadata, unsigned manifest, signed

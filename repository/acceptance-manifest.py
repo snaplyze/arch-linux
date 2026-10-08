@@ -49,6 +49,7 @@ HARNESS_FILES = (
     "tests/vm/run.sh", "tests/vm/frame-evidence.py", "tests/vm/qga-client.py",
     "tests/vm/https-server.py", "tests/vm/prepare-marble-repository.sh",
     "tests/vm/guest/bootstrap.sh", "tests/vm/guest/verify.sh",
+    "tests/vm/prepare-gnome51-upgrade-inputs.py", "tests/vm/gnome51-upgrade-baseline.json",
 )
 EXPECTED_ASSERTIONS = {
     SCENARIOS[0]: (
@@ -76,6 +77,7 @@ EXPECTED_ASSERTIONS = {
         "experimental-gdm-stock-fallback", "graphical-plymouth-unlock",
         "legacy-signed-package-migration", "fresh-user-gdm-gtk4-activation",
         "gtk4-libadwaita-light-dark-smoke",
+        "gnome51-signed-extension-owner-migration",
         "gdm-user-password-no-autologin", "first-gdm-login-wayland", "marble-shell-active",
         "colloid-gtk3-gtk4-icons-bibata", "user-themes-extension-profile",
         "gdm-process-scoped-overlays", "user-shell-overlay-isolation", "vendor-paths-clean",
@@ -632,7 +634,10 @@ def expected_run_names(read: Callable[[str, int], bytes], scenario: str) -> tupl
     top = set(RUN_FILES)
     if scenario == SCENARIOS[2]:
         top.update({"repository-runtime.sha256", "evidence/legacy-repository-manifest.json",
-                    "evidence/legacy-repository-manifest.json.sig"})
+                    "evidence/legacy-repository-manifest.json.sig",
+                    "evidence/gnome51-upgrade-manifest.json",
+                    "evidence/gnome51-upgrade-baseline-repository-manifest.json",
+                    "evidence/gnome51-upgrade-baseline-repository-manifest.json.sig"})
     names = top | {f"evidence/{name}" for name in EVIDENCE_FIXED | set(screenshots)}
     return names, result
 
@@ -770,6 +775,111 @@ def validate_legacy_manifest(read: Callable[[str, int], bytes], identity: dict[s
         fail("Marble legacy manifest signature differs")
 
 
+def validate_gnome51_upgrade_metadata(raw: bytes, commit: str, tree: str) -> dict[str, object]:
+    """Bind compact input receipts to the accepted harness and immutable old inputs."""
+    source = Path(__file__).resolve().parent.parent
+    pins = canonical_json(source / "tests/vm/gnome51-upgrade-baseline.json", "GNOME 51 baseline pins")
+    manifest = canonical_json_bytes(raw, "GNOME 51 upgrade input manifest")
+    exact_keys(manifest, {"schema", "baseline", "sourceCommit", "sourceTree", "files", "aur", "local"},
+               "GNOME 51 upgrade input manifest")
+    if (type(manifest["schema"]) is not int or manifest["schema"] != 1 or
+            manifest["sourceCommit"] != commit or manifest["sourceTree"] != tree or
+            manifest["baseline"] != pins["baseline"]):
+        fail("GNOME 51 upgrade input source or baseline differs")
+    expected_aur = [dict(row, filename="aur/" + row["name"] + "-" +
+                         row["version"].split(":", 1)[-1] + "-any.pkg.tar.zst") for row in pins["aur"]]
+    expected_local = {key: pins["local"][key] for key in ("filename", "sha256")}
+    if manifest["aur"] != expected_aur or manifest["local"] != expected_local:
+        fail("GNOME 51 upgrade recipe or local-extension identity differs")
+    files = manifest["files"]
+    expected_names = {"release/" + name for name in pins["release"]}
+    expected_names.update(row["filename"] for row in expected_aur)
+    expected_names.add(expected_local["filename"])
+    if not isinstance(files, dict) or set(files) != expected_names or len(files) != 15:
+        fail("GNOME 51 upgrade input file closure differs")
+    for name, record in files.items():
+        exact_keys(record, {"sha256", "size"}, "GNOME 51 upgrade input file")
+        digest = record["sha256"]
+        if (not isinstance(digest, str) or HEX64.fullmatch(digest) is None or digest == "0" * 64 or
+                not exact_int(record["size"], 1) or record["size"] > MAX_FILE):
+            fail("GNOME 51 upgrade input hash or size differs")
+        if name.startswith("release/") and record != pins["release"][name[len("release/"):]]:
+            fail("GNOME 51 upgrade immutable release object differs")
+    if files[expected_local["filename"]]["sha256"] != expected_local["sha256"]:
+        fail("GNOME 51 upgrade local-extension hash differs")
+    if sum(row["size"] for row in files.values()) > MAX_EVIDENCE:
+        fail("GNOME 51 upgrade input size budget exceeded")
+    return manifest
+
+
+def validate_gnome51_upgrade_evidence(read: Callable[[str, int], bytes],
+                                     result: dict[str, object], contract: dict[str, object]) -> tuple[str, list[str]]:
+    raw = read("evidence/gnome51-upgrade-manifest.json", MAX_JSON)
+    inputs = validate_gnome51_upgrade_metadata(raw, str(result["sourceCommit"]), str(result["sourceTree"]))
+    baseline = inputs["baseline"]
+    repository_raw = read("evidence/gnome51-upgrade-baseline-repository-manifest.json", MAX_JSON)
+    signature = read("evidence/gnome51-upgrade-baseline-repository-manifest.json.sig", MAX_JSON)
+    if (sha256_bytes(repository_raw) != baseline["repositoryManifestSha256"] or
+            sha256_bytes(signature) != baseline["repositoryManifestSignatureSha256"]):
+        fail("GNOME 51 upgrade signed baseline bytes differ")
+    manifest = canonical_json_bytes(repository_raw, "GNOME 51 baseline repository manifest")
+    exact_keys(manifest, SNAPSHOT_MANIFEST_KEYS, "GNOME 51 baseline repository manifest")
+    if (manifest["schema"] != 2 or type(manifest["schema"]) is not int or
+            manifest["repository"] != "arch-linux" or manifest["architecture"] != "x86_64" or
+            manifest["releaseVersion"] != baseline["version"] or
+            not exact_int(manifest["sourceDateEpoch"], 1)):
+        fail("GNOME 51 baseline repository identity differs")
+    for field in ("sourceCommit", "sourceTree", "buildMetadataSha256", "unsignedManifestSha256"):
+        if manifest[field] != baseline[field]:
+            fail("GNOME 51 baseline source or build identity differs")
+    for field in ("installerSha256", "packageSetSha256"):
+        if (not isinstance(manifest[field], str) or HEX64.fullmatch(manifest[field]) is None or
+                manifest[field] == "0" * 64):
+            fail("GNOME 51 baseline source hash differs")
+    fixed = {"arch-linux.db", "arch-linux.db.sig", "arch-linux.db.tar.gz", "arch-linux.db.tar.gz.sig",
+             "arch-linux.files", "arch-linux.files.sig", "arch-linux.files.tar.gz", "arch-linux.files.tar.gz.sig",
+             "arch-linux.gpg", "primary-fingerprint", "signing-subkey-fingerprint"}
+    packages = {name + "-" + version + "-any.pkg.tar.zst" for name, version in baseline["packages"].items()}
+    names = fixed | packages | {name + ".sig" for name in packages}
+    records = manifest["files"]
+    if not isinstance(records, list):
+        fail("GNOME 51 baseline repository object closure differs")
+    objects = {}
+    for record in records:
+        exact_keys(record, {"name", "sha256", "size"}, "GNOME 51 baseline repository object")
+        name, digest, size = record["name"], record["sha256"], record["size"]
+        if (not isinstance(name, str) or name not in names or name in objects or
+                not isinstance(digest, str) or HEX64.fullmatch(digest) is None or digest == "0" * 64 or
+                not exact_int(size, 1)):
+            fail("GNOME 51 baseline repository object differs")
+        objects[name] = record
+    if list(objects) != sorted(names):
+        fail("GNOME 51 baseline six-package closure differs")
+    current = {record["name"]: record for record in contract["objects"]}
+    for name in ("arch-linux.gpg", "primary-fingerprint", "signing-subkey-fingerprint"):
+        expected = dict(inputs["files"]["release/" + name], name=name)
+        if objects[name] != current[name] or objects[name] != expected:
+            fail("GNOME 51 baseline public trust differs")
+    with tempfile.TemporaryDirectory(prefix="arch-linux-upgrade-manifest-") as temporary:
+        root = Path(temporary)
+        (root / "public.gpg").write_bytes(contract["publicKeyRaw"])
+        (root / "manifest.json").write_bytes(repository_raw)
+        (root / "manifest.sig").write_bytes(signature)
+        checked = subprocess.run(["gpgv", "--homedir", temporary, "--status-fd", "1", "--keyring",
+                                  str(root / "public.gpg"), "--", str(root / "manifest.sig"),
+                                  str(root / "manifest.json")], capture_output=True, check=False)
+    status = checked.stdout.decode("ascii", errors="replace").splitlines()
+    valid = [line.split() for line in status if line.startswith("[GNUPG:] VALIDSIG ")]
+    rejected = re.compile(r"\[GNUPG:\] (?:BADSIG|ERRSIG|EXPKEYSIG|REVKEYSIG|EXPSIG)\b")
+    if (checked.returncode or len(valid) != 1 or len(valid[0]) < 12 or
+            valid[0][2] != contract["signingFingerprint"] or valid[0][-1] != contract["primaryFingerprint"] or
+            any(rejected.match(line) for line in status)):
+        fail("GNOME 51 baseline manifest signature differs")
+    rows = [f"gnome51_upgrade_input_sha256={record['sha256']} name={name} size={record['size']}"
+            for name, record in sorted(inputs["files"].items())]
+    return sha256_bytes(raw), rows
+
+
 def validate_identity_record(raw: bytes, result: dict[str, object], scenario: str, run_id: str,
                              version: str, expected: dict[str, str], contract: dict[str, object],
                              bootstrap_sha256: str, read: Callable[[str, int], bytes]) -> None:
@@ -845,6 +955,11 @@ def validate_identity_record(raw: bytes, result: dict[str, object], scenario: st
             legacy[key] = value
             cursor += 1
         validate_legacy_manifest(read, legacy, contract)
+        digest, rows = validate_gnome51_upgrade_evidence(read, result, contract)
+        upgrade_rows = [f"gnome51_upgrade_manifest_sha256={digest}", *rows]
+        if lines[cursor:cursor + len(upgrade_rows)] != upgrade_rows:
+            fail("GNOME 51 upgrade input identity rows differ")
+        cursor += len(upgrade_rows)
     if cursor != len(lines):
         fail("QEMU identity contains an unexpected row")
     if re.fullmatch(rf"ALI100{serial_letters[scenario]}[A-F0-9]{{12}}", str(result["targetSerial"])) is None:
@@ -905,6 +1020,9 @@ def validate_runtime_markers(read: Callable[[str, int], bytes], result: dict[str
             re.search(r"QEMU_HOST_FAIL|_QEMU_GUEST_FAIL|exit_status=[1-9]", log)):
         fail("QEMU compact scenario log lacks success or contains failure")
     if scenario == SCENARIOS[2]:
+        for marker in ("GNOME51_UPGRADE_BASELINE_PASS", "GNOME51_UPGRADE_RECOVERY_PASS"):
+            if len(re.findall(r"(?m)^" + marker + r"(?:[ \t].*)?$", log)) != 1:
+                fail("GNOME 51 upgrade real-session marker missing or repeated")
         expected_suffixes = (
             "/repository/repository.env", "/repository.contract", "/repository-ca.crt",
             "/repository-server.crt",

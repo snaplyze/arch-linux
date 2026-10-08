@@ -614,8 +614,8 @@ validator = next(node for node in parsed.body if isinstance(node, ast.FunctionDe
                  and node.name == "validate_identity_record")
 def rejected(message):
     raise ValueError(message)
-# This fixture isolates disk/run identity validation. Real signed legacy-manifest verification
-# and malformed/missing legacy evidence are exercised by repository-checks.sh.
+# This fixture isolates disk/run identity validation. Real signed legacy/upgrade-manifest
+# verification and malformed/missing evidence are exercised by repository-checks.sh.
 legacy_identity = {
     "legacy_release_version": "0.9.0", "legacy_snapshot_sha256": "a" * 64,
     "legacy_source_commit": "b" * 40, "legacy_source_tree": "c" * 40,
@@ -625,13 +625,19 @@ legacy_identity = {
 def legacy_manifest_dependency(read, identity, contract):
     require(identity == legacy_identity, "finalizer legacy identity forwarding")
 
+def upgrade_manifest_dependency(read, result, contract):
+    require(result["sourceCommit"] == "b" * 40 and result["sourceTree"] == "c" * 40,
+            "finalizer upgrade source identity forwarding")
+    return "a" * 64, []
+
 def unused_evidence_reader(name, limit):
     raise AssertionError("isolated identity fixture must not read manifest evidence")
 
 namespace = {"SCENARIOS": final_scenarios, "re": re, "fail": rejected,
              "VERSION": re.compile(r"[0-9]+\.[0-9]+\.[0-9]+"),
              "HEX40": re.compile(r"[a-f0-9]{40}"), "HEX64": re.compile(r"[a-f0-9]{64}"),
-             "validate_legacy_manifest": legacy_manifest_dependency}
+             "validate_legacy_manifest": legacy_manifest_dependency,
+             "validate_gnome51_upgrade_evidence": upgrade_manifest_dependency}
 exec("from __future__ import annotations\n" + ast.get_source_segment(acceptance, validator), namespace)
 
 def final_accepts(scenario, serial, model, run_id, recorded_run_id=None):
@@ -666,6 +672,7 @@ def final_accepts(scenario, serial, model, run_id, recorded_run_id=None):
     if scenario == final_scenarios[2]:
         rows.append(("repository_server_port", "12345"))
         rows.extend(legacy_identity.items())
+        rows.append(("gnome51_upgrade_manifest_sha256", digest))
     raw = "".join(f"{name}={value}\n" for name, value in rows).encode()
     try:
         namespace["validate_identity_record"](raw, result, scenario, run_id, "1.0.0", expected,
@@ -897,6 +904,7 @@ repository_public_key_sha256 target_disk_metadata'''.split()
 program = 'set -Eeuo pipefail\n' + verify.group() + '\n' + '\n'.join(
     name + '=fixture' for name in globals_used) + '''
 script_dir="$1" evidence="$2" response="$3" input_mode=staged marker_prefix=MINIMAL media_qualification=false
+gnome51_upgrade_manifest_sha256=-
 die() { exit 2; }
 qga_call() {
     if [[ "$1" = *guest-exec-status* ]]; then printf '%s\\n' "$response";

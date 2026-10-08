@@ -81,6 +81,7 @@ marble-gnome-btrfs-luks2-plymouth-systemdboot)
     case "${phase}" in
     gdm-activation-baseline | gdm-activation-check | prelogin | firstlogin | lock | unlock | update | postreboot-prelogin | secondlogin | \
         legacy-install | legacy-login | migration-update | migrated-login | \
+        gnome51-baseline-install | gnome51-baseline-login | gnome51-upgrade | gnome51-upgraded-login | \
         gtk4-app-smoke-light | gtk4-app-smoke-dark | fresh-user-prepare | \
         fresh-user-login | fresh-user-logout | return-user-login | \
         helper-failure | helper-restored-prelogin | helper-restored-login | \
@@ -1158,7 +1159,7 @@ verify_kernel_initramfs_pair() {
     # A full upgrade can replace disk modules while the old kernel still runs.
     # Require runtime pairing again after the following real reboot.
     case "${phase}" in
-    update | migration-update) ;;
+    update | migration-update | gnome51-upgrade) ;;
     *) [ "$(uname -r)" = "${kernel_release}" ] || return 1 ;;
     esac
     printf 'QEMU_KERNEL_PAIR run_id=%s phase=%s installed_release=%s running_release=%s package=linux systemd=%s mkinitcpio=%s\n' \
@@ -3868,6 +3869,252 @@ update_legacy_session_to_candidate() {
     emit_marble_action_pass legacy-to-candidate-syu-and-logout
 }
 
+gnome51_migration_state='/var/lib/arch-linux-marble/gnome51-migration'
+gnome51_migration_manifest='/var/lib/arch-linux-marble/gnome51-upgrade-manifest.json'
+
+gnome51_require_platform() {
+    local package version
+    [ "${input_mode}:${scenario}" = staged:marble-gnome-btrfs-luks2-plymouth-systemdboot ]
+    for package in gnome-shell mutter gdm; do
+        version="$(installed_package_version_exact "${package}")"
+        [[ "${version#*:}" = 51.* ]] || return 1
+    done
+    [ -f "${gnome51_migration_manifest}" ] && [ ! -L "${gnome51_migration_manifest}" ]
+    [ "$(stat -c '%u:%a' "${gnome51_migration_manifest}")" = 0:400 ]
+}
+
+gnome51_aur_packages() {
+    printf '%s\n' gnome-shell-extension-blur-my-shell gnome-shell-extension-clipboard-indicator \
+        gnome-shell-extension-dash-to-dock gnome-shell-extension-just-perfection-desktop
+}
+
+gnome51_preferences() {
+    local uid="$1"
+    run_in_user_session "${uid}" gsettings get org.gnome.desktop.interface clock-show-weekday
+    run_in_user_session "${uid}" gsettings get org.gnome.desktop.wm.preferences num-workspaces
+    run_in_user_session "${uid}" gsettings get org.gnome.shell enabled-extensions
+    run_in_user_session "${uid}" gsettings get org.gnome.shell disable-user-extensions
+}
+
+gnome51_download_inputs() {
+    local server="$1" name hash size destination
+    while IFS=$'\t' read -r name hash size; do
+        case "${name}" in aur/* | local/no-screenshot-box.zip) ;;
+        *) continue ;;
+        esac
+        [[ "${name}" =~ ^(aur|local)/[A-Za-z0-9+._-]+$ ]] || return 1
+        [[ "${hash}" =~ ^[a-f0-9]{64}$ && "${size}" =~ ^[1-9][0-9]*$ ]] || return 1
+        destination="${gnome51_migration_state}/inputs/${name}"
+        install -d -m0700 -- "${destination%/*}"
+        curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
+            --max-time 300 "${server}/gnome51-inputs/${name}" -o "${destination}"
+        [ "$(stat -c '%s' "${destination}")" = "${size}" ]
+        [ "$(sha256sum --binary -- "${destination}" | awk '{print $1}')" = "${hash}" ]
+        chmod 0400 -- "${destination}"
+    done < <(jq -r '.files | to_entries | sort_by(.key)[] | [.key,.value.sha256,(.value.size|tostring)] | @tsv' \
+        "${gnome51_migration_manifest}")
+}
+
+gnome51_verify_baseline_packages() {
+    local package version info actual expected
+    if package_installed_exact arch-linux-gnome-extensions; then return 1; fi
+    expected="$(jq -r '.baseline.packages | keys[]' "${gnome51_migration_manifest}" | LC_ALL=C sort)"
+    actual="$(pacman -Qq | sed -n '/^arch-linux-/p' | LC_ALL=C sort)"
+    [ "${actual}" = "${expected}" ]
+    while IFS=$'\t' read -r package version; do
+        [ "$(installed_package_version_exact "${package}")" = "${version}" ]
+        info="$(pacman -Qi -- "${package}")"
+        grep -Eq '^Validated By[[:space:]]*:[[:space:]]*Signature([[:space:]]|$)' <<<"${info}"
+        verify_package_qkk_zero "${package}" >/dev/null
+    done < <(jq -r '.baseline.packages | to_entries[] | [.key,.value] | @tsv' "${gnome51_migration_manifest}")
+    [ "$(jq '.aur | length' "${gnome51_migration_manifest}")" -eq 4 ]
+    [ "$(jq -r '.aur[].name' "${gnome51_migration_manifest}" | LC_ALL=C sort)" = "$(gnome51_aur_packages | LC_ALL=C sort)" ]
+    while IFS=$'\t' read -r package version; do
+        [ "$(installed_package_version_exact "${package}")" = "${version}" ]
+        verify_package_qkk_zero "${package}" >/dev/null
+        pacman -Ql -- "${package}" | grep -q '/usr/share/gnome-shell/extensions/'
+    done < <(jq -r '.aur[] | [.name,.version] | @tsv' "${gnome51_migration_manifest}")
+}
+
+gnome51_record_local_tree() {
+    python3 - "/home/${username}/.local/share/gnome-shell/extensions/no-screenshot-box@screenshot" \
+        "${gnome51_migration_state}/legacy.sha256" "${gnome51_migration_state}/local-tree.json" <<'GNOME51_TREE_PY'
+import hashlib, json, os, pathlib, stat, sys
+root, manifest, receipt = map(pathlib.Path, sys.argv[1:])
+expected = {}
+for line in manifest.read_text().splitlines():
+    digest, name = line.split('  ')
+    expected[name] = digest
+actual = {}; identities = {}
+assert root.is_dir() and not root.is_symlink()
+for directory, dirs, files in os.walk(root, followlinks=False):
+    for name in dirs + files:
+        path = pathlib.Path(directory) / name; info = path.lstat()
+        assert not stat.S_ISLNK(info.st_mode)
+        assert stat.S_ISDIR(info.st_mode) or stat.S_ISREG(info.st_mode)
+        if stat.S_ISREG(info.st_mode):
+            relative = path.relative_to(root).as_posix()
+            actual[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
+            identities[relative] = [info.st_dev, info.st_ino]
+assert actual == expected, 'installer-created local tree differs from known installed v6'
+receipt.write_text(json.dumps({'hashes': actual, 'identities': identities}, sort_keys=True) + '\n')
+GNOME51_TREE_PY
+}
+
+install_gnome51_baseline() {
+    local uid candidate_server server baseline_server package filename zip local_tree
+    local -a baseline_packages=() remove_packages=()
+    gnome51_require_platform
+    [ ! -e "${gnome51_migration_state}" ]
+    install -d -m0700 -- "${gnome51_migration_state}"
+    install -m0600 -- "${legacy_repository_file}" "${gnome51_migration_state}/candidate-repository.conf"
+    install -m0600 -- /usr/share/arch-linux-gnome-extensions/legacy-no-screenshot-box.sha256 \
+        "${gnome51_migration_state}/legacy.sha256"
+    while IFS= read -r package; do installed_package_record_exact "${package}"; done < <(marble_project_packages) |
+        LC_ALL=C sort >"${gnome51_migration_state}/candidate-packages.txt"
+    uid="$(id -u "${username}")"
+    wait_for_user_session >/dev/null
+    # Explicit non-default witnesses belong only to this disposable acceptance user.
+    run_in_user_session "${uid}" gsettings set org.gnome.desktop.interface clock-show-weekday true
+    run_in_user_session "${uid}" gsettings set org.gnome.desktop.wm.preferences num-workspaces 7
+    run_in_user_session "${uid}" gsettings set org.gnome.shell enabled-extensions \
+        "$(run_in_user_session "${uid}" gsettings get org.gnome.shell enabled-extensions)"
+    gnome51_preferences "${uid}" >"${gnome51_migration_state}/preferences.txt"
+    run_in_user_session "${uid}" gnome-session-quit --logout --no-prompt
+    wait_for_named_user_logout "${username}"
+    candidate_server="$(awk '$1 == "Server" && $2 == "=" {print $3; count++} END {if(count != 1) exit 1}' "${legacy_repository_file}")"
+    server="${candidate_server%/repo/\$arch}"
+    [ "${server}" != "${candidate_server}" ]
+    gnome51_download_inputs "${server}"
+    baseline_server="${server}/gnome51-baseline/\$arch"
+    printf '[arch-linux]\nSigLevel = PackageRequired DatabaseRequired TrustedOnly\nServer = %s\n' \
+        "${baseline_server}" >"${legacy_repository_file}"
+    mapfile -t baseline_packages < <(jq -r '.baseline.packages | keys[]' "${gnome51_migration_manifest}")
+    [ "${#baseline_packages[@]}" -eq 6 ]
+    mapfile -t remove_packages < <(marble_theme_packages)
+    pacman -Rdd --noconfirm arch-linux-gnome-extensions "${remove_packages[@]}"
+    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt pacman -Syy --noconfirm --disable-download-timeout "${baseline_packages[@]}"
+    local -a aur_files=()
+    while IFS= read -r filename; do
+        [[ "${filename}" =~ ^aur/[A-Za-z0-9+._-]+\.pkg\.tar\.(zst|xz|gz)$ ]] || return 1
+        aur_files+=("${gnome51_migration_state}/inputs/${filename}")
+    done < <(jq -r '.aur[].filename' "${gnome51_migration_manifest}")
+    [ "${#aur_files[@]}" -eq 4 ]
+    pacman -U --noconfirm -- "${aur_files[@]}"
+    local_tree="/home/${username}/.local/share/gnome-shell/extensions/no-screenshot-box@screenshot"
+    [ ! -e "${local_tree}" ] && [ ! -L "${local_tree}" ]
+    zip="$(mktemp "/home/${username}/.local/share/gnome-shell/gnome51-v6.XXXXXXXX.zip")"
+    install -o "${uid}" -g "$(id -g "${username}")" -m0400 -- \
+        "${gnome51_migration_state}/inputs/local/no-screenshot-box.zip" "${zip}"
+    runuser -u "${username}" -- env -u DBUS_SESSION_BUS_ADDRESS -u XDG_RUNTIME_DIR \
+        HOME="/home/${username}" XDG_DATA_HOME="/home/${username}/.local/share" \
+        gnome-extensions install --print-uuid "${zip}"
+    rm -f -- "${zip}"
+    runuser -u "${username}" -- glib-compile-schemas --strict "${local_tree}/schemas"
+    gnome51_verify_baseline_packages
+    gnome51_record_local_tree
+    systemctl restart gdm.service
+    wait_for_greeter >/dev/null
+    verify_marble_gdm_process stock "$(wait_for_greeter)"
+    touch "${gnome51_migration_state}/baseline-gdm-stock-proven"
+    emit_marble_action_pass gnome51-authenticated-baseline-and-actual-aur-installed
+}
+
+verify_gnome51_baseline_login() {
+    local uid session uuid info state failures=0 shell_pid
+    gnome51_require_platform
+    gnome51_verify_baseline_packages
+    [ -f "${gnome51_migration_state}/baseline-gdm-stock-proven" ]
+    session="$(wait_for_user_session)"; uid="$(id -u "${username}")"
+    [ "$(session_property "${session}" User)" = "${uid}" ]
+    [ "$(session_property "${session}" Service)" = gdm-password ]
+    [ "$(session_property "${session}" Type)" = wayland ]
+    shell_pid="$(wait_for_gnome_shell "${uid}")"
+    [ -n "${shell_pid}" ]
+    gnome51_preferences "${uid}" | cmp -s -- - "${gnome51_migration_state}/preferences.txt"
+    gnome51_record_local_tree
+    for uuid in blur-my-shell@aunetx clipboard-indicator@tudmotu.com no-screenshot-box@screenshot dash-to-dock@micxgx.gmail.com; do
+        info="$(run_in_user_session "${uid}" gnome-extensions info "${uuid}")"
+        state="$(sed -n 's/^[[:space:]]*State:[[:space:]]*//p' <<<"${info}")"
+        case "${state}" in 'OUT OF DATE' | OUT_OF_DATE | OUT-OF-DATE | ERROR) failures=$((failures + 1)) ;; *) return 1 ;; esac
+        printf 'GNOME_EXTENSION_DIAGNOSTIC run_id=%s phase=%s known_extension=%s expected=old-incompatible state=%s\n' \
+            "${run_id}" "${phase}" "${uuid}" "${state}"
+    done
+    [ "${failures}" -eq 4 ]
+    [ "$(/usr/lib/arch-linux-marble-gdm/update-compatibility --status)" = stock ]
+    printf 'GNOME51_UPGRADE_BASELINE_PASS run_id=%s project_packages=6 aur_owners=4 local_v6=exact login=gdm-password shell_major=51 old_incompatible=4 preferences=preserved\n' "${run_id}"
+    touch "${gnome51_migration_state}/baseline-login-proven"
+    emit_marble_action_pass gnome51-real-baseline-login-old-failures-proven
+}
+
+upgrade_gnome51_baseline() {
+    local uid
+    gnome51_require_platform
+    [ -f "${gnome51_migration_state}/baseline-login-proven" ]
+    gnome51_verify_baseline_packages
+    install -m0644 -- "${gnome51_migration_state}/candidate-repository.conf" "${legacy_repository_file}"
+    # This is the promised production update: no explicitly named new package or AUR helper.
+    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt pacman -Syu --noconfirm --disable-download-timeout
+    while IFS= read -r package; do installed_package_record_exact "${package}"; done < <(marble_project_packages) |
+        LC_ALL=C sort | cmp -s -- - "${gnome51_migration_state}/candidate-packages.txt"
+    while IFS= read -r package; do
+        if package_installed_exact "${package}"; then return 1; fi
+    done < <(gnome51_aur_packages)
+    verify_marble_packages
+    touch "${gnome51_migration_state}/transaction-proven"
+    uid="$(id -u "${username}")"
+    run_in_user_session "${uid}" gnome-session-quit --logout --no-prompt
+    wait_for_named_user_logout "${username}"
+    # Restart the actual greeter so its environment uses the just-upgraded scoped resource.
+    systemctl restart gdm.service
+    wait_for_greeter >/dev/null
+    verify_marble_greeter active
+    touch "${gnome51_migration_state}/candidate-gdm-scoped-proven"
+    emit_marble_action_pass gnome51-plain-syu-replaced-four-owners
+}
+
+verify_gnome51_recovery_login() {
+    local uid uuid info state
+    gnome51_require_platform
+    [ -f "${gnome51_migration_state}/baseline-login-proven" ]
+    [ -f "${gnome51_migration_state}/transaction-proven" ]
+    verify_marble_user_session marble
+    [ "$(session_property "$(wait_for_user_session)" Service)" = gdm-password ]
+    [ -f "${gnome51_migration_state}/candidate-gdm-scoped-proven" ]
+    [ "$(/usr/lib/arch-linux-marble-gdm/update-compatibility --status)" = active ]
+    uid="$(id -u "${username}")"
+    gnome51_preferences "${uid}" | cmp -s -- - "${gnome51_migration_state}/preferences.txt"
+    while IFS= read -r uuid; do
+        info="$(run_in_user_session "${uid}" gnome-extensions info "${uuid}")"
+        state="$(sed -n 's/^[[:space:]]*State:[[:space:]]*//p' <<<"${info}")"
+        case "${state}" in ENABLED | ACTIVE) ;; *) return 1 ;; esac
+    done < <(printf '%s\n' appindicatorsupport@rgcjonas.gmail.com blur-my-shell@aunetx caffeine@patapon.info \
+        clipboard-indicator@tudmotu.com dash-to-dock@micxgx.gmail.com just-perfection-desktop@just-perfection \
+        no-screenshot-box@screenshot user-theme@gnome-shell-extensions.gcampax.github.com)
+    python3 - "/home/${username}/.local/share/gnome-shell" "${gnome51_migration_state}/local-tree.json" <<'GNOME51_CUSTODY_PY'
+import hashlib, json, pathlib, re, sys
+root, receipt = map(pathlib.Path, sys.argv[1:]); expected = json.loads(receipt.read_text())
+assert not (root / 'extensions/no-screenshot-box@screenshot').exists()
+found = []
+for parent in root.iterdir():
+    if re.fullmatch(r'\.arch-linux-marble-custody-[0-9a-f]{32}', parent.name):
+        assert not parent.is_symlink()
+        tree = parent / 'no-screenshot-box@screenshot'
+        if not tree.is_dir() or tree.is_symlink(): continue
+        hashes = {}; identities = {}
+        for path in tree.rglob('*'):
+            assert not path.is_symlink()
+            if path.is_file():
+                name = path.relative_to(tree).as_posix(); info = path.stat()
+                hashes[name] = hashlib.sha256(path.read_bytes()).hexdigest()
+                identities[name] = [info.st_dev, info.st_ino]
+        if hashes == expected['hashes'] and identities == expected['identities']: found.append(tree)
+assert len(found) == 1, 'exact original directory/inodes must be retained outside extension discovery'
+GNOME51_CUSTODY_PY
+    printf 'GNOME51_UPGRADE_RECOVERY_PASS run_id=%s transaction=plain-pacman-Syu aur_owners=0 bundle=installed login=gdm-password extensions=8-active custody=original-inodes preferences=preserved gdm=scoped user_overlay=absent\n' "${run_id}"
+    emit_marble_action_pass gnome51-real-recovery-login-custody-settings-eight-active
+}
+
 user_executable_running() {
     local uid="$1" expected="$2" process owner executable
     for process in /proc/[0-9]*; do
@@ -4186,6 +4433,18 @@ run_marble_phase() {
         ;;
     migration-update)
         update_legacy_session_to_candidate
+        ;;
+    gnome51-baseline-install)
+        install_gnome51_baseline
+        ;;
+    gnome51-baseline-login)
+        verify_gnome51_baseline_login
+        ;;
+    gnome51-upgrade)
+        upgrade_gnome51_baseline
+        ;;
+    gnome51-upgraded-login)
+        verify_gnome51_recovery_login
         ;;
     gtk4-app-smoke-light)
         run_gtk4_app_smoke default

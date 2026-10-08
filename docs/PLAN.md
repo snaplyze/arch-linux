@@ -14,7 +14,7 @@ preserved. Existing immutable releases and their evidence must not be rewritten.
 | G51-02 | Prepare reviewed package/extension upgrade paths, preserve user overrides and safe unsupported-version handling; reproduce failures before fixes and test recovery. | IN_PROGRESS: seven-package candidate; actual upgrade acceptance pending |
 | G51-03 | Correct deterministic release documentation rendering; test independently differing source/document/release versions and preserve historical evidence. | DONE: deterministic overview/bootstrap/changelog rendering; 52 regressions PASS |
 | G51-04 | Update agent, update/release and user documentation with package delivery and real upgrade acceptance requirements. | DONE for local candidate; publication reconciliation remains conditional |
-| G51-05 | Independent diff review, affected checks and full source suite; record package, real session/VM and publication results separately. | Source/review PASS; real signed upgrade, GDM/VM and publication NOT_TESTED |
+| G51-05 | Independent diff review, affected checks and full source suite; record package, real session/VM and publication results separately. | Source/review and clean seven-package build PASS; real signed upgrade, GDM/VM and publication NOT_TESTED |
 
 Confirmed host evidence: GNOME Shell/Mutter/GDM 51.0; GTK 4.24.1 and libadwaita
 1.10.0. Installed Marble Shell/GDM remain 50.0.0-7/-8, profile 1.0.0-10.
@@ -55,6 +55,11 @@ initial candidate; recursive deletion was removed and 27 migration regressions
 now pass. Custody is a move, not an extra settings copy, and package removal does
 not erase or reactivate it.
 
+A read-only execution of the candidate's exact snapshot predicate against this
+machine's local No Screenshot Box passed: all six file hashes, both directories,
+ownership and safe modes match the supported legacy tree. This establishes its
+eligibility for migration, not execution of that migration.
+
 Upstream review: Dash to Dock 109 and Blur my Shell 74 have GNOME 51 catalog
 releases; Just Perfection 37 already supports 51. Clipboard Indicator uses the
 reviewed candidate from [upstream PR 641](https://github.com/Tudmotu/gnome-shell-extension-clipboard-indicator/pull/641)
@@ -87,11 +92,24 @@ reproduced the failure and passed after stripping the epoch. The historical
 six-package GTK3 verifier remains unchanged. Actual GDM package build and production
 archive verification passed (26 assets/eight licenses), archive SHA-256
 `fb6864f33f5e3848a7ecad120242d0e5f3bf589aa703382556b2192e70712038`.
-`bash tests/source-tests.sh` passed, including full repository namespaces with no
-deferrals, and `git diff --check` passed. A final run follows the checkpoint edit.
+`bash tests/source-tests.sh` passed for committed candidate `6b13bbd`, including
+full repository namespaces with no deferrals; source log SHA-256
+`020ee4630814f771412a97b2788aa034eef15aef66c94833a7d7e673831546a0`.
+`git diff --check` passed.
 The 29-page Markdown inventory retains historical identities and separates current
 candidate instructions. Generated release overviews/commands/changelog are tested
 against differing source, documentation and child versions.
+
+The complete canonical seven-package build and separate unsigned-build verification
+also passed for `6b13bbd`, in a disposable pinned Arch container with a non-root
+builder, read-only source and limits of two CPUs / 4 GiB. An independent host-side
+verifier passed and matched the clean source commit/tree, installer, package-set
+and unsigned-manifest hashes. The container was removed; public build artifacts
+and compact receipts remain under `/tmp/arch-linux-g51-canonical.t7zpjgm5` for the
+remaining bounded checks. Exact identities are in
+[validation](validation.md#gnome-51-candidate--2026-10-09). These are raw-source
+package revisions, not the future release child's upgrade revisions, production
+signatures or installed-system acceptance.
 
 Checkpoint: concurrent runner documentation and atime-only recovery fixes are
 preserved on main `bc135f0` (following PR #62). This task has made no host upgrade,
@@ -103,8 +121,39 @@ it does not construct the old four AUR owners or local No Screenshot Box copy.
 Its PASS must not close the new migration gate. Source is reviewable locally.
 GitHub rules for main currently require a pull request and successful `Source checks`;
 the checkout contract requires an owner exception before a PR branch is created.
-No branch exception has yet been supplied for this task. Canonical build and runtime receipts must bind
-the final committed tree; earlier scoped results cannot close those gates.
+No branch exception has yet been supplied for this task. The canonical unsigned
+build receipt binds `6b13bbd`; subsequent documentation edits do not relabel that
+receipt. The eventual release child still requires its own build, signatures,
+actual old-AUR/local-extension migration and runtime acceptance.
+
+Additional migration gate implemented locally: the original GTK3 test remains
+unchanged, with a separate mandatory staged transition from authenticated release 1.0.6, all four
+actual pinned AUR packages and the exact local extension to the signed candidate.
+The preparer builds AUR packages as a disposable unprivileged builder; the
+guest must prove that the bundle was absent, record user settings, perform actual
+GDM password logins before/after plain `pacman -Syu`, and verify replacement,
+custody, settings and active profile. The finalizer must require the new assertion
+and compact input/session evidence. Source/runtime fixtures and the strict
+repository consumer pass, including rejection of changed receipts, missing
+evidence and missing or repeated session markers. Independent review found that
+an input manifest could be rewritten with its AUR payload; consumption now
+requires the digest returned directly by trusted preparation, verified again
+after the input copy. Docker cleanup also handles timeout after daemon-side
+creation using the exact per-run ownership label. These checks do not establish
+actual migration or extension behavior: eight enabled states leave the separate
+Clipboard/Dash/Blur/No Screenshot Box functional checks open.
+Official AUR Git TLS failed; the official
+Arch AUR mirror reproduced all four existing archive, `.SRCINFO` and hardened
+PKGBUILD hashes without changing the trusted pins. Upstream source builds remain
+part of the actual input-preparation gate.
+
+Release-host diagnostic attempt for `6b13bbd`: ordinary and required-full-namespace
+repository modes passed in the disposable Arch container. The publication-root
+test then rejected the fixture because its dedicated signing account had not
+been provisioned; the two root keyring modes did not run. This is an incomplete
+test-environment attempt, not a five-command or production-signing PASS. The
+container was removed; the next integrated attempt must provision the same locked
+account as the configured release setup before running those checks.
 
 ## Local runner migration — 2026-10-08
 

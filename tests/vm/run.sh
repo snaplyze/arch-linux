@@ -25,6 +25,9 @@ input_mode=''
 media_qualification=false
 release_assets=''
 release_version=''
+gnome51_upgrade_inputs=''
+gnome51_upgrade_manifest_sha256='-'
+gnome51_upgrade_manifest_supplied=false
 legacy_release_assets=''
 legacy_release_version=''
 legacy_snapshot_sha256=''
@@ -111,6 +114,7 @@ usage() {
         '       --mode staged --release-assets ABSOLUTE_DIRECTORY --release-version VERSION' \
         '       --legacy-release-assets ABSOLUTE_DIRECTORY --legacy-release-version VERSION' \
         '       --legacy-snapshot-sha256 SHA256 (required for the main staged Marble scenario)' \
+        '       --gnome51-upgrade-inputs ABSOLUTE_DIRECTORY --gnome51-upgrade-manifest-sha256 SHA256' \
         '       [--target-disk-metadata absent|identified]' \
         '       --snapshot-sha256 SHA256 --build-metadata-sha256 SHA256 --unsigned-manifest-sha256 SHA256' \
         '       [--media-qualification] (public Minimal/ext4 or Stock/ext4 only)' \
@@ -147,6 +151,21 @@ validate_vm_mode_scenario() {
         public:true:minimal-ext4-systemdboot | public:true:stock-gnome-ext4-systemdboot) return 0 ;;
     *) die 'mode/scenario is outside the release acceptance matrix'; return 1 ;;
     esac
+}
+
+validate_gnome51_upgrade_input_scope() {
+    if [ "${input_mode}" = staged ] &&
+        [ "${scenario_id}" = marble-gnome-btrfs-luks2-plymouth-systemdboot ]; then
+        [[ "${gnome51_upgrade_inputs}" = /* ]] &&
+            [ -d "${gnome51_upgrade_inputs}" ] && [ ! -L "${gnome51_upgrade_inputs}" ] ||
+            { die 'main staged Marble requires safe absolute GNOME51 upgrade inputs'; return 1; }
+        [ "${gnome51_upgrade_manifest_supplied}" = true ] &&
+            [[ "${gnome51_upgrade_manifest_sha256}" =~ ^[a-f0-9]{64}$ ]] ||
+            { die 'main staged Marble requires the trusted preparer manifest SHA-256'; return 1; }
+    else
+        [ -z "${gnome51_upgrade_inputs}" ] && [ "${gnome51_upgrade_manifest_supplied}" = false ] ||
+            { die 'GNOME51 upgrade inputs are limited to main staged Marble'; return 1; }
+    fi
 }
 
 require_command() {
@@ -407,7 +426,7 @@ compact_run_evidence() {
         case "${candidate}" in
         *.ppm | *.request.json | *.start.json | *.status.json) continue ;;
         esac
-        grep -aEh '^[[:space:]]*([A-Z]+_QEMU_(READY|INSTALLER_EXIT|INSTALL_COMPLETE|NEIGHBOR_PRESERVED|ESP_COLLISION_REFUSAL_PASS|COLLISION_PROBE_READY|COLLISION_PROBE_EXIT|FAIL|GUEST_PASS)|QEMU_HOST_FAIL|QEMU_FAILURE_DIAGNOSTIC[[:space:]]|QEMU_DIAGNOSTIC_WARNING:|SCREENSHOT_WARNING:|GTK4_APP_(DIAGNOSTIC|LAUNCH_FAIL)|GTK4_SESSION_DIAGNOSTIC|SNAPSHOT_ENTRY_DIAGNOSTIC|SNAPSHOT_PREPARE_DIAGNOSTIC[[:space:]]|SNAPSHOT_UNIT_DIAGNOSTIC[[:space:]]|SNAPSHOT_RUNTIME_DIAGNOSTIC[[:space:]]|QEMU_BOOT_DIAGNOSTIC|GNOME_EXTENSION_DIAGNOSTIC|GNOME_SHELL_DIAGNOSTIC[[:space:]]|GDM_ACTIVATION_DIAGNOSTIC|exit_status=|qemu-img|signed repository checks passed|release asset checks passed)' \
+        grep -aEh '^[[:space:]]*([A-Z]+_QEMU_(READY|INSTALLER_EXIT|INSTALL_COMPLETE|NEIGHBOR_PRESERVED|ESP_COLLISION_REFUSAL_PASS|COLLISION_PROBE_READY|COLLISION_PROBE_EXIT|FAIL|GUEST_PASS)|QEMU_HOST_FAIL|QEMU_FAILURE_DIAGNOSTIC[[:space:]]|QEMU_DIAGNOSTIC_WARNING:|SCREENSHOT_WARNING:|GTK4_APP_(DIAGNOSTIC|LAUNCH_FAIL)|GTK4_SESSION_DIAGNOSTIC|SNAPSHOT_ENTRY_DIAGNOSTIC|SNAPSHOT_PREPARE_DIAGNOSTIC[[:space:]]|SNAPSHOT_UNIT_DIAGNOSTIC[[:space:]]|SNAPSHOT_RUNTIME_DIAGNOSTIC[[:space:]]|QEMU_BOOT_DIAGNOSTIC|GNOME51_UPGRADE_(BASELINE|RECOVERY)_PASS|GNOME_EXTENSION_DIAGNOSTIC|GNOME_SHELL_DIAGNOSTIC[[:space:]]|GDM_ACTIVATION_DIAGNOSTIC|exit_status=|qemu-img|signed repository checks passed|release asset checks passed)' \
             "${candidate}" 2>/dev/null || true
     done < <(find "${evidence}" -maxdepth 1 -type f -print0 | LC_ALL=C sort -z) |
         awk 'NR <= 2000 { print substr($0, 1, 4096) }' >>"${summary}" || return 1
@@ -420,6 +439,8 @@ compact_run_evidence() {
         *.ppm | scenario.log.gz | final-qemu-img-check.txt | no-qemu-process.txt | \
             repository-manifest.json | repository-manifest.json.sig | repository-objects.tsv | \
             legacy-repository-manifest.json | legacy-repository-manifest.json.sig | \
+            gnome51-upgrade-manifest.json | gnome51-upgrade-baseline-repository-manifest.json | \
+            gnome51-upgrade-baseline-repository-manifest.json.sig | \
             firstboot-qemu.identity | postreboot-qemu.identity | snapshot-qemu.identity | \
             snapshot-boot-diagnostic.txt | preseal-harness-check.txt) ;;
         *) rm -f -- "${candidate}" || return 1 ;;
@@ -437,6 +458,9 @@ remove_heavy_run_inputs() {
         "${run_root}/repository.contract" "${run_root}/public.contract" || return 1
     remove_exact_run_tree "${run_root}/payload" || return 1
     remove_exact_run_tree "${run_root}/repository" || return 1
+    if [ -e "${run_root}/gnome51-extracted" ]; then
+        remove_exact_run_tree "${run_root}/gnome51-extracted" || return 1
+    fi
     if [ -e "${run_root}/legacy-extracted" ] || [ -L "${run_root}/legacy-extracted" ]; then
         remove_exact_run_tree "${run_root}/legacy-extracted" || return 1
     fi
@@ -1440,6 +1464,41 @@ PY
     rmdir -- "${extracted}"
 }
 
+verify_gnome51_upgrade_inputs() {
+    python3 - "${repository_root}" "$1" "${gnome51_upgrade_manifest_sha256}" <<'GNOME51_INPUT_PY'
+import importlib.machinery, importlib.util, pathlib, sys
+root, directory = map(pathlib.Path, sys.argv[1:3]); expected_manifest_sha256 = sys.argv[3]
+loader = importlib.machinery.SourceFileLoader("gnome51_inputs", str(root / "tests/vm/prepare-gnome51-upgrade-inputs.py"))
+spec = importlib.util.spec_from_loader(loader.name, loader)
+module = importlib.util.module_from_spec(spec); sys.modules[loader.name] = module
+loader.exec_module(module)
+module.verify_inputs(root, directory, expected_manifest_sha256)
+GNOME51_INPUT_PY
+}
+
+prepare_gnome51_upgrade_input() {
+    local extracted repo
+    verify_gnome51_upgrade_inputs "${gnome51_upgrade_inputs}"
+    # Freeze public test bytes in the existing private TLS server; reverify the copy.
+    cp -a -- "${gnome51_upgrade_inputs}" "${repository_server_root}/gnome51-inputs"
+    gnome51_upgrade_inputs="${repository_server_root}/gnome51-inputs"
+    verify_gnome51_upgrade_inputs "${gnome51_upgrade_inputs}"
+    [ "$(sha256sum --binary -- "${gnome51_upgrade_inputs}/manifest.json" | awk '{print $1}')" = \
+        "${gnome51_upgrade_manifest_sha256}" ] || die 'GNOME51 frozen input manifest changed'
+    install -m0444 -- "${gnome51_upgrade_inputs}/manifest.json" "${evidence}/gnome51-upgrade-manifest.json"
+    install -m0444 -- "${gnome51_upgrade_inputs}/manifest.json" "${run_root}/payload/gnome51-upgrade-manifest.json"
+    extracted="${run_root}/gnome51-extracted"
+    python3 "${repository_root}/repository/safe-extract-snapshot.py" \
+        "${gnome51_upgrade_inputs}/release/arch-linux-repository-1.0.6.tar.zst" "${extracted}"
+    repo="${extracted}/repo/x86_64"
+    install -m0444 -- "${repo}/repository-manifest.json" \
+        "${evidence}/gnome51-upgrade-baseline-repository-manifest.json"
+    install -m0444 -- "${repo}/repository-manifest.json.sig" \
+        "${evidence}/gnome51-upgrade-baseline-repository-manifest.json.sig"
+    mv -- "${extracted}/repo" "${repository_server_root}/gnome51-baseline"
+    rmdir -- "${extracted}"
+}
+
 start_marble_repository_runtime() {
     local ca_sha server_url key_url readback_key
     repository_ca_private_key="${runtime_dir}/repository-ca.key"
@@ -1718,7 +1777,10 @@ capture_public_repository_evidence() {
 qga_verify() {
     local phase="$1" stem="$2"
     local request start guest_pid status_request status_response=''
-    local stdout_file stderr_file attempts=900
+    local stdout_file stderr_file attempts=900 upgrade_contract=''
+    if [ "${gnome51_upgrade_manifest_sha256}" != - ]; then
+        upgrade_contract="$(base64 -w0 -- "${evidence}/gnome51-upgrade-manifest.json")"
+    fi
     # Carry source bytes through QGA stdin, keeping exec arguments small. The fixed
     # loader reads FD 3 as its script and gives diagnostic commands /dev/null stdin.
     request="$(jq -cn --rawfile script "${script_dir}/guest/verify.sh" --arg phase "${phase}" \
@@ -1738,9 +1800,16 @@ qga_verify() {
         --arg legacy_release_version "${legacy_release_version:--}" \
         --arg legacy_profile_version "${legacy_profile_version:--}" \
         --arg legacy_gtk3_version "${legacy_gtk3_version:--}" --arg media_qualification "${media_qualification}" \
+        --arg upgrade_contract "${upgrade_contract}" --arg upgrade_hash "${gnome51_upgrade_manifest_sha256}" \
         --arg gdm_worker_baseline "${gdm_worker_baseline:--}" '
         {execute:"guest-exec",arguments:{path:"/usr/bin/bash","capture-output":true,
-          "input-data":($script | @base64),
+          "input-data":((if $upgrade_contract == "" then "" else
+            "set -Eeuo pipefail\np=/var/lib/arch-linux-marble/gnome51-upgrade-manifest.json\n" +
+            "if [ ! -e \"$p\" ]; then mkdir -p -- \"${p%/*}\"; printf %s " + $upgrade_contract +
+            " | base64 --decode >\"$p\"; chmod 0400 -- \"$p\"; fi\n" +
+            "[ -f \"$p\" ] && [ ! -L \"$p\" ]\n" +
+            "actual=$(sha256sum --binary -- \"$p\"); [ \"${actual%% *}\" = " + $upgrade_hash + " ]\n"
+            end) + $script | @base64),
           arg:["-c","exec 3<&0 </dev/null; exec /usr/bin/bash /dev/fd/3 \"$@\"","minimal-verify",$phase,$serial,$vendor,$model,$username,$scenario,$run_id,
             $repository_primary,$repository_signing,$input_mode,$release_version,$target_disk_metadata,$pages_url,$public_key_url,
             $snapshot_sha256,$source_commit,$source_tree,$installer_sha256,$package_set_sha256,
@@ -1753,7 +1822,7 @@ qga_verify() {
         die "QGA verification PID is invalid: ${phase}"
     status_request="$(jq -cn --argjson pid "${guest_pid}" \
         '{execute:"guest-exec-status",arguments:{pid:$pid}}')"
-    { [ "${phase}" = update ] || [ "${phase}" = migration-update ]; } && attempts=3600
+    { [ "${phase}" = update ] || [ "${phase}" = migration-update ] || [ "${phase}" = gnome51-upgrade ]; } && attempts=3600
     for ((attempt = 0; attempt < attempts; attempt++)); do
         if status_response="$(qga_call "${status_request}")" &&
             jq -e '.return.exited == true' <<<"${status_response}" >/dev/null; then
@@ -1940,6 +2009,12 @@ run_marble_acceptance() {
             'a newly created ordinary user authenticated through GDM and received automatic owned GTK4 CSS and an active user service before returning to the original user'
         record_assertion gtk4-libadwaita-light-dark-smoke \
             'Nautilus, Ptyxis, Settings and Boxes launched in the real session under light and dark color-scheme states; screenshots are diagnostic and do not prove visual equivalence'
+        qga_verify gnome51-baseline-install gnome51-baseline-install
+        marble_gdm_login gnome51-baseline-login gnome51-baseline
+        qga_verify gnome51-upgrade gnome51-upgrade
+        marble_gdm_login gnome51-upgraded-login gnome51-upgraded
+        record_assertion gnome51-signed-extension-owner-migration \
+            'authenticated six-package 1.0.6 baseline, four actual pinned AUR owners and installer v6 local copy migrated by plain signed pacman -Syu; real GDM login verified preserved preferences, original-directory custody and all eight active extensions'
     else
         marble_gdm_login firstlogin firstboot firstboot-gdm-password
     fi
@@ -2222,6 +2297,8 @@ main() {
         tests/vm/qga-client.py
         tests/vm/https-server.py
         tests/vm/prepare-marble-repository.sh
+        tests/vm/prepare-gnome51-upgrade-inputs.py
+        tests/vm/gnome51-upgrade-baseline.json
         tests/vm/guest/bootstrap.sh
         tests/vm/guest/verify.sh
     )
@@ -2312,6 +2389,10 @@ main() {
         --mode) [ "$#" -ge 2 ] || { usage; exit 2; }; input_mode="$2"; shift 2 ;;
         --release-assets) [ "$#" -ge 2 ] || { usage; exit 2; }; release_assets="$2"; shift 2 ;;
         --release-version) [ "$#" -ge 2 ] || { usage; exit 2; }; release_version="$2"; shift 2 ;;
+        --gnome51-upgrade-manifest-sha256)
+            [ "$#" -ge 2 ] && [ "${gnome51_upgrade_manifest_supplied}" = false ] || { usage; exit 2; }
+            gnome51_upgrade_manifest_sha256="$2"; gnome51_upgrade_manifest_supplied=true; shift 2 ;;
+        --gnome51-upgrade-inputs) [ "$#" -ge 2 ] || { usage; exit 2; }; gnome51_upgrade_inputs="$2"; shift 2 ;;
         --legacy-release-assets) [ "$#" -ge 2 ] || { usage; exit 2; }; legacy_release_assets="$2"; shift 2 ;;
         --legacy-release-version) [ "$#" -ge 2 ] || { usage; exit 2; }; legacy_release_version="$2"; shift 2 ;;
         --legacy-snapshot-sha256) [ "$#" -ge 2 ] || { usage; exit 2; }; legacy_snapshot_sha256="$2"; shift 2 ;;
@@ -2334,6 +2415,7 @@ main() {
     assert_forced_failure_result_contract
     [[ "${iso_path}" = /* && "${output_parent}" = /* ]] || die 'ISO and output paths must be absolute'
     validate_vm_mode_scenario
+    validate_gnome51_upgrade_input_scope
     [[ "${release_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die 'release version is malformed'
     case "${target_disk_metadata}" in
     absent | identified) ;;
@@ -2425,6 +2507,12 @@ main() {
     [ ! -e "${output_parent}" ] && install -d -m 0700 -- "${output_parent}"
     [ -d "${output_parent}" ] && [ ! -L "${output_parent}" ] || die 'output root is unsafe'
     [ "$(stat -Lc '%u:%a' -- "${output_parent}")" = "$(id -u):700" ] || die 'output root must be owned and mode 0700'
+    if [ -n "${gnome51_upgrade_inputs}" ]; then
+        [ -f "${gnome51_upgrade_inputs}/manifest.json" ] && [ ! -L "${gnome51_upgrade_inputs}/manifest.json" ] ||
+            die 'GNOME51 upgrade manifest is absent or unsafe'
+        [ "$(sha256sum --binary -- "${gnome51_upgrade_inputs}/manifest.json" | awk '{print $1}')" = \
+            "${gnome51_upgrade_manifest_sha256}" ] || die 'GNOME51 input manifest differs from trusted preparer SHA-256'
+    fi
     bind_frozen_inputs
     run_root="${output_parent}/${run_id}"
     [ ! -e "${run_root}" ] || die 'new run root already exists'
@@ -2452,6 +2540,7 @@ main() {
         prepare_signed_repository_input
         if [ "${scenario_id}" = marble-gnome-btrfs-luks2-plymouth-systemdboot ]; then
             prepare_legacy_repository_input
+            prepare_gnome51_upgrade_input
         fi
         snapshot_verification='INDEPENDENT_PASS'
     else
@@ -2479,10 +2568,15 @@ main() {
     if [ "${input_mode}" = staged ] && scenario_needs_repository "${scenario_id}"; then
         printf 'repository_server_port=%s\n' "${repository_server_port}" >>"${run_root}/identity.txt"
         if [ "${scenario_id}" = marble-gnome-btrfs-luks2-plymouth-systemdboot ]; then
+            {
             printf 'legacy_release_version=%s\nlegacy_snapshot_sha256=%s\nlegacy_source_commit=%s\nlegacy_source_tree=%s\nlegacy_manifest_sha256=%s\nlegacy_profile_version=%s\nlegacy_gtk3_version=%s\n' \
                 "${legacy_release_version}" "${legacy_snapshot_sha256}" "${legacy_source_commit}" \
                 "${legacy_source_tree}" "${legacy_manifest_sha256}" \
-                "${legacy_profile_version}" "${legacy_gtk3_version}" >>"${run_root}/identity.txt"
+                "${legacy_profile_version}" "${legacy_gtk3_version}"
+            printf 'gnome51_upgrade_manifest_sha256=%s\n' "${gnome51_upgrade_manifest_sha256}"
+            jq -r '.files | to_entries | sort_by(.key)[] | "gnome51_upgrade_input_sha256=" + .value.sha256 + " name=" + .key + " size=" + (.value.size|tostring)' \
+                "${evidence}/gnome51-upgrade-manifest.json"
+            } >>"${run_root}/identity.txt"
         fi
     elif [ "${input_mode}" = public ]; then
         printf 'bootstrap_url=%s\ninstaller_url=%s\npublic_key_url=%s\npages_url=%s\n' \
@@ -2534,6 +2628,9 @@ main() {
         elif scenario_needs_repository "${scenario_id}"; then
             sha256sum -- IDENTITY acceptance-ca.crt arch-linux-installer.sh b \
                 repository.contract >MANIFEST.sha256
+            if [ -f gnome51-upgrade-manifest.json ]; then
+                sha256sum -- gnome51-upgrade-manifest.json >>MANIFEST.sha256
+            fi
         else
             sha256sum -- IDENTITY arch-linux-installer.sh b >MANIFEST.sha256
         fi

@@ -26,6 +26,33 @@ source checks are in the plan. The legacy GTK3 VM scenario does not create the o
 four AUR extension owners or the user-local No Screenshot Box tree, so that
 existing scenario cannot establish the new upgrade's acceptance.
 
+The candidate now adds a separate mandatory staged 1.0.6-to-GNOME-51 migration
+with actual AUR build inputs, an independent manifest digest, password logins,
+preference/custody checks and exact package replacement through `pacman -Syu`.
+Its source regressions are separate from execution: no real VM result is recorded
+yet. Its eight-extension enabled-state check also leaves behavioral extension
+acceptance open.
+
+The full clean Arch build subsequently passed `repository/build-packages.sh` and
+`repository/verify-unsigned-build.sh` for all seven packages. A separate host-side
+unsigned-build verification passed and matched the clean committed inputs. The
+disposable container used the pinned Arch image
+`sha256:714acd1eef9ae997d95691b1c5220ada0076185b77857c1813f02de0fa83cf7b`,
+a non-root builder and read-only source; it was removed after completion.
+
+| Unsigned candidate binding | Exact value |
+| --- | --- |
+| Source commit | `6b13bbd993faca85fcdd20e40d8ae3993443182d` |
+| Source tree | `275464258dd8d4663c5d1265a91b991b18b7aa53` |
+| Build metadata SHA-256 | `8ba8ccf2619870623798263568304815513b11b1fa71688bb75484b3d7a13ac0` |
+| Unsigned manifest SHA-256 | `28f66a4bf871c29379354190ce37849fa9274a27129b556fcc12ac940f925f0b` |
+| Build and verification log SHA-256 | `416c5b2e37e9c7871afd006baef522090340b5da59ceb253343b9c0b28facb7f` |
+
+This receipt covers raw-source package revisions only. It does not establish
+the future release child's upgrade revisions, production signing, real package
+migration, GDM acceptance or public delivery. Later documentation edits preserve
+this original source identity.
+
 ## Verified release 1.0.6 — 2026-10-04
 
 [Configured run37214392242](https://github.com/snaplyze/arch-linux/actions/runs/37214392242)

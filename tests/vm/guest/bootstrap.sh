@@ -379,12 +379,22 @@ main() {
     else
         expected_names="$(printf '%s\n' IDENTITY MANIFEST.sha256 arch-linux-installer.sh b | LC_ALL=C sort)"
     fi
+    if [ -f "${payload_mount}/gnome51-upgrade-manifest.json" ]; then
+        expected_names="$(printf '%s\n%s\n' "${expected_names}" gnome51-upgrade-manifest.json | LC_ALL=C sort)"
+    fi
     actual_names="$(find "${payload_mount}" -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort)"
     [ "${actual_names}" = "${expected_names}" ] || fail 'payload closure is unexpected'
     [ -z "$(find "${payload_mount}" -mindepth 1 ! -type f -print -quit)" ] || fail 'payload has a special entry'
     (cd -- "${payload_mount}"; sha256sum --check --strict MANIFEST.sha256) >/dev/null || fail 'payload digest closure failed'
 
     load_identity "${payload_mount}/IDENTITY"
+    if [ -e "${payload_mount}/gnome51-upgrade-manifest.json" ]; then
+        [ "${IDENTITY[INPUT_MODE]}:${IDENTITY[SCENARIO]}" = \
+            staged:marble-gnome-btrfs-luks2-plymouth-systemdboot ] || fail 'upgrade contract is outside its scenario'
+    elif [ "${IDENTITY[INPUT_MODE]}:${IDENTITY[SCENARIO]}" = \
+        staged:marble-gnome-btrfs-luks2-plymouth-systemdboot ]; then
+        fail 'main staged Marble upgrade contract is absent'
+    fi
     case "${IDENTITY[INPUT_MODE]}" in
     staged)
         [ "${IDENTITY[MEDIA_QUALIFICATION]}" = false ] || fail 'staged media qualification is forbidden'
