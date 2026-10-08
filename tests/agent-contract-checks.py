@@ -281,6 +281,8 @@ def validate_ci(text: str) -> None:
     demand('bash "${GITHUB_WORKSPACE}' not in source_step,
            'CI executes source from the untrusted checkout')
     whitespace_step = block(text, steps[4], None)
+    demand('set -euo pipefail\n          umask 022\n' in whitespace_step,
+           'CI canonical readback inherits an unsafe container exec umask')
     for literal in (
         PROTECTED_WORKDIR, f'canonical_source={CANONICAL_SOURCE}',
         'runuser -u source-checker -- env -i',
@@ -376,6 +378,8 @@ def validate_packages(text: str) -> None:
            source_step.count('test ! -L "${builder_home}/.gitconfig"') >= 2,
            'package temporary source trust is not removed')
     build_step = block(build_job, steps[4], steps[5])
+    demand('set -euo pipefail\n          umask 022\n' in build_step,
+           'package canonical readback inherits an unsafe container exec umask')
     demand('useradd ' not in build_step, 'package builder is recreated after source validation')
     for literal in (
         PROTECTED_WORKDIR, f'canonical_source={CANONICAL_SOURCE}',
@@ -414,8 +418,14 @@ except ValueError as error:
     raise SystemExit(f'agent contract check failed: {error}') from error
 
 package_readback_container = packages.split("\n  readback:\n", 1)[1].split("    steps:\n", 1)[0]
+ci_whitespace_step = ci.split('      - name: Check whitespace\n', 1)[1]
+package_build_step = packages.split('      - name: Build as a temporary unprivileged user\n', 1)[1]
 
 mutations = (
+    ('CI canonical readback umask', validate_ci, ci, ci_whitespace_step,
+     ci_whitespace_step.replace('umask 022', 'umask 000', 1), 1),
+    ('package canonical readback umask', validate_packages, packages, package_build_step,
+     package_build_step.replace('umask 022', 'umask 000', 1), 1),
     ('CI source checkout umask', validate_ci, ci, '          umask 022\n', '', 1),
     ('CI source checks umask', validate_ci, ci,
      'umask 022\n          checker_home=', 'umask 000\n          checker_home=', 1),

@@ -176,6 +176,7 @@ jobs:
         working-directory: /opt/arch-linux-canonical
         run: |
           set -euo pipefail
+          umask 022
           canonical_source=/opt/arch-linux-canonical
           checker_home="$(getent passwd source-checker | cut -d: -f6)"
           test -n "${checker_home}"

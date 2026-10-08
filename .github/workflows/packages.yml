@@ -276,6 +276,7 @@ jobs:
           SOURCE_TREE: ${{ inputs.source_tree }}
         run: |
           set -euo pipefail
+          umask 022
           canonical_source=/opt/arch-linux-canonical
           install -d -m0755 -o package-builder -g package-builder /tmp/arch-linux-build
           builder_home="$(getent passwd package-builder | cut -d: -f6)"

@@ -49,8 +49,11 @@ runner hooks require `.sh` filenames, the checkout leaf must permit traversal
 by container validation users, and this Docker runtime starts `docker exec`
 with umask `0000` (unlike `docker run`, which used `0022`). Hook names and the
 checkout leaf were corrected without changing private project-home permissions.
-Source preparation and validation now explicitly set `umask 022`; regression
-checks reject removing it. Package mode checks remain strict.
+Source preparation, validation and canonical readback now explicitly set
+`umask 022`; regression checks reject removing it. The readback mask also
+prevents Git's index refresh from reopening `.git/index` with group/other write
+access. Both failures were reproduced in the pinned container; package and
+canonical source mode checks remain strict.
 
 The current release workflow starts after a successful main push CI, including
 workflow-only changes. The established documentation-publication procedure can
