@@ -147,6 +147,19 @@ Arch AUR mirror reproduced all four existing archive, `.SRCINFO` and hardened
 PKGBUILD hashes without changing the trusted pins. Upstream source builds remain
 part of the actual input-preparation gate.
 
+The expanded source candidate `79623c4` passed the full source suite, including
+121 VM fixture checks, 15 upgrade-input checks and full repository namespaces
+with no deferrals. Its source log SHA-256 is
+`57d5b5f32f4b4240e14b0e01de55803b36fe3bd9ec0dc42f3866bec318da3a8a`.
+Real input preparation then reproduced an outdated Arch keyring in the pinned
+container before any AUR build. Authenticated `archlinux-keyring` upgrade from
+20260727 to 20260909 passed in a disposable diagnostic container; preparation now
+requires it before the full system upgrade, following the
+[Arch package-signing guidance](https://wiki.archlinux.org/title/Pacman/Package_signing#Upgrade_system_regularly).
+Sequencing/failure fixtures pass. This does not relax package signature checks or
+establish successful preparation of the four AUR inputs; that execution remains
+pending. Both owned preparation/diagnostic containers were removed.
+
 Release-host diagnostic attempt for `6b13bbd`: ordinary and required-full-namespace
 repository modes passed in the disposable Arch container. The publication-root
 test then rejected the fixture because its dedicated signing account had not
@@ -154,6 +167,11 @@ been provisioned; the two root keyring modes did not run. This is an incomplete
 test-environment attempt, not a five-command or production-signing PASS. The
 container was removed; the next integrated attempt must provision the same locked
 account as the configured release setup before running those checks.
+The `79623c4` attempt provisioned that account and again passed both repository
+modes, but the sealed launcher's snapshot mode rejected the container boundary.
+The two keyring modes were not reached. Its exact cause is under investigation;
+neither a product failure nor a release-host PASS is inferred from the generic
+launcher error. The owned container was removed.
 
 ## Local runner migration — 2026-10-08
 

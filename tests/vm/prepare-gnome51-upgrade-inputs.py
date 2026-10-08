@@ -369,6 +369,7 @@ def builder_script(pins):
     script = '''set -euo pipefail
 pacman-key --init
 pacman-key --populate archlinux
+pacman -Sy --noconfirm --needed archlinux-keyring
 pacman -Syu --noconfirm --needed git jq gettext sassc gnome-shell
 useradd --create-home --home-dir /work/home --shell /bin/bash builder
 install -d -o builder -g builder -m 0755 /out /work/build

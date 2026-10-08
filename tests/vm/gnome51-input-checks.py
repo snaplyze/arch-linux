@@ -63,13 +63,14 @@ class InputChecks(unittest.TestCase):
         with tempfile.TemporaryDirectory() as t:
             directory=pathlib.Path(t); commands=directory/'bin';commands.mkdir()
             record=directory/'commands'
-            stub='#!/bin/sh\nprintf "%s" "${0##*/}" >> "$COMMAND_RECORD"\nfor arg do printf " %s" "$arg" >> "$COMMAND_RECORD"; done\nprintf "\\n" >> "$COMMAND_RECORD"\ncase "${0##*/}:$*" in\n  "pacman-key:--init") [ "$FAIL_STEP" != init ] || exit 17 ;;\n  "pacman-key:--populate archlinux") [ "$FAIL_STEP" != populate ] || exit 18 ;;\n  pkill:*|pgrep:*) exit 1 ;;\nesac\nexit 0\n'
+            stub='#!/bin/sh\nprintf "%s" "${0##*/}" >> "$COMMAND_RECORD"\nfor arg do printf " %s" "$arg" >> "$COMMAND_RECORD"; done\nprintf "\\n" >> "$COMMAND_RECORD"\ncase "${0##*/}:$*" in\n  "pacman-key:--init") [ "$FAIL_STEP" != init ] || exit 17 ;;\n  "pacman-key:--populate archlinux") [ "$FAIL_STEP" != populate ] || exit 18 ;;\n  "pacman:-Sy --noconfirm --needed archlinux-keyring") [ "$FAIL_STEP" != keyring ] || exit 19 ;;\n  pkill:*|pgrep:*) exit 1 ;;\nesac\nexit 0\n'
             for name in ('pacman-key','pacman','useradd','install','cp','chown','runuser','pkill','pgrep'):
                 path=commands/name;path.write_text(stub);path.chmod(0o755)
             for failure, expected_code, expected_prefix in (
-                ('none',0,['pacman-key --init','pacman-key --populate archlinux','pacman -Syu --noconfirm --needed git jq gettext sassc gnome-shell']),
+                ('none',0,['pacman-key --init','pacman-key --populate archlinux','pacman -Sy --noconfirm --needed archlinux-keyring','pacman -Syu --noconfirm --needed git jq gettext sassc gnome-shell']),
                 ('init',17,['pacman-key --init']),
-                ('populate',18,['pacman-key --init','pacman-key --populate archlinux'])):
+                ('populate',18,['pacman-key --init','pacman-key --populate archlinux']),
+                ('keyring',19,['pacman-key --init','pacman-key --populate archlinux','pacman -Sy --noconfirm --needed archlinux-keyring'])):
                 if record.exists(): record.unlink()
                 result=subprocess.run(['/usr/bin/bash','--noprofile','--norc'],input=M.builder_script(M.load_pins(ROOT)),text=True,capture_output=True,
                     env={'PATH':str(commands),'COMMAND_RECORD':str(record),'FAIL_STEP':failure})
