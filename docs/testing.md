@@ -4,6 +4,33 @@ A test result is valid only for the exact source tree and inputs that produced i
 statuses: `EXECUTED_PASS`, `EXECUTED_FAIL`, `REVIEWED_ONLY`, `NOT_RUN_ENVIRONMENT` or
 `NOT_APPLICABLE`.
 
+## Local runner environment
+
+All five workflows select `[self-hosted, Linux, X64, ubuntu-actions, arch-linux]`.
+The provisioned runner uses the existing Ubuntu 26.04 VM with 4 vCPU and 12 GiB
+guest RAM. Memory is allocated on demand and unused guest pages are returned to
+the host through virtio free-page reporting; Linux caches can remain resident.
+The QEMU matrix runs one scenario at a time. Desktop scenarios still require
+8 GiB available guest memory and 32 GiB free disk at their actual preflight.
+
+Host provisioning supplies QEMU/KVM, OVMF, genisoimage, jq, GnuPG, zstd, OpenSSL
+and libarchive-tools. The runner belongs to `kvm`; workflows neither install
+host packages nor widen device permissions or remove shared SDK/Docker data.
+Packages inside the pinned job containers are installed by those containers.
+The `arch-linux-ci` AppArmor profile permits user namespaces. Source/package
+containers additionally need the configured seccomp and systempaths options;
+the full namespace fixtures must pass without hosted deferral. Signing namespace
+preparation only probes this capability and never changes a host-global sysctl.
+
+Root-owned job hooks clean only this runner's fixed workspace and job temporary
+paths, rejecting symlinked ancestors and active mounts/containers. Runner
+credentials and tool cache are outside these cleanup paths. The project has a
+dedicated rootful Docker daemon; other projects retain their rootless daemons.
+Rootful Docker grants guest-root authority, so these accounts are not an isolation
+boundary between projects. External fork PR workflows require maintainer approval
+after code review (`all_external_contributors`). This persistent shared setup
+does not provide a fresh VM for each job.
+
 ## Required source suite
 
 ```bash

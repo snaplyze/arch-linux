@@ -20,10 +20,11 @@ defaults:
 jobs:
   source:
     name: Source checks
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, ubuntu-actions, arch-linux]
     timeout-minutes: 30
     container:
       image: ubuntu@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517
+      options: --security-opt apparmor=arch-linux-ci --security-opt seccomp=unconfined --security-opt systempaths=unconfined
     steps:
       - name: Install check dependencies
         run: |
@@ -165,8 +166,7 @@ jobs:
           test -n "${checker_home}"
           runuser -u source-checker -- env -i \
             HOME="${checker_home}" LANG=C LC_ALL=C PATH=/usr/local/bin:/usr/bin:/bin \
-            CI=true GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted \
-            ARCH_LINUX_ALLOW_HOSTED_NAMESPACE_DEFERRAL=github-hosted-container-v1 \
+            CI=true GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=self-hosted \
             RUNNER_TEMP="$(dirname -- "${GITHUB_WORKSPACE}")/arch-linux-source-temp" \
             bash "$(dirname -- "${GITHUB_WORKSPACE}")/arch-linux-source-validation/repo/tests/source-tests.sh"
 

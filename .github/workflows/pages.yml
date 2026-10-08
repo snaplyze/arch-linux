@@ -101,7 +101,7 @@ jobs:
     # Only this manual job receives it; API operations below are read-only.
     permissions:
       contents: write
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, ubuntu-actions, arch-linux]
     timeout-minutes: 20
     steps:
       - name: Check out verifier and public trust
@@ -112,11 +112,10 @@ jobs:
           fetch-tags: true
           ref: ${{ inputs.source_commit }}
 
-      - name: Install public verifier dependencies
+      - name: Check public verifier dependencies
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends gnupg zstd
+          for tool in gpg zstd; do command -v "${tool}" >/dev/null; done
 
       - name: Require exact source and annotated tag
         id: source_identity
@@ -324,7 +323,6 @@ jobs:
             --unsigned-manifest-sha256 "${UNSIGNED_MANIFEST_SHA256}"
           python3 repository/safe-extract-snapshot.py \
             "${assets}/${archive}" "${RUNNER_TEMP}/site"
-          rm -rf -- "${GH_CONFIG_DIR}" "${HOME}"
 
       - name: Upload verified Pages content
         uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4.0.0
@@ -337,7 +335,7 @@ jobs:
     permissions:
       pages: write
       id-token: write
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, ubuntu-actions, arch-linux]
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

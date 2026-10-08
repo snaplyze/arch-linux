@@ -186,7 +186,7 @@ fixture_kill() {
         spec.loader.exec_module(cls.adapter)
 
     def test_namespace_preparation_rejects_missing_or_foreign_release_context(self) -> None:
-        expected = {"CI": "true", "GITHUB_ACTIONS": "true", "RUNNER_ENVIRONMENT": "github-hosted",
+        expected = {"CI": "true", "GITHUB_ACTIONS": "true", "RUNNER_ENVIRONMENT": "self-hosted",
                     "GITHUB_REPOSITORY": "snaplyze/arch-linux", "GITHUB_WORKFLOW": "Release",
                     "GITHUB_JOB": "snapshot", "GITHUB_REF": "refs/heads/main"}
         cases = [{}] + [dict(expected, **{name: "foreign"}) for name in expected]
@@ -195,7 +195,7 @@ fixture_kill() {
                 completed = subprocess.run(["/usr/bin/bash", str(NAMESPACES)], env=context,
                                            capture_output=True, timeout=10, check=False)
                 self.assertEqual(completed.returncode, 1)
-                self.assertIn(b"namespace preparation requires the hosted Release signing job", completed.stderr)
+                self.assertIn(b"namespace preparation requires the self-hosted Release signing job", completed.stderr)
                 self.assertNotIn(b"ACTIONS_NAMESPACES_RESULT", completed.stdout)
 
     def test_namespace_preparation_rejects_secret_presence_without_echoing_bytes(self) -> None:
@@ -225,40 +225,32 @@ fixture_kill() {
                     "ARCH_LINUX_SIGNING_KEY: ${{ secrets.ARCH_LINUX_SIGNING_KEY }}")]
                 self.assertEqual(order, sorted(order))
 
-    def test_namespace_policy_failure_and_signals_restore_only_the_expected_state(self) -> None:
+    def test_namespace_probe_fails_closed_without_host_policy_mutation(self) -> None:
         source = NAMESPACES.read_text()
-        marker = "# Ubuntu's host AppArmor policy"
+        marker = "# The shared runner administrator"
         self.assertEqual(source.count(marker), 1)
         block = source[source.index(marker):]
-        assignment = "readonly policy=/proc/sys/kernel/apparmor_restrict_unprivileged_userns"
-        self.assertEqual(block.count(assignment), 1)
-        cases = [("return 0", 0, "0", None), ("return 1", 1, "1", None),
-                 ("exit 37", 37, "1", None),
-                 ('printf "1\\n" >"$policy"; exit 24', 24, "1", None),
-                 ('printf "7\\n" >"$policy"; exit 23', 23, "7", b"rollback refused unexpected policy state")]
-        cases.extend((f'kill -{name} "$$"', status, "1", None)
-                     for name, status in (("HUP", 129), ("INT", 130), ("TERM", 143)))
-        cases = [(*case, "") for case in cases]
-        wrong_initial_write = r'''printf() { if [[ "$1" = '0\n' ]]; then builtin printf '1\n'; else builtin printf "$@"; fi; }'''
-        wrong_restore_write = r'''printf() { if [[ "$1" = '1\n' ]]; then builtin printf '0\n'; else builtin printf "$@"; fi; }'''
-        cases.extend((("return 0", 1, "1", b"policy readback differs", wrong_initial_write),
-                      ("exit 37", 37, "0", b"policy rollback failed", wrong_restore_write)))
-        for probe, expected_status, expected_policy, diagnostic, write_fixture in cases:
-            with self.subTest(probe=probe), tempfile.TemporaryDirectory(prefix="namespace-policy-") as temporary:
-                policy = Path(temporary) / "policy"
-                policy.write_text("1\n")
-                bounded = block.replace(assignment, "readonly policy=" + shlex.quote(str(policy)), 1)
-                script = ('set -euo pipefail\n' + write_fixture + '\n'
+        self.assertNotIn("/proc/sys", source)
+        self.assertNotRegex(source, r"(?m)^\s*(?:/[^ ]*/)?sysctl\s")
+        cases = [("return 0", 0), ("return 1", 1), ("exit 37", 37)]
+        cases.extend((f'kill -{name} "$$"', -number)
+                     for name, number in (("HUP", 1), ("INT", 2), ("TERM", 15)))
+        for probe, status in cases:
+            with self.subTest(probe=probe):
+                script = ('set -euo pipefail\n'
                           'fail() { printf "ERROR: %s\\n" "$1" >&2; exit 1; }\n'
-                          f'probe() {{ {probe}; }}\n' + bounded)
-                completed = subprocess.run(["/usr/bin/bash", "-c", script], env={"PATH": "/usr/bin:/bin"},
+                          f'probe() {{ {probe}; }}\n' + block)
+                completed = subprocess.run(["/usr/bin/bash", "-c", script],
+                                           env={"PATH": "/usr/bin:/bin"},
                                            capture_output=True, timeout=10, check=False)
-                self.assertEqual(completed.returncode, expected_status)
-                self.assertEqual(policy.read_text().strip(), expected_policy)
-                if diagnostic is not None:
-                    self.assertIn(diagnostic, completed.stderr)
-                if expected_status != 0:
+                self.assertEqual(completed.returncode, status)
+                if status == 0:
+                    self.assertIn(b"ACTIONS_NAMESPACES_RESULT state=unchanged", completed.stdout)
+                else:
                     self.assertNotIn(b"ACTIONS_NAMESPACES_RESULT", completed.stdout)
+                if probe == "return 1":
+                    self.assertIn(b"configure the arch-linux-ci Docker AppArmor profile", completed.stderr)
+                    self.assertIn(b"host-global sysctl changes are forbidden", completed.stderr)
 
     def test_secret_protocol_is_bounded_and_exact(self) -> None:
         adapter = self.adapter
