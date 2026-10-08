@@ -73,10 +73,11 @@ jobs:
       artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
       build_metadata_sha256: ${{ steps.provenance.outputs.build_metadata_sha256 }}
       unsigned_manifest_sha256: ${{ steps.provenance.outputs.unsigned_manifest_sha256 }}
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, ubuntu-actions, arch-linux]
     timeout-minutes: 90
     container:
       image: archlinux:base-devel@sha256:714acd1eef9ae997d95691b1c5220ada0076185b77857c1813f02de0fa83cf7b
+      options: --security-opt apparmor=arch-linux-ci --security-opt seccomp=unconfined --security-opt systempaths=unconfined
     steps:
       - name: Install build dependencies
         run: |
@@ -158,6 +159,7 @@ jobs:
           SOURCE_TREE: ${{ inputs.source_tree }}
         run: |
           set -euo pipefail
+          umask 022
           canonical_source=/opt/arch-linux-canonical
           useradd --create-home --shell /bin/bash package-builder
           workspace_parent="$(dirname -- "${GITHUB_WORKSPACE}")"
@@ -249,8 +251,7 @@ jobs:
           runuser -u package-builder -- env -i \
             HOME="${builder_home}" USER=package-builder LOGNAME=package-builder \
             LANG=C LC_ALL=C PATH=/usr/local/bin:/usr/bin:/bin \
-            CI=true GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted \
-            ARCH_LINUX_ALLOW_HOSTED_NAMESPACE_DEFERRAL=github-hosted-container-v1 \
+            CI=true GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=self-hosted \
             RUNNER_TEMP="${source_temp}" \
             bash "${source_parent}/repo/tests/source-tests.sh"
           test -z "$(runuser -u package-builder -- env -i \
@@ -275,6 +276,7 @@ jobs:
           SOURCE_TREE: ${{ inputs.source_tree }}
         run: |
           set -euo pipefail
+          umask 022
           canonical_source=/opt/arch-linux-canonical
           install -d -m0755 -o package-builder -g package-builder /tmp/arch-linux-build
           builder_home="$(getent passwd package-builder | cut -d: -f6)"
@@ -359,10 +361,11 @@ jobs:
   readback:
     name: Read back canonical artifact
     needs: build
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, ubuntu-actions, arch-linux]
     timeout-minutes: 30
     container:
       image: archlinux:base-devel@sha256:714acd1eef9ae997d95691b1c5220ada0076185b77857c1813f02de0fa83cf7b
+      options: --security-opt apparmor=arch-linux-ci --security-opt seccomp=unconfined --security-opt systempaths=unconfined
     steps:
       - name: Install verifier dependencies
         run: |

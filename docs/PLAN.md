@@ -1,5 +1,72 @@
 # Project review and modernization implementation plan
 
+## Local runner migration — 2026-10-08
+
+Owner request: move all five GitHub Actions workflows for `snaplyze/arch-linux`
+to local runners while preserving source checks, package verification, signing,
+QEMU acceptance and protected-main delivery. Baseline: clean `main` / remote
+`cf1e46925756cd43ce2bb176ae26de6b6908ad70`; 18 job definitions still select
+`ubuntu-24.04`; the public repository has no registered local runner.
+
+- **DONE:** owner chose manual review before external fork PR execution.
+  GitHub `actions/permissions/fork-pr-contributor-approval` was updated and read
+  back as `all_external_contributors` (previously `first_time_contributors`).
+- **DONE (2026-10-09):** owner chose the existing shared `ubuntu-actions` VM.
+  After idle-only shutdown/start it has 4 vCPU / 12 GiB guest RAM, on-demand
+  allocation and virtio free-page reporting. A real 2 GiB allocation/release
+  changed host RSS from 2250 to 4302 to 2366 MiB; 1936 MiB was returned.
+  Same Boxes domain/UUID/disk retained. Guest time was about 584 seconds slow;
+  chrony now permits stepping after resume. All three existing runner services
+  recovered, including the stopped github-actions listener, without replacing credentials.
+- **DONE:** official runner 2.338.0 archive verified against its release SHA-256;
+  `ubuntu-actions-arch-linux` registered through a short-lived API token and
+  confirmed online. User `runner-arch-linux`, a private project home, project
+  tool cache and systemd service; no owner-supplied token or PAT copied to the VM.
+  Dedicated rootful Docker storage/socket; existing rootless daemons preserved.
+  QEMU/OVMF and host verifier dependencies installed; KVM group and an actual
+  device-open/API-version startup check replace Ubuntu's inaccurate external
+  `test -w` result. Cleanup fixture removed owned root files while preserving a
+  symlink target outside the job paths and rejecting the wrong caller.
+- **LOCAL:** all 18 workflow job definitions select project-specific self-hosted
+  labels. Host package installation, global SDK/Docker deletion and device chmod
+  removed; QEMU matrix limited to one job. Hosted namespace deferral removed;
+  dedicated container profiles permit the real namespace checks without changing
+  the shared host AppArmor sysctl. Final full source suite passed with
+  `namespace_fixtures=full`, `deferred=none`; actionlint 1.7.12 passed with the
+  two API-confirmed custom labels. Independent review found the KVM startup
+  check issue described above, corrected and verified by the actual operation.
+- **VM PROBES PASS:** real nested KVM initialized four CPUs and an 8 GiB guest;
+  QMP reported acceleration enabled. The pinned Ubuntu container's unprivileged
+  full namespace probe and the pinned Arch signing container's actual helper
+  both passed; host namespace sysctl remained 1. These are environment probes,
+  not installed-system or production-signing acceptance.
+- **DELIVERY GATE:** require protected-main publication and actual self-hosted
+  PR/main source CI. Full installer/release acceptance remains a separate run;
+  this migration does not authorize replacing any published release assets.
+
+PR #61 live CI exposed three environment contracts absent from local probes:
+runner hooks require `.sh` filenames, the checkout leaf must permit traversal
+by container validation users, and this Docker runtime starts `docker exec`
+with umask `0000` (unlike `docker run`, which used `0022`). Hook names and the
+checkout leaf were corrected without changing private project-home permissions.
+Source preparation, validation and canonical readback now explicitly set
+`umask 022`; regression checks reject removing it. The readback mask also
+prevents Git's index refresh from reopening `.git/index` with group/other write
+access. Both failures were reproduced in the pinned container; package and
+canonical source mode checks remain strict.
+
+The current release workflow starts after a successful main push CI, including
+workflow-only changes. The established documentation-publication procedure can
+avoid an unrelated installer release: first require successful exact-head PR CI,
+then squash with `[skip ci]`; explicitly dispatch CI against the merged main for
+separate verification (its event does not satisfy the release job's push gate).
+This does not establish QEMU, signing or release acceptance on the new runner.
+The shared persistent VM is not a disposable job boundary: approved workflows
+with rootful Docker access can control the guest. Fork approval requires actual
+code review; separate runner accounts do not isolate this authority from the
+other projects. Earlier product work and historical evidence below remain a
+separate scope.
+
 > Current mode (2026-10-04): owner-authorized autonomous implementation of the full registry.
 > Reuse completed agent setup, audit and planning outcomes; do not restart them.
 > Use bounded `codex-orchestrator` / `superpowers:subagent-driven-development`,

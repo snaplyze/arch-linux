@@ -29,7 +29,7 @@ jobs:
         github.event.workflow_run.event == 'push' &&
         github.event.workflow_run.head_branch == 'main' &&
         github.event.workflow_run.head_repository.full_name == github.repository))
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, ubuntu-actions, arch-linux]
     timeout-minutes: 30
     # Draft inventory requires push-level access; this job performs API reads only.
     permissions:
@@ -56,11 +56,10 @@ jobs:
           fetch-tags: true
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
-      - name: Install source and public verifier dependencies
+      - name: Check source and public verifier dependencies
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends jq gnupg zstd
+          for tool in jq gpg zstd; do command -v "${tool}" >/dev/null; done
 
       - name: Prepare immutable source and provenance
         id: source
@@ -126,11 +125,11 @@ jobs:
     name: Sign verified Phase-A snapshot
     needs: [prepare, build]
     environment: release
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, ubuntu-actions, arch-linux]
     timeout-minutes: 180
     container:
       image: archlinux:base-devel@sha256:714acd1eef9ae997d95691b1c5220ada0076185b77857c1813f02de0fa83cf7b
-      options: --init --privileged
+      options: --init --privileged --security-opt apparmor=arch-linux-ci --security-opt seccomp=unconfined
     outputs:
       snapshot_sha256: ${{ steps.provenance.outputs.snapshot_sha256 }}
     steps:
@@ -170,7 +169,7 @@ jobs:
             --release-version "${RELEASE_VERSION}" --bundle-sha256 "${BUNDLE_SHA256}" \
             --input-dir "${RUNNER_TEMP}/release-source"
 
-      - name: Prepare hosted namespaces before secret access
+      - name: Validate runner namespaces before secret access
         run: bash repository/prepare-actions-namespaces.sh
 
       - name: Protect and seal accepted source before secret access
@@ -270,10 +269,11 @@ jobs:
   qemu:
     name: QEMU staged / ${{ matrix.scenario }}
     needs: [prepare, build, snapshot]
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, ubuntu-actions, arch-linux]
     timeout-minutes: 330
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
         include:
           - scenario: minimal-ext4-systemdboot
@@ -321,28 +321,18 @@ jobs:
             --release-version "${RELEASE_VERSION}" --bundle-sha256 "${BUNDLE_SHA256}" \
             --input-dir "${RUNNER_TEMP}/release-source"
 
-      - name: Make room for VM disks on the disposable hosted runner
+      - name: Check provisioned VM dependencies
         run: |
           set -euo pipefail
-          test "${RUNNER_ENVIRONMENT}" = github-hosted
-          for sdk in /usr/local/lib/android /usr/share/dotnet /opt/ghc \
-            /usr/local/.ghcup /opt/hostedtoolcache/CodeQL; do
-            if [ -d "${sdk}" ] && [ ! -L "${sdk}" ]; then
-              sudo rm --recursive --force --one-file-system -- "${sdk}"
-            fi
+          for tool in qemu-system-x86_64 qemu-img genisoimage jq gpg zstd openssl bsdtar; do
+            command -v "${tool}" >/dev/null
           done
-          sudo docker image prune --all --force
+          test -r /dev/kvm && test -w /dev/kvm
+          test -d "/run/user/$(id -u)"
+          test "$(stat -c '%u:%a' "/run/user/$(id -u)")" = "$(id -u):700"
+          test -r /usr/share/OVMF/OVMF_CODE_4M.fd
+          test -r /usr/share/OVMF/OVMF_VARS_4M.fd
           df -h "${RUNNER_TEMP}"
-
-      - name: Install actual VM dependencies
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends \
-            qemu-system-x86 qemu-utils ovmf genisoimage jq gnupg zstd openssl libarchive-tools
-          command -v bsdtar
-          sudo chmod ugo+rw /dev/kvm
-          sudo install -d -m0700 -o "$(id -u)" -g "$(id -g)" "/run/user/$(id -u)"
 
       - name: Download exact signed staging assets
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
@@ -417,11 +407,11 @@ jobs:
     name: Sign acceptance and finalize exact eighteen assets
     needs: [prepare, build, snapshot, qemu]
     environment: release
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, ubuntu-actions, arch-linux]
     timeout-minutes: 180
     container:
       image: archlinux:base-devel@sha256:714acd1eef9ae997d95691b1c5220ada0076185b77857c1813f02de0fa83cf7b
-      options: --init --privileged
+      options: --init --privileged --security-opt apparmor=arch-linux-ci --security-opt seccomp=unconfined
     steps:
       - name: Install isolated signing dependencies
         run: |
@@ -459,7 +449,7 @@ jobs:
             --release-version "${RELEASE_VERSION}" --bundle-sha256 "${BUNDLE_SHA256}" \
             --input-dir "${RUNNER_TEMP}/release-source"
 
-      - name: Prepare hosted namespaces before secret access
+      - name: Validate runner namespaces before secret access
         run: bash repository/prepare-actions-namespaces.sh
 
       - name: Protect and seal accepted source before secret access
@@ -570,7 +560,7 @@ jobs:
       (needs.finalize.result == 'success' || needs.prepare.outputs.resume == 'true')
     name: Create annotated tag and verified draft
     needs: [prepare, finalize]
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, ubuntu-actions, arch-linux]
     timeout-minutes: 40
     permissions:
       contents: write
@@ -607,11 +597,10 @@ jobs:
             --release-version "${RELEASE_VERSION}" --bundle-sha256 "${BUNDLE_SHA256}" \
             --input-dir "${RUNNER_TEMP}/release-source"
 
-      - name: Install public verification dependencies
+      - name: Check public verification dependencies
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends gnupg zstd
+          for tool in gpg zstd; do command -v "${tool}" >/dev/null; done
 
       - name: Download unchanged finalized assets
         if: needs.prepare.outputs.resume != 'true'
@@ -689,7 +678,7 @@ jobs:
     if: always() && needs.prepare.result == 'success' && needs.draft.result == 'success' && needs.pages.result == 'success'
     name: Publish immutable release after verified Pages deployment
     needs: [prepare, draft, pages]
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, ubuntu-actions, arch-linux]
     timeout-minutes: 40
     permissions:
       contents: write
@@ -720,11 +709,10 @@ jobs:
             --release-version "${RELEASE_VERSION}" --bundle-sha256 "${BUNDLE_SHA256}" \
             --input-dir "${RUNNER_TEMP}/release-source"
 
-      - name: Install public verification dependencies
+      - name: Check public verification dependencies
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends gnupg zstd
+          for tool in gpg zstd; do command -v "${tool}" >/dev/null; done
 
       - name: Publish only reverified immutable release assets
         env:
@@ -742,7 +730,7 @@ jobs:
     if: always() && needs.prepare.result == 'success' && needs.draft.result == 'success' && needs.publish.result == 'success'
     name: Public release readback and real Marble VM
     needs: [prepare, draft, publish]
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, ubuntu-actions, arch-linux]
     timeout-minutes: 330
     steps:
       - name: Check out reviewed main
@@ -781,28 +769,18 @@ jobs:
           test "$(git cat-file -t "refs/tags/${RELEASE_VERSION}")" = tag
           test "$(git rev-parse "refs/tags/${RELEASE_VERSION}^{}")" = "${SOURCE_COMMIT}"
 
-      - name: Make room for VM disks on the disposable hosted runner
+      - name: Check provisioned public VM dependencies
         run: |
           set -euo pipefail
-          test "${RUNNER_ENVIRONMENT}" = github-hosted
-          for sdk in /usr/local/lib/android /usr/share/dotnet /opt/ghc \
-            /usr/local/.ghcup /opt/hostedtoolcache/CodeQL; do
-            if [ -d "${sdk}" ] && [ ! -L "${sdk}" ]; then
-              sudo rm --recursive --force --one-file-system -- "${sdk}"
-            fi
+          for tool in qemu-system-x86_64 qemu-img genisoimage jq gpg zstd openssl bsdtar; do
+            command -v "${tool}" >/dev/null
           done
-          sudo docker image prune --all --force
+          test -r /dev/kvm && test -w /dev/kvm
+          test -d "/run/user/$(id -u)"
+          test "$(stat -c '%u:%a' "/run/user/$(id -u)")" = "$(id -u):700"
+          test -r /usr/share/OVMF/OVMF_CODE_4M.fd
+          test -r /usr/share/OVMF/OVMF_VARS_4M.fd
           df -h "${RUNNER_TEMP}"
-
-      - name: Install public VM and verification dependencies
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends \
-            qemu-system-x86 qemu-utils ovmf genisoimage jq gnupg zstd openssl libarchive-tools
-          command -v bsdtar
-          sudo chmod ugo+rw /dev/kvm
-          sudo install -d -m0700 -o "$(id -u)" -g "$(id -g)" "/run/user/$(id -u)"
 
       - name: Independently verify unauthenticated release downloads
         env:

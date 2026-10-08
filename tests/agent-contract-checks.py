@@ -112,9 +112,8 @@ ARCH_CONTAINER = (
     '      image: archlinux:base-devel@sha256:'
     '714acd1eef9ae997d95691b1c5220ada0076185b77857c1813f02de0fa83cf7b'
 )
-HOSTED_MARKERS = (
-    'CI=true GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted',
-    'ARCH_LINUX_ALLOW_HOSTED_NAMESPACE_DEFERRAL=github-hosted-container-v1',
+RUNNER_MARKERS = (
+    'CI=true GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=self-hosted',
 )
 CANONICAL_SOURCE = '/opt/arch-linux-canonical'
 PROTECTED_WORKDIR = f'working-directory: {CANONICAL_SOURCE}'
@@ -167,7 +166,29 @@ def reject_global_wildcard(text: str, label: str) -> None:
         demand(literal not in text, f'{label} uses wildcard safe.directory')
 
 
+RUNNER_SELECTOR = 'runs-on: [self-hosted, Linux, X64, ubuntu-actions, arch-linux]'
+
+
+def validate_runner(text: str, *, require_systempaths: bool = False) -> None:
+    selectors = re.findall(r'^    runs-on:.*$', text, re.M)
+    demand(bool(selectors) and all(line.strip() == RUNNER_SELECTOR for line in selectors),
+           'workflow does not select the project self-hosted runner')
+    for forbidden in ('RUNNER_ENVIRONMENT=github-hosted', 'ARCH_LINUX_ALLOW_HOSTED_NAMESPACE_DEFERRAL',
+                      'sudo apt-get', 'docker image prune', 'docker system prune',
+                      'sudo rm ', 'rm -rf', 'sudo chmod', 'sudo install', '/opt/hostedtoolcache',
+                      '/proc/sys/kernel/apparmor'):
+        demand(forbidden not in text, f'shared runner unsafe operation: {forbidden}')
+    for container in re.findall(r'(?m)^    container:\n(?:      [^\n]*\n)+', text):
+        demand('--security-opt apparmor=arch-linux-ci' in container and
+               '--security-opt seccomp=unconfined' in container,
+               'container does not use provisioned namespace policy')
+        if require_systempaths:
+            demand('--security-opt systempaths=unconfined' in container,
+                   'source/package container masks proc paths required for namespace mounts')
+
+
 def validate_ci(text: str) -> None:
+    validate_runner(text, require_systempaths=True)
     demand(text.count(UBUNTU_CONTAINER) == 1, 'CI pinned Ubuntu container differs')
     steps = (
         '      - name: Install check dependencies\n',
@@ -183,6 +204,8 @@ def validate_ci(text: str) -> None:
                     'install -m0755 -o root -g root'):
         demand(literal in install_step, f'CI dependency contract differs: {literal}')
     prepare_step = block(text, steps[2], steps[3])
+    demand('set -euo pipefail\n          umask 022\n' in prepare_step,
+           'CI source checkout inherits an unsafe container exec umask')
     for literal in (
         f'canonical_source={CANONICAL_SOURCE}',
         'test -d /opt', 'test ! -L /opt',
@@ -246,9 +269,11 @@ def validate_ci(text: str) -> None:
            prepare_step.count('test ! -L "${checker_home}/.gitconfig"') >= 2,
            'CI temporary source trust is not removed')
     source_step = block(text, steps[3], steps[4])
+    demand('set -euo pipefail\n          umask 022\n' in source_step,
+           'CI source checks inherit an unsafe container exec umask')
     for literal in (
         PROTECTED_WORKDIR,
-        'runuser -u source-checker -- env -i', *HOSTED_MARKERS,
+        'runuser -u source-checker -- env -i', *RUNNER_MARKERS,
         'RUNNER_TEMP="$(dirname -- "${GITHUB_WORKSPACE}")/arch-linux-source-temp"',
         'arch-linux-source-validation/repo/tests/source-tests.sh',
     ):
@@ -256,6 +281,8 @@ def validate_ci(text: str) -> None:
     demand('bash "${GITHUB_WORKSPACE}' not in source_step,
            'CI executes source from the untrusted checkout')
     whitespace_step = block(text, steps[4], None)
+    demand('set -euo pipefail\n          umask 022\n' in whitespace_step,
+           'CI canonical readback inherits an unsafe container exec umask')
     for literal in (
         PROTECTED_WORKDIR, f'canonical_source={CANONICAL_SOURCE}',
         'runuser -u source-checker -- env -i',
@@ -275,6 +302,7 @@ def validate_ci(text: str) -> None:
 
 
 def validate_packages(text: str) -> None:
+    validate_runner(text, require_systempaths=True)
     build_job = text.split('\n  readback:\n', 1)[0]
     demand(build_job.count(ARCH_CONTAINER) == 1, 'package build container differs')
     steps = (
@@ -305,6 +333,8 @@ def validate_packages(text: str) -> None:
     demand('useradd ' not in exact_step,
            'package user exists before protected source canonicalization')
     source_step = block(build_job, steps[3], steps[4])
+    demand('set -euo pipefail\n          umask 022\n' in source_step,
+           'package validation inherits an unsafe container exec umask')
     for literal in (
         PROTECTED_WORKDIR, f'canonical_source={CANONICAL_SOURCE}',
         'useradd --create-home --shell /bin/bash package-builder',
@@ -326,7 +356,7 @@ def validate_packages(text: str) -> None:
         'runuser -u package-builder -- test ! -L',
         'runuser -u package-builder --',
         'find "${source_parent}/repo" -type f -links +1',
-        'runuser -u package-builder -- env -i', *HOSTED_MARKERS,
+        'runuser -u package-builder -- env -i', *RUNNER_MARKERS,
         'RUNNER_TEMP="${source_temp}"', 'bash "${source_parent}/repo/tests/source-tests.sh"',
     ):
         demand(literal in source_step, f'package source invocation differs: {literal}')
@@ -348,6 +378,8 @@ def validate_packages(text: str) -> None:
            source_step.count('test ! -L "${builder_home}/.gitconfig"') >= 2,
            'package temporary source trust is not removed')
     build_step = block(build_job, steps[4], steps[5])
+    demand('set -euo pipefail\n          umask 022\n' in build_step,
+           'package canonical readback inherits an unsafe container exec umask')
     demand('useradd ' not in build_step, 'package builder is recreated after source validation')
     for literal in (
         PROTECTED_WORKDIR, f'canonical_source={CANONICAL_SOURCE}',
@@ -378,18 +410,51 @@ packages = (ROOT / '.github/workflows/packages.yml').read_text(encoding='utf-8')
 try:
     validate_ci(ci)
     validate_packages(packages)
+    for name in ("release", "pages", "maintenance"):
+        validate_runner((ROOT / f".github/workflows/{name}.yml").read_text())
+    release = (ROOT / ".github/workflows/release.yml").read_text()
+    demand("      max-parallel: 1\n" in release, "QEMU matrix is not serialized")
 except ValueError as error:
     raise SystemExit(f'agent contract check failed: {error}') from error
 
+package_readback_container = packages.split("\n  readback:\n", 1)[1].split("    steps:\n", 1)[0]
+ci_whitespace_step = ci.split('      - name: Check whitespace\n', 1)[1]
+package_build_step = packages.split('      - name: Build as a temporary unprivileged user\n', 1)[1]
+
 mutations = (
+    ('CI canonical readback umask', validate_ci, ci, ci_whitespace_step,
+     ci_whitespace_step.replace('umask 022', 'umask 000', 1), 1),
+    ('package canonical readback umask', validate_packages, packages, package_build_step,
+     package_build_step.replace('umask 022', 'umask 000', 1), 1),
+    ('CI source checkout umask', validate_ci, ci, '          umask 022\n', '', 1),
+    ('CI source checks umask', validate_ci, ci,
+     'umask 022\n          checker_home=', 'umask 000\n          checker_home=', 1),
+    ('package source validation umask', validate_packages, packages,
+     '          umask 022\n', '', 1),
+    ('CI masked system paths', validate_ci, ci,
+     '--security-opt systempaths=unconfined', '', 1),
+    ('package build masked system paths', validate_packages, packages,
+     '--security-opt systempaths=unconfined', '', 1),
+    ('package readback masked system paths', validate_packages, packages,
+     package_readback_container,
+     package_readback_container.replace('--security-opt systempaths=unconfined', ''), 1),
+    ('CI runner selector', validate_ci, ci, RUNNER_SELECTOR, 'runs-on: ubuntu-24.04', 1),
+    ('CI namespace profile', validate_ci, ci, 'apparmor=arch-linux-ci', 'apparmor=docker-default', 1),
+    ('CI host sysctl write', validate_ci, ci, 'set -euo pipefail',
+     'set -euo pipefail\n          printf 0 >/proc/sys/kernel/apparmor_restrict_unprivileged_userns', 1),
+    ('CI global package install', validate_ci, ci, 'set -euo pipefail',
+     'set -euo pipefail\n          sudo apt-get install --yes qemu-system-x86', 1),
+    ('CI namespace deferral', validate_ci, ci, RUNNER_MARKERS[0],
+     RUNNER_MARKERS[0] + ' ARCH_LINUX_ALLOW_HOSTED_NAMESPACE_DEFERRAL=github-hosted-container-v1', 1),
+    ('CI global Docker prune', validate_ci, ci, 'set -euo pipefail', 'set -euo pipefail\n          sudo docker image prune --all --force', 1),
     ('CI container pin', validate_ci, ci, UBUNTU_CONTAINER,
      'container:\n      image: ubuntu:24.04', 1),
     ('CI protected source under writable runner mount', validate_ci, ci,
      f'canonical_source={CANONICAL_SOURCE}', 'canonical_source=/__w/arch-linux-canonical', None),
     ('CI unprivileged execution', validate_ci, ci,
      'runuser -u source-checker -- env -i', 'env -i', None),
-    ('CI hosted marker', validate_ci, ci, HOSTED_MARKERS[1],
-     'ARCH_LINUX_ALLOW_HOSTED_NAMESPACE_DEFERRAL=', 1),
+    ('CI hosted identity', validate_ci, ci, RUNNER_MARKERS[0],
+     'CI=true GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted', 1),
     ('CI canonical ownership', validate_ci, ci, 'chown -R root:root -- "${canonical_source}"',
      'chown -R source-checker:source-checker -- "${canonical_source}"', 1),
     ('CI first non-local clone', validate_ci, ci,
@@ -412,10 +477,10 @@ mutations = (
      'safe.directory "${canonical_source}"', 'safe.directory "*"', 1),
     ('package unprivileged execution', validate_packages, packages,
      'runuser -u package-builder -- env -i', 'env -i', None),
-    ('package hosted identity markers', validate_packages, packages, HOSTED_MARKERS[0],
-     'CI=true GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=self-hosted', 1),
-    ('package hosted deferral marker', validate_packages, packages, HOSTED_MARKERS[1],
-     'ARCH_LINUX_ALLOW_HOSTED_NAMESPACE_DEFERRAL=', 1),
+    ('package hosted deferral marker', validate_packages, packages, RUNNER_MARKERS[0],
+     RUNNER_MARKERS[0] + ' ARCH_LINUX_ALLOW_HOSTED_NAMESPACE_DEFERRAL=github-hosted-container-v1', 1),
+    ('package hosted identity markers', validate_packages, packages, RUNNER_MARKERS[0],
+     'CI=true GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted', 1),
     ('package protected source under writable runner mount', validate_packages, packages,
      f'canonical_source={CANONICAL_SOURCE}', 'canonical_source=/__w/arch-linux-canonical', None),
     ('package canonical ownership', validate_packages, packages,

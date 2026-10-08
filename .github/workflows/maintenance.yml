@@ -20,7 +20,7 @@ defaults:
 jobs:
   key-monitor:
     name: Public signing key lifetime advisory
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, ubuntu-actions, arch-linux]
     timeout-minutes: 5
     steps:
       - name: Check out public trust
@@ -42,7 +42,7 @@ jobs:
   source-monitor:
     if: github.event.schedule != '41 5 * * *'
     name: External source advisory
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, ubuntu-actions, arch-linux]
     timeout-minutes: 30
     outputs:
       iso_status: ${{ steps.iso.outputs.status || 'error' }}
@@ -81,10 +81,11 @@ jobs:
       matrix:
         name: [a, b]
     continue-on-error: true
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, ubuntu-actions, arch-linux]
     timeout-minutes: 90
     container:
       image: archlinux:base-devel@sha256:714acd1eef9ae997d95691b1c5220ada0076185b77857c1813f02de0fa83cf7b
+      options: --security-opt apparmor=arch-linux-ci --security-opt seccomp=unconfined
     steps:
       - name: Install build dependencies
         run: |
@@ -129,7 +130,7 @@ jobs:
       contents: read
       issues: write
     needs: [key-monitor, source-monitor, reproducibility]
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, ubuntu-actions, arch-linux]
     timeout-minutes: 20
     steps:
       - name: Check out source
@@ -137,12 +138,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install comparison dependency
+      - name: Check comparison dependency
         if: github.event.schedule != '41 5 * * *'
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends libarchive-tools
+          for tool in bsdtar; do command -v "${tool}" >/dev/null; done
 
       - name: Download source report
         if: github.event.schedule != '41 5 * * *'
