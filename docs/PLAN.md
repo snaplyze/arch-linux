@@ -4,9 +4,11 @@
 
 Owner request: move all five GitHub Actions workflows for `snaplyze/arch-linux`
 to local runners while preserving source checks, package verification, signing,
-QEMU acceptance and protected-main delivery. Baseline: clean `main` / remote
-`cf1e46925756cd43ce2bb176ae26de6b6908ad70`; 18 job definitions still select
-`ubuntu-24.04`; the public repository has no registered local runner.
+QEMU acceptance and protected-main delivery. Historical starting baseline:
+clean `main` / remote `cf1e46925756cd43ce2bb176ae26de6b6908ad70`; all 18 job
+definitions selected `ubuntu-24.04`, and the public repository had no registered
+local runner. The accepted migration is now on `main` at
+`7430a0b3e2b04ad66bd36a215eb1e494a404962a` ([PR #61](https://github.com/snaplyze/arch-linux/pull/61)).
 
 - **DONE:** owner chose manual review before external fork PR execution.
   GitHub `actions/permissions/fork-pr-contributor-approval` was updated and read
@@ -27,8 +29,9 @@ QEMU acceptance and protected-main delivery. Baseline: clean `main` / remote
   device-open/API-version startup check replace Ubuntu's inaccurate external
   `test -w` result. Cleanup fixture removed owned root files while preserving a
   symlink target outside the job paths and rejecting the wrong caller.
-- **LOCAL:** all 18 workflow job definitions select project-specific self-hosted
-  labels. Host package installation, global SDK/Docker deletion and device chmod
+- **DONE:** all 18 job definitions in the five workflows on accepted `main` select
+  `[self-hosted, Linux, X64, ubuntu-actions, arch-linux]`. Host package installation,
+  global SDK/Docker deletion and device chmod
   removed; QEMU matrix limited to one job. Hosted namespace deferral removed;
   dedicated container profiles permit the real namespace checks without changing
   the shared host AppArmor sysctl. Final full source suite passed with
@@ -40,9 +43,22 @@ QEMU acceptance and protected-main delivery. Baseline: clean `main` / remote
   full namespace probe and the pinned Arch signing container's actual helper
   both passed; host namespace sysctl remained 1. These are environment probes,
   not installed-system or production-signing acceptance.
-- **DELIVERY GATE:** require protected-main publication and actual self-hosted
-  PR/main source CI. Full installer/release acceptance remains a separate run;
-  this migration does not authorize replacing any published release assets.
+- **DONE — source CI and migration delivery:** protected-main [PR #61](https://github.com/snaplyze/arch-linux/pull/61)
+  merged after [Source CI 37850459758](https://github.com/snaplyze/arch-linux/actions/runs/37850459758)
+  passed for exact PR head `2825b37b28a57bdb77933c7328e2c86ce487f452` on
+  `ubuntu-actions-arch-linux`. [Manually dispatched main CI 37850869082](https://github.com/snaplyze/arch-linux/actions/runs/37850869082)
+  passed on the same runner for merged main `7430a0b3e2b04ad66bd36a215eb1e494a404962a`.
+  This establishes actual self-hosted source CI and delivery of all five workflow
+  selectors; it does not establish execution of their other jobs.
+- **NOT_RUN — product/runtime gates:** full installer scenarios, production signing,
+  release and public readback on this runner remain unrun. The 8 GiB nested KVM
+  result above covers initialization only; no published release assets were replaced.
+- **Documentation preparation — 2026-10-09:** owner requested README/testing/plan
+  reconciliation with this accepted state. The prepared scope uses the same
+  protected-main PR/check procedure and avoids triggering an unrelated release.
+  Local documentation/link checks (`python3 tests/docs-checks.py`, 29 Markdown
+  files) and `git diff --check` passed; no workflow, source, test or configuration
+  changes belong to this documentation follow-up.
 
 PR #61 live CI exposed three environment contracts absent from local probes:
 runner hooks require `.sh` filenames, the checkout leaf must permit traversal

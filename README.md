@@ -102,6 +102,12 @@ rotation procedure.
 
 ## Development verification
 
+All five GitHub Actions workflows use the project runner `ubuntu-actions-arch-linux`
+on the existing shared Ubuntu VM. PR and merged-main source CI passed for the
+[migration](docs/PLAN.md#local-runner-migration--2026-10-08). Full installer,
+production-signing and release acceptance on this runner remain unrun. See the
+[runner environment and operating boundaries](docs/testing.md#local-runner-environment).
+
 Historical `1.0.0` and `1.0.1` evidence remains associated with its original inputs, but their
 release/tag objects are retired and must not be used as current installation references. A successful
 configured release pipeline creates the next immutable release and verified Pages deployment from

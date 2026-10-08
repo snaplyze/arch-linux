@@ -6,10 +6,14 @@ statuses: `EXECUTED_PASS`, `EXECUTED_FAIL`, `REVIEWED_ONLY`, `NOT_RUN_ENVIRONMEN
 
 ## Local runner environment
 
-All five workflows select `[self-hosted, Linux, X64, ubuntu-actions, arch-linux]`.
+All 18 job definitions in the five workflows select
+`[self-hosted, Linux, X64, ubuntu-actions, arch-linux]`; their registered runner
+is `ubuntu-actions-arch-linux`.
 The provisioned runner uses the existing Ubuntu 26.04 VM with 4 vCPU and 12 GiB
-guest RAM. Memory is allocated on demand and unused guest pages are returned to
-the host through virtio free-page reporting; Linux caches can remain resident.
+guest RAM. Memory is allocated on demand, and virtio free-page reporting returns
+free guest pages to the host. A real 2 GiB allocation/release probe changed host
+RSS from 2250 to 4302 to 2366 MiB. This is a bounded reclamation measurement;
+Linux page caches can remain resident, and idle memory need not fall to zero.
 The QEMU matrix runs one scenario at a time. Desktop scenarios still require
 8 GiB available guest memory and 32 GiB free disk at their actual preflight.
 
@@ -18,9 +22,11 @@ and libarchive-tools. The runner belongs to `kvm`; workflows neither install
 host packages nor widen device permissions or remove shared SDK/Docker data.
 Packages inside the pinned job containers are installed by those containers.
 The `arch-linux-ci` AppArmor profile permits user namespaces. Source/package
-containers additionally need the configured seccomp and systempaths options;
-the full namespace fixtures must pass without hosted deferral. Signing namespace
-preparation only probes this capability and never changes a host-global sysctl.
+containers use `--security-opt apparmor=arch-linux-ci`,
+`--security-opt seccomp=unconfined` and `--security-opt systempaths=unconfined`.
+The last option permits the nested namespace's `/proc` mount; default Docker
+masked paths blocked it in the actual pinned Ubuntu image. The full namespace
+fixtures must pass without hosted deferral. Signing namespace preparation only probes this capability and never changes a host-global sysctl.
 
 Root-owned job hooks clean only this runner's fixed workspace and job temporary
 paths, rejecting symlinked ancestors and active mounts/containers. Runner
@@ -30,6 +36,32 @@ Rootful Docker grants guest-root authority, so these accounts are not an isolati
 boundary between projects. External fork PR workflows require maintainer approval
 after code review (`all_external_contributors`). This persistent shared setup
 does not provide a fresh VM for each job.
+
+Source preparation, validation and canonical readback explicitly set `umask 022`
+in their command shells. The shared runner's `docker exec` started
+with `0000`; Git index refresh can otherwise introduce group/other write access
+and fail the protected canonical-source checks. Preserve executable bits and
+normal source modes; do not solve a mode failure by weakening those checks or
+making the private project home public. The provisioned job hooks are executable
+`.sh` files.
+Do not add workflow-wide deletion of SDKs, Docker images, guest caches or arbitrary
+workspace paths. The hooks remove only the configured per-project workspace and
+job temporary paths after job containers stop and their boundaries are checked;
+they preserve the private project home, runner credentials and tool cache,
+other projects and symlink targets outside the owned paths.
+
+Migration acceptance on 2026-10-09:
+
+| Check | Exact source | Result |
+| --- | --- | --- |
+| [PR Source CI 37850459758](https://github.com/snaplyze/arch-linux/actions/runs/37850459758) | `2825b37b28a57bdb77933c7328e2c86ce487f452` | PASS on `ubuntu-actions-arch-linux` |
+| [Manually dispatched main CI 37850869082](https://github.com/snaplyze/arch-linux/actions/runs/37850869082) | `7430a0b3e2b04ad66bd36a215eb1e494a404962a` | PASS on the same runner after [PR #61](https://github.com/snaplyze/arch-linux/pull/61) merged |
+
+A nested KVM probe initialized four CPUs and an 8 GiB guest with acceleration
+reported enabled. That covers startup only. Full installer scenarios, production
+signing, release and public readback have not run on this runner. Source CI success
+also does not mean that all 18 job definitions have executed. Later edits require
+new results bound to their own exact source; migration evidence does not transfer.
 
 ## Required source suite
 
@@ -99,9 +131,9 @@ exact-14 Phase-A and exact-18 finalized closures. Release-host acceptance additi
 
 ## QEMU acceptance
 
-The Ubuntu release runners explicitly install `libarchive-tools`, which provides
-[`bsdtar`](https://manpages.ubuntu.com/manpages/noble/man1/bsdtar.1.html), and check its
-availability before both staged and public VM acceptance. The harness uses it to inspect
+Host provisioning installs `libarchive-tools`, which provides `bsdtar`. The staged
+and public VM jobs check its availability without installing packages on the
+persistent runner. The harness uses it to inspect
 signed package metadata during legacy Marble migration.
 
 Do not report QEMU PASS unless all of these are real and fresh:
