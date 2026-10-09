@@ -529,7 +529,7 @@ for name in ("capture_failure_diagnostic", "remove_secret_bearing_evidence", "co
     match=re.search(r"^"+name+r"\(\) \{\n.*?^\}",source,re.M|re.S)
     assert match, "missing production failure diagnostic helper: "+name
     functions.append(match.group())
-for case in ("installer", "guest", "credential", "unknown", "symlink", "oversize"):
+for case in ("installer", "guest", "credential", "tls-openssl", "tls-gnutls", "unknown", "symlink", "oversize"):
     with tempfile.TemporaryDirectory(prefix="qa-failure-diagnostic-") as tmp, tempfile.TemporaryDirectory(prefix="qa-failure-foreign-") as other:
         root=Path(tmp); evidence=root/"evidence"; evidence.mkdir(); secret="fixture-runtime-credential"
         phase="install-archiso" if case != "guest" else "firstboot"
@@ -537,6 +537,8 @@ for case in ("installer", "guest", "credential", "unknown", "symlink", "oversize
         if case=="installer":raw.write_text("error: target not found: private-package\nCommand 'secret command /hidden/key' failed with exit code 1 in function 'exec_install_packages' (line 4321)\n")
         elif case=="guest":raw.write_text("MINIMAL_QEMU_GUEST_FAIL phase=firstboot line=987 status=2 command=private-command\\ secret\n")
         elif case=="credential":raw.write_text("error: target not found: "+secret+"\nraw /hidden/key\n")
+        elif case=="tls-openssl":raw.write_text("fatal: unable to access 'https://"+secret+"@private.example/recipe.git/': TLS connect error: error:0A000126:SSL routines::unexpected eof while reading\n")
+        elif case=="tls-gnutls":raw.write_text("GnuTLS, handshake failed: The TLS connection was non-properly terminated. "+secret+" /hidden/key\n")
         elif case=="unknown":raw.write_text("raw /hidden/key token=value\n")
         elif case=="symlink":
             foreign=Path(other)/"foreign";foreign.write_text("error: target not found: "+secret+"\n");raw.symlink_to(foreign)
@@ -547,11 +549,12 @@ for case in ("installer", "guest", "credential", "unknown", "symlink", "oversize
         assert result.returncode==0,result.stderr
         summary=gzip.decompress((evidence/"scenario.log.gz").read_bytes()).decode()
         assert "QEMU_FAILURE_DIAGNOSTIC run_id=fixture phase="+phase in summary,summary
-        assert all(value not in summary for value in (secret,"private-package","private-command","secret command","/hidden/key","token=value")),summary
+        assert all(value not in summary for value in (secret,"private-package","private-command","secret command","/hidden/key","token=value","private.example")),summary
         assert len(summary.encode())<=4096 and len(summary.splitlines())<=33
         if case=="installer":assert "reason=package-missing" in summary and "line=4321 status=1" in summary,summary
         elif case=="guest":assert "script=guest reason=script-error line=987 status=2" in summary,summary
         elif case=="credential":assert "reason=package-missing" in summary,summary
+        elif case.startswith("tls-"):assert "reason=download" in summary and "reason=unclassified" not in summary,summary
         else:assert "reason=unclassified" in summary and "line=unknown status=unknown" in summary,summary
         assert not any(p.name.endswith((".log",".stderr",".txt")) and not p.is_symlink() for p in evidence.iterdir())
         if case=="symlink":assert foreign.read_text().endswith(secret+"\n")
@@ -574,7 +577,7 @@ for change, expected in (("atime","package-missing"),("mtime","unclassified"),("
         assert "reason="+expected in output,(change,output)
         assert "private-package" not in output
 print("typed failure metadata: atime-only acceptance and mtime/ctime rejection passed")
-print("typed failure diagnostics: 6 production compaction cases passed; raw command/secret retention rejected")
+print("typed failure diagnostics: 8 production compaction cases passed; raw command/secret retention rejected")
 PY_FAILURE_DIAGNOSTICS
 
 python3 - "${repo_root}" <<'PY_GNOME51_CLOSURE'

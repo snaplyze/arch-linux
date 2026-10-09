@@ -129,6 +129,11 @@ keyring use `core/any` endpoints, core binaries use `core/x86_64`, and linux-zen
 `extra/x86_64`. Extension tags are compared only within the recorded accepted Shell major;
 missing or malformed compatible versions are errors. Pinned upstream tag identity is checked
 separately from the latest release, so an unchanged accepted tag cannot hide a newer release.
+The installer can fall back from a failed AUR recipe clone to the package branch
+of the [official read-only Arch mirror](https://archlinux.org/news/recent-services-outages/).
+That is a transport fallback for the same pinned commit and content hashes, not a
+source update. Advisory AUR query failures still remain errors; do not report
+`unchanged` merely because another transport is available.
 Offline binding is mandatory:
 
 ```bash

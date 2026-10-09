@@ -365,7 +365,7 @@ if not re.fullmatch(r"[A-Za-z0-9-]{1,80}",run_id) or not re.fullmatch(r"[a-z0-9-
     raise SystemExit(1)
 classes=(
     ("package-missing", r"error: target not found:|could not find all required packages|could not resolve all dependencies"),
-    ("download", r"failed retrieving file|failed to download|Could not resolve host|Connection timed out|The requested URL returned error"),
+    ("download", r"failed retrieving file|failed to download|Could not resolve host|Connection timed out|The requested URL returned error|fatal: unable to access|TLS connect error|GnuTLS, handshake failed|unexpected eof while reading|TLS connection was non-properly terminated"),
     ("package-trust", r"invalid or corrupted package|unknown trust|invalid PGP|signature from .* is unknown"),
     ("package-conflict", r"conflicting dependencies|conflicting files|exists in filesystem"),
     ("disk-full", r"No space left on device"),
@@ -740,18 +740,21 @@ wait_for_install_outcome() {
     local file="$1" success_marker="$2" failure_marker="$3" timeout="$4"
     local deadline=$((SECONDS + timeout))
     while [ "${SECONDS}" -lt "${deadline}" ]; do
+        if [ -f "${file}" ] && {
+            grep -aFq -- "${failure_marker}" "${file}" ||
+                grep -aEq -- "^${marker_prefix}_QEMU_INSTALLER_EXIT status=[1-9][0-9]{0,2}"$'\r?''$' "${file}"
+        }; then
+            return 2
+        fi
         if [ -f "${file}" ] && grep -aFq -- "${success_marker}" "${file}"; then
             return 0
         fi
-        if [ -f "${file}" ] && grep -aFq -- "${failure_marker}" "${file}"; then
-            return 2
-        fi
         if [ -n "${qemu_pid}" ] && ! process_is_exact_qemu "${qemu_pid}" "${qemu_start_time}"; then
-            return 1
+            return 3
         fi
         if [[ "${serial_bridge_pid}" =~ ^[1-9][0-9]*$ ]] &&
             ! kill -0 "${serial_bridge_pid}" 2>/dev/null; then
-            return 1
+            return 4
         fi
         sleep 1
     done
@@ -2810,6 +2813,8 @@ main() {
         sleep 3
         die 'actual installer reported failure; its raw log was captured on the diagnostic serial port'
     fi
+    [ "${install_outcome}" -ne 3 ] || die 'QEMU stopped before the installer completion marker'
+    [ "${install_outcome}" -ne 4 ] || die 'installer serial bridge stopped before the completion marker'
     [ "${install_outcome}" -eq 0 ] || die 'actual installer did not complete within two hours'
     wait_qemu_exit install 300
     grep -aFq -- "${marker_prefix}_QEMU_INSTALLER_EXIT status=0" "${evidence}/install-serial.log" ||

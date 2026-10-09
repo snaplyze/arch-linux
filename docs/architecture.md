@@ -84,6 +84,12 @@ success and failure cleanup kill every descendant, prove the cgroup empty, then 
 and home. Strictly allowlisted `.SRCINFO` dependencies are installed in a separate root step;
 `makepkg` runs with `--nodeps`, and only copied root-staged package bytes with the exact requested
 identity are passed to `pacman -U`.
+Recipe retrieval first uses AUR HTTPS. If that clone fails, the same builder may
+clone the package branch of Arch's official read-only GitHub mirror into a distinct
+attempt directory. Both transports must resolve the pinned commit and pass the
+unchanged archive, committed `.SRCINFO` and hardened PKGBUILD hashes before use;
+neither transport nor branch HEAD authorizes new recipe bytes. TLS verification,
+builder isolation and final package verification remain mandatory.
 UID-emptiness and readback probes check `find` status as well as output; an inventory error
 refuses the handoff. [SAFE-02](PLAN.md#safe-02--fail-closed-on-idle-probe-errors) records the correction.
 
