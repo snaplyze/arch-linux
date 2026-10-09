@@ -2245,6 +2245,25 @@ Complete final working-tree suite log SHA-256:
 `0c4342ecb9ee7b37faf57a13a9d598701352ab8707073379e8b8a9e312e3656c`.
 Protected exact-head CI, fresh main/build/VM/public delivery remain required;
 no new release is claimed.
+[PR80](https://github.com/snaplyze/arch-linux/pull/80) holds clean candidate
+`ba63e63f372595bf64b0052e39cfd06ae40a1e65`, tree
+`5e87a40a9d071d62cbe8643efa5d2b976bd934c1`, canonical source SHA-256
+`a1d7d39900a69114f015ac7e1d1a91b6c2a60f72d7b446c18a8be5a3c515361f`.
+Required exact-head CI 37992671357/job 114030600961 passed all source checks,
+including seventeen archive tests, 152 runtime tests and full namespace/signer/
+14+18/no-deferral acceptance. Complete CI log SHA-256:
+`67127037cf121a95669b54a42ea6edb215d481d1150386642201626b2ba9147b`.
+The required check belongs to app 15368 and the exact accepted head. Live head/
+base, CLEAN/MERGEABLE state and all review threads (none) were rechecked before
+protected squash merge at 21:23:10 UTC. Main
+`6ef601b805325f9e886c335a48a16366a96e3797` has the accepted tree/canonical hash.
+The sole checkout returned through fast-forward fetch, preserving the empty
+index and exact SHA-256 of both root-owned post-candidate documents. Fresh main
+CI 37993132347/job 114032185995 passed the full required suite, including full
+namespace repository acceptance. Complete main-CI log SHA-256:
+`a21aeb3fd2fd399684f1a96f5eab6ee8cec9db4eedf137e03979213c8607dc08`.
+New child/build/VM/public gates remain required; public latest stays 1.0.6
+and the workstation is unchanged.
 
 The additional `python3 maintenance/check-sources.py --network --report ...`
 advisory observed forty sources at `2026-10-09T11:21:02+00:00`: fourteen unchanged,
@@ -2293,6 +2312,220 @@ text retains its earlier byte-identity decision. These are scoped review results
 not new PTY or VM results. The monitor's GNOME 50 accepted observations remain
 unchanged pending the actual GNOME 51 upgrade, GDM and public-delivery gates;
 supported profile tuples and accepted advisory observations are distinct.
+
+## Prepared release 1.0.7 — archive deadline and filtered lifecycle candidate
+
+[Release 37993529797](https://github.com/snaplyze/arch-linux/actions/runs/37993529797)
+started after successful main CI for `6ef601b805325f9e886c335a48a16366a96e3797`,
+tree `5e87a40a9d071d62cbe8643efa5d2b976bd934c1`. Prepare job 114033566501,
+clean build 114033659829 and protected unsigned readback 114035580665 passed.
+Independent source transport readback
+and deterministic child transformation passed:
+
+- source child: `a5cb4b5859fc82918e2b8c7b8f5c897b7a62a376`;
+- source tree: `039c18216f7c47c0e3469df47da65052cdaeef44`;
+- canonical source SHA-256: `34fe262d3a202e46dedee283e43b38bf3342db40f6698d422018900c6a9a1849`;
+- source artifact 11645787579 ZIP SHA-256: `4fda86dacaf8721f8a71867b8b5addec187e605b80a06c0eb80421d2383b19dc`;
+- bundle SHA-256: `1f6c3cbb14b142cf7013d700dc47cfb57bb08718ef8efb2fa73850036300ccb7`;
+- installer SHA-256: `e6228b0f655d5551eaf5cc8d085ea8111b24df3930b27cc78700d0944432ff71`;
+- frozen ten-file harness SHA-256: `98731115e4df3004378c69134a0cb38a23d14b4e6d80e55b5f7e51d334219995`.
+
+Independent unsigned artifact readback passed separately from the full Git-bound
+CI entrypoint: artifact 11646058244, 6,133,654 bytes, ZIP SHA-256
+`8d2d1f3afcbaf583dadd829b084373eed4d83d1d7ce646d4fc02568b9946207b`;
+BUILD metadata SHA-256
+`3e60a6d2e8f488081137ac145d27667af09276c35b26bd9b7258aa6cc4f064e4`;
+UNSIGNED manifest SHA-256
+`cec8557a6db3f58e6a1beaaa0f4c6f5e94471a02b66bbbef7bd492303ed4dc37`.
+Exact sixteen files/fourteen manifest rows, schema-2 source closure (212 files,
+including bytes and Git modes), pinned epoch 1787529600, seven PKGINFO/BUILDINFO/SRCINFO/recipe
+closures, 19,564 MTREE files and all seven production payload validators passed.
+The temporary immutable source export was removed. Receipt SHA-256:
+`a25afa31bfbf53799a5000332506661781f5e80996b9333dbf680b69b3e1a08f`.
+
+| Package | Candidate version |
+| --- | --- |
+| arch-linux-keyring | 1.0.0-9 |
+| arch-linux-gnome-extensions | 1.0.0-7 |
+| arch-linux-marble-shell | 50.0.0-8 |
+| arch-linux-colloid-gtk | 20260808-11 |
+| arch-linux-colloid-icons | 20260829-7 |
+| arch-linux-marble-profile | 1.0.0-12 |
+| arch-linux-marble-gdm | 50.0.0-10 |
+
+Snapshot job 114035905275 passed all five release-host gates (unflagged/full
+namespace repository acceptance, root publication boundary, ordinary and
+privileged keyring modes) and Phase-A signing. Complete snapshot log SHA-256:
+`424dfcfe0d7e9c01a3dccff4f70f386241fe8a8b6738699914935f0cc151e401`.
+Independent Phase-A readback passed: artifact 11645864418, ZIP SHA-256
+`c680f54a7dcc315f0bfb7385336b4c2450f2ceeb16c09501424740b27597b508`;
+exact fourteen assets/twelve signed-manifest rows, three release signatures and
+twenty-five snapshot objects. Repository archive SHA-256:
+`152a42b0dffdb6fcdf5df3f5b407e76328c317d162aa9c661e6b46aac5ef3575`;
+RELEASE manifest SHA-256:
+`461fe7456a31a58d9bb59e57e3610c7214eef18b5a34a7159e1eec1313d00196`.
+BUILD and UNSIGNED bytes equal the independently verified unsigned artifact.
+Fresh nine-scenario QEMU matrix started. Minimal job 114037244655 passed fourteen
+assertions and the frozen strict consumer. Run
+`minimal-20261009T213920Z-50e837bb`, artifact 11647180639:
+ZIP SHA-256 `3b45994061f39dea3c136127026e54cfc1f6035e1cad70594b580366f56bb9dc`;
+evidence archive `233ee3ce82ba70bdab459f1e414eb4c044dd07ae09ac53dcdae3c12313f21067`;
+result `ca20ff90f07aaa5fdf6656f8b2034ae2c2c9651646289d2f869ca8cf677446ca`;
+independent receipt `7121218c0890d0571aef266021db529972d60da1aded9e251b1673a2a65cfa65`.
+Source/tree/installer/frozen harness/Phase-A/ISO bindings were independently
+verified. Core Stock job 114037244800 passed twenty-two assertions and its
+frozen strict consumer. Run `luksgrub-20261009T214752Z-4b3840f4`, artifact
+11647880303: ZIP SHA-256
+`afe4670b8039b442a393a6ac15b9b4577e6dc41f8b51491771220211c68cc5ed`;
+evidence archive `dbe30178eb692618d080245053779b481d11be1449207c63751140d8d9f8c336`;
+result `9594a60d7b69d7d76ceb7294881d4aa0b95351c4e654145d931175d9bc17e43f`;
+independent receipt `bec60784ac1cd66e9603232a0118e73d555659e2e6031fc356c74d16e8f838f1`.
+Its source/tree/installer/frozen harness/Phase-A/ISO bindings were independently
+verified; real login/lock/update/reboot closure passed. Primary Plymouth and
+Bibata AUR paths were observed without mirror transport. Exact official patch
+versions are NOT_OBSERVED in this compact evidence. Prior child results remain
+historical. Supplemental Stock ext4 job 114037244698 passed twenty-one assertions.
+Run `stock-20261009T222235Z-e6fd0d60`, artifact 11647899177: ZIP SHA-256
+`253c7fd54874d45c4b65681e18092ce53618282bfccd4752202bb26cb75e7a69`;
+evidence archive `5ae4db4400f4f915ae6650e74d44941aea2fdaffd27cd976c14bc2851cd74c70`;
+result `bb03f3eaa534aeebf4ae5e4c99fb2e9bacb10aa19c462cef2ea7f6dfdbe58c83`;
+independent receipt `fbea8d65ddddca7a35a37da76ae836bdb5d430f1743cb6e14e1ed8c7ba4efc67`.
+Exact child/tree/Phase-A/frozen-harness bindings passed; the strict core consumer
+is not applicable to this supplemental scenario.
+
+Core Marble job 114037244740 failed at `extension-upgrade-dash`, firstboot,
+exit status 1. All eight preceding assertions passed, including authenticated
+six-package 1.0.6 + four pinned AUR owners + exact installer local-v6 migration
+by plain signed `pacman -Syu`, preservation of preferences/original directory
+custody, real GDM login and all eight extensions active. Functional Dash launch
+has no receipt after its thirty-second wait; Clipboard/No Screenshot Box and
+postreboot functional checks were not reached. The exact failing mechanism is
+not yet established. Prepare emitted a successful-check stderr warning, but
+probe stderr was not retained in the compact failure artifact.
+
+Run `marble-20261009T220435Z-69bacdab`, artifact 11648431621:
+ZIP SHA-256 `72d2b5eb76ed010f1f56451c3a8c1f55754e29d853f42f1c75a66cc52a7e8c27`;
+evidence archive `3a6fcfde76c76014941a498142ddb203deeba59a2394abf96c48c32b6749e826`;
+result `b3d6d4650b343871362d85a81490ec3a889fc737abe24da97e79f7ed84530adb`;
+failure receipt `fb82502a44409ed400f59c882485869394eb5743fbe29ae305e45bac346c76c2`;
+complete job log `8ce799e7a760b31ac9ac66a73d2919eb9a3a84c43d65a434140b997de8e2fb14`.
+API transport/safe unpack/source/tree/Phase-A/installer/ISO/frozen ten-file
+harness bindings passed. The frozen PASS consumer correctly rejected FAIL;
+full successful-core validation is not applicable. The remaining scenarios were
+subsequently cancelled as recorded below; finalization/publication was blocked by
+this result.
+
+The filtered lifecycle observer now supplies actual chronology. Original Shell
+start 110859663 us, before-logout checkpoint 149965885 us (39.106 s), extensions
+enabled/early sentinel present. Shell process exit at 152861317 us is
+`dumped`, status 11; unit failure at 152869955 us is `core-dump`, followed by
+recovery-unit start at 152874474 us. After-logout checkpoint 163423701 us reports
+extensions enabled; the returned session at 201908500 us remains enabled.
+Both journal windows parsed successfully (seven/eight records), with no timeout
+and no rejected/unclassified event. This proves a real SIGSEGV during logout,
+without a retained stack proving its cause. Recovery-start alone does not prove
+its settings command executed. This run did not reproduce disabled extensions
+on return; no guard was disabled or settings reset to obtain that result.
+
+Correction of earlier progress wording: the recorded baseline line explicitly
+reports `shell_major=51 old_incompatible=4`. It reproduces an already-upgraded
+GNOME 51 machine with the old signed project/AUR/local owners, then repairs that
+layout through pacman. It does not establish a binary GNOME-50-to-51 upgrade.
+That distinct major-transition acceptance is NOT_TESTED here. Source versions,
+old-owner recovery and actual GNOME runtime majors must remain separate.
+
+Read-only primary-AUR recheck at 2026-10-09T22:31 UTC succeeded for
+`plymouth-git` and `bibata-cursor-theme` through `git ls-remote ... HEAD`.
+Observed HEADs were respectively `9f9f75a18d8dd1d23ba2dbb6572eb4729fece9bd`
+and `8b38756aa61bc7c782e41e117523c32ed6fdf57b`. These mutable observations
+do not change reviewed source pins. The installer still attempts the primary
+first and uses the [Arch-maintained read-only AUR mirror](https://github.com/archlinux/aur)
+only after clone failure, in a separate directory with unchanged commit/archive/
+SRCINFO/PKGBUILD verification. This transport check does not establish a build
+from the new HEADs.
+
+Focused probe-observation correction on main `6ef601b805325f9e886c335a48a16366a96e3797`
+adds source/PID/exact-argv-bound process-started, app-activated, window-mapped and
+window-focused observations. Its readonly validation mode never creates or
+modifies functional process custody. Timeout remains FAIL; compaction now retains
+that failure and typed diagnostics. A bounded exact synthetic desktop GIO lookup
+emits only lookup/executable/first-favorite flags. It does not establish Shell
+application-cache resolution. An already-exited probe yields unknown observations,
+not proof it never started. Recovery unit `ConditionResult` is typed yes/no/unknown;
+no raw journal/core/stack or unrelated preference data is exported.
+
+Regression RED: three tests, one failure/six subcase errors, log SHA-256
+`5eda52aea6c271e96f19a7863e5977d79bd10819ccc27edab61b57840865b151`.
+Focused final twenty-seven tests passed (6.804 s), log
+`633e3faa38652c27722ecef8b787181f02ef46d029b6dfd4b22827e41bf770d4`.
+`python3 tests/vm/runtime-checks.py` passed all 156 tests (29.192 s), log
+`0b507ab38faf4f33bd78e29203dcaad329332cdeedd85583c1e8575ebc0668a2`.
+Native GJS checks used isolated XDG/GSettings contexts and did not activate GTK.
+Independent stable four-file review found no material issue and independently
+ran six targeted tests (1.553 s, PASS). The first full source run passed the
+156 runtime checks and full namespace/signer/14+18 repository fixtures, then
+failed ShellCheck on literal-JavaScript interpolation and unquoted diagnostic
+reason strings (log `eceb5809acf9b4bcef6741e9c356d34b187fdd4e1f15b83f1f761aa988e8665b`).
+Root quoted the fixed reason values and documented the literal JavaScript at
+the exact SC2016 site. The corrected `bash tests/source-tests.sh` then passed,
+including 156 runtime tests, all seventeen archive checks and the full
+namespace/signer/14+18/no-deferral repository result; log SHA-256
+`47e2b782d39b4f94dd522a67e5914b5e8d01a12d9a3b87c831622e22d68d22d3`.
+This is the pre-stack-module-observer working revision, not acceptance of that
+subsequent addition. Fresh source/protected delivery and VM gates remain pending. These changes improve failure observation; they do not
+prove a correction of the Dash launch failure or the Shell SIGSEGV.
+
+Primary-source review of [GJS 1.90 stack dumping](https://gitlab.gnome.org/GNOME/gjs/-/blob/1.90.0/gjs/stack.cpp#L24-37)
+and [SpiderMonkey ESR 140 backtrace formatting](https://github.com/mozilla-firefox/firefox/blob/FIREFOX_140_17_0esr_RELEASE/js/src/vm/JSObject.cpp#L3088-L3114)
+confirmed that the standard SIGSEGV dump provides module filenames, pointers,
+line numbers and bytecode offsets, but no JavaScript function names. The focused
+observer now retains only allowlisted public module labels and typed timing,
+without raw messages, paths, pointers, line/offset values or cores. The exact
+current-boot UID/Shell-unit/stream filter and frame grammar precede the bounded
+129-record window; query time/output limits remain five seconds/262 KiB. Entire
+windows validate before output. Unknown/private/foreign modules retain counts
+only; the known Dash `fileManager1API.js` is explicitly allowed. It can associate
+observed modules with the logout chronology; it cannot by itself prove which
+module caused the SIGSEGV. The strict query treats journalctl no-match exit 1 as
+unknown, not proven query failure or proven absence of frames. No upstream
+candidate has been promoted.
+
+Stack-attribution RED: two tests/ten subcase errors, log
+`35cc921c723428a3f8dd7003e5871927ee42a3f482f3dbdbe4c36a1b24f21437`.
+Four focused tests passed, log
+`d8bca44dbe93f046a4333e65ede715d6273bcf9b8bf455b533c6fa75e4b5f40c`.
+The final `python3 tests/vm/runtime-checks.py` passed 160 tests (31.012 s),
+log `83a6a0847bfac0d6a47b0ac61746d1987d6c1520f40f2e8a1b2befd372591785`;
+ShellCheck/syntax/diff/modes passed. Independent stable review found no material
+issue and ran four targeted tests plus the updated formatter test. The first
+full run after attribution passed 160 runtime tests and package/docs checks, then
+portability rejected a concrete home name inside a negative fixture; log
+`051bcfe5c6a59df8953a4f8d078c60e5ae7f404acb586b60efed0cbbb94cedcf`.
+The fixture now constructs that private path from a test account variable, with
+unchanged runtime bytes/rejection semantics; portability passed. The final
+`bash tests/source-tests.sh` completed with exit 0: 160 runtime checks, seventeen
+archive checks, documentation/portability/secret/agent checks, ShellCheck and
+`REPOSITORY_CHECKS_RESULT schema=1 namespace_fixtures=full scenarios=10
+signer=passed release_closures=14+18 deferred=none`. Log SHA-256
+`7149587b4ec1111340cf9a930a28ce1ae098d4d0d585c5e1672388542746f209`.
+Protected delivery/build/VM/public acceptance remains required. Obsolete failed
+run 37993529797 is terminal CANCELLED: three PASS results (Minimal 14, Core
+Stock 22, supplemental Stock ext4 21), Core Marble FAIL after eight assertions,
+and five cancelled scenarios. Stock Btrfs systemd-boot reached seven installer
+phases but no installed-runtime verdict/artifact; the other four cancelled
+scenarios were queued/unrun. Its cancelled job 114037244680 reports job cleanup
+complete at 22:54:09 UTC; log SHA-256
+`4e0dab9d59a0bd8882dd1fb4f02647199750b921313159fc43766ee1925b50e9`.
+The exact-source runtime observer returned no eligible record; that is not a
+global host-resource inventory. No publication or workstation update occurred.
+
+The selected version is 1.0.7, UNPUBLISHED. Generated README and installation
+bootstrap pins and reviewed Unreleased notes were verified before freezing.
+This child contains the filtered lifecycle observer, post-logout/early-return
+checkpoints, atomic HTTPS readiness and corrected archive alarm/cleanup handling.
+All prior child VM verdicts remain historical. Fresh actual installation/
+migration/login/functionality, finalization and public delivery gates remain open. No workstation
+package or setting has been changed; public latest remains 1.0.6 at this attempt.
 
 ## Verified release 1.0.6 — 2026-10-04
 

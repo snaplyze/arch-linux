@@ -665,6 +665,83 @@ def number(value, maximum=(1 << 63) - 1):
         return value
     return "unknown"
 
+# GJS/SpiderMonkey dumpstack frame syntax. Match before the journal window so
+# ordinary application messages cannot displace the narrowly selected frames.
+STACK_FRAME = r"^#[0-9]{1,9} {1,14}(?:[^ ()\r\n]{1,32}|\(nil\)) [ibIW?] {3}([^\r\n]{1,4096}):[0-9]{1,10} \((?:[^ ()\r\n]{1,32}|\(nil\))(?: @ [0-9]{1,10})?\)$"
+SHELL_MODULES = {"main.js", "extensionSystem.js", "windowManager.js", "appDisplay.js", "dash.js",
+                 "layout.js", "panel.js", "overview.js", "screenShield.js", "endSessionDialog.js",
+                 "extensionUtils.js", "fileUtils.js", "util.js"}
+EXTENSION_UUIDS = {"appindicatorsupport@rgcjonas.gmail.com", "blur-my-shell@aunetx", "caffeine@patapon.info",
+                   "clipboard-indicator@tudmotu.com", "dash-to-dock@micxgx.gmail.com",
+                   "just-perfection-desktop@just-perfection", "no-screenshot-box@screenshot",
+                   "user-theme@gnome-shell-extensions.gcampax.github.com"}
+EXTENSION_MODULES = {"extension.js", "appIcons.js", "appIconIndicators.js", "dash.js", "docking.js",
+                     "intellihide.js", "locations.js", "utils.js", "windowPreview.js", "proximity.js",
+                     "theming.js", "convenience.js", "fileManager1API.js", "screenshot.js", "clipboard.js", "indicator.js",
+                     "panel.js", "blur.js", "background.js", "overview.js"}
+
+def public_stack_module(filename):
+    if filename.startswith("resource:///org/gnome/shell/"):
+        relative = filename.removeprefix("resource:///org/gnome/shell/").split("/")
+        if len(relative) == 2 and relative[0] in {"ui", "misc"} and relative[1] in SHELL_MODULES:
+            return "shell", relative[1]
+    filename = filename.removeprefix("file://")
+    if filename.startswith("/usr/share/gnome-shell/extensions/"):
+        parts = filename.removeprefix("/usr/share/gnome-shell/extensions/").split("/")
+        if (len(parts) >= 2 and parts[0] in EXTENSION_UUIDS and parts[-1] in EXTENSION_MODULES
+                and all(re.fullmatch(r"[A-Za-z0-9_.@-]{1,128}", part) and part not in {".", ".."} for part in parts)):
+            return parts[0], parts[-1]
+    return None
+
+def emit_stack_attribution(uid, prefix):
+    raw = query(["/usr/bin/journalctl", "--boot=0", "--no-pager", "--lines=129", "--output=json",
+                 "--output-fields=_UID,_SYSTEMD_USER_UNIT,_TRANSPORT,__MONOTONIC_TIMESTAMP,MESSAGE",
+                 "--grep=" + STACK_FRAME, "--case-sensitive=yes", f"_UID={uid}",
+                 "_SYSTEMD_USER_UNIT=" + UNITS[0], "_TRANSPORT=stdout"])
+    reason = "query-unavailable"
+    records_count = attributed = unclassified = "unknown"
+    timeline = []
+    try:
+        if raw is None:
+            raise JournalDiagnosticError("query-unavailable")
+        records = [json.loads(line, object_pairs_hook=unique_object) for line in raw.splitlines()]
+        if len(records) >= 129:
+            raise JournalDiagnosticError("window-exhausted")
+        typed = []
+        for record in records:
+            if not isinstance(record, dict):
+                raise JournalDiagnosticError("invalid-object")
+            if (record.get("_UID") != uid or record.get("_SYSTEMD_USER_UNIT") != UNITS[0]
+                    or record.get("_TRANSPORT") != "stdout" or not isinstance(record.get("MESSAGE"), str)):
+                raise JournalDiagnosticError("invalid-field")
+            timestamp = number(record.get("__MONOTONIC_TIMESTAMP"))
+            if timestamp == "unknown":
+                raise JournalDiagnosticError("invalid-timestamp")
+            frame = re.fullmatch(STACK_FRAME, record["MESSAGE"])
+            if frame is None:
+                raise JournalDiagnosticError("invalid-frame")
+            typed.append((timestamp, public_stack_module(frame.group(1))))
+        records_count = len(typed)
+        attributed = unclassified = 0
+        for timestamp, module in sorted(typed, key=lambda item: int(item[0])):
+            if module is None:
+                unclassified += 1
+            else:
+                attributed += 1
+                timeline.append(f"{prefix} module_category={module[0]} module={module[1]} event_monotonic_us={timestamp}")
+        reason = "none"
+    except JournalDiagnosticError as error:
+        reason = error.reason
+    except json.JSONDecodeError:
+        reason = "invalid-json"
+    except (ValueError, TypeError):
+        reason = "invalid-field"
+    state = "ok" if reason == "none" else "unknown"
+    print(f"{prefix} stack_query={state} stack_records={records_count} attributed={attributed} unclassified={unclassified} stack_rejection_reason={reason}", file=sys.stderr)
+    if state == "ok":
+        for event in timeline:
+            print(event, file=sys.stderr)
+
 def diagnose(uid, gid, run_id, phase, checkpoint, account="vmtest"):
     if (not re.fullmatch(r"[0-9]{1,10}", uid) or not re.fullmatch(r"[0-9]{1,10}", gid)
             or not re.fullmatch(r"[A-Za-z0-9-]{1,80}", run_id)
@@ -719,7 +796,7 @@ def diagnose(uid, gid, run_id, phase, checkpoint, account="vmtest"):
     print(f"{prefix} disabled_user_extensions={disabled} early_sentinel={sentinel} recovery_unit_sha256={digest} checkpoint_monotonic_us={checkpoint_time}", file=sys.stderr)
     for unit in UNITS:
         raw = query(user + ["/usr/bin/systemctl", "--user", "show", unit,
-                           "--property=LoadState,Result,ExecMainCode,ExecMainStatus,ExecMainStartTimestampMonotonic,InvocationID"], 4096)
+                           "--property=LoadState,Result,ExecMainCode,ExecMainStatus,ExecMainStartTimestampMonotonic,InvocationID,ConditionResult"], 4096)
         fields = {}
         try:
             if raw is None:
@@ -741,7 +818,9 @@ def diagnose(uid, gid, run_id, phase, checkpoint, account="vmtest"):
             invocation = "no"
         else:
             invocation = "yes" if isinstance(invocation, str) and re.fullmatch(r"[a-f0-9]{32}", invocation) else "unknown"
-        print(f"{prefix} unit={unit} result={result} exit_code={code} exit_status={number(fields.get('ExecMainStatus'), 255)} start_monotonic_us={number(fields.get('ExecMainStartTimestampMonotonic'))} invocation={invocation}", file=sys.stderr)
+        condition = fields.get("ConditionResult")
+        condition = condition if condition in {"yes", "no"} else "unknown"
+        print(f"{prefix} unit={unit} result={result} exit_code={code} exit_status={number(fields.get('ExecMainStatus'), 255)} start_monotonic_us={number(fields.get('ExecMainStartTimestampMonotonic'))} invocation={invocation} condition_result={condition}", file=sys.stderr)
     if checkpoint not in {"after-original-user-logout", "return-user-login", "extension-timeout"}:
         return
     # Current boot includes the migration and original-user logout. Query only these public
@@ -818,6 +897,7 @@ def diagnose(uid, gid, run_id, phase, checkpoint, account="vmtest"):
     if query_state == "ok":
         for event in timeline:
             print(event, file=sys.stderr)
+    emit_stack_attribution(uid, prefix)
 
 if __name__ == "__main__":
     try:
@@ -4201,12 +4281,13 @@ GNOME51_CUSTODY_PY
 }
 
 verify_extension_probe_receipt() {
-    local stage="$1" expected="${2:--}" uid
+    local stage="$1" expected="${2:--}" mode="${3:-functional}" uid
     uid="$(id -u "${username}")"
-    python3 - "${probe_state}" "${stage}" "${expected}" "${run_id}" "${probe_round}" "${uid}" "${probe_source}" "${probe_trusted}" <<'EXTENSION_RECEIPT_PY'
+    python3 - "${probe_state}" "${stage}" "${expected}" "${run_id}" "${probe_round}" "${uid}" "${probe_source}" "${probe_trusted}" "${mode}" <<'EXTENSION_RECEIPT_PY'
 import hashlib, json, os, pathlib, stat, sys
 root = pathlib.Path(sys.argv[1]); stage, expected, run_id, round_name = sys.argv[2:6]; uid = int(sys.argv[6])
 source, trusted = map(pathlib.Path, sys.argv[7:9])
+mode = sys.argv[9]; assert mode in {"functional", "diagnostic"}
 trusted_uid = 0
 assert stat.S_ISDIR(trusted.lstat().st_mode) and trusted.stat().st_uid == trusted_uid and stat.S_IMODE(trusted.stat().st_mode) == 0o700
 assert stat.S_ISREG(source.lstat().st_mode) and source.stat().st_uid == trusted_uid and stat.S_IMODE(source.stat().st_mode) == 0o500
@@ -4230,7 +4311,12 @@ def identity():
     assert pathlib.Path(argv[0]).resolve() == pathlib.Path('/usr/bin/gjs').resolve()
     assert argv[1:] == ['-m',str(probe),str(root),run_id,round_name]
     return {'pid':value['pid'],'starttime':int(fields[19]),'executable':executable,'argv':argv,'probeSha256':digest}
-actual = identity(); identity_path = trusted / 'identity.json'
+actual = identity()
+if mode == 'diagnostic':
+    assert stage in {'process-started','app-activated','window-mapped','window-focused'} and expected == '-'
+    assert identity() == actual
+    sys.exit(0)  # Observation never creates or modifies functional process custody.
+identity_path = trusted / 'identity.json'
 if not identity_path.exists():
     assert stage == 'dash-ready'
     with identity_path.open('x') as output: output.write(json.dumps(actual)+'\n')
@@ -4327,6 +4413,57 @@ EXTENSION_FAVORITES_PY
     emit_marble_action_pass extension-probe-prepared-not-launched
 }
 
+emit_extension_probe_diagnostic() {
+    local uid stage status process=no activated=no mapped=no focused=no reason raw
+    local desktop=unknown executable=unknown favorite=unknown
+    uid="$(id -u "${username}")" || return 0
+    for stage in process-started app-activated window-mapped window-focused; do
+        status=no
+        if [ -e "${probe_state}/${stage}.json" ] || [ -L "${probe_state}/${stage}.json" ]; then
+            status=unknown
+            if verify_extension_probe_receipt "${stage}" - diagnostic >/dev/null 2>&1; then status=yes; fi
+        fi
+        case "${stage}" in
+        process-started) process="${status}" ;;
+        app-activated) activated="${status}" ;;
+        window-mapped) mapped="${status}" ;;
+        window-focused) focused="${status}" ;;
+        esac
+    done
+    # Resolve only the synthetic desktop ID in the target user's GIO context. This
+    # is not a claim about Shell.AppSystem or Dash's internal application cache.
+    # shellcheck disable=SC2016 # Template expressions belong to the literal JavaScript program.
+    raw="$(run_in_user_session "${uid}" /usr/bin/timeout 5 /usr/bin/gjs -c '
+    const Gio = imports.gi.Gio;
+    let desktop = "unknown", executable = "unknown", favorite = "unknown";
+    try {
+        const info = imports.gi.GioUnix.DesktopAppInfo.new(ARGV[0]);
+        desktop = info && info.get_filename() === ARGV[1] ? "yes" : "no";
+        executable = info && info.get_executable() === "/usr/bin/gjs" ? "yes" : "no";
+    } catch (_) {}
+    try {
+        const values = new Gio.Settings({schema_id: "org.gnome.shell"}).get_strv("favorite-apps");
+        favorite = values[0] === ARGV[0] ? "yes" : "no";
+    } catch (_) {}
+    print(`desktop_gio=${desktop} desktop_exec=${executable} favorite_first=${favorite}`);
+' "org.archlinux.QemuExtensionProbe.${probe_round}.desktop"         "/home/${username}/.local/share/applications/org.archlinux.QemuExtensionProbe.${probe_round}.desktop" 2>/dev/null)" || raw=''
+    if [[ "${raw}" =~ ^desktop_gio=(yes|no|unknown)\ desktop_exec=(yes|no|unknown)\ favorite_first=(yes|no|unknown)$ ]]; then
+        desktop="${BASH_REMATCH[1]}"; executable="${BASH_REMATCH[2]}"; favorite="${BASH_REMATCH[3]}"
+    fi
+    reason=unverified
+    if [ "${desktop}" = no ]; then reason='desktop-unresolved'
+    elif [ "${executable}" = no ]; then reason='desktop-executable-mismatch'
+    elif [ "${favorite}" = no ]; then reason='favorite-not-first'
+    elif [ "${process}" = no ]; then reason='not-started'
+    elif [ "${process}" = yes ] && [ "${activated}" = no ]; then reason='not-activated'
+    elif [ "${activated}" = yes ] && [ "${mapped}" = no ]; then reason='not-mapped'
+    elif [ "${mapped}" = yes ] && [ "${focused}" = no ]; then reason='not-focused'
+    elif [ "${focused}" = yes ]; then reason='functional-receipt-missing'
+    fi
+    printf 'EXTENSION_PROBE_DIAGNOSTIC phase=%s process=%s activated=%s mapped=%s focused=%s desktop_gio=%s desktop_exec=%s favorite_first=%s reason=%s\n'         "${probe_round}" "${process}" "${activated}" "${mapped}" "${focused}"         "${desktop}" "${executable}" "${favorite}" "${reason}" >&2
+    return 0
+}
+
 wait_extension_probe_receipt() {
     local stage="$1" expected="${2:--}" deadline=$((SECONDS + 30))
     while [ "${SECONDS}" -lt "${deadline}" ]; do
@@ -4336,6 +4473,7 @@ wait_extension_probe_receipt() {
         fi
         sleep 0.2
     done
+    emit_extension_probe_diagnostic || true
     printf 'EXTENSION_FUNCTIONAL_FAIL phase=%s feature=observation stage=%s reason=missing-receipt\n' \
         "${probe_round}" "${stage}" >&2
     return 1
