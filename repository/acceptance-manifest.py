@@ -637,8 +637,10 @@ def expected_run_names(read: Callable[[str, int], bytes], scenario: str) -> tupl
                     for name in screenshots) or screenshots != sorted(set(screenshots))):
         fail("QEMU diagnostic screenshot closure differs")
     top = set(RUN_FILES)
+    if scenario in SCENARIOS[1:]:
+        top.add("repository-runtime.sha256")
     if scenario == SCENARIOS[2]:
-        top.update({"repository-runtime.sha256", "evidence/legacy-repository-manifest.json",
+        top.update({"evidence/legacy-repository-manifest.json",
                     "evidence/legacy-repository-manifest.json.sig",
                     "evidence/gnome51-upgrade-manifest.json",
                     "evidence/gnome51-upgrade-baseline-repository-manifest.json",
@@ -936,13 +938,14 @@ def validate_identity_record(raw: bytes, result: dict[str, object], scenario: st
         if cursor >= len(lines) or lines[cursor] != row:
             fail("QEMU identity repository-object binding differs")
         cursor += 1
-    if scenario == SCENARIOS[2]:
+    if scenario in SCENARIOS[1:]:
         if cursor >= len(lines) or re.fullmatch(r"repository_server_port=[1-9][0-9]{3,4}", lines[cursor]) is None:
-            fail("Marble repository runtime port binding differs")
+            fail("GNOME repository runtime port binding differs")
         port = int(lines[cursor].split("=", 1)[1])
         if port > 65535:
-            fail("Marble repository runtime port is out of range")
+            fail("GNOME repository runtime port is out of range")
         cursor += 1
+    if scenario == SCENARIOS[2]:
         legacy = {}
         patterns = {
             "legacy_release_version": VERSION, "legacy_snapshot_sha256": HEX64,
@@ -1056,6 +1059,7 @@ def validate_runtime_markers(read: Callable[[str, int], bytes], result: dict[str
         for marker in ("GNOME51_UPGRADE_BASELINE_PASS", "GNOME51_UPGRADE_RECOVERY_PASS"):
             if len(re.findall(r"(?m)^" + marker + r"(?:[ \t].*)?$", log)) != 1:
                 fail("GNOME 51 upgrade real-session marker missing or repeated")
+    if scenario in SCENARIOS[1:]:
         expected_suffixes = (
             "/repository/repository.env", "/repository.contract", "/repository-ca.crt",
             "/repository-server.crt",
@@ -1064,13 +1068,13 @@ def validate_runtime_markers(read: Callable[[str, int], bytes], result: dict[str
         try:
             rows = raw.decode("utf-8").splitlines()
         except UnicodeDecodeError as error:
-            fail(f"Marble repository runtime manifest is invalid: {error}")
+            fail(f"GNOME repository runtime manifest is invalid: {error}")
         if len(rows) != len(expected_suffixes):
-            fail("Marble repository runtime closure differs")
+            fail("GNOME repository runtime closure differs")
         for row, suffix in zip(rows, expected_suffixes, strict=True):
             match = re.fullmatch(r"([a-f0-9]{64})  (/.+)", row)
             if match is None or match.group(1) == "0" * 64 or not match.group(2).endswith(suffix):
-                fail("Marble repository runtime binding differs")
+                fail("GNOME repository runtime binding differs")
     return {
         "ovmfInitialSha256": initial,
         "ovmfFinalSha256": final,

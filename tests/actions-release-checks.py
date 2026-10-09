@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import ast
+import gzip
 import hashlib
 import importlib.util
 from contextlib import redirect_stderr, redirect_stdout
@@ -35,6 +36,126 @@ class ActionsReleaseChecks(unittest.TestCase):
         assert spec is not None and spec.loader is not None
         self.module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.module)
+
+    def graphical_consumer_fixture(self, index):
+        consumer = runpy.run_path(str(ROOT / "repository/acceptance-manifest.py"))
+        scenario = consumer["SCENARIOS"][index]
+        prefix = ("minimal", "luksgrub", "marble")[index]
+        run_id = prefix + "-20261009T010203Z-12345678"
+        digest = "a" * 64
+        runtime_suffixes = ("/repository/repository.env", "/repository.contract",
+                            "/repository-ca.crt", "/repository-server.crt")
+        runtime = "".join(f"{digest}  /fixture/{run_id}{name}\n" for name in runtime_suffixes).encode()
+        harness = b"".join(f"{consumer['sha256'](ROOT / name)}  {name}\n".encode()
+                           for name in consumer["HARNESS_FILES"])
+        marker = ("MINIMAL", "LUKSGRUB", "MARBLE")[index]
+        log = f"{marker}_QEMU_INSTALLER_EXIT status=0\n{marker}_QEMU_INSTALL_COMPLETE\n".encode()
+        if index == 2:
+            fixture = runpy.run_path(str(ROOT / "tests/gnome51-evidence-fixture.py"))
+            log += b"GNOME51_UPGRADE_BASELINE_PASS\nGNOME51_UPGRADE_RECOVERY_PASS\n"
+            log += fixture["functional_log"](ROOT, run_id)
+        records = {"result.json": b'{"screenshots":[]}\n', "harness.sha256": harness,
+                   "evidence/preseal-harness-check.txt": b"".join(
+                       f"{name}: OK\n".encode() for name in consumer["HARNESS_FILES"]),
+                   "runtime-inputs.sha256": b"".join(f"{digest}  {name}\n".encode() for name in (
+                       "/usr/bin/qemu-system-x86_64", "/usr/bin/qemu-img",
+                       "/usr/share/OVMF/OVMF_CODE_4M.fd", "/usr/share/OVMF/OVMF_VARS_4M.fd")),
+                   "qemu-version.txt": b"QEMU emulator version 9.2.0\n",
+                   "OVMF_VARS.initial.sha256": f"{digest}  /fixture/{run_id}/OVMF_VARS.fd\n".encode(),
+                   "OVMF_VARS.final.sha256": f"{digest}  /fixture/{run_id}/OVMF_VARS.fd\n".encode(),
+                   "payload.iso.sha256": f"{digest}  /fixture/{run_id}/payload.iso\n".encode(),
+                   "evidence/final-qemu-img-check.txt": b"No errors were found on the image.\n",
+                   "evidence/no-qemu-process.txt": f"no matching QEMU process remains for {run_id}\n".encode(),
+                   "evidence/scenario.log.gz": gzip.compress(log, mtime=0),
+                   "repository-runtime.sha256": runtime}
+        def read(name, limit):
+            if name not in records or len(records[name]) > limit:
+                raise consumer["ManifestError"]("fixture record absent or oversized")
+            return records[name]
+        return consumer, scenario, run_id, records, read
+
+    def test_stock_producer_repository_runtime_closure_is_required(self):
+        consumer, scenario, _, _, read = self.graphical_consumer_fixture(1)
+        # Execute the actual first closure statements in run_record, stopping before unrelated
+        # signed result fields. The producer-style Stock closure is independent of consumer output.
+        path = ROOT / "repository/acceptance-manifest.py"
+        record = next(node for node in ast.parse(path.read_text()).body
+                      if isinstance(node, ast.FunctionDef) and node.name == "run_record")
+        boundary = compile(ast.Module(body=record.body[:2], type_ignores=[]), str(path), "exec")
+        producer = set(consumer["RUN_FILES"]) | {f"evidence/{n}" for n in consumer["EVIDENCE_FIXED"]} | {
+            "evidence", "repository-runtime.sha256"}
+        def validate(names, route=scenario):
+            exec(boundary, dict(consumer, read=read, scenario=route, names=names))
+        validate(producer)
+        for names in (producer - {"repository-runtime.sha256"}, producer | {"foreign"},
+                      producer | {"evidence/legacy-repository-manifest.json"},
+                      producer | {"evidence/gnome51-upgrade-manifest.json"}):
+            with self.subTest(names=names), self.assertRaises(consumer["ManifestError"]): validate(names)
+        with self.assertRaises(consumer["ManifestError"]): validate(producer, consumer["SCENARIOS"][0])
+        validate(producer - {"repository-runtime.sha256"}, consumer["SCENARIOS"][0])
+
+    def test_repository_runtime_rows_are_validated_for_both_graphical_profiles(self):
+        for index in (1, 2):
+            consumer, scenario, run_id, records, read = self.graphical_consumer_fixture(index)
+            result = {"harnessSha256": consumer["sha256_bytes"](records["harness.sha256"])}
+            validate = lambda: consumer["validate_runtime_markers"](read, result, scenario, run_id)
+            validate()
+            valid = records["repository-runtime.sha256"]
+            rows = valid.splitlines(keepends=True)
+            mutations = {"missing": None, "missing-row": b"".join(rows[:-1]),
+                         "malformed": b"invalid\n" + b"".join(rows[1:]),
+                         "zero-digest": b"0" * 64 + valid[64:],
+                         "reordered": b"".join([rows[1], rows[0], *rows[2:]]),
+                         "extra": valid + rows[0]}
+            for label, value in mutations.items():
+                with self.subTest(scenario=scenario, mutation=label), self.assertRaises(consumer["ManifestError"]):
+                    if value is None: records.pop("repository-runtime.sha256")
+                    else: records["repository-runtime.sha256"] = value
+                    validate()
+                records["repository-runtime.sha256"] = valid
+
+    def test_stock_repository_port_is_required_and_minimal_rejects_it(self):
+        consumer, scenario, run_id, _, read = self.graphical_consumer_fixture(1)
+        digest = "a" * 64
+        binding = (("repository_public_key_sha256", "publicKeySha256"),
+                   ("repository_primary_fingerprint", "primaryFingerprint"),
+                   ("repository_signing_fingerprint", "signingFingerprint"),
+                   ("repository_package_set_sha256", "packageSetSha256"),
+                   ("repository_manifest_sha256", "manifestSha256"),
+                   ("repository_manifest_signature_sha256", "manifestSignatureSha256"),
+                   ("repository_database_sha256", "databaseSha256"),
+                   ("repository_database_signature_sha256", "databaseSignatureSha256"),
+                   ("repository_files_sha256", "filesSha256"),
+                   ("repository_files_signature_sha256", "filesSignatureSha256"))
+        expected = dict.fromkeys(("repositorySnapshotSha256", "buildMetadataSha256",
+                                  "unsignedManifestSha256", "releaseSha256sumsSha256"), digest)
+        contract = dict.fromkeys((key for _, key in binding), digest)
+        contract.update(installerSha256=digest, objects=[])
+        def validate(suffix, index=1):
+            route = consumer["SCENARIOS"][index]
+            serial = "ALI100" + ("M", "G")[index] + "A" * 12
+            result = dict(sourceCommit="b" * 40, sourceTree="c" * 40, harnessSha256=digest,
+                          isoSha256=digest, targetSerial=serial)
+            rows = [("scenario", route), ("input_mode", "staged"), ("release_version", "1.0.7"),
+                    ("run_id", run_id), ("source_commit", result["sourceCommit"]),
+                    ("source_tree", result["sourceTree"]), ("installer_sha256", digest),
+                    ("bootstrap_sha256", digest), ("harness_sha256", digest), ("iso_sha256", digest),
+                    ("snapshot_sha256", digest), ("build_metadata_sha256", digest),
+                    ("unsigned_manifest_sha256", digest), ("target_serial", serial),
+                    ("target_vendor", "SNAPLYZE"), ("target_model", "ALI_" + ("MIN", "GRB")[index] + "_AAAAAAAA")]
+            rows += [(name, contract[key]) for name, key in binding]
+            rows.append(("release_sha256sums_sha256", digest))
+            raw = "".join(f"{k}={v}\n" for k, v in rows).encode() + suffix
+            consumer["validate_identity_record"](raw, result, route, run_id, "1.0.7", expected, contract, digest, read)
+        valid = b"repository_server_port=46747\n"
+        validate(valid)
+        for suffix in (b"", b"repository_server_port=0\n", b"repository_server_port=65536\n",
+                       b"repository_server_port=abc\n", valid + valid,
+                       valid + b"legacy_release_version=1.0.6\n",
+                       valid + b"gnome51_upgrade_manifest_sha256=" + digest.encode() + b"\n"):
+            with self.subTest(suffix=suffix), self.assertRaises(consumer["ManifestError"]): validate(suffix)
+        validate(b"", index=0)
+        with self.assertRaises(consumer["ManifestError"]): validate(valid, index=0)
 
     def arch_bootstraps(self):
         for filename, job, step_name in (

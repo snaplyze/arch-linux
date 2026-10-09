@@ -673,8 +673,9 @@ def final_accepts(scenario, serial, model, run_id, recorded_run_id=None):
             ("target_vendor", "SNAPLYZE"), ("target_model", model)]
     rows += [(name, contract[key]) for name, key in repository_rows]
     rows.append(("release_sha256sums_sha256", digest))
-    if scenario == final_scenarios[2]:
+    if scenario in final_scenarios[1:]:
         rows.append(("repository_server_port", "12345"))
+    if scenario == final_scenarios[2]:
         rows.extend(legacy_identity.items())
         rows.append(("gnome51_upgrade_manifest_sha256", digest))
     raw = "".join(f"{name}={value}\n" for name, value in rows).encode()

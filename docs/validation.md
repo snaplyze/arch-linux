@@ -1001,6 +1001,184 @@ evidence runs and zero active private-Docker containers. The exact owned observe
 was stopped only after command-identity verification. The new protected
 candidate/build/signature/VM/publication gates remain pending.
 
+[PR #73](https://github.com/snaplyze/arch-linux/pull/73) subsequently passed
+[CI 37913814911](https://github.com/snaplyze/arch-linux/actions/runs/37913814911)
+for exact head `5ea2c38078a447fd56866bcb4e536c9e29f338fd`; CI log SHA-256
+`4eb7fc16ae282c702059800d8eff6e55de5df20f9f112d43eddde954b1366e96`.
+Protected squash merge produced main `cadd63d6b9191e928182f70d3cd2aa1cffffcb36`.
+Both commits share tree `ef4b7a2376a5c7600a515715eb1c0b9a7b8fe127` and canonical
+source SHA-256 `ed99ddbc6de359d8b27ff8b079989f2f5863d41def6a2d80b7a3c6845af46f1b`.
+The canonical checkout returned to main by fast-forward; all three identities
+were independently verified.
+[Main CI 37914195356](https://github.com/snaplyze/arch-linux/actions/runs/37914195356)
+passed, log SHA-256
+`6fe9bfe2ca02eff3b1d30b0f721c06369edff3756de58a24d5502de689569282`,
+and triggered [Release 37914520768](https://github.com/snaplyze/arch-linux/actions/runs/37914520768).
+Independent source artifact transport, bundle and deterministic transformation
+checks passed. Generated README / installation instructions pin 1.0.7; local
+refs/index/dirty documents were preserved.
+
+| Corrected child binding | Exact identity / SHA-256 |
+| --- | --- |
+| Origin main | `cadd63d6b9191e928182f70d3cd2aa1cffffcb36` |
+| Origin tree | `ef4b7a2376a5c7600a515715eb1c0b9a7b8fe127` |
+| Deterministic release child | `35ff8df8951a4e0a7d9f2e8a70c68027573ee62a` |
+| Release tree | `58395adfbf7df2ab2246bc8a1ba0136af2ef2637` |
+| Canonical release source | `bcdc8fdd2ef4ab86c3b3efcc16322fc0ec6f4c3b6e3ac6750ceba7b5540172fd` |
+| Source artifact | `11609550603` |
+| Source transport ZIP | `1af22ca4280c6a7b0076254cf97604bfa2d27cd8e879f88523b9c6c32f6190c4` |
+| Source bundle | `4eca267a05133e925c76392244b5a2db93bd30ebeba62a666f54483907f74f9b` |
+
+The fresh clean seven-package build passed. Independent unsigned readback checked
+the API ZIP digest, exact sixteen-file closure, fourteen manifest rows, canonical
+schema-2 BUILD source binding and pinned epoch `1787529600`. Actual
+PKGINFO/BUILDINFO/MTREE and SRCINFO comparisons passed. All seven unchanged
+production package validators passed against a read-only exact-child export whose
+full file/mode/byte closure was checked before use; that export was removed.
+The unsigned shell entrypoint was not claimed for the export without Git metadata;
+its identity/manifest bindings were independently checked. Package revisions are
+the same seven recorded above, but the BUILD binding was verified afresh.
+
+| Corrected unsigned evidence | SHA-256 / identity |
+| --- | --- |
+| Artifact | `11609866188` |
+| Transport ZIP | `f369ecbefc1fc5d161a6361261f38efb4abada8ac2585ac53a685b0f6a41fdd5` |
+| BUILD-METADATA.json | `98b3e03e720a4ac76dc0372817a50f05989cd458491adb52fbf6e283c6e6e295` |
+| UNSIGNED-SHA256SUMS | `cec8557a6db3f58e6a1beaaa0f4c6f5e94471a02b66bbbef7bd492303ed4dc37` |
+| Package set | `6654c025c4b2203597122117a04be4c36df45936fa99764788d5e68c200e4a5a` |
+| Child installer | `e6228b0f655d5551eaf5cc8d085ea8111b24df3930b27cc78700d0944432ff71` |
+
+Protected unsigned readback and Phase-A signing passed for this corrected child.
+Independent root readback verified exact fourteen-file closure, twelve signed
+manifest rows, three detached signatures, source/trust/build byte identity and
+the production snapshot contract's twenty-five repository objects.
+
+| Corrected signed Phase-A evidence | SHA-256 / identity |
+| --- | --- |
+| Artifact | `11609936947` |
+| Transport ZIP | `0daad30b7a4128c8af3a262ea1819276a5a57bfb906d6cb50d749bd6b91a31db` |
+| Repository snapshot | `3b575cea722e9b466199c02c3f3b780862eb154cc70371937c0c5cb98fba8d05` |
+| RELEASE-SHA256SUMS | `78b2ee95cae252a1004597bd7eaf050fdc4f203bc45930a7fc28983e69135301` |
+| Complete signing-job log | `43ebf3a99b866857704a0fcb3d688f252a7edf824588276990241e8ded5378f3` |
+
+The complete log confirms both repository modes with full namespaces, ten
+scenarios, signer PASS, exact 14/18 closures and no deferrals; the four-namespace
+root publication boundary; ordinary keyring mode and the full privileged mode.
+Fresh Minimal TTY run `minimal-20261009T100800Z-cf218bc1` passed all fourteen
+assertions. Independent readback checked exact source/build/snapshot bindings and
+the production `directory_run` consumer passed. Artifact `11609224009` has
+transport SHA-256 `7c6147e6adfbb953ea1e4fe5e43848816dc585325be0622f77b815a7fba42c8a`,
+archive `0daaffe5f3d6a9840ff685b196bb967d44c3e77da7b57664e04772b24cc52039`
+and result JSON `744990f5463b4f374ad9fff030ad8053e327c42375c6ee194e8d18f75c0decfe`.
+The run includes actual installation, plain `pacman -Syu`, another boot, no failed
+units, clean shutdown and final disk integrity.
+The subsequent Stock runtime outcome and strict-consumer rejection are recorded
+below. Other staged results, finalization, immutable publication, Pages/public
+readback and the public Marble VM remain pending. No result from child `8ad8ef1`
+transfers to this corrected child.
+
+Bounded passive readback of Stock run `luksgrub-20261009T101639Z-5fff4e42`
+observed both corrected Plymouth/Bibata mirror paths and successful installer
+Bootsplash, GNOME Desktop and Finalize Arch Linux markers. The VM reached the
+installed desktop. This records progress beyond the previously rejecting step,
+not completion of the session/update/reboot checks or full VM/GNOME acceptance.
+Compact observation SHA-256:
+`065b3fdcfacc44f8982164923f2eead7e02736685a5192e5ec017407cd8eb18c`.
+
+Stock run `luksgrub-20261009T101639Z-5fff4e42` subsequently passed all 22 runtime
+assertions, including real password login, lock/unlock, plain `pacman -Syu`,
+encrypted GRUB reboot, package integrity and clean shutdown/disk checks.
+Independent transport/source/build/snapshot readback passed, but the unchanged
+strict consumer rejected the retained evidence closure: its sole extra file was
+`repository-runtime.sha256`. Direct invocation of the identity validator also
+reproduced `QEMU identity contains an unexpected row` for the actual final
+`repository_server_port` row. The producer emits both for Stock's new signed
+repository; the consumer still restricts them to Marble. Runtime PASS therefore
+does not establish accepted evidence or release readiness.
+
+| Stock runtime / rejected consumer evidence | SHA-256 / identity |
+| --- | --- |
+| Artifact | `11610472570` |
+| Transport ZIP | `faab46c674f19e284fd5ba1e574a1b37568c9ece09f640d499e024504c36aad0` |
+| Archive | `e6dccca2da39a3e89c61e492235c70b7bd55232f5a3c5ea6f83fe8f98e2bca5d` |
+| Result JSON | `42bf26f6445dbf43a4f966d60b88b2298dd45dc5ef56219f20a6c3da8baeb39b` |
+
+The focused correction requires and validates both runtime bindings for Stock
+and Marble, retains Marble-only legacy/migration evidence and keeps Minimal's
+rejection of repository-runtime extras. Three focused regression tests failed
+against the old consumer and passed after the correction. Missing, malformed,
+zero, reordered or extra runtime rows; missing/invalid/duplicate ports; Stock
+migration extras; and Minimal repository extras remain rejected. Both complete
+repository/publication fixture builders and the static identity fixture were
+updated. Independent review found no material issue.
+
+The corrected full `directory_run` consumer passed against the actual retained
+Stock artifact. This is a debug replay under working consumer SHA-256
+`ed131e3312b0fd846a4affb3866fb3a7c36aad17af1966849b06fe467de5e522`,
+not acceptance of a new source child or a replacement of the old failure.
+Replay receipt SHA-256:
+`32f93ab4b8f6c438cd8800c15f10fa75bb82409584f4822eee9a4216532b7df0`.
+
+`python3 tests/actions-release-checks.py` passed all 28 tests; static checks,
+Bash syntax, ShellCheck and `git diff --check` passed. The ordinary repository
+run exercised full namespaces, ten scenarios, signer PASS, exact 14/18 closures
+and no deferrals. Its log SHA-256 is
+`20ac7e16a11df7423a9db707de8b6093b64bf2bc95750c94c47a9094b8902930`.
+Before the following legacy-session harness correction,
+`PYTHONDONTWRITEBYTECODE=1 bash tests/source-tests.sh` passed; log SHA-256
+`020be0d06495ab5165bee052e37110cf7f6d0872f927ce3ab17f2ff94922abcc`.
+A fresh privileged root publication run
+remains required for the changed fixture; local source/ordinary checks do not
+establish that gate. No result will transfer to a new source child.
+
+Marble run `marble-20261009T103634Z-0f756344` subsequently failed during
+`legacy-login` after four successful assertions. Installation, encrypted unlock,
+initial GDM prelogin and signed legacy package installation succeeded; the compact
+guest diagnostic records runtime line 3861/status 1. The full job log identifies
+the failing phase. Later legacy migration, GNOME 51 recovery and extension
+functional acceptance were not reached. Initial GDM screenshot readback shows
+the composed greeter, but does not establish the later desktop/migration gates.
+
+| Marble failure evidence | SHA-256 / identity |
+| --- | --- |
+| Artifact | `11610869843` |
+| Transport ZIP | `56c17c00c5d4f6480b10ab9c50a0b214ce87cbdfd6c34f0f89f237b75c09164a` |
+| Archive | `fcddf92226c7b1e40f6957f7aeb5195266fff136d8196b63a4d0fec4234b51e2` |
+| Result JSON | `e256b6e8bfbe80918779cbe3ed36687b1f81b9c01ca15fe06665c4b55399333c` |
+| Complete job log | `b59cd9547f2bd34f606ba07b0f307dec827983e5cbf4a3916d90c47f94ca5db5` |
+
+Release 37914520768 is cancelled before finalization or publication. Interrupted
+and unrun scenarios establish no acceptance. Root cleanup readback found zero
+project QEMU processes, zero current evidence runs and zero active private-Docker
+containers. The exact owned passive observer was stopped only after command
+identity verification. No tag, release asset or Pages publication was changed.
+
+Exact QGA composition prepends ten lines, mapping runtime 3861 to the frozen
+`verify_legacy_user_session` GTK-theme assertion at source line 3851. The exact
+legacy manifest binds release 1.0.3, source
+`bc7147f1fe42a0d406adf75448c3f63fa127b4bc`, profile `1.0.0-4` and GTK3
+`20260808-4`. That profile's supported-major file contains only 50; its helper
+successfully removes the owned alias/defaults for an unsupported major. The
+failed VM proves the Colloid equality did not hold, but does not retain the
+actual GTK value. The harness correction therefore requires the supported
+Colloid baseline on 50, or Adwaita and absent project alias/defaults on 51;
+unknown majors fail. Existing real GDM/Wayland, UID, exact package-version and
+GTK4 wrapper absence checks remain. The subsequent candidate session must still
+activate Marble and GTK4 normally; no product compatibility or preference-reset
+change is involved.
+
+Three executed session regressions failed on five old-code cases. An intermediate
+run additionally exposed Bash errexit's compound-condition exemption: an existing
+regular activation file could pass the loop. The final predicate explicitly
+returns failure for existing files or symlinks. All three focused regressions and
+all 134 guest runtime tests pass; runtime log SHA-256
+`1c4687ed3ea743128eb695ddeeec2333e2376e9911894a55c5d6e4c39e9d448f`.
+The complete `PYTHONDONTWRITEBYTECODE=1 bash tests/source-tests.sh` also passed,
+including full repository namespaces, ten scenarios, signer PASS, exact 14/18
+closures and no deferrals. Independent review found no material issue. A new
+installed Marble run and downstream privileged/public gates remain required;
+none of these source fixtures is a VM verdict.
+
 ## Verified release 1.0.6 — 2026-10-04
 
 [Configured run37214392242](https://github.com/snaplyze/arch-linux/actions/runs/37214392242)
