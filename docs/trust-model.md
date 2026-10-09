@@ -35,7 +35,7 @@ file, unsafe archive member or manifest mismatch. Pacman uses
 - Authorized signing consumes only an independently verified unsigned closure and emits the exact
   14-file Phase-A closure before QEMU acceptance and exact 18-file finalization.
 - Pages consumes only an already signed snapshot and re-verifies it using public trust.
-- The GNOME 51 candidate's Stock and Marble installers both authenticate the shared
+- The GNOME 51 Stock and Marble installer paths both authenticate the shared
   extension package through the project repository. Stock retains vendor appearance;
   Minimal TTY does not depend on this repository. Existing sessions are not stopped
   by a repository outage, but a new installation or package update cannot bypass it.

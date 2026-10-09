@@ -10,7 +10,7 @@ Review every enabled extension's source and compatibility metadata. AUR snapshot
 and user-local extension archives do not gain a pacman update path by appearing
 in the installer. Keep source identity, licenses, package ownership and migration
 for those inputs in the same review as the profile.
-The GNOME 51 candidate uses the theme-independent `arch-linux-gnome-extensions`
+The GNOME 51 implementation uses the theme-independent `arch-linux-gnome-extensions`
 bundle for both graphical profiles. Verify new-install routing and the previous
 installer's behavior before selecting package-only delivery; a changed package
 set or installer requires a full release.
@@ -27,9 +27,12 @@ existing machines. Keep unqualified inputs and unpublished candidates explicit i
 the [plan](PLAN.md#gnome-51-update-recovery--2026-10-09). Do not disable version
 checks, freeze individual Arch packages or relabel old VM results to avoid Stock
 fallback. For the GNOME 51 transition, upstream Marble remains 50.0.0; the project
-candidate retains its provenance and composes a separately pinned GNOME 51 GDM
+implementation retains its provenance and composes a separately pinned GNOME 51 GDM
 base. The unmerged Clipboard Indicator port and the No Screenshot Box metadata
-port require their own functional acceptance.
+port require their own functional acceptance. Future GNOME/GTK/libadwaita versions
+need fresh qualification and signed delivery; a normal full update alone does not
+establish compatibility for unknown inputs. Current exact acceptance and delivery
+results belong in [validation](validation.md) and the signed release acceptance.
 
 The [dated audit snapshot and registry](PLAN.md#current-arch-context) distinguish observed drift
 from accepted inputs and reviewed no-update decisions. Reports record UTC observation time,

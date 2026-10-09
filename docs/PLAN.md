@@ -515,6 +515,55 @@ pending actual publication, and this progress checkpoint is local.
 Read-only lookahead review found no concrete QEMU/finalize/public interface defect;
 actual execution remains required.
 
+Harness-order correction delivered through
+[PR #69](https://github.com/snaplyze/arch-linux/pull/69). Exact head
+`15f8595713997831eab58c131b0dcce9e07f42b8`, tree
+`b984e46f50503242845602d6c0752c0df4b4504d`, passed the full source suite including
+full repository namespaces/no deferrals (log SHA-256
+`42e706dd928241dc62eff07c19eeed233b02af8e1c99c3472adf8feb475bf814`) and
+[CI 37890243118](https://github.com/snaplyze/arch-linux/actions/runs/37890243118)
+(log SHA-256 `274bf82c800a54a6905f4206ddfa869995ddc6716839b40b262dde8984b26e1e`).
+After exact head/base/check/thread verification, protected squash merge produced
+main `4924cb8676ed76b6e4e3475c9287a6fd40bc96c7` with the same tree and canonical
+mode-and-byte SHA-256 `9e749f5a02bedc9bd79a85d232977e16ab4fde831c0efef9ff4bd9a88b79dc3a`.
+The sole checkout returned to main by fast-forward; candidate history remains on
+`fix/gnome51-harness-order-20261009`.
+[Main CI 37890581985](https://github.com/snaplyze/arch-linux/actions/runs/37890581985)
+passed (log SHA-256 `2cad7ba86c128d54fc179c94b5b67076d3d13e9de336dfdc2922ae14c1bb9253`),
+triggering [Release 37890827364](https://github.com/snaplyze/arch-linux/actions/runs/37890827364).
+Fresh deterministic child `5d291a967970c4aba6712af66ebc7dc0ddbb94a3` and its
+source bundle passed independent reconstruction/digest/closure checks without
+changing refs, checkout or pending Markdown. Its source suite, canonical
+seven-package build and protected artifact readback passed. Independent transport
+verification matched the exact child and all fourteen unsigned-manifest members;
+package bytes still reproduce the reviewed set. Snapshot job `113692422714`
+passed both full repository modes, the root publication boundary and both keyring
+modes, then signed this exact child. Independent Phase-A transport, exact
+fourteen-file closure, twelve manifest members, unchanged trust bytes and three
+public-key signatures passed. Snapshot SHA-256 is
+`938304fae3c866ac4abba1bd8dc950ada61319f979af10aa0bec7e52c6ffa7c6`;
+full identities are in `docs/validation.md`. Actual Minimal completed fourteen
+assertions, including update/reboot/clean shutdown; its uploaded archive passed
+the strict finalizer consumer on this child's actual evidence, confirming the
+ordered-harness correction. Independent documentation inventory found an imperative
+"Use release 1.0.6" outside the generated 1.0.7 block. The workflow was cancelled
+before publication; eight queued VM scenarios did not execute. Its Minimal PASS
+and signed snapshot remain historical evidence for child `5d291a96` only.
+
+Pre-freeze documentation correction inventories all 29 tracked Markdown files.
+The generated-document regression reproduced the stale recommendation before
+the fix; all 52 release-source tests then passed. Installation guidance now refers
+to the generated pin; the documentation index and mutable status prose refer to
+exact evidence instead of freezing contradictory current-version or untested
+claims. Historical release records, upstream patch provenance and package-only
+limits remain unchanged. Agent instructions now require the Markdown inventory
+before freezing as well as reconciliation after publication. Independent review
+found no blocking issue. `bash tests/source-tests.sh` passed, including full
+repository namespaces, ten scenarios and no deferrals (log SHA-256
+`bc0d6012eaa6540a8b054a535aa6e49c85b4db18cc746c23c344e704d359992a`).
+Documentation/link and whitespace checks cover this final checkpoint update;
+exact-commit CI and protected delivery remain pending.
+
 ## Local runner migration — 2026-10-08
 
 Owner request: move all five GitHub Actions workflows for `snaplyze/arch-linux`

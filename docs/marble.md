@@ -6,7 +6,7 @@ Stock GNOME is always the first and default appearance choice. It includes the p
 GNOME baseline—Ptyxis, Bibata, locale-aware Formats, layouts and the reviewed extension profile—while
 retaining distribution Shell, GDM, GTK3/GTK4/libadwaita styling and package-owned resources. Bibata is the
 product's editable cursor default; it does not replace distribution-owned cursor files.
-TTY does not bootstrap the project repository. The GNOME 51 candidate installs
+TTY does not bootstrap the project repository. The GNOME 51 installer paths install
 the shared signed extension bundle for Stock too, without Marble/Colloid themes.
 
 ## Marble desktop
@@ -37,9 +37,9 @@ database, systemd drop-in input, hooks and licenses below project paths. It does
 distribution Shell gresource, GDM/PAM files, `/etc/dconf`, `/var/lib/gdm`, user homes,
 `/usr/share/icons/default` or GTK4/libadwaita CSS.
 
-The published GDM resource baseline is Arch GNOME Shell `1:50.5-1`; its upstream source and
+Release 1.0.6's GDM resource baseline is Arch GNOME Shell `1:50.5-1`; its upstream source and
 package hashes are recorded in the [maintenance inputs](maintenance.md#gnome-shell-505-compatibility-inputs).
-The GNOME 51 candidate adds a separate payload bound to Arch Shell `1:51.0-1`.
+The GNOME 51 implementation adds a separate payload bound to Arch Shell `1:51.0-1`.
 
 Activation requires exact GNOME resource, service, session, vendor-dconf and asset hashes; trusted
 root ownership/modes; a safe service-readable path chain; successful GLib overlay lookup; and the
@@ -84,10 +84,11 @@ project defaults and leaves the user's preferences intact. Once a compatible
 signed profile is published and installed with `sudo pacman -Syu`, the package
 can restore the defaults; log out and log back in to start the updated Shell
 extensions and GTK session service. Explicit user overrides remain authoritative.
-No repaired package is implied by a source commit alone; see the
-[current checkpoint](PLAN.md#gnome-51-update-recovery--2026-10-09).
+A source commit alone does not establish delivery or installed-session acceptance.
+See [validation](validation.md), the signed acceptance for the delivered release and the
+[current checkpoint](PLAN.md#gnome-51-update-recovery--2026-10-09) for exact results.
 
-The candidate replaces the four installer-built AUR extension packages with
+The extension bundle replaces the four installer-built AUR extension packages with
 reviewed payloads owned by `arch-linux-gnome-extensions`, a dependency of the
 Marble profile. Pacman may ask to replace
 those packages during the full upgrade. The separate No Screenshot Box user copy
@@ -105,7 +106,8 @@ Theme activation and extension migration are separate operations.
 GNOME 50 assets remain available. GNOME 51 has a separate GDM composition and
 platform hash set. Clipboard Indicator includes a project-reviewed upstream patch,
 and No Screenshot Box includes a project metadata port; neither is presented as
-a new upstream release. Future unknown versions still require qualification.
+a new upstream release. Future unknown versions still require qualification and signed delivery; an arbitrary
+future `pacman -Syu` is not a guarantee of theme or extension compatibility.
 
 `arch-linux-colloid-gtk` replaces `arch-linux-colloid-gtk3` and contains GTK3, GTK4 and
 libadwaita assets from the same pinned source. The Marble profile requires the new package.
@@ -120,7 +122,7 @@ On logout, profile deactivation or removal it removes only its own unchanged CSS
 Previous custom styles are not restored. Light/dark switching follows system colors.
 
 Existing Marble systems receive the same configuration through `pacman -Syu` followed by
-logout/login; new users receive it on first GNOME login. GTK 4.22.x/libadwaita 1.9.x with
-GNOME 50 are initially supported. Unsupported combinations disable the project defaults.
+logout/login; new users receive it on first GNOME login. The reviewed tuples are GNOME 50 with GTK 4.22.x/libadwaita 1.9.x and
+GNOME 51 with GTK 4.24.x/libadwaita 1.10.x. Unsupported combinations disable the project defaults.
 Use `/usr/lib/arch-linux-marble-profile/gtk4-session status` in the user session to inspect
 activation. No global `GTK_THEME` override or automatic Flatpak permission changes are used.

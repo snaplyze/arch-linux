@@ -2,9 +2,10 @@
 
 ## Prepare
 
-Use release 1.0.6 for the delivered disk-guard, failure-path and shared-ESP corrections recorded
-in the [registry](PLAN.md#review-findings). These corrections do not remove the need to back up
-data and verify the selected target.
+Use the release pinned by the bootstrap instructions below after verifying its
+publication and acceptance. The disk-guard, failure-path and shared-ESP corrections
+introduced in release 1.0.6 are recorded in the [registry](PLAN.md#review-findings).
+They do not remove the need to back up data and verify the selected target.
 
 Use the current official Arch Linux x86_64 ISO in UEFI mode. Disable Secure Boot, connect to the
 internet and synchronize the system clock. Back up every important file before opening the
@@ -69,12 +70,12 @@ extension defaults, Bibata cursor, locale-matched GNOME Formats and optional Lat
 with verified shortcut alternatives. `evolution-data-server` is installed explicitly so the GNOME
 CalendarServer integration has its `libecal` runtime dependency in slim installations.
 
-The GNOME 51 candidate uses `arch-linux-gnome-extensions` from the authenticated
+The GNOME 51 implementation uses `arch-linux-gnome-extensions` from the authenticated
 project repository for both Stock and Marble. It replaces the four former AUR
 extension owners and the fresh installer's local No Screenshot Box installation;
-Bibata remains an AUR package. This requires a new published installer release.
-The commands above still identify the existing immutable release until a new
-release child is generated and accepted; see the [candidate status](PLAN.md#gnome-51-update-recovery--2026-10-09).
+Bibata remains an AUR package. This transition requires a full installer release.
+Use the generated pin above only after verifying its matching published inputs
+and acceptance; see the [delivery status](PLAN.md#gnome-51-update-recovery--2026-10-09).
 
 At the first real user login, a one-time initializer applies the selected GNOME Formats and keyboard
 settings. Each required operation is read back before it is recorded as complete. Its combined

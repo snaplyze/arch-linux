@@ -27,10 +27,10 @@ are separate properties.
 
 ## Verified publication record
 
-Release 1.0.6 has completed immutable publication, Pages verification and fresh public VM acceptance.
-The [validation record](validation.md#verified-release-106--2026-10-04) links its exact source identities,
-signed evidence and workflow. Older results below remain historical and do not validate a later
-source candidate.
+The [validation record](validation.md) links exact source identities, signed
+evidence and workflows for each recorded release. Historical release 1.0.6
+completed immutable publication, Pages verification and fresh public VM acceptance.
+Its results and older results below do not validate a later source candidate.
 
 ## Historical 1.0.1 evidence (retired)
 
@@ -88,17 +88,17 @@ publication or acceptance; follow the separately bound evidence before using it.
 Package revisions use the reviewed source `pkgrel` plus
 `selected patch - source-floor patch + 1`. For example, if source floor 1.0.2 selects 1.0.7,
 the offset is 6: candidate profile `pkgrel=6` becomes 12 and GDM `pkgrel=4` becomes 10.
-This example is not a published version. Versioned package provides must stay aligned with
+The arithmetic alone does not establish publication. Versioned package provides must stay aligned with
 applicable package metadata, and every generated package must advance above the active baseline;
 do not publish raw source revisions that pacman would consider older.
 
-The GNOME 51 candidate adds a seventh package, `arch-linux-gnome-extensions`, for signed
+The GNOME 51 implementation adds a seventh package, `arch-linux-gnome-extensions`, for signed
 delivery of five curated extensions and four AUR replacement identities in both Stock and Marble.
 The Marble profile depends on this independent bundle. It provides exact legacy No Screenshot Box
 retirement; the theme packages retain separate GNOME 50/51 GDM closures. The profile tuples are GNOME 50 / GTK 4.22.x / libadwaita 1.9.x and GNOME 51 /
 GTK 4.24.x / libadwaita 1.10.x. Before accepting delivery, execute the
 [real upgrade and functionality gates](testing.md#gnome-51-candidate-upgrade-acceptance).
-No current source result or historical release PASS establishes those candidate gates. The new
+Source results and historical release PASS verdicts do not establish those gates for new inputs. The new
 installer bootstraps the strict signed repository for Stock as well as Marble; Stock still installs
 no Colloid/Marble theme packages. This requires a new full installer release. The old immutable
 1.0.6 flow requests the four AUR packages and is incompatible with treating the new bundle as an
