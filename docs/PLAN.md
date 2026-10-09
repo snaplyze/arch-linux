@@ -634,6 +634,90 @@ bootstrap or an installed-system result. No installer or credentials were sent;
 owned VM exit and image checks passed. The next protected-main candidate still
 requires fresh full release acceptance; no earlier VM PASS is transferred.
 
+Protected-main [PR #71](https://github.com/snaplyze/arch-linux/pull/71) merged after
+exact-head [CI 37899088629](https://github.com/snaplyze/arch-linux/actions/runs/37899088629)
+passed. Accepted head `102a1807ebc5a9b6388d66b571e2b496df22b464` and merged main
+`4c50728344ac07f61b90e274855eeecc38a683fe` share tree
+`74080fe468a541fddea3edd801af98195d3dba67` and canonical source SHA-256
+`c3c0975f869f795c8db5110ca525cabe95a107763a66c0b87819a84c5d1579d0`.
+The sole checkout returned to main by fast-forward. Main CI
+[37899499406](https://github.com/snaplyze/arch-linux/actions/runs/37899499406)
+passed and started [Release 37899808850](https://github.com/snaplyze/arch-linux/actions/runs/37899808850).
+Its deterministic 1.0.7 child is `018ef177b164c15263afc4904b99c5b826774bdd`.
+Independent transport/deterministic-source verification and generated README /
+installation pins passed without changing local refs, index or dirty documents.
+The exact child's source suite, clean seven-package build and protected artifact
+readback passed. Independent unsigned transport/metadata/package readback also
+passed against exact child blobs and the pinned source epoch. Both full repository
+modes, root publication boundary, ordinary/privileged keyrings and production
+snapshot signing passed. Independent exact-14 closure, twelve manifest rows,
+three signatures and 25 snapshot objects passed for snapshot
+`1034d8bc558f5226a5dcc3b15b131ff20d6af97c108fe928132b71b6346dc42c`.
+Staged VM acceptance failed as detailed below; the run is now cancelled. Public
+gates remain pending and latest publication is still immutable 1.0.6. Exact
+identities follow in `docs/validation.md`.
+Minimal run `minimal-20261009T074530Z-b1c03967` passed all fourteen assertions,
+including installed boot/network, plain update, another boot and clean shutdown.
+Independent retained-artifact and strict production-consumer readback passed for
+this exact child. Graphical installation, Marble upgrade, remaining staged variants
+and public acceptance are not established by that Minimal result.
+Stock run `luksgrub-20261009T075431Z-677a4ce8` acknowledged nonce 2 and emitted
+the complete bound installer READY record; its former bootstrap failure was not
+reproduced. The actual installer then exited 1, so Stock is FAIL with no assertions.
+The host's two-hour message was misleading on early guest shutdown. Retained
+diagnostics classified the failure as unknown; a separate nested ERR-trap fixture
+reproduced a function name in the line-number argument because the stack was
+unquoted. Quoting the arguments now preserves the real line/stack/status; focused
+function checks passed. The harness now distinguishes a reported installer failure,
+QEMU shutdown, serial-bridge loss and an actual deadline, with executed regressions.
+The full `bash tests/source-tests.sh` passed, including full namespace repository
+acceptance (10 scenarios, signer passed, 14+18 closures, no deferrals); log SHA-256
+`3e26145cc2213005272da6f90a604d4c1361c05b339ad9a94fdda5ca5a77c1b9`.
+This verifies diagnostic changes only; subsequent source changes require fresh checks.
+Core Marble run `marble-20261009T080614Z-c46c195d` also reached the full bound
+READY record and then exited 1 during installation, with no assertions. Its legacy
+package preparation passed the previously failing Ubuntu/Arch verification boundary.
+Supplemental Stock/ext4 run `stock-20261009T081505Z-214caad6` reproduced installer
+exit 1; a separately executed, read-only observer captured `exec_install_desktop`
+as the failing function and `main` as the malformed line argument. This narrows
+the failure to the common desktop path rather than Btrfs/LUKS alone; the failing
+command remains under investigation. Only allowlisted function/status data were
+retained. This failed matrix cannot finalize or publish; a diagnostic fix is not
+an installation PASS.
+Stock/Btrfs/systemd-boot reproduced the same failure. A subsequent plain Btrfs/GRUB
+observer identified the error command as `return 1` with a curl diagnostic; its
+specific transport and package are still under investigation. Separate clean Git
+probes reproduced AUR TLS failure on both workstation and runner. The
+[official Arch outage guidance](https://archlinux.org/news/recent-services-outages/)
+recommends the read-only `archlinux/aur` mirror. Read-only retrieval of the existing
+Bibata commit from that mirror passed the unchanged archive, SRCINFO and hardened
+PKGBUILD hashes. A bounded fallback implementation now permits selection of the official package
+branch only after a failed primary recipe clone, in the existing
+unprivileged builder; exact commit and all content/output checks remain mandatory.
+Executed transport/identity regressions passed and independent review found no
+material defect. No pin changed. A final-log observer then confirmed a fresh
+failure in `exec_install_bootsplash`: AUR clone TLS EOF, four retries (duplicated
+by the final log replay), no pacman/signed-repository retries. The earlier desktop
+failures remain less specifically classified. Diagnostic compaction now records
+these Git/TLS failures as downloads, with redaction regressions.
+Workflow 37899808850 is terminal CANCELLED; the superseding source needs fresh
+build, VM and public acceptance. Exact failed evidence remains in validation.
+After cancellation no project QEMU process, evidence run directory or retained
+GNOME-input builder/verifier container remained. No current-run socket directory
+remained; two directories from earlier 05:40/07:08 runs were preserved.
+Native isolated Git transport checks fetched both Bibata and Plymouth from the
+official mirror and verified the exact commits, Git archive, SRCINFO and actual
+installer hardening output against unchanged pins. Owned recipe inputs were
+removed; no PKGBUILD or VM ran in that check. Receipt SHA-256:
+`b06fee0370385cca151eb44a1a275f534470cd15145e321f146ee8147cf37c0a`.
+The corrected installer/harness source suite passed (`bash tests/source-tests.sh`),
+including full namespace repository acceptance, signer PASS, exact 14+18 closures
+and no deferrals. Source log SHA-256:
+`dd8054d820d2561f8c4b66c6b24ab48f86c41cd88fbff31d07c915c27cf69e9c`.
+Independent review found no material defect in either the fallback or typed TLS
+diagnostics. Final checkpoint documentation is checked separately; exact protected
+PR CI and all new release-child acceptance remain pending.
+
 ## Local runner migration — 2026-10-08
 
 Owner request: move all five GitHub Actions workflows for `snaplyze/arch-linux`

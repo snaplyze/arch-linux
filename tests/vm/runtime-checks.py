@@ -2131,6 +2131,30 @@ printf 'VERIFY_CONTINUED
                                          "fixture", str(path), marker], capture_output=True, timeout=5)
                 self.assertEqual(result.returncode, expected, result.stderr)
 
+    def test_install_outcome_distinguishes_failure_shutdown_bridge_and_deadline(self):
+        body = self.host_function('wait_for_install_outcome')
+        program = 'set -uo pipefail\n' + body + r'''
+qemu_pid=123 qemu_start_time=fixture serial_bridge_pid=456 marker_prefix=STOCK
+mode="$2"
+process_is_exact_qemu(){ [ "$mode" != qemu ]; }
+kill(){ [ "$mode" != bridge ]; }
+sleep(){ SECONDS=$((SECONDS + 1)); }
+wait_for_install_outcome "$1" 'STOCK_QEMU_INSTALL_COMPLETE run_id=fixture' 'Show Logs?' 2
+'''
+        success = 'STOCK_QEMU_INSTALL_COMPLETE run_id=fixture\n'
+        failed = 'STOCK_QEMU_INSTALLER_EXIT status=1\n'
+        cases = [(success, 'alive', 0), (failed, 'alive', 2), (failed, 'qemu', 2),
+                 (failed + success, 'alive', 2), ('Show Logs?\n', 'alive', 2),
+                 ('STOCK_QEMU_INSTALLER_EXIT status=0\n', 'qemu', 3),
+                 ('', 'bridge', 4), ('', 'alive', 1),
+                 ('STOCK_QEMU_INSTALLER_EXIT status=1wrong\n', 'alive', 1)]
+        for content, mode, expected in cases:
+            with self.subTest(content=content, mode=mode), tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / 'serial'; path.write_text(content)
+                result = subprocess.run(['bash', '-c', program, 'fixture', str(path), mode],
+                                        capture_output=True, text=True, timeout=5)
+                self.assertEqual(result.returncode, expected, result.stderr)
+
     def test_archiso_wait_retries_only_public_probe_and_rejects_stale_reply(self):
         body = self.host_function("serial_archiso_ready") + "\n" + self.host_function("wait_for_archiso_shell")
         program = 'set -euo pipefail\n' + body + r'''

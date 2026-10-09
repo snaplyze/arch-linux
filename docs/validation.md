@@ -654,6 +654,204 @@ directory were removed. Independent receipt/file-hash and frozen-function
 readback passed. Receipt SHA-256:
 `87d2b5466a47c3566b09ec8c1562cf313e257fb545cb18b211e18abbb8d6009a`.
 
+Protected-main [PR #71](https://github.com/snaplyze/arch-linux/pull/71) delivered
+both harness fixes. Exact-head [CI 37899088629](https://github.com/snaplyze/arch-linux/actions/runs/37899088629)
+passed; its log SHA-256 is
+`629c7729a8bd698b943666f6152181af9a40358b92cc93a2392f1e2f80c9882d`.
+Accepted head `102a1807ebc5a9b6388d66b571e2b496df22b464` and merged main
+`4c50728344ac07f61b90e274855eeecc38a683fe` share tree
+`74080fe468a541fddea3edd801af98195d3dba67` and canonical source hash
+`c3c0975f869f795c8db5110ca525cabe95a107763a66c0b87819a84c5d1579d0`.
+These source and bounded native results do not replace fresh full installation,
+signed release and public acceptance for the resulting release child.
+
+Main [CI 37899499406](https://github.com/snaplyze/arch-linux/actions/runs/37899499406)
+passed; log SHA-256
+`447438896776a0e16bbb2194a1bff35b908ab1da5bf22d4b2817899c0b274e76`.
+It triggered [Release 37899808850](https://github.com/snaplyze/arch-linux/actions/runs/37899808850),
+whose source transport and deterministic child were independently verified.
+Refs, index and dirty document bytes were preserved; actual generated bootstrap
+instructions pin 1.0.7. No earlier child VM result applies to this source.
+
+| New candidate binding | Exact identity / SHA-256 |
+| --- | --- |
+| Origin main | `4c50728344ac07f61b90e274855eeecc38a683fe` |
+| Origin tree | `74080fe468a541fddea3edd801af98195d3dba67` |
+| Deterministic release child | `018ef177b164c15263afc4904b99c5b826774bdd` |
+| Release tree | `ec3b07c9d52d159a63dd02cd6e82cfbe8bf73c83` |
+| Canonical release source | `24f3cd89f067cec03dc79d20ce70e7a98281b97ef728d4c4dd19632333e0d4f6` |
+| Source artifact | `11601449903` |
+| Source transport ZIP | `43cc8347c1f73c9cb65ef1641cb874a986c4bc4331ede49ee92064b5c9158c94` |
+| Source bundle | `9345d165621519ce31af386d3c08cdfeaafb398d5432ca4e83ddad928696dda5` |
+
+The child source suite, canonical seven-package build and protected artifact
+readback passed. Independent unsigned readback verified the API ZIP digest,
+exact sixteen files/fourteen checksum rows, complete schema-2 metadata against
+the child source/tree and pinned epoch `1787529600`, and actual package identity,
+dependencies, provides/conflicts/replaces, licenses, BUILDINFO and MTREE. It used
+read-only child blobs; a validator bound to the different local main tree was
+not treated as acceptance of the child.
+
+| Unsigned build binding | SHA-256 / identity |
+| --- | --- |
+| Artifact | `11601991052` |
+| Transport ZIP | `3ae2a0076e6ffaf9a4392a63640956e131cd0b30c2b7299e5a524d48399269ed` |
+| BUILD-METADATA.json | `b0d87e7b575ddcd153118b0a7edf959d3361189797164588a7b275c32ddba802` |
+| UNSIGNED-SHA256SUMS | `cec8557a6db3f58e6a1beaaa0f4c6f5e94471a02b66bbbef7bd492303ed4dc37` |
+| Package set | `6654c025c4b2203597122117a04be4c36df45936fa99764788d5e68c200e4a5a` |
+
+Snapshot job `113721097178` passed both full repository modes (ten scenarios,
+signer PASS, exact 14/18 closures, no deferrals), the root publication boundary
+and ordinary/privileged keyring modes before production signing. Independent
+artifact readback verified exact fourteen files, twelve manifest rows, unchanged
+source/trust/build bytes, three signatures from the pinned signing subkey and
+the production snapshot contract's 25 objects.
+
+| Signed staging binding | SHA-256 / identity |
+| --- | --- |
+| Phase-A artifact | `11602561385` |
+| Transport ZIP | `d06f824c8440e8aa87614153662181807b651839ddd9ce4ae06ae65f67d54380` |
+| Repository snapshot | `1034d8bc558f5226a5dcc3b15b131ff20d6af97c108fe928132b71b6346dc42c` |
+| RELEASE-SHA256SUMS | `8f6888f968d173d8be60146037e0e93ed3e803d3f1fcb919b9ce211e830eb130` |
+| Snapshot job log | `e005bd14a393d9b574fbe3473dd013780d8715f4ef28ac682e7c18b7cedae372` |
+
+Fresh Minimal run `minimal-20261009T074530Z-b1c03967` passed all fourteen assertions:
+the actual installer exited zero, the installed system booted, network and units
+passed, plain `pacman -Syu` succeeded, reboot changed its boot ID, and shutdown,
+image check and owned-process cleanup passed. Independent retained-artifact
+readback and the production strict `directory_run` consumer passed for this
+exact source, build and signed snapshot.
+
+| Minimal evidence | SHA-256 / identity |
+| --- | --- |
+| Artifact | `11601873555` |
+| Transport ZIP | `f0f97d8dec312b4451038d6ae480b13753e1d8d9b8704376defd311928cbfb33` |
+| Evidence archive | `42bca945cf40a05a9d278cf109e801d9017e96760020c53b774f761e1a72f6a0` |
+| result.json | `330768216db92f44e13c301c717d453dbbe190a10d393de682da5becd53f0f05` |
+
+Core Stock run `luksgrub-20261009T075431Z-677a4ce8` failed in `install-archiso`
+with no assertions. Its retained log contains the complete bound READY record,
+`LUKSGRUB_QEMU_INSTALLER_EXIT status=1` and the corresponding installer failure
+marker. Thus bootstrap readiness succeeded and the installer itself failed; the
+host's two-hour message was misleading on early shutdown. No specific underlying
+installation cause is established by the compact `unclassified` diagnostic.
+The owned run directory, sockets and exact QEMU process were confirmed absent.
+
+| Failed Stock evidence | SHA-256 / identity |
+| --- | --- |
+| Artifact | `11602473477` |
+| Transport ZIP | `b1659176f29087618b7f3a4d427c8b021c55eb9d261cac3b04fc912e28835588` |
+| Evidence archive | `ef30e64f7e4b1c51a06a3ef72a434d2b3876150806d9a9ab9d585f4d551769b0` |
+| result.json | `f1bc86a1fac7c5508a4832efe156b65198da1004cce0d3751eeeb3cb1b9c7c39` |
+| Job log | `17c6013568160e184d35498b16d6bc6545ae6c8a1e6ca78453b892b4849902a8` |
+
+A bounded runner kernel-journal query for 08:00–08:03 UTC returned no records;
+this provides no positive OOM evidence and cannot rule out an unrecorded event.
+A local nested-function reproduction independently found that the unquoted ERR
+trap stack shifted the line argument (`line outer`). The correction preserves
+numeric line, complete stack and exit status without retaining extra raw data.
+Harness outcome regressions distinguish reported installer failure, guest/bridge
+termination and deadline. These diagnostic fixes do not establish the cause or
+repair of this installation failure.
+
+Core Marble run `marble-20261009T080614Z-c46c195d` likewise failed in
+`install-archiso` with no assertions, after its exact bound READY record and with
+`MARBLE_QEMU_INSTALLER_EXIT status=1`. Legacy AUR package preparation and the
+separate Arch verifier progressed successfully to the actual VM, so the former
+Ubuntu interpreter/library boundary did not recur. Compact diagnostics do not
+identify the underlying installation cause. Its owned run directory, sockets and
+exact QEMU process were confirmed absent.
+
+| Failed Marble evidence | SHA-256 / identity |
+| --- | --- |
+| Artifact | `11603670955` |
+| Transport ZIP | `f7059f67583188d484b70c5a39c817f04ae0b816081f9f7eef2528ca252d8774` |
+| Evidence archive | `df87e8505974028c4cf86d3e3c91128936656b8f6c5b0df1f6cbb9260910ffe7` |
+| result.json | `9f4a633902a36b60d38af85ef1771711b65f076818a6b6ce6986ffc1bc70ef2c` |
+| Job log | `922f30e98a98bb3080174e8533301301a385f3f3f85d8483a40702f62fdd33b3` |
+
+Supplemental Stock/ext4 run `stock-20261009T081505Z-214caad6` also exited 1
+during `install-archiso`, with no assertions. Independent transport/source/build/
+snapshot binding checks passed; this is failed evidence, not runtime acceptance.
+
+| Failed Stock/ext4 evidence | SHA-256 / identity |
+| --- | --- |
+| Artifact | `11604007327` |
+| Transport ZIP | `673482e5a9ea8cdf5887f161137078202d48f2865e6a8bb0b459cde14b0417f1` |
+| Evidence archive | `a06e8f91cdb76592e700802b3d60f7e14c7b72fff251ae30133976e670740dfe` |
+| result.json | `352012cf9463808cbe7edc8b64abb667ec275381ad9a3b2ed12dbc089676d2fe` |
+
+A read-only observer bound to this exact release source/installer captured
+status `1`, function `exec_install_desktop`, and malformed line/caller `main`
+before normal raw-log compaction. Only allowlisted function/status fields were
+retained. This rules out a failure confined to Btrfs/LUKS, but does not yet identify
+the failing desktop command. Remaining staged cases, migration/appearance and
+public acceptance are pending. The failed matrix cannot finalize or publish.
+
+Supplemental Stock/Btrfs/systemd-boot run `btrfs-20261009T082358Z-3bc6e0b2`
+also failed during `install-archiso`, with no assertions. Independent transport
+and source/build/snapshot binding passed. The live observer again captured
+`exec_install_desktop` / status `1` / malformed caller `main`; its command did not
+match a single desktop source statement, so no command identity is claimed.
+
+| Failed Stock/Btrfs evidence | SHA-256 / identity |
+| --- | --- |
+| Artifact | `11604576165` |
+| Transport ZIP | `59f413e39e8bfc9c2f7c68cb163f08bd9947da53317520d229e9120cad590588` |
+| Evidence archive | `948afea8f16a91805bf6451fb50504af05cfc50324ffe472e46da02407a2e11e` |
+| result.json | `2feb83e67b63786357a201375cf76caff9ebe6f3fff30037bbf014e96b95ab7f` |
+
+Separately, public `git ls-remote` probes of the pinned Bibata AUR repository on
+the workstation and runner failed TLS negotiation at approximately 08:38 UTC
+(OpenSSL unexpected EOF / GnuTLS non-proper termination). The runner probe used
+an empty Git configuration and disabled credential prompting. This establishes a
+transport failure at probe time, not the cause of an earlier VM installation.
+
+Plain Btrfs/GRUB run `grub-20261009T083429Z-15bd385a` also failed during
+`install-archiso` with no assertions. Early live observation identified `return 1`
+in `exec_install_desktop` and a curl diagnostic, but preceded final log replay;
+it cannot identify the failed package or transport. The following encrypted Stock
+run `luks-20261009T084314Z-1bb69772` failed earlier in `exec_install_bootsplash`.
+An observer waited for its exact final-log END marker and captured AUR TLS EOF /
+`fatal: unable to access`, four retries replayed twice, and no pacman or signed
+repository retries. This establishes AUR recipe transport failure for that run.
+Both artifacts passed independent transport and source/build/snapshot binding.
+
+| Failed supplemental evidence | Plain Btrfs/GRUB | Encrypted Btrfs/systemd-boot |
+| --- | --- | --- |
+| Artifact | `11604403130` | `11604529820` |
+| Transport ZIP | `75dde24eaf336d49eee9522da185ffad8fe77a6c511c5da41946455c9b109ba1` | `8a1b8805641daeab26ec69c1f80c494d042862ffd853d617786ca7b2fd4d9815` |
+| Evidence archive | `99bf8d26c3bf2312952fa7a9bc8888d6a22f63e5da779594b36c0b2f3e1fdee7` | `ac5604ab6258a46f70829850a0c1c58a2417f39477770dea30c6610e0976256d` |
+| result.json | `c7813a138164ad097cafb8786b432183a593185d2cdbda8cf76f278e131d61ea` | `0b3cb4dd2ed9cd45dc8a3ec5eddef92ddd31bf3fea18cc4555f000f680ce6052` |
+
+Workflow 37899808850 is terminal CANCELLED. The remaining Marble/Stock-GDM job
+was interrupted during input preparation and dual boot did not execute. Cancellation
+API readback SHA-256: `99587aace659fb978a0c6762b3d33378678806997f0c52a60a70c6afd2ceec98`.
+No project QEMU process, evidence run directory or GNOME-input builder/verifier
+container remained after cancellation. Latest public release remains 1.0.6; no
+1.0.7 tag, release or Pages publication was produced by this failed candidate.
+
+The focused correction adds the official Arch read-only mirror only after a failed
+AUR clone, in the same unprivileged scope and a separate attempt directory. All
+existing recipe and output pins remain mandatory. Executed fixture transport /
+real Git identity tests and independent review passed; real installation with the
+new fallback remains pending. Git/TLS failure classification and early-installer
+outcome handling now have regressions that preserve only typed nonsecret metadata.
+Native transport-only verification cloned the actual official mirror package
+branches for `bibata-cursor-theme-bin` and `plymouth-theme-archlinux`, checked out
+their existing commits, and verified Git archive, SRCINFO and the installer's
+actual pure hardening output against every pin. Git configuration/hooks were
+isolated; both operations had a 120-second deadline. No PKGBUILD, package build
+or VM executed, and owned recipe inputs were removed. Installer binding:
+`da938ece6a946b69b33b6b9fd91abf6b380906cae8c5ede59f1cc1188ae5ff0f`;
+receipt SHA-256: `b06fee0370385cca151eb44a1a275f534470cd15145e321f146ee8147cf37c0a`.
+The corrected source passed `bash tests/source-tests.sh`, including the full
+namespace result (10 scenarios, signer passed, 14+18 closures, no deferrals);
+log SHA-256: `dd8054d820d2561f8c4b66c6b24ab48f86c41cd88fbff31d07c915c27cf69e9c`.
+Independent fallback and diagnostic reviews reported no material findings. These
+local source/transport results do not establish a successful installation or
+publication. Exact protected PR CI and the fresh release child remain pending.
+
 ## Verified release 1.0.6 — 2026-10-04
 
 [Configured run37214392242](https://github.com/snaplyze/arch-linux/actions/runs/37214392242)

@@ -250,7 +250,7 @@ runtime_init() {
     PROCESS_CGROUP_ACK_TMP_FILE="${SCRIPT_TMP_DIR}/process-cgroup.ready"
 
     trap 'trap_exit' EXIT
-    trap 'trap_error ${FUNCNAME[*]-unknown} ${LINENO}' ERR
+    trap 'trap_error "${FUNCNAME[*]-unknown}" "${LINENO}"' ERR
 }
 
 main() {
@@ -6687,7 +6687,17 @@ chroot_aur_install() {
             arch-chroot /mnt /usr/bin/runuser -u "$aur_builder_user" -- \
             "${clean_user_env[@]}" timeout --signal=TERM --kill-after=10 300 \
             git clone --no-checkout -- "$repo_url" "$repo_tmp_dir"; then
-            sleep 10 && continue
+            # Arch documents this read-only mirror for AUR outages. A failed primary clone may
+            # leave partial data, so never reuse its directory. The immutable checks below apply
+            # equally to mirror bytes; a branch name alone never authorizes a recipe.
+            repo_tmp_dir="${aur_builder_home}/src-${repo}-${i}-mirror"
+            if ! aur_builder_scope_run "$aur_capture_file" \
+                arch-chroot /mnt /usr/bin/runuser -u "$aur_builder_user" -- \
+                "${clean_user_env[@]}" timeout --signal=TERM --kill-after=10 300 \
+                git clone --single-branch --branch "$repo" --no-checkout -- \
+                https://github.com/archlinux/aur.git "$repo_tmp_dir"; then
+                sleep 10 && continue
+            fi
         fi
 
         # Resolve the immutable commit, independently hash the exact Git archive and validate the

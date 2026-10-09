@@ -47,6 +47,125 @@ failed_line() { echo "function check failed at line $1" >&2; }
 trap 'failed_line "$LINENO"' ERR
 trap 'command rm -rf -- "$function_runtime_dir"' EXIT
 
+# Exercise the actual clone/immutable-identity part of chroot_aur_install with a tiny owned
+# recipe Git fixture. Only transport and the chroot/user wrapper are substituted; checkout,
+# git archive hashing and the source-identity rejection run for real. No PKGBUILD is executed.
+(
+    recipe_fixture="${function_runtime_dir}/aur-transport-recipe"
+    mkdir -- "$recipe_fixture"
+    printf 'pkgbase = bibata-cursor-theme-bin\n' >"${recipe_fixture}/.SRCINFO"
+    printf '# transport fixture only; never executed\n' >"${recipe_fixture}/PKGBUILD"
+    git -C "$recipe_fixture" init --quiet
+    git -C "$recipe_fixture" add -- .SRCINFO PKGBUILD
+    git -C "$recipe_fixture" -c user.name=Fixture -c user.email=fixture@example.invalid \
+        -c commit.gpgsign=false commit --quiet -m fixture
+    fixture_commit="$(git -C "$recipe_fixture" rev-parse HEAD)"
+    fixture_archive="$(git -C "$recipe_fixture" archive --format=tar HEAD | sha256sum | awk '{ print $1 }')"
+    fixture_srcinfo="$(sha256sum "${recipe_fixture}/.SRCINFO" | awk '{ print $1 }')"
+    aur_review_metadata() { printf '%s %s %s %064d\n' "$fixture_commit" "$fixture_archive" "$fixture_srcinfo" 0; }
+    sleep() { :; }
+    log_warn() { :; }
+    for transport_case in primary mirror unavailable mirror-mismatch; do
+        (
+            repo=bibata-cursor-theme-bin
+            repo_url="https://aur.archlinux.org/${repo}.git"
+            aur_builder_user=archlinux-aur-builder
+            aur_builder_home="${function_runtime_dir}/aur-${transport_case}"
+            mkdir -- "$aur_builder_home"
+            aur_capture_file="${aur_builder_home}/capture"
+            clean_user_env=(/usr/bin/env -i "HOME=${aur_builder_home}" "USER=${aur_builder_user}" \
+                "LOGNAME=${aur_builder_user}" 'PATH=/usr/local/sbin:/usr/local/bin:/usr/bin:/bin' \
+                'LANG=C.UTF-8' 'LC_ALL=C.UTF-8')
+            aur_commit="$fixture_commit"
+            i=0 repo_tmp_dir=''
+            primary_calls=0 mirror_calls=0 identity_calls=0 accepted=false
+            aur_builder_scope_run() {
+                local capture="$1" primary_destination destination transport_url
+                shift
+                [ "$1 $2 $3 $4 $5 $6 $7" = \
+                    "arch-chroot /mnt /usr/bin/runuser -u ${aur_builder_user} -- /usr/bin/env" ] || return 125
+                shift 7
+                [ "$1 $2 $3 $4 $5 $6 $7" = \
+                    "-i HOME=${aur_builder_home} USER=${aur_builder_user} LOGNAME=${aur_builder_user} PATH=/usr/local/sbin:/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 LC_ALL=C.UTF-8" ] || return 125
+                shift 7
+                [ "$1 $2 $3" = 'timeout --signal=TERM --kill-after=10' ] || return 125
+                shift 3
+                if [ "$1" = 300 ]; then
+                    shift
+                    if [ "$3" = --no-checkout ] && [ "$4" = -- ]; then
+                        { [ "$1 $2" = 'git clone' ] && [ "$#" -eq 6 ]; } || return 125
+                        transport_url="$5" destination="$6"
+                        [ "$transport_url" = "$repo_url" ] || return 125
+                        primary_calls=$((primary_calls + 1))
+                        if [ "$transport_case" != primary ]; then
+                            mkdir -- "$destination" # Failed transport can leave a partial directory.
+                            return 1
+                        fi
+                    else
+                        [ "$1 $2 $3 $4 $5 $6 $7" = \
+                            "git clone --single-branch --branch ${repo} --no-checkout --" ] && [ "$#" -eq 9 ] || return 125
+                        transport_url="$8" destination="$9"
+                        [ "$transport_url" = https://github.com/archlinux/aur.git ] || return 125
+                        primary_destination="${aur_builder_home}/src-${repo}-${i}"
+                        [ "$destination" != "$primary_destination" ] && [ -d "$primary_destination" ] && [ ! -e "$destination" ] || return 125
+                        mirror_calls=$((mirror_calls + 1))
+                        [ "$transport_case" != unavailable ] || return 1
+                    fi
+                    command git clone --quiet --no-checkout -- "$recipe_fixture" "$destination" >"$capture" 2>&1
+                else
+                    [ "$1 $2 $3" = '120 bash -c' ] && [ "$#" -eq 7 ] || return 125
+                    [ "$7" = "$fixture_commit" ] && [ "$6" = "$repo_tmp_dir" ] || return 125
+                    identity_calls=$((identity_calls + 1))
+                    shift
+                    /usr/bin/env -i PATH=/usr/bin:/bin HOME="$aur_builder_home" "$@" >"$capture" || return 1
+                    if [ "$transport_case" = mirror-mismatch ]; then
+                        printf '%040d %s %s\n' 0 "$fixture_archive" "$fixture_srcinfo" >"$capture"
+                    fi
+                fi
+            }
+            # Extract the production loop through its actual immutable identity gate, stopping
+            # before dependency installation/building. Acceptance requires reaching past that gate.
+            eval "$(sed -n '/^chroot_aur_install() {/,/^}/p' "$script" | \
+                sed -n '/^    for ((i = 1; i < 6; i++)); do$/,/^        # Capture the committed metadata bytes/p' | sed '$d')
+                accepted=true
+                break
+            done"
+            if [ "$transport_case" = primary ]; then
+                [ "$accepted" = true ] && [ "$primary_calls:$mirror_calls:$identity_calls" = 1:0:1 ]
+            elif [ "$transport_case" = mirror ]; then
+                [ "$accepted" = true ] && [ "$primary_calls:$mirror_calls:$identity_calls" = 1:1:1 ]
+            else
+                [ "$accepted" = false ] && [ "$primary_calls:$mirror_calls" = 5:5 ]
+                if [ "$transport_case" = unavailable ]; then [ "$identity_calls" -eq 0 ]; else [ "$identity_calls" -eq 5 ]; fi
+            fi
+        )
+    done
+)
+
+# Execute only runtime_init's ERR registration and the real handler. Nested function names must
+# stay one argument so they cannot displace the numeric location or the original failure status.
+trap_fixture="${function_runtime_dir}/nested-error-trap.sh"
+{
+    printf '%s\n' 'set -Eeuo pipefail' 'ERROR_MSG_TMP_FILE="$1"'
+    declare -f trap_error
+    sed -n '/^runtime_init() {/,/^}/p' "$script" | sed -n '/^[[:space:]]*trap .* ERR$/p'
+    printf '%s\n' 'inner() {' '    false' '}' 'outer() {' '    inner' '}' 'outer'
+} >"$trap_fixture"
+trap_failure_line="$(sed -n '/^    false$/=' "$trap_fixture")"
+trap - ERR
+set +e
+bash --noprofile --norc "$trap_fixture" "${function_runtime_dir}/nested-error-trap.err"
+trap_failure_status=$?
+set -e
+trap 'failed_line "$LINENO"' ERR
+[ "$trap_failure_status" -eq 1 ]
+grep -Fxq "Command 'false' failed with exit code 1 in function 'inner outer main' (line ${trap_failure_line})" \
+    "${function_runtime_dir}/nested-error-trap.err" || {
+    cat "${function_runtime_dir}/nested-error-trap.err" >&2
+    echo 'nested ERR trap lost its function stack or numeric failure line' >&2
+    exit 1
+}
+
 [[ "$(partition_name /dev/sda 1)" == "/dev/sda1" ]]
 [[ "$(partition_name /dev/nvme0n1 2)" == "/dev/nvme0n1p2" ]]
 [[ "$(partition_name /dev/mmcblk0 1)" == "/dev/mmcblk0p1" ]]
