@@ -237,6 +237,17 @@ the clean release child must prepare its own tree-bound inputs and execute the
 actual migration, the baseline and both recovery GDM logins, and six functional
 assertions before acceptance.
 
+Final local source checkpoint: `PYTHONDONTWRITEBYTECODE=1 bash tests/source-tests.sh`
+passed on clean candidate `c5a2b8f`, including all 17 upgrade-input regressions,
+126 runtime fixtures, documentation/link checks for 29 Markdown files,
+ShellCheck and full repository namespaces with ten scenarios, exact 14/18
+closures and no deferrals. Exact commit/tree/log identities are in validation.
+All delegated work has returned; no owned build/diagnostic container remains.
+Remote main remains `bc135f0` and the latest public release remains 1.0.6.
+The candidate is local: protected-PR delivery awaits the requested owner exception
+for a branch in this same checkout. Actual signed upgrade/GDM/functional and
+appearance acceptance, publication and public pacman recovery remain open.
+
 ## Local runner migration — 2026-10-08
 
 Owner request: move all five GitHub Actions workflows for `snaplyze/arch-linux`

@@ -115,6 +115,18 @@ recipes were removed. This is input preparation, not an installed upgrade or a
 GNOME behavior PASS, and it does not transfer to the future release child's
 different source identity.
 
+The complete source suite then passed clean commit
+`c5a2b8f77947b6a146eebef6808141971e363283`, tree
+`4b644f379744507178d2f8dc85c947dc64a84533`, with the final legacy-input fixes and
+their documented preparation receipt. Command:
+`PYTHONDONTWRITEBYTECODE=1 bash tests/source-tests.sh`; exit 0, log SHA-256
+`3d4822005934279fe6e625c23554633663bd7743cce851ed5ac8f6978e90614a`.
+This includes all 17 upgrade-input regressions, 126 runtime fixtures, 29-page
+documentation/link checks, ShellCheck and the full repository result:
+`schema=1 namespace_fixtures=full scenarios=10 signer=passed release_closures=14+18 deferred=none`.
+The checkout remained clean. This is source acceptance, not the outstanding
+production-signed upgrade, GDM/functionality/appearance or public-delivery gates.
+
 ## Verified release 1.0.6 — 2026-10-04
 
 [Configured run37214392242](https://github.com/snaplyze/arch-linux/actions/runs/37214392242)
