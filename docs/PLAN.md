@@ -16,7 +16,7 @@ publication. Exact historical attempts and evidence belong in
 | G51-02 | Prepare reviewed package/extension upgrade paths, preserve user overrides and safe unsupported-version handling; reproduce failures before fixes and test recovery. | Source delivered; current signed build PASS; real GNOME upgrade acceptance pending |
 | G51-03 | Correct deterministic release documentation rendering; test independently differing source/document/release versions and preserve historical evidence. | DONE: overview/bootstrap/changelog rendering and 52 regressions PASS |
 | G51-04 | Update agent, update/release and user documentation with package delivery and real upgrade acceptance requirements. | Candidate instructions delivered; final publication reconciliation pending |
-| G51-05 | Independent diff review, affected checks and full source suite; record package, real session/VM and publication results separately. | Accepted child has build/signing/eight VMs PASS; retry failure reproduced and focused harness correction/source suite/review PASS; protected delivery and fresh acceptance pending |
+| G51-05 | Independent diff review, affected checks and full source suite; record package, real session/VM and publication results separately. | Current child build/signing PASS; Stock unlock and Marble upgrade FAIL retained; focused HTTP correction/regressions/native ALPM/source suite/review PASS; protected delivery and fresh acceptance pending |
 
 ### Confirmed cause and delivery design
 
@@ -61,62 +61,60 @@ commands/results keep their identities; old tags and assets are never rewritten.
 
 ### Current checkpoint and remaining gates
 
-[PR74](https://github.com/snaplyze/arch-linux/pull/74) passed exact-head CI and the
-protected merge. Main is `b10e1158824d8191640f22b4a9f8e591aa59be92`;
-[Release 37921973159](https://github.com/snaplyze/arch-linux/actions/runs/37921973159)
-tested child `a35fa3e7f238e4c3f3d675eed7c346e1d536c2d6` for version 1.0.7.
-Public latest is still 1.0.6. The new child has passed source transformation,
-the clean seven-package build, protected unsigned readback, all five release-host
-checks and Phase-A signing. Independent transport/closure/metadata/signature
-readback passed. Its README and installation examples correctly pin 1.0.7.
-Exact identities are in the
+[PR75](https://github.com/snaplyze/arch-linux/pull/75) passed exact-head CI and the
+protected squash merge. Main is `322e3318768db8634083b9684d5ac4c212e58572`;
+main CI 37942859021 passed, and
+[Release 37943281539](https://github.com/snaplyze/arch-linux/actions/runs/37943281539)
+tested child `cd436147e2d4ce7b9886c62004fcfd9a520af915` for 1.0.7.
+Its source transport/deterministic transformation, clean build and protected
+unsigned readback passed. Independent seven-package metadata/payload/MTREE
+verification also passed. All five release-host gates and Phase-A signing passed;
+independent signed-closure readback passed. Fresh Minimal passed all fourteen
+assertions and its frozen strict consumer. Core Stock failed at first-boot unlock
+after installation and real GDM login. The retained diagnostic proves that the
+session stayed locked; pre-input frames support an asynchronous prompt-readiness
+hypothesis, but do not establish the exact cause. Do not change product behavior
+or add an unqualified accessibility dependency
+to obtain PASS. The initially planned Stock retry is superseded by the independently
+reproduced test-server correction below: the next changed child needs fresh checks.
+Core Marble passed the corrected prerequisite and reproduced all four old extension
+failures after real baseline login, then failed inside plain `pacman -Syu`.
+An isolated strict `pacman -Syu` reproduced
+a stale baseline database combined with the candidate signature: the test server
+returned HTTP 304 across the fixture repository switch. The focused test-only
+HTTP correction ignores conditional dates and omits Last-Modified while retaining
+plain `-Syu`, TLS and strict trust. Two real `curl -z` regressions, all 140 runtime
+checks, independent native ALPM over TLS, review and the full source suite passed.
+Deliver through protected main and bind fresh acceptance to the corrected child.
+The superseded unpublished run was cancelled after verification. Minimal and
+supplemental Stock ext4 passed; core Stock and core Marble failed as recorded
+above. Five unfinished supplemental scenarios were cancelled. No result transfers
+to the corrected child; finalization and publication did not run.
+Public latest remains 1.0.6; no new tag, release or Pages deployment has occurred.
+The corrected child's README and installation examples pin 1.0.7. Exact identities
+and prior attempts are retained in the
 [current validation record](validation.md#mirror-build-output-correction).
 
-The new Minimal ext4/systemd-boot VM passed all fourteen assertions; Stock
-Btrfs/LUKS2/GRUB passed all twenty-two. Both frozen strict consumers also passed,
-including the corrected Stock signed-repository evidence contract. Core Marble
-run `marble-20261009T115401Z-7138c8f4` failed before credential delivery: the host
-did not observe the expected installer readiness marker. No installer phase or
-runtime assertion completed. The exact cause is not yet established; retained
-compact evidence reports `install-archiso`, while the active diagnostic log had
-already appeared; file size alone does not prove that bootstrap invoked it.
-Read-only review found no justified code correction from the retained data.
-After the matrix finished, GitHub accepted one retry with unchanged source, ISO
-and signed snapshot. Attempt 2/job 113841142300 completed with a separate failure; the original failure
-remains retained. An earlier request was rejected while the matrix was running.
-Fresh run `marble-20261009T133129Z-36d5e155` passed the bound readiness gate and
-completed installation; the earlier bootstrap failure did not reproduce. Seven
-assertions passed, including real legacy GTK3 migration, light/dark application
-smoke and fresh-user/return-user GDM login. The next baseline preparation failed
-because the staged guest lacked `jq`. A bounded reproduction confirmed that its
-process-substitution failure was not propagated; the following six-package count
-guard correctly rejected the empty result. The focused test-only prerequisite and
-input-producer correction passed five focused tests, all 138 guest-runtime tests,
-independent review and `bash tests/source-tests.sh`. A related large-listing
-SIGPIPE failure was reproduced and corrected without weakening the file-ownership
-check. Protected delivery and acceptance of the resulting new child are pending.
-GNOME 51 recovery/functionality and
-publication remain unexecuted; no failed run is relabelled as PASS.
-Supplemental Stock ext4/systemd-boot and Btrfs/systemd-boot
-also passed twenty-one assertions each; Btrfs/GRUB passed twenty-three, including
-snapshot boot and return. Stock Btrfs/LUKS2/systemd-boot passed twenty-one.
-Marble with Stock GDM passed seventeen, including active blue-dark Shell, Colloid,
-Bibata, all eight extensions, update and repeat login without a greeter overlay.
-Dual boot passed seventeen, including collision refusal, neighbor preservation
-and real neighbor boot. All eight independent artifact readbacks passed, with
-strict consumers also passing for Minimal and core Stock. The monitor completed
-its bounded assignment; no supplemental scenario is pending.
-A passive readiness observer was checked against the
-successful Stock run; it reports only bound marker counts and fixed booleans.
-The old GTK3-to-unified-theme migration does not qualify the separate required
-transition from actual 1.0.6 plus four AUR owners and the local v6 extension.
-No earlier child PASS transfers to this candidate.
+The preceding release 37921973159 tested child `a35fa3e7...`: eight scenarios
+passed 156 assertions in total, with independent artifact readback and strict
+Minimal/Stock consumers. Core Marble failed before the readiness marker; its
+exact cause remains unproven. One unchanged-source retry passed readiness,
+installation and seven runtime assertions, including legacy GTK3 migration,
+light/dark applications and fresh-user/return-user GDM login. It then failed
+before preparing the actual 1.0.6/AUR baseline because test-only `jq` was absent.
+PR75 provisions and verifies that prerequisite before state mutation, propagates
+manifest-producer failures and fixes a separately reproduced large-listing
+SIGPIPE. Five focused tests, all 138 guest-runtime checks, independent review
+and the full source suite passed. These are harness corrections; product
+packages, source pins and trust policy are unchanged. Both failed attempts stay
+recorded. The old GTK3 migration does not qualify the separate 1.0.6/AUR recovery,
+and none of the preceding child's VM results transfers to the corrected child.
 
 Remaining sequence:
 
-1. Deliver the reviewed, regression-tested `jq` prerequisite, checked input
-   producers and listing correction through a protected PR. Preserve
-   both failed attempts and distinguish their inputs from any changed-source
+1. Deliver the reviewed conditional-HTTP correction and complete fresh staged
+   acceptance, retaining the earlier prerequisite and input-producer fixes. Preserve
+   all failed attempts and distinguish their inputs from any changed-source
    candidate. The early readiness failure did not recur and its exact cause remains
    unproven. Finish all nine staged scenarios on the
    accepted child/snapshot. Core Marble must

@@ -1484,8 +1484,197 @@ Five focused regressions and all 138 guest-runtime checks passed; Bash syntax,
 ShellCheck, independent review, documentation checks (29 files) and the full
 `bash tests/source-tests.sh` passed. The repository fixture result was
 `schema=1 namespace_fixtures=full scenarios=10 signer=passed release_closures=14+18 deferred=none`.
-The final documented candidate must repeat the required source suite before
-protected delivery. These local results do not establish the still-pending real
+The final documented candidate repeated the required source suite successfully;
+log SHA-256 is `1b3bcb05696c78eddddc1b5ec3cafbb96b11d5298ab274f7ee36fd1f7589be1f`.
+[PR75](https://github.com/snaplyze/arch-linux/pull/75) passed exact-head
+[CI 37942358566](https://github.com/snaplyze/arch-linux/actions/runs/37942358566)
+and merged at 14:15 UTC. Accepted head
+`2ece4cb3758a5791ecee88df7a5613989a093370` and main squash
+`322e3318768db8634083b9684d5ac4c212e58572` share tree
+`67eafc97ab8702920032c64b8193b6b51ed6b243` and canonical source SHA-256
+`98b226ec3f498b4662ad80d5dc0b88ce376d8d6405e2dcbf02196e0f4e1fd408`.
+PR CI log SHA-256 is
+`9a1f4b3c8855b7cfb71b061fe1a9b6f72c802c1a6d14a00e4020479d9afc1bfb`;
+main CI 37942859021 also passed (log SHA-256
+`d12de67f426344084c60f3bc649271083d96bcfd91ea0fb5455f36f1a7a1e890`).
+[Release 37943281539](https://github.com/snaplyze/arch-linux/actions/runs/37943281539)
+started from main `322e3318768db8634083b9684d5ac4c212e58572`. Preparation job
+113862894103 passed and emitted child `cd436147e2d4ce7b9886c62004fcfd9a520af915`,
+tree `3e5120be4863a0550f6f70a879400d3d4ffb36e3`, canonical source SHA-256
+`0d43a71e3e6aedddbbf15df15d961d5efc3ffd3f87a6b9677a992cdd46ae4d11`.
+Source artifact 11622531850 has ZIP SHA-256
+`74288073b237fb8f6cb895122a022180efebca6ea1b676f2f5f9379dd9512d16` and
+bundle SHA-256 `f7d1f2cfad986f9eb8f02db39f0554d53f4176c6eceada2470f0aab44aa78455`.
+Independent transport and deterministic transformation verification passed;
+the README correctly pins 1.0.7 while preserving historical 1.0.6 evidence.
+Installer SHA-256 remains
+`e6228b0f655d5551eaf5cc8d085ea8111b24df3930b27cc78700d0944432ff71`.
+Build job 113863212881 and protected readback 113865232676 passed. Unsigned
+artifact 11622142666 has ZIP SHA-256
+`9b41c7e51718672f7f550f9f7c8f8748662fb5a2471dcb8993e216b299ffc963`.
+BUILD metadata SHA-256 is
+`b16b582859c8c7fe4ce198d2ebc549b4661e7f30796e53b2f4d7573bd23d0599`;
+UNSIGNED manifest SHA-256 remains
+`cec8557a6db3f58e6a1beaaa0f4c6f5e94471a02b66bbbef7bd492303ed4dc37`.
+Fresh independent scoped readback passed exact sixteen-file closure/fourteen
+checksum rows, schema-2 provenance, all seven package metadata/recipe bindings,
+19,564 MTREE file hash/size checks and all seven production payload validators.
+Its 212-file immutable verifier export matched Git modes/bytes and canonical hash
+and was removed afterward. This is separate from the protected CI Git-bound
+unsigned verifier, which also passed. Receipt SHA-256 is
+`5ff8c194c19e2325d331c2d5f13609e02fd2f05cbc3ad683ed03aa480abaa0a6`.
+Package versions remain keyring 1.0.0-9, extensions 1.0.0-7, Shell 50.0.0-8,
+GTK 20260808-11, icons 20260829-7, profile 1.0.0-12 and GDM 50.0.0-10.
+Signing job 113865627922 passed all five release-host gates: both full repository
+runs (ten namespace scenarios, signer, 14+18 closures, no deferral), root
+publication (four namespaces, sealed closure, FIFO/memfd/PID1/supervisor cleanup),
+ordinary keyring (five scenarios; privileged mode explicitly deferred there), and
+privileged keyring (all ten, no deferral). Complete log SHA-256:
+`fc022dc3ca2ee7fbca6d317b8de78c0890c67db9fcd6ec69a912a9620530cc33`.
+Phase-A artifact 11622463794 has ZIP SHA-256
+`4688cd58af2e520a7d2ebef0af287102b0d075197bd3f88239a268e26157a863`;
+signed snapshot SHA-256
+`ed6497b22138bc0c67ce8e9688fac019a304e8b15697ccf9aa1d8a9621fd2567`;
+RELEASE manifest SHA-256
+`b4bac97921c5e771159439ae606fbe360e97f7799d1bf3468cd95f34e78ac859`.
+Independent readback passed exact fourteen-file closure, twelve signed manifest
+rows, three detached signatures, unchanged build/unsigned bytes and the complete
+25-object repository contract. Fresh Minimal run
+`minimal-20261009T143203Z-693dec46` (job 113867108199, artifact 11623646226)
+passed fourteen assertions and the frozen `cd436147...` strict consumer.
+Its harness SHA-256 is
+`b98451df6622c892dd7e5ec7ac391e3266fc5b9cb5968014cbcb00c60188b241`;
+artifact ZIP SHA-256
+`bf94f41d3e5a7ad718b2b573c61d493f47434dfa55496781e61483821bcb69b6`;
+archive SHA-256
+`66ff423c3580fcac09beb9b9e1b14d94929d76ab2d42aa1bb5e782653e4308e4`;
+PASS result SHA-256
+`b934762e32bf7248766c4fa810039a536852a73b83d6d2e5513fd03b85e99e0a`.
+Core Stock job 113867108207 failed at 15:04 UTC in run
+`luksgrub-20261009T144431Z-32513158`: `guest verification failed: unlock`,
+phase `firstboot`. Installation and real GDM login preceded the failed check;
+the cause remains under diagnosis. Complete job-log SHA-256 is
+`cffaeef025b74ab798aebe0da494543fcc4c8efbdc61a04b3ff5f1d499a653e2`.
+Independent artifact readback verified source/tree/build/snapshot bindings and
+retained the FAIL result with fifteen preceding PASS assertions. ZIP SHA-256:
+`2ec6b8150e5e06f8b6cbee0986918391ef8458230b3b4dd973cf3fea2bcd92ec`;
+archive SHA-256:
+`9d3d4c1b4aee5864a59d65ffca27138dfd281eebe01f1c32237c8ce50e844574`;
+result SHA-256:
+`c9798f690d9cc1727161f93431de5cdaaa6c0e96d9c8eb73b39b3df0bc4e8ebe`.
+The strict core consumer was not run because the failed result was rejected first.
+The retained typed diagnostic maps to guest source line 4737: `LockedHint` did
+not become `no` within 120 seconds, before later session/integrity checks.
+The optional pre-input frame shows the target user's English-layout lock screen
+without a password field; the preceding successful `a35fa3e7...` run's equivalent
+frame shows the focused password field. This supports a readiness-timing
+hypothesis, not a proven PAM failure or product diagnosis. The compact closure
+intentionally omits raw QGA status and stderr; do not reconstruct missing evidence.
+Read-only review of GNOME 51
+[AuthPrompt](https://github.com/GNOME/gnome-shell/blob/51.0/js/gdm/authPrompt.js) and
+[UnlockDialog](https://github.com/GNOME/gnome-shell/blob/51.0/js/ui/unlockDialog.js)
+confirms that prompt creation and authentication questions are asynchronous. AT-SPI could provide a semantic
+password-field readiness predicate, but its availability under lock has not been
+executed; it is not a justified production/harness change from this evidence alone.
+Complete the independent scenarios, then perform at most one unchanged-input
+Stock retry and preserve the failure. A recurrence requires fresh diagnosis,
+not repeated retries or weakened authentication/session checks.
+Core Marble job 113867108423 also failed at 15:24 UTC. Run
+`marble-20261009T151109Z-6d94ec12` passed the earlier seven assertions and the corrected
+`jq` prerequisite. Its retained baseline marker proves six signed 1.0.6 packages,
+four actual AUR owners, the exact local v6 tree and real `gdm-password` login with
+preferences preserved. Blur, Clipboard and No Screenshot Box reported `OUT OF DATE`;
+Dash reported `ERROR`. The next `gnome51-upgrade` check failed at runtime line 4115.
+For this core Marble scenario, QGA prepends ten manifest/probe lines: the actual
+source line is 4105, the plain `pacman -Syu` command, **not** logout at source 4115.
+Stock has neither prefix, so its earlier line 4737 mapping remains correct.
+
+Artifact 11625408747 ZIP SHA-256:
+`b0d57ec36c504cee41fa96036e36f4a93bfbf968d3c42f5d962f4be7ea0465d1`;
+archive SHA-256:
+`d5ab60da513283bdbf2859a553c980df458e7b917c308e8d67f1f4aa7b0232c9`;
+FAIL result SHA-256:
+`452274cf4573623c3027998a54c54c17b2e9863e1b8964e69670dd566ad8e271`;
+complete job-log SHA-256:
+`c4602e8e907e15aaae3debe4a698e636d2a98550837f5c5ad01e8622f172722b`.
+Independent transport and source/tree/snapshot binding passed; the failed result
+was rejected before the strict consumer. Recovery login and functional extension
+checks did not execute. A bounded fixture of the actual HTTPS handler reproduced
+HTTP 304 for a different candidate database when the last-downloaded baseline
+has a later modification time. Independent native ALPM reproduction then used the authentic signed 1.0.6 and
+candidate databases in a private pacman root/GPG directory with required trusted
+package/database signatures. Baseline `-Syy` passed. After the same server-path
+switch, ordinary `-Syu` returned 1: the candidate DB request returned HTTP 304,
+its detached signature returned HTTP 200, and pacman rejected the mismatched
+pair as an invalid PGP signature. A forced candidate refresh passed under the
+same strict trust. Baseline DB SHA-256 was
+`9ec4656abf86534e88c433afbd1857a666549b7eae4c864a3c7a55f8764f8d30`;
+candidate DB SHA-256 was
+`9f014118c6534443e90e5dba1d5977d981a1d2a1668577d693fa8f25e61bc7e3`;
+the newly downloaded candidate signature SHA-256 was
+`c97eb95845be23738c3322ec2525d4e4a24fb102c4150951e0cd0d3e8c5cc6a8`.
+A separate private filesystem-only replacement fixture installed the four actual
+legacy AUR archives and candidate bundle without archive-owned file conflicts.
+It used `-dd --noscriptlet`, assumed dependencies and disabled signatures in its
+private configuration; it does not qualify strict trust, dependencies, hooks,
+unowned runtime files or a real full-system upgrade. The strict signed-database
+reproduction above is separate. These reproductions changed
+neither the workstation's package database/configuration nor the live VM.
+
+The source's extraction order gives the baseline a later file mtime than the
+candidate. [libalpm's download implementation](https://gitlab.archlinux.org/pacman/pacman/-/blob/master/lib/libalpm/dload.c)
+uses the cached basename's timestamp and fetches a detached signature even after
+304; [libcurl's time-condition contract](https://curl.se/libcurl/c/CURLOPT_TIMECONDITION.html)
+can also suppress the body based on a response's Last-Modified header.
+The focused test-server correction must ignore conditional time requests and omit
+Last-Modified while serving the same immutable verified bytes. Keep the promised
+plain `pacman -Syu`, TLS and signature checks unchanged. This mechanism is reproduced
+and matches the source sequence; the omitted live pacman stderr prevents claiming
+direct observation of that exact error in the failed VM. The tentative unchanged
+Stock retry is superseded by fresh acceptance of the forthcoming changed harness.
+Supplemental Stock ext4/systemd-boot job 113867108197 completed successfully at
+15:40 UTC with twenty-one assertions, including unlock, update and repeat login.
+Run `stock-20261009T152753Z-71e34bf1`, artifact 11626777134, passed independent
+supplemental transport/source/tree/Phase-A/result binding. Because the checkout's
+HTTP harness had changed, its exact ordered harness hash was reconstructed from
+frozen `cd436147...` Git blobs; the production unpacker also matched that child.
+No strict core-consumer result is claimed for this supplemental scenario.
+ZIP SHA-256: `4534180d17603241fadeee4c6f1cdef69c8659fa03c516a4a2a15cb012aa522f`;
+archive SHA-256: `8b57d440db380c3d0b1a8422b4bf7818bd4a5706fdf3446c929024b39c9d9bd3`;
+result SHA-256: `0504d2581f8aa7fb99611633d66a0c577d04ebb98ac0af6812eb7414c6e236b3`. After the focused correction passed, the superseded release run was
+cancelled; the other five unfinished supplemental scenarios were cancelled.
+The final run is CANCELLED with two scenario jobs PASS, two FAIL and five cancelled.
+Finalization, immutable publication, Pages and public acceptance did not run.
+
+The two-file correction leaves production packages, pins, TLS and plain `-Syu`
+unchanged. Its actual TLS/`curl -z` regression first failed thirteen subcases;
+a separate control proved that merely ignoring If-Modified-Since still lets
+libcurl suppress an HTTP 200 body when Last-Modified remains. After correcting
+both conditions, two focused tests and all 140 guest-runtime tests passed,
+including repeated GET and HEAD with equal, newer and future cache timestamps.
+Independent review found no material issues. The full
+`bash tests/source-tests.sh` passed with full namespace fixtures, ten scenarios,
+signer and 14+18 closure checks, and no deferral. Source-suite log SHA-256:
+`249c781f61d3a64ba5dc191ab3421c372e8fa90d8b0247235dc1ce2d0006a34f`;
+runtime log SHA-256:
+`e4058004d7225d7143e9db6d21194233083b325e8c28852724a3aba7735e1727`.
+
+An independent native Pacman 7.1.0/libalpm 16.0.1 repeat used the corrected production
+server over actual TLS and the same strict signed-database trust. Baseline refresh
+and then ordinary candidate `-Syu` passed; both candidate requests returned 200 and
+both installed sync-file hashes matched the signed inputs above. No packages were
+installed: this is metadata refresh/signature-pairing acceptance, not a full
+dependency transaction or VM/session PASS. The test certificate was trusted only
+inside a disposable mount namespace; workstation CA files were unchanged.
+Temporary private GPG/TLS fixture keys, server and agent were removed after the check.
+Nonsecret receipt SHA-256:
+`7c6d5a301514e02d7a0b358cf52b84853acbd6ab6ad503223e727c052fa65e7f`;
+server-log SHA-256:
+`de6d7d91af0d59ec4a20057a077ba82128aa18670d9727aecd3f189c1a0ab65b`;
+plain candidate `-Syu` log SHA-256:
+`02a40f6898d62f137b38a172156662482be6f52a1f91a94bd085694f9e8b72c5`.
+Protected delivery and fresh child/build/VM acceptance remain pending.
+These source results do not establish the still-pending real
 GNOME 51 migration or transfer any old VM result to a changed child.
 
 The additional `python3 maintenance/check-sources.py --network --report ...`
