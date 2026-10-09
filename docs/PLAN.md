@@ -11,7 +11,7 @@ preserved. Existing immutable releases and their evidence must not be rewritten.
 | ID | Work and acceptance | Status |
 | --- | --- | --- |
 | G51-01 | Diagnose installed package/session state and upstream compatibility; bind findings to versions and authoritative sources. | DONE |
-| G51-02 | Prepare reviewed package/extension upgrade paths, preserve user overrides and safe unsupported-version handling; reproduce failures before fixes and test recovery. | IN_PROGRESS: seven-package candidate; actual upgrade acceptance pending |
+| G51-02 | Prepare reviewed package/extension upgrade paths, preserve user overrides and safe unsupported-version handling; reproduce failures before fixes and test recovery. | Source delivered; upstream source availability restored, signed upgrade acceptance pending |
 | G51-03 | Correct deterministic release documentation rendering; test independently differing source/document/release versions and preserve historical evidence. | DONE: deterministic overview/bootstrap/changelog rendering; 52 regressions PASS |
 | G51-04 | Update agent, update/release and user documentation with package delivery and real upgrade acceptance requirements. | DONE for local candidate; publication reconciliation remains conditional |
 | G51-05 | Independent diff review, affected checks and full source suite; record package, real session/VM and publication results separately. | Source/review, clean seven-package build and authentic legacy upgrade inputs PASS on their recorded trees; real signed upgrade, GDM/VM and publication NOT_TESTED |
@@ -417,6 +417,103 @@ metadata stayed unchanged. These are disposable test keys, not release signature
 Independent review found no cleanup implementation issue. Its test observation
 was tightened from socket existence to the same responding control-agent PID
 before and after cleanup, with `--no-autostart`; all 25 regressions pass.
+
+Cleanup correction and its native receipts delivered through
+[PR #68](https://github.com/snaplyze/arch-linux/pull/68). Final head
+`090ff71764bf9c9056a1696c815dcde86e06b7eb`, tree
+`74d877af34047cbdf38e67494f5f6f87407b8cb8`, passed the full local source suite
+(log SHA-256 `96b70c6c65a381773448a8bec0f59afd3f5b694e5b717d01b262e3750ebd7f95`)
+and [CI 37883993011](https://github.com/snaplyze/arch-linux/actions/runs/37883993011)
+(log SHA-256 `6559fcfb03762972236595605a62822e019cadd0d62a6277b7b3b5fb14413aff`).
+Exact-head protected squash merge produced main
+`7203ec6d2650add1477325e60670629702246495`, same tree and canonical SHA-256
+`a97dd984671814e065e3b69ad580994239038872f6d75a93f1836a87d7b4d32d`.
+The checkout returned by fast-forward; candidate history remains on
+`fix/gnome51-keyring-cleanup-20261009`. A bounded idle-runner probe with the exact
+snapshot container options confirmed private writable cgroup2 and matching
+container/host-owned subtree identity; its container and cgroup were removed.
+[Main CI 37884397403](https://github.com/snaplyze/arch-linux/actions/runs/37884397403)
+passed (log SHA-256 `811f94d89fc178fefadca2b5a7c6376d205d4705f47ac777d6fbb07e0984506b`)
+and triggered [Release 37884673557](https://github.com/snaplyze/arch-linux/actions/runs/37884673557).
+Independent source transport and deterministic reconstruction passed for fresh
+1.0.7 child `9143b7726a21f7f3e1629f850379b671b3b9ee53`; Git refs, checkout and
+pending documentation remained unchanged. Exact identities are in validation.
+The release child's source suite passed, but run 37884673557 failed in the build:
+Dash to Dock's pinned GNOME Extensions URL returned curl TLS error 35 (unexpected
+EOF). No complete package artifact, signing or VM/publication stage was produced.
+Failed log SHA-256 is `f8d06c37bee466b0a3d4fdc985882f92ae22ab1012a78dfe98822536c59756b0`.
+A bounded same-runner, same pinned Arch-image probe subsequently downloaded the
+exact URL and matched SHA-256 `eb7647c03cad6dd1ac608da75ffdd2a2b9f8356b65bb468dc523d7ed3d26e5fc`.
+The disposable probe container was removed. One same-input retry was requested
+through rerunning main CI 37884397403, with main still `7203ec6`. No pin, checksum,
+TLS guard or source change is involved; the prior failed attempt remains FAIL.
+Main CI attempt 2 passed (log SHA-256
+`294667dd6b0821a16dd77fc6c13e2cca949fc26f17d59c885e3ebd9ad013609b`), triggering
+[Release 37885316974](https://github.com/snaplyze/arch-linux/actions/runs/37885316974).
+Independent source-artifact verification confirmed byte-identical identity JSON
+and bundle, hence the same `9143b77` child. This retry also failed during the Dash
+download, now with HTTP 503 through all three built-in retries. No complete build,
+signing or VM/publication stage was reached. Failed log SHA-256:
+`0c5d5b6165ae6b3ed930e4f7f433703730a45be682849f7278b03684bf5da622`.
+The root stopped full-pipeline retries and is diagnosing the exact public URL and
+makepkg transport separately. A workstation probe also received HTTP/1.0 503
+through the local network's synthetic DNS address; the response's origin is not
+established, so it is not attributed conclusively to GNOME's application.
+An independent bounded runner probe reproduced HTTP/1.0 503 with both makepkg
+flags and plain curl, three responses total and no redirects. No archive was
+accepted; the exact owned container was removed. The initial proxy/network question was superseded by the endpoint's explicit
+OpenShift “Application is not available” page, reproduced with normal DNS and
+public-DNS resolution while retaining HTTPS hostname/certificate verification.
+This points to application/ingress unavailability, not a makepkg flag defect.
+After three consecutive goal turns confirmed the same outage, the goal was marked
+blocked. It was subsequently resumed explicitly by the owner after the exact Dash
+archive returned HTTP 200 and its pinned hash. An independent actual-runner probe
+then fetched all four exact GNOME Extensions URLs with HTTP 200 and matching pins,
+each in under 1.3 seconds without retries. Its owned container/files were removed.
+Main CI 37884397403 attempt 3 passed for unchanged main `7203ec6`, log SHA-256
+`77e42385425cba8da9efccec4c6ef63c03a3be497404847db8eb158e1c12bdbb`.
+[Release 37888302371](https://github.com/snaplyze/arch-linux/actions/runs/37888302371)
+is running. Independent artifact digest/closure checks confirmed byte-identical
+identity JSON and source bundle: the same `9143b77` child and unchanged source pins.
+The release child's source suite and canonical seven-package build passed. Root
+transport readback matched the artifact digest, child identity and all fourteen
+unsigned-manifest members; package bytes reproduce the earlier reviewed set.
+The protected artifact-consumer and snapshot jobs passed. Both full repository
+modes, publication-root and ordinary/privileged keyring commands completed;
+privileged acceptance has no deferrals. Production Phase-A signing then completed.
+Root independently verified the exact 14-file artifact, all 12 signed-manifest
+members and the manifest/installer/repository archive signatures against the
+project's pinned certificate and signer. Snapshot SHA-256:
+`032449b92ae8c922fd5b6afe2e5be2f8298e73e4b2aa696fb9a9a3152e8f495a`.
+Actual Minimal TTY run `minimal-20261009T053309Z-44dd08b9` passed all fourteen
+assertions, including plain `pacman -Syu`, reboot, zero failed units, clean shutdown
+and image/process cleanup. Its downloaded artifact digest/closure and exact
+source/snapshot bindings were inspected. However, root replay through the real
+acceptance consumer rejected it with `QEMU harness manifest row differs`: the
+producer places the two GNOME 51 preparation files before guest bootstrap/verify,
+while the consumer expects them afterward. This is a reproduced producer/consumer
+contract defect; it does not invalidate the observed installation but prevents
+final release acceptance. Workflow 37888302371 is terminal CANCELLED. Stock GNOME was interrupted; queued
+variants have no PASS. Its cancellation produced no complete scenario artifact,
+but the runner cleanup hook completed, its evidence root was removed and no
+project QEMU process remained. The focused consumer tuple now matches the
+unchanged producer. A regression executes the actual Bash declaration and real
+sha256sum, then the real consumer; missing/extra/duplicate/reordered/changed
+hash/readback/digest inputs still reject. Nine evidence tests and 25 Actions tests
+pass; independent review found no issue. Root's complete consumer replay now
+accepts the original Minimal evidence unchanged, using consumer file SHA-256
+`7aca0ba1f89c8a0a193ceb8cc4bc19d8172d257f05f3b22e164f0ac2bd5b505c`.
+This is diagnostic validation of the correction, not acceptance of a new child.
+Fresh corrected-child source/build/VM acceptance, finalization and public delivery
+remain pending.
+The prior local checkpoint's full source suite passed (canonical working-tree
+SHA-256 `11b9d8fa0adda7e2edb228cdff90714769187d1fbacf371e2a3babc4a03130d4`,
+log SHA-256 `9108aefd462cb09b2323766166730a1671726b4b37bee1d747393d0729f7a414`);
+that receipt precedes this status update. Latest published release remains 1.0.6;
+this machine has not been upgraded. Post-release Markdown reconciliation remains
+pending actual publication, and this progress checkpoint is local.
+Read-only lookahead review found no concrete QEMU/finalize/public interface defect;
+actual execution remains required.
 
 ## Local runner migration — 2026-10-08
 

@@ -2,6 +2,8 @@
 """Reject incomplete or stale extension behavior receipts; no VM acceptance implied."""
 import importlib.util
 from pathlib import Path
+import re
+import subprocess
 import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -24,6 +26,42 @@ class EvidenceChecks(unittest.TestCase):
 
     def verify(self, rows):
         AM.validate_extension_functional_log(''.join(rows), RUN, PROBE)
+
+    def producer_harness_manifest(self):
+        # Execute only the actual array declaration and sha256sum, never the VM main function.
+        source = (ROOT / 'tests/vm/run.sh').read_text()
+        declaration = re.search(r'(?ms)^    local -a harness_files=\(\n.*?^    \)', source)
+        self.assertIsNotNone(declaration, 'actual producer harness declaration is absent')
+        script = 'producer_manifest() {\n'+declaration.group(0)+'\nsha256sum -- "${harness_files[@]}"\n}\nproducer_manifest\n'
+        return subprocess.check_output(['bash','--noprofile','--norc','-c',script],cwd=ROOT)
+
+    def consume_harness_boundary(self, raw, *, digest=None, readback=None):
+        class RuntimeBoundaryReached(Exception): pass
+        names = [line.split(b'  ',1)[1] for line in raw.splitlines()]
+        records = {'harness.sha256':raw,
+                   'evidence/preseal-harness-check.txt':readback if readback is not None else b''.join(name+b': OK\n' for name in names)}
+        def read(name, limit):
+            if name == 'runtime-inputs.sha256': raise RuntimeBoundaryReached
+            value = records[name]; self.assertLessEqual(len(value),limit); return value
+        # Reaching runtime inputs proves the real consumer accepted ordered rows, source hashes,
+        # exact pre-seal readback and aggregate binding; it is not a complete QEMU receipt.
+        with self.assertRaises(RuntimeBoundaryReached):
+            AM.validate_runtime_markers(read,{'harnessSha256':digest or AM.sha256_bytes(raw)},AM.SCENARIOS[0],RUN)
+
+    def test_actual_producer_manifest_matches_consumer_order_and_hashes(self):
+        self.consume_harness_boundary(self.producer_harness_manifest())
+
+    def test_actual_producer_manifest_rejects_changed_closure_and_identity(self):
+        raw = self.producer_harness_manifest(); rows = raw.splitlines(keepends=True)
+        wrong_hash = b'b'*64+rows[0][64:]
+        cases = {'missing':rows[:-1], 'extra':rows+[b'c'*64+b'  tests/vm/foreign.py\n'],
+                 'duplicate':rows[:-1]+[rows[0]], 'reordered':[rows[1],rows[0],*rows[2:]],
+                 'changed-source-hash':[wrong_hash,*rows[1:]]}
+        for label, altered in cases.items():
+            with self.subTest(label=label), self.assertRaises(AM.ManifestError):
+                self.consume_harness_boundary(b''.join(altered))
+        with self.assertRaises(AM.ManifestError): self.consume_harness_boundary(raw,digest='c'*64)
+        with self.assertRaises(AM.ManifestError): self.consume_harness_boundary(raw,readback=b'foreign: OK\n')
 
     def test_complete_receipts(self):
         self.verify(self.rows)
