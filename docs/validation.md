@@ -127,6 +127,63 @@ documentation/link checks, ShellCheck and the full repository result:
 The checkout remained clean. This is source acceptance, not the outstanding
 production-signed upgrade, GDM/functionality/appearance or public-delivery gates.
 
+## Prepared release 1.0.7 — failed pre-signing attempt
+
+[PR #65](https://github.com/snaplyze/arch-linux/pull/65) merged the GNOME 51
+candidate after local source checks and
+[PR CI 37878611896](https://github.com/snaplyze/arch-linux/actions/runs/37878611896)
+passed. [Main CI 37878934364](https://github.com/snaplyze/arch-linux/actions/runs/37878934364)
+then passed and triggered configured
+[Release 37879163690](https://github.com/snaplyze/arch-linux/actions/runs/37879163690).
+Preparation and the canonical seven-package build passed. The separate readback
+failed because the checkout's public trust certificate was group/other writable;
+the existing source-mode guard rejected it after metadata hashes matched. Signing,
+all QEMU stages, draft/tag creation, Pages and publication were skipped. This
+attempt is terminal FAIL and is not a released-version claim.
+
+| Prepared source binding | Exact value |
+| --- | --- |
+| Accepted PR candidate | `34da98bb34ed57a795e498104c6cf5321b1467d2` |
+| Accepted main | `63c9e6c9e80321112405e32f8c6cef0b4ed59ef4` |
+| Candidate/main tree | `4209061d00423d88e62acfcb1bba1761e1fb417c` |
+| Candidate/main canonical SHA-256 | `0f363c1ac3e3dc9d754791e5bbe664f0e00d514de46267f95e8a627a9a38cf76` |
+| Prepared release child | `5ee1439b67b7d83368c416961cfe6230661f2e08` |
+| Prepared child tree | `0b961977a85951e804c4cf014698c11e6d495789` |
+| Prepared child canonical SHA-256 | `33984ddf16639f9d812953d8272477b6dd0a3b2353bb12f6874b35fa2659eebf` |
+| Source transport bundle SHA-256 | `130fdc4dc74a457da8cc5ccdd486478f96fdf16301af1c518854f3349e7a4153` |
+| Unsigned artifact ZIP SHA-256 | `95def8b35972a76272e5b87cc5bee038897cb4f7b12fe53fd31961246eca855c` |
+| Build metadata SHA-256 | `6d3dc4c4043477723b764649d218ad74a33884a6ec6a6fccd972df77094d6b6f` |
+| Unsigned manifest SHA-256 | `cec8557a6db3f58e6a1beaaa0f4c6f5e94471a02b66bbbef7bd492303ed4dc37` |
+
+The root independently reconstructed the deterministic child from accepted Git
+objects, verified the downloaded transport bundle and its exact head, and matched
+the full mode-and-byte canonical hash. No checkout, Git ref or existing worktree
+content changed during that verification. Generated README commands pin 1.0.7;
+the release overview no longer labels the tree an unpublished candidate. These
+source facts do not establish publication. Generated package versions are keyring
+`1.0.0-9`, Shell `50.0.0-8`, GDM `50.0.0-10`, profile `1.0.0-12`, extension bundle
+`1.0.0-7`, Colloid GTK `20260808-11` and icons `20260829-7`.
+The independent artifact download matched its ZIP digest, both metadata digests,
+source commit/tree and all fourteen unsigned-manifest members (seven packages and
+seven source metadata files). These transport checks do not override the failed
+production readback or transfer this build receipt to a corrected future child.
+
+The corrected readback was then exercised in a disposable pinned Arch container
+with the original child and actual downloaded seven-package artifact. The
+original verifier reproduced the exact trust-file error at mode `0666`; the
+corrected workflow's protected-source and verification steps passed, including
+both artifact digest checks. The shared fixture remained `0666`, while the
+canonical trust file was root-owned `0644` and verifier bytes were unchanged.
+Changing the protected trust file to a writable mode produced the required
+nonzero rejection. Limits were two CPUs, 4 GiB and 256 processes with Docker init;
+the owned container and large fixture were removed. Native replay log SHA-256:
+`b875a3cb1b2bafd5a03ae198b2a33276cbb4c12436b94868314140d92046f421`.
+Executed freeze/verify workflow-block SHA-256 values:
+`d46880619bc391cbf0d6e7ace2eb87bdbc26e291d91b2d3fa1c6db726fb8ec6e` /
+`d00b47bdebcedc3a21efad43c6e041d9418c8bf59895498656268fdb3fcf2b7f`.
+This closes the native correction check, not a future release child's CI,
+signing, VM or public acceptance.
+
 ## Verified release 1.0.6 — 2026-10-04
 
 [Configured run37214392242](https://github.com/snaplyze/arch-linux/actions/runs/37214392242)
