@@ -1821,6 +1821,173 @@ The documented full source run also passed; log SHA-256:
 Repeat the full suite after this final cancellation/evidence reconciliation before
 protected delivery. The real VM cause and recovery are not yet established.
 
+The final documented source suite passed before protected delivery, again with
+full namespace repository acceptance (ten scenarios, signer, 14+18, no deferral);
+log SHA-256: `7090c49dcc709d55cf11bb5010acfc54a9ebdcf16ea0468a784275d946445b0a`.
+[PR77](https://github.com/snaplyze/arch-linux/pull/77) delivered accepted head
+`2c56173ccaf64563f45584b3be55cdc436c5c280`, tree
+`b8168dbb671a485f4201019d6f49f45a3fba1736`, canonical source SHA-256
+`95149838c8061ba813e9f099d69044d8e390d3055407ea49e7daf75cf81f12eb`.
+Exact-head CI 37966226074/job 113941140536 passed; complete log SHA-256:
+`dfdf8d96a6d47e48539a286ff9b827791fd4f5e998b1208f38cb1ba8cc6df55d`.
+Live head/base, strict required check, mergeability and absence of unresolved
+review threads were rechecked before the protected squash merge at 17:30:41 UTC.
+Merged main `30ebf25cd70f8f76140996dcf54b2445198f1b84` has the same tree/canonical
+hash. The sole checkout returned to main by fast-forward; fresh main CI
+37966792524/job 113943032612 passed. Its complete log SHA-256:
+`77c10c517d9b463b906a246b6deab9e882d98502c116507030d35a0bbaaf3047`.
+This diagnostic delivery does not resolve the underlying Shell recovery or
+transfer earlier VM acceptance to its future child.
+[Release 37967163595](https://github.com/snaplyze/arch-linux/actions/runs/37967163595)
+preparation job 113944278004 passed and emitted child
+`a7730ddab4dd88fede3f8ca83489806f559d6a0f`, tree
+`c74e5208e3d768d7ed2ec464a4918d982341a496`, canonical source SHA-256
+`0c1a91daf4b2a9a3ac6da658d3df3c5baec9e4636cfad061e2c38f1e2ed7460f`.
+Source artifact 11633049217 ZIP SHA-256:
+`7679705f50c31840c5fff289e034b7a99651504c779a437704d4dbe7260a464a`;
+bundle SHA-256: `521dd46a25f85515ce359f342cca1c1405a11f886214ea7515a54a327a011302`.
+Independent source transport/deterministic transformation verification passed,
+including 1.0.7 README/bootstrap pins and preserved historical identities.
+Relative to the preceding child only two evidence documents, release-origin
+metadata and two diagnostic/test files differ; product/installer/package/trust/
+maintenance inputs are unchanged. Installer SHA-256 remains
+`e6228b0f655d5551eaf5cc8d085ea8111b24df3930b27cc78700d0944432ff71`.
+The frozen ordered ten-file harness SHA-256 is
+`6ffa142e1b100cedb9a75c7d63323b49f4cdedd2474e2ff126a947066ff250ab`.
+This value was independently recomputed from all ten frozen Git blobs and matched
+the first VM result and its exact `harness.sha256` bytes; it corrects the earlier
+provisional checkpoint calculation, without changing source or acceptance.
+Build job 113944400778 and protected unsigned readback job 113946250869 passed.
+Unsigned artifact 11633982973 ZIP SHA-256:
+`148ebb90728809ec3344fb3e5f98cd2d5c474521d395812daac9c7298613b042`.
+BUILD-METADATA SHA-256:
+`440a80edf483e3598996e250e091eaf61ae51338e6a78ce39ff3441a5e4b037e`;
+UNSIGNED-SHA256SUMS SHA-256:
+`cec8557a6db3f58e6a1beaaa0f4c6f5e94471a02b66bbbef7bd492303ed4dc37`.
+Independent scoped readback verified schema 2, the exact sixteen-file closure,
+fourteen manifest rows, seven package metadata/build/recipe/payload predicates
+and 19,564 MTREE files. Its receipt SHA-256 is
+`253c8a55ed8fb9bcebd999f78904b539c0e5c5fd8367051c196683e5a62e889f`;
+this scoped verification is distinct from the protected Git-bound unsigned gate.
+
+Snapshot job 113946790203 passed all five release-host gates: both full namespace
+repository modes (ten scenarios, signer, 14+18, no deferral), sealed root
+publication and ordinary/privileged keyring modes. Complete job log SHA-256:
+`0718d790e7db000386ba270edca358a35dabf9b9b0be5570effe87ca45660a2f`.
+Independent Phase-A artifact 11634665554 ZIP SHA-256:
+`06a3fcf3eea20f5821989e0a4561dcd557b111dfad2e3a5e59bd200699c77663`.
+The exact fourteen-file closure, twelve signed manifest rows, three detached
+release signatures, unchanged BUILD/UNSIGNED bytes and twenty-five repository
+objects passed verification against the frozen child and retained trusted keys.
+Repository snapshot SHA-256:
+`e42a653aa11fb97d1dcfd30bf3f3c8a29f5dcd7ed02ca0fe025655e42c84f29c`;
+RELEASE-SHA256SUMS SHA-256:
+`acc4ddab359d19d2c4dd9005cb85875e3703b7353a31c7c27f589bcd2b75c281`.
+Fresh staged Minimal job 113948320735 passed all fourteen actual assertions;
+run `minimal-20261009T174827Z-236b0b76`, artifact 11634678345.
+ZIP SHA-256:
+`f98936db319ad0744572b07f2fba14d152e0e99c536d7f1c3fdac2146e853a4b`;
+evidence archive SHA-256:
+`2e3d3bedaa367322acbe26db284f7108d58a639ddbd4302ecbaab86db4721b4c`;
+result SHA-256:
+`6a627ae9754323e10730dbf5c61bef6343980f62d028f5736716a9905c9cfdd8`.
+Independent artifact/binding/readback and frozen production strict core consumer
+passed. Fresh core Stock job 113948320895 also passed all twenty-two assertions;
+run `luksgrub-20261009T180414Z-0d731136`, artifact 11637351069.
+ZIP SHA-256:
+`6def36bc44ef3992a7040a310b690f3416de6d6a7e25f78130fa70b4994f5be5`;
+evidence archive SHA-256:
+`ec182977f638b002cd7f0b7e24007b8dfa255cf770a55158af983983e4454cd2`;
+result SHA-256:
+`f34a25811ce8be82ee38319e2d9e88580126488018262c9ad7aceafcc540d063`.
+Its independent binding/readback and frozen strict core consumer passed. The
+source-bound live runtime helper observed primary AUR build paths for Plymouth
+and Bibata and no mirror transports; the compact artifact does not retain those
+transport rows or exact installed official package versions. Those observations
+are not a package-version acceptance receipt.
+
+Core Marble job 113948320682 failed at 18:24:14 UTC before preflight or VM creation.
+The initial accepted Arch ISO HTTPS transfer stopped around 520 MiB of 1.52 GiB
+with `curl` exit 56 and OpenSSL `unexpected eof while reading`. SHA-256 validation
+and the VM harness were not reached; no QEMU artifact/result exists. Complete job
+log SHA-256:
+`580d2b0ecbdfa9b7de127e9f2d143b2e7e2e3e2501ec80e4822c4f0378f87472`.
+This is a transport/preparation failure, not a GNOME/package functional verdict.
+The remaining independent staged VMs continue. After this attempt ends, repeat
+only the failed job and dependent gates with the unchanged a773 source, accepted
+ISO/hash and existing signed Phase-A bytes. Preserve the failed attempt and bind
+every later result independently; do not rebuild, repin or transfer a result from
+other inputs. Finalization/publication/public acceptance remain pending. The prior
+disabled-extension cause remains unestablished.
+
+Supplemental Stock ext4 job 113948320675 failed at 18:42:10 UTC after seven
+actual PASS assertions through the Stock GDM greeter. Run
+`stock-20261009T182959Z-917de063`, artifact 11637449686, source/tree a773/c74e.
+ZIP SHA-256:
+`ae751d112d9c5be215a7e7d7803e97b440507822cc05cce248c294cf3a969bc9`;
+evidence archive SHA-256:
+`32d76e172dcc0d4563948fc688e81050f4c0f863862aeccd6b8a0d9109e61a1c`;
+result SHA-256:
+`540918ae0330d2a7c34c0ea2f3f18431903a2c33c06c8218cfebafd39feef8bc`.
+Complete job log SHA-256:
+`2c7455a3abe673ade117945dbfad69066ea45e3bc21910dc273c7fefcdb64728`.
+Artifact digest/safe unpack/source/tree/Phase-A/frozen harness bindings passed;
+the real result is FAIL (exit 1), and the reader correctly rejected its PASS
+predicate. Strict core consumption does not apply to this supplemental scenario.
+Retained firstboot diagnostics report guest lines 522 and 3110, status 2. The
+frozen caller is the bare `gnome-extensions list` inventory query, before its
+existing bounded readiness poll; no GNOME-51 phase prelude offsets apply here.
+The [official GNOME 51 tool implementation](https://github.com/GNOME/gnome-shell/blob/51.0/subprojects/extensions-tool/src/command-list.c)
+returns 2 for proxy/ListExtensions failure and 1 for invalid arguments. The exact
+live failure was not retained and transient startup versus permanent Shell failure
+is unestablished. Process/session-bus presence alone does not prove Extensions API
+readiness; the existing poll must succeed before inventory is queried.
+
+The two inventory queries now follow the existing readiness poll in Stock and
+both Marble branches. No product/settings/deadline/expected-set changes were made.
+Executable fixtures retain the actual source call sequence and poll while mocking
+the API's unavailable-to-ready transition. The original HEAD control produced four
+failures (Stock/Marble/fallback/removed); corrected code passed two focused tests,
+including twenty persistent/missing/unexpected/post-readiness negative cases, and
+all 147 runtime checks. Native private D-Bus testing was not performed; these are
+source/control results, not real-session acceptance. RED log SHA-256:
+`5ca69d74d92948c4177d27d76894ad9b5d0b8ec2811ea99f4de6919de9bd11d0`;
+focused GREEN SHA-256:
+`2a9bb4c7c7e5ccbe6f42780eea3399b86ef99869a6c3f43505fbcec987dede98`;
+full runtime log SHA-256:
+`3a4cbd3df9bc974312d24d024bb9db3417f35454c3be82b9ea598e5354d72963`.
+Bash syntax, modes and diff checks passed; independent read-only review found no
+material issues and confirmed fail-closed negative behavior. Protected delivery
+and newly bound VM gates are pending. The earlier unchanged-input ISO retry
+plan is superseded by this changed harness candidate. The local release procedure
+also now restricts specific-job retries to pre-evidence failures with verified
+absence of colliding artifacts: attempt-free names cannot be overwritten or deleted
+to hide a failed result. Its focused independent review passed. The old Shell
+logout/recovery cause remains unproved; none of these test changes fixes it.
+
+The initial full `bash tests/source-tests.sh` passed, including the mandatory
+full namespace repository marker: ten scenarios, signer, 14+18, no deferral.
+Complete log SHA-256:
+`1bdb00516f84bb7cfd06c3ecd097d3afaad8d3f1a0aeb925bdab567275e1b2ef`.
+Cancellation for the changed-candidate handoff then completed: run 37967163595 is
+CANCELLED, with two PASS, two FAIL and five cancelled staged jobs. The assigned
+independent readback finished: Minimal/core Stock strict PASS, supplemental Stock
+ext4 FAIL, five cancelled with no artifacts. Core Marble's separate pre-VM transport
+failure is the second FAIL. Only three QEMU artifacts exist. Finalization/signing
+of acceptance, tags, Release, Pages and public VM did not run. The source-bound
+runtime helper returned an empty list after cancellation; that is a bounded runner
+observation, not a global resource inventory. Preserved receipt SHA-256 values:
+Minimal `310999209dc3d9738bc2f412bc6a6773ccd1e77b2cc6790d2109ba87aff92f22`,
+core Stock `d68c69383460cdfe7066064b58204965c755d5bb6fcaf44267f8fab40d3f1406`,
+Stock ext4 `a154ae7a4fe0605cc7847f40356de176bdcefd14b49b5b6dd5bcf438c5ddd5f3`.
+The documented full suite also passed after that cancellation reconciliation,
+again with full namespace repository acceptance (ten scenarios, signer, 14+18,
+no deferral); complete log SHA-256:
+`59a0d999f465f1454f896e87c98e7fa1ed8b9c1a69cf3f9233f14781c1fc5caf`.
+This final result prose follows the executed suite; documentation/link/diff checks
+and exact-head CI are required before protected delivery. None of the old VM
+results transfers to the changed harness candidate.
+
 The additional `python3 maintenance/check-sources.py --network --report ...`
 advisory observed forty sources at `2026-10-09T11:21:02+00:00`: fourteen unchanged,
 fourteen drift and twelve error records. All errors were direct AUR Git queries;
