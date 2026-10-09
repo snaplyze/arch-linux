@@ -404,6 +404,48 @@ def validate_packages(text: str) -> None:
     demand(PROTECTED_WORKDIR in provenance_step,
            'package provenance does not start from protected canonical source')
 
+    readback = text.split('\n  readback:\n', 1)[1]
+    readback_steps = (
+        '      - name: Check out exact verifier source\n',
+        '      - name: Restore and verify release child\n',
+        '      - name: Require exact frozen verifier source\n',
+        '      - name: Download run-scoped artifact\n',
+        '      - name: Verify readback identity and bytes\n',
+    )
+    ordered(readback, readback_steps, 'package artifact readback')
+    frozen = block(readback, readback_steps[2], readback_steps[3])
+    for literal in (
+        'set -euo pipefail\n          umask 022\n', f'canonical_source={CANONICAL_SOURCE}',
+        'git clone --no-local --no-hardlinks --no-checkout --',
+        '"${GITHUB_WORKSPACE}" "${canonical_source}"',
+        'checkout --detach "${SOURCE_COMMIT}"', 'git -C "${canonical_source}" remote remove origin',
+        'chown -R root:root -- "${canonical_source}"', 'chmod -R go-w -- "${canonical_source}"',
+        'test ! -e "${canonical_source}"', 'test ! -L "${canonical_source}"',
+        'current=/opt', 'while :; do', 'test ! -L "${current}"',
+        "test \"$(stat -c '%u:%g' -- \"${current}\")\" = 0:0", 'find "${current}" -maxdepth 0 -perm /022',
+        'test "${current}" = / && break',
+    ):
+        demand(literal in frozen, f'package readback canonicalization differs: {literal}')
+    verifier = block(readback, readback_steps[4], None)
+    for literal in (
+        PROTECTED_WORKDIR, 'set -euo pipefail\n          umask 022\n',
+        f'canonical_source={CANONICAL_SOURCE}', 'check_readback_source() {',
+        'current="${canonical_source}"',
+        "test \"$(stat -c '%u:%g' -- \"${current}\")\" = 0:0", 'find "${current}" -maxdepth 0 -perm /022',
+        'find "${canonical_source}" -type f -links +1', 'find "${canonical_source}" -perm /022',
+        'test ! -e "${canonical_source}/.git/objects/info/alternates"',
+        'test ! -L "${canonical_source}/.git/objects/info/alternates"',
+        "rev-parse --verify 'HEAD^{commit}'", "rev-parse --verify 'HEAD^{tree}'",
+        'status --porcelain=v1 --untracked-files=all',
+        '! -user root -o ! -group root',
+        '"${BUILD_METADATA_SHA256}"', '"${UNSIGNED_MANIFEST_SHA256}"',
+        'sha256sum --check --strict', 'bash "${canonical_source}/tests/package-checks.sh"',
+    ):
+        demand(literal in verifier, f'package readback verifier boundary differs: {literal}')
+    demand(verifier.count('check_readback_source') == 3,
+           'readback source is not checked before and after artifact verification')
+    demand('GITHUB_WORKSPACE' not in verifier, 'readback verifier returns to mutable checkout')
+
 
 ci = (ROOT / '.github/workflows/ci.yml').read_text(encoding='utf-8')
 packages = (ROOT / '.github/workflows/packages.yml').read_text(encoding='utf-8')
@@ -518,5 +560,37 @@ for label, validator, original, before, after, count in mutations:
     except ValueError:
         continue
     raise SystemExit(f'agent contract check failed: workflow mutation was accepted: {label}')
+
+
+# Mutate readback alone so build-job protections cannot hide a readback regression.
+readback_prefix, readback = packages.split('\n  readback:\n', 1)
+readback_mutations = (
+    ('missing protected boundary', 'Require exact frozen verifier source', 'Retired boundary'),
+    ('writable clone umask', 'umask 022', 'umask 000'),
+    ('workspace verifier execution', 'bash "${canonical_source}/tests/package-checks.sh"', 'bash tests/package-checks.sh'),
+    ('workspace working directory', PROTECTED_WORKDIR, '        working-directory: /__w/arch-linux/arch-linux'),
+    ('shared Git objects', '--no-local --no-hardlinks', '--shared'),
+    ('missing normalization', 'chmod -R go-w -- "${canonical_source}"', ':'),
+    ('foreign source ownership', 'chown -R root:root -- "${canonical_source}"', 'chown -R 1000:1000 -- "${canonical_source}"'),
+    ('writable parents', 'find "${current}" -maxdepth 0 -perm /022', 'find "${current}" -maxdepth 0 -perm /002'),
+    ('symlink parent', 'test ! -L "${current}"', ':'),
+    ('foreign parent ownership', '= 0:0', '= 1000:1000'),
+    ('hardlinked sources', 'find "${canonical_source}" -type f -links +1', 'find "${canonical_source}" -type f -links +2'),
+    ('Git alternates', 'test ! -e "${canonical_source}/.git/objects/info/alternates"', ':'),
+    ('symlink Git alternates', 'test ! -L "${canonical_source}/.git/objects/info/alternates"', ':'),
+    ('writable sources', 'find "${canonical_source}" -perm /022', 'find "${canonical_source}" -perm /002'),
+    ('dirty sources', 'status --porcelain=v1 --untracked-files=all', 'status --porcelain=v1 --untracked-files=no'),
+    ('metadata digest unbound', '"${BUILD_METADATA_SHA256}"', '"ignored"'),
+    ('unsigned digest unbound', '"${UNSIGNED_MANIFEST_SHA256}"', '"ignored"'),
+    ('post-verification recheck', '          check_readback_source\n', ''),
+)
+for label, before, after in readback_mutations:
+    mutated = readback.replace(before, after)
+    demand(mutated != readback, f'readback mutation was not applied: {label}')
+    try:
+        validate_packages(readback_prefix + '\n  readback:\n' + mutated)
+    except ValueError:
+        continue
+    raise SystemExit(f'agent contract check failed: readback mutation was accepted: {label}')
 
 print('agent contract checks passed')

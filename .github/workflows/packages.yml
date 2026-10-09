@@ -404,6 +404,49 @@ jobs:
             --release-version "${RELEASE_VERSION}" --bundle-sha256 "${BUNDLE_SHA256}" \
             --input-dir "${RUNNER_TEMP}/release-source"
 
+      - name: Require exact frozen verifier source
+        env:
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          SOURCE_TREE: ${{ inputs.source_tree }}
+        run: |
+          set -euo pipefail
+          umask 022
+          canonical_source=/opt/arch-linux-canonical
+          [[ "${SOURCE_COMMIT}" =~ ^[a-f0-9]{40}$ ]]
+          [[ "${SOURCE_TREE}" =~ ^[a-f0-9]{40}$ ]]
+          test "$(git -c safe.directory="${GITHUB_WORKSPACE}" -C "${GITHUB_WORKSPACE}" rev-parse --verify 'HEAD^{commit}')" = "${SOURCE_COMMIT}"
+          test "$(git -c safe.directory="${GITHUB_WORKSPACE}" -C "${GITHUB_WORKSPACE}" rev-parse --verify 'HEAD^{tree}')" = "${SOURCE_TREE}"
+          test -z "$(git -c safe.directory="${GITHUB_WORKSPACE}" -C "${GITHUB_WORKSPACE}" status --porcelain=v1 --untracked-files=all)"
+          current=/opt
+          while :; do
+            test -d "${current}"
+            test ! -L "${current}"
+            test "$(stat -c '%u:%g' -- "${current}")" = 0:0
+            test -z "$(find "${current}" -maxdepth 0 -perm /022 -print -quit)"
+            test "${current}" = / && break
+            current="$(dirname -- "${current}")"
+          done
+          test ! -e "${canonical_source}"
+          test ! -L "${canonical_source}"
+          git clone --no-local --no-hardlinks --no-checkout -- \
+            "${GITHUB_WORKSPACE}" "${canonical_source}"
+          git -C "${canonical_source}" checkout --detach "${SOURCE_COMMIT}"
+          git -C "${canonical_source}" remote remove origin
+          test "$(git -C "${canonical_source}" rev-parse --verify 'HEAD^{commit}')" = \
+            "${SOURCE_COMMIT}"
+          test "$(git -C "${canonical_source}" rev-parse --verify 'HEAD^{tree}')" = \
+            "${SOURCE_TREE}"
+          test -z "$(git -C "${canonical_source}" \
+            status --porcelain=v1 --untracked-files=all)"
+          test ! -e "${canonical_source}/.git/objects/info/alternates"
+          test ! -L "${canonical_source}/.git/objects/info/alternates"
+          test -z "$(find "${canonical_source}" -type f -links +1 -print -quit)"
+          chown -R root:root -- "${canonical_source}"
+          chmod -R go-w -- "${canonical_source}"
+          test -z "$(find "${canonical_source}" \
+            \( ! -user root -o ! -group root \) -print -quit)"
+          test -z "$(find "${canonical_source}" -perm /022 -print -quit)"
+
       - name: Download run-scoped artifact
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
         with:
@@ -411,6 +454,7 @@ jobs:
           path: ${{ runner.temp }}/canonical-readback
 
       - name: Verify readback identity and bytes
+        working-directory: /opt/arch-linux-canonical
         env:
           SOURCE_COMMIT: ${{ inputs.source_commit }}
           SOURCE_TREE: ${{ inputs.source_tree }}
@@ -418,11 +462,35 @@ jobs:
           UNSIGNED_MANIFEST_SHA256: ${{ needs.build.outputs.unsigned_manifest_sha256 }}
         run: |
           set -euo pipefail
-          test "$(git -c safe.directory="${GITHUB_WORKSPACE}" -C "${GITHUB_WORKSPACE}" rev-parse --verify 'HEAD^{commit}')" = "${SOURCE_COMMIT}"
-          test "$(git -c safe.directory="${GITHUB_WORKSPACE}" -C "${GITHUB_WORKSPACE}" rev-parse --verify 'HEAD^{tree}')" = "${SOURCE_TREE}"
-          test -z "$(git -c safe.directory="${GITHUB_WORKSPACE}" -C "${GITHUB_WORKSPACE}" status --porcelain=v1 --untracked-files=all)"
+          umask 022
+          canonical_source=/opt/arch-linux-canonical
+          [[ "${SOURCE_COMMIT}" =~ ^[a-f0-9]{40}$ ]]
+          [[ "${SOURCE_TREE}" =~ ^[a-f0-9]{40}$ ]]
+          check_readback_source() {
+            test "$(git -C "${canonical_source}" rev-parse --verify 'HEAD^{commit}')" = "${SOURCE_COMMIT}"
+            test "$(git -C "${canonical_source}" rev-parse --verify 'HEAD^{tree}')" = "${SOURCE_TREE}"
+            test -z "$(git -C "${canonical_source}" status --porcelain=v1 --untracked-files=all)"
+            test ! -e "${canonical_source}/.git/objects/info/alternates"
+            test ! -L "${canonical_source}/.git/objects/info/alternates"
+            test -z "$(find "${canonical_source}" -type f -links +1 -print -quit)"
+            test -z "$(find "${canonical_source}" \
+              \( ! -user root -o ! -group root \) -print -quit)"
+            test -z "$(find "${canonical_source}" -perm /022 -print -quit)"
+            current="${canonical_source}"
+            while :; do
+              test -d "${current}"
+              test ! -L "${current}"
+              test "$(stat -c '%u:%g' -- "${current}")" = 0:0
+              test -z "$(find "${current}" -maxdepth 0 -perm /022 -print -quit)"
+              test "${current}" = / && break
+              current="$(dirname -- "${current}")"
+            done
+          }
+          check_readback_source
           printf '%s *%s\n' "${BUILD_METADATA_SHA256}" \
             "${RUNNER_TEMP}/canonical-readback/BUILD-METADATA.json" | sha256sum --check --strict
           printf '%s *%s\n' "${UNSIGNED_MANIFEST_SHA256}" \
             "${RUNNER_TEMP}/canonical-readback/UNSIGNED-SHA256SUMS" | sha256sum --check --strict
-          PACKAGE_ARTIFACT_DIR="${RUNNER_TEMP}/canonical-readback" bash tests/package-checks.sh
+          PACKAGE_ARTIFACT_DIR="${RUNNER_TEMP}/canonical-readback" \
+            bash "${canonical_source}/tests/package-checks.sh"
+          check_readback_source

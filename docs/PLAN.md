@@ -244,7 +244,7 @@ ShellCheck and full repository namespaces with ten scenarios, exact 14/18
 closures and no deferrals. Exact commit/tree/log identities are in validation.
 All delegated work has returned; no owned build/diagnostic container remains.
 Remote main remains `bc135f0` and the latest public release remains 1.0.6.
-The delivery candidate is in [PR #65](https://github.com/snaplyze/arch-linux/pull/65).
+The delivery candidate was merged through [PR #65](https://github.com/snaplyze/arch-linux/pull/65).
 On 2026-10-09 the owner explicitly granted full permission
 for `fix/gnome51-upgrade-20261009` in this same checkout, protected PR/merge and
 the configured release process. Preserve the candidate commits on that branch
@@ -289,8 +289,49 @@ reproduced reuse three times out of three. The corrected fixture allocates its
 replacement while the original is live, asserts distinct device/inode identity,
 then replaces the pathname; the unchanged production verifier must reject it.
 The focused test and independent review pass. Its one tiny runner fixture was
-removed. The fresh PR head still requires complete local and GitHub source checks;
-no failed CI result is treated as acceptance.
+removed. No failed CI result is treated as acceptance.
+
+Protected delivery accepted candidate `34da98bb34ed57a795e498104c6cf5321b1467d2`,
+tree `4209061d00423d88e62acfcb1bba1761e1fb417c`, canonical source SHA-256
+`0f363c1ac3e3dc9d754791e5bbe664f0e00d514de46267f95e8a627a9a38cf76`.
+The full local source suite passed (log SHA-256
+`15b415ead68e0e5ec8262b04e7add1b23efdefb1fadf5c97a9b282fc01c36a24`), and
+[PR CI 37878611896](https://github.com/snaplyze/arch-linux/actions/runs/37878611896)
+passed with full namespaces, ten scenarios, signer and exact 14/18 closures,
+no deferrals (CI log SHA-256
+`ae3ac0bfecb2496cc6fba017ec978541c182125d26fc06ebcf312c451cb37f7f`).
+PR head/base, mergeability, required checks and empty review-comment state were
+rechecked before exact-head squash merge. Accepted main is
+`63c9e6c9e80321112405e32f8c6cef0b4ed59ef4`, with the same tree and canonical hash.
+This checkout returned to main by fast-forward; all candidate commits remain on
+the task branch. [Main CI 37878934364](https://github.com/snaplyze/arch-linux/actions/runs/37878934364)
+passed and triggered configured [Release 37879163690](https://github.com/snaplyze/arch-linux/actions/runs/37879163690)
+for that exact accepted main. Release-child preparation and canonical unsigned
+build passed, but the separate artifact readback failed before signing: the
+checked-out public `repository/trust/arch-linux.gpg` was group/other writable.
+The strict verifier rejected that source mode after both metadata digests passed.
+The run is terminal FAIL; signing, all QEMU stages, draft/tag creation, Pages and
+publication were skipped. The prepared child is `5ee1439` for 1.0.7; independent deterministic
+reconstruction and source-bundle verification passed. Exact identities and seven
+generated package versions are in validation. Independent download checks match
+the artifact digest, both metadata hashes and every member of the fourteen-file
+unsigned manifest, but do not close the failed production readback. The focused
+correction gives readback a root-owned independent clone of the exact child,
+with safe ancestor, ownership, mode, Git identity and artifact digest checks
+before and after verification. The shared checkout is not chmodded; the
+source-mode guard and pinned input bytes remain intact. Eighteen readback-specific
+negative mutations and independent review passed. A bounded native replay against
+the failed run's actual seven-package artifact passed: the original verifier
+rejected mode 0666, the corrected workflow accepted the protected exact clone,
+and making that clone writable was rejected. Original unsafe checkout modes and
+verifier bytes stayed unchanged. Native log SHA-256 is
+`b875a3cb1b2bafd5a03ae198b2a33276cbb4c12436b94868314140d92046f421`.
+The disposable container and large test inputs were removed. Post-job cleanup removed the runner checkout's
+Git directory, so the original file mode cannot be measured again and its
+checkout umask remains an inference, not a separately observed fact.
+Signing, real VM migration/functionality, publication and public recovery remain
+open. This progress record is local until the final documentation reconciliation
+is published.
 
 ## Local runner migration — 2026-10-08
 
