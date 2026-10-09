@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import ssl
 import sys
+import tempfile
 import urllib.parse
 
 
@@ -88,10 +89,19 @@ context.minimum_version = ssl.TLSVersion.TLSv1_2
 context.load_cert_chain(certificate, private_key)
 server.socket = context.wrap_socket(server.socket, server_side=True)
 
-ready_fd = os.open(ready_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-with os.fdopen(ready_fd, "w", encoding="ascii") as stream:
-    stream.write(f"{server.server_port}\n")
-    stream.flush()
-    os.fsync(stream.fileno())
+# Consumers treat existence as readiness, so publish only the complete port bytes.
+# A same-directory hard link is atomic and rejects an existing file or symlink.
+ready_fd, temporary_ready = tempfile.mkstemp(prefix=f".{ready_file.name}.", dir=ready_file.parent)
+try:
+    with os.fdopen(ready_fd, "w", encoding="ascii") as stream:
+        ready_fd = -1  # fdopen now owns the descriptor, including exceptional exits.
+        stream.write(f"{server.server_port}\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.link(temporary_ready, ready_file)
+finally:
+    if ready_fd >= 0:
+        os.close(ready_fd)
+    os.unlink(temporary_ready)
 
 server.serve_forever(poll_interval=0.25)

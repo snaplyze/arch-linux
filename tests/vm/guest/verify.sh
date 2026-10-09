@@ -647,11 +647,16 @@ def query(args, cap=262144):
     except (OSError, UnicodeError, subprocess.TimeoutExpired):
         return None
 
+class JournalDiagnosticError(ValueError):
+    def __init__(self, reason):
+        self.reason = reason
+        super().__init__(reason)
+
 def unique_object(pairs):
     value = {}
     for key, item in pairs:
         if key in value:
-            raise ValueError("duplicate field")
+            raise JournalDiagnosticError("duplicate-json")
         value[key] = item
     return value
 
@@ -665,7 +670,7 @@ def diagnose(uid, gid, run_id, phase, checkpoint, account="vmtest"):
             or not re.fullmatch(r"[A-Za-z0-9-]{1,80}", run_id)
             or not re.fullmatch(r"[a-z0-9-]{1,64}", phase)
             or not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", account)
-            or checkpoint not in {"migrated-login", "before-original-user-logout", "extension-timeout"}):
+            or checkpoint not in {"migrated-login", "before-original-user-logout", "after-original-user-logout", "return-user-login", "extension-timeout"}):
         return
     prefix = f"GNOME_SHELL_DIAGNOSTIC run_id={run_id} phase={phase} checkpoint={checkpoint}"
     checkpoint_time = "unknown"
@@ -737,44 +742,50 @@ def diagnose(uid, gid, run_id, phase, checkpoint, account="vmtest"):
         else:
             invocation = "yes" if isinstance(invocation, str) and re.fullmatch(r"[a-f0-9]{32}", invocation) else "unknown"
         print(f"{prefix} unit={unit} result={result} exit_code={code} exit_status={number(fields.get('ExecMainStatus'), 255)} start_monotonic_us={number(fields.get('ExecMainStartTimestampMonotonic'))} invocation={invocation}", file=sys.stderr)
-    if checkpoint != "extension-timeout":
+    if checkpoint not in {"after-original-user-logout", "return-user-login", "extension-timeout"}:
         return
     # Current boot includes the migration and original-user logout. Query only these public
     # units for this UID; retain no messages, paths, command lines or unknown identifiers.
     args = ["/usr/bin/journalctl", "--boot=0", "--no-pager", "--lines=129", "--output=json",
             "--output-fields=USER_UNIT,_SYSTEMD_USER_UNIT,MESSAGE_ID,UNIT_RESULT,EXIT_CODE,EXIT_STATUS,__MONOTONIC_TIMESTAMP"]
+    # Each OR group must carry the lifecycle filter: Shell application messages must
+    # not displace the earlier logout/failure events from the bounded history window.
+    first_group = True
     for unit in UNITS:
         for field in ("USER_UNIT", "_SYSTEMD_USER_UNIT"):
-            if args[-1].startswith(("USER_UNIT=", "_SYSTEMD_USER_UNIT=")):
+            if not first_group:
                 args.append("+")
+            first_group = False
             args.extend([f"_UID={uid}", f"{field}={unit}"])
+            args.extend(f"MESSAGE_ID={event}" for event in EVENTS)
     raw = query(args)
     query_state = "unknown"
+    rejection_reason = "query-unavailable"
     counts = dict.fromkeys(("records", "stop_events", "failure_events", "killed_events", "timeout_events", "unclassified_events"), "unknown")
     recovery = "unknown"
     timeline = []
     try:
         if raw is None:
-            raise ValueError("query unavailable")
+            raise JournalDiagnosticError("query-unavailable")
         records = [json.loads(line, object_pairs_hook=unique_object) for line in raw.splitlines()]
         if len(records) >= 129:
-            raise ValueError("bounded window exhausted")
+            raise JournalDiagnosticError("window-exhausted")
         typed = []
         for record in records:
             if not isinstance(record, dict):
-                raise ValueError("invalid record")
+                raise JournalDiagnosticError("invalid-object")
             unit = record.get("USER_UNIT", record.get("_SYSTEMD_USER_UNIT"))
             if unit not in UNITS or any(not isinstance(record.get(key, ""), str) for key in ("MESSAGE_ID", "UNIT_RESULT", "EXIT_CODE", "EXIT_STATUS")):
-                raise ValueError("invalid fields")
+                raise JournalDiagnosticError("invalid-field")
             if record.get("UNIT_RESULT") and record["UNIT_RESULT"] not in RESULTS:
-                raise ValueError("invalid result")
+                raise JournalDiagnosticError("invalid-enum")
             if record.get("EXIT_CODE") and record["EXIT_CODE"] not in {"exited", "killed", "dumped"}:
-                raise ValueError("invalid exit code")
+                raise JournalDiagnosticError("invalid-enum")
             if record.get("EXIT_STATUS") and number(record["EXIT_STATUS"], 255) == "unknown":
-                raise ValueError("invalid exit status")
+                raise JournalDiagnosticError("invalid-number")
             timestamp = number(record.get("__MONOTONIC_TIMESTAMP"))
             if timestamp == "unknown":
-                raise ValueError("invalid monotonic timestamp")
+                raise JournalDiagnosticError("invalid-timestamp")
             typed.append((unit, EVENTS.get(record.get("MESSAGE_ID")), record, timestamp))
         counts = dict.fromkeys(counts, 0)
         counts["records"] = len(typed)
@@ -795,10 +806,15 @@ def diagnose(uid, gid, run_id, phase, checkpoint, account="vmtest"):
                 counts["timeout_events"] += event == "failure-result" and record.get("UNIT_RESULT") == "timeout"
                 counts["killed_events"] += event == "process-exit" and record.get("EXIT_CODE") in {"killed", "dumped"}
         query_state = "ok"
+        rejection_reason = "none"
+    except JournalDiagnosticError as error:
+        rejection_reason = error.reason
+    except json.JSONDecodeError:
+        rejection_reason = "invalid-json"
     except (ValueError, TypeError):
-        pass
+        rejection_reason = "invalid-field"
     values = " ".join(f"{key}={value}" for key, value in counts.items())
-    print(f"{prefix} journal_scope=current-boot journal_query={query_state} {values} recovery_started={recovery}", file=sys.stderr)
+    print(f"{prefix} journal_scope=current-boot journal_query={query_state} {values} recovery_started={recovery} rejection_reason={rejection_reason}", file=sys.stderr)
     if query_state == "ok":
         for event in timeline:
             print(event, file=sys.stderr)
@@ -3694,9 +3710,11 @@ verify_marble_user_session() {
     session_uid="$(session_property "${user_session}" User)"
     [ "${session_uid}" = "${uid}" ]
     shell_pid="$(wait_for_gnome_shell "${uid}")"
-    if [ "${phase}" = migrated-login ]; then
-        emit_gnome_shell_lifecycle_diagnostic "${uid}" migrated-login
-    fi
+    case "${phase}" in
+    migrated-login | return-user-login)
+        emit_gnome_shell_lifecycle_diagnostic "${uid}" "${phase}"
+        ;;
+    esac
     shell_environment="$(tr '\0' '\n' <"/proc/${shell_pid}/environ")"
     grep -qx 'XDG_SESSION_TYPE=wayland' <<<"${shell_environment}"
     grep -Eq '^XDG_CURRENT_DESKTOP=(GNOME|GNOME:GNOME)$' <<<"${shell_environment}"
@@ -4646,6 +4664,7 @@ prepare_fresh_marble_user() {
     emit_gnome_shell_lifecycle_diagnostic "${uid}" before-original-user-logout
     run_in_user_session "${uid}" /usr/bin/gnome-session-quit --logout --no-prompt
     wait_for_named_user_logout "${username}"
+    emit_gnome_shell_lifecycle_diagnostic "${uid}" after-original-user-logout
     greeter_session="$(wait_for_greeter)"
     shell_pid="$(gdm_shell_pid "${greeter_session}")"
     environment="$(tr '\0' '\n' <"/proc/${shell_pid}/environ")"

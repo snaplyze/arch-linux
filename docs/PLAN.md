@@ -13,7 +13,7 @@ publication. Exact historical attempts and evidence belong in
 | ID | Work and acceptance | Status |
 | --- | --- | --- |
 | G51-01 | Diagnose installed package/session state and upstream compatibility; bind findings to versions and authoritative sources. | DONE |
-| G51-02 | Prepare reviewed package/extension upgrade paths, preserve user overrides and safe unsupported-version handling; reproduce failures before fixes and test recovery. | Source delivered; current signed build PASS; real GNOME upgrade acceptance pending |
+| G51-02 | Prepare reviewed package/extension upgrade paths, preserve user overrides and safe unsupported-version handling; reproduce failures before fixes and test recovery. | Product source delivered; prior a773 signed build PASS; fresh harness candidate build/VM acceptance pending |
 | G51-03 | Correct deterministic release documentation rendering; test independently differing source/document/release versions and preserve historical evidence. | DONE: overview/bootstrap/changelog rendering and 52 regressions PASS |
 | G51-04 | Update agent, update/release and user documentation with package delivery and real upgrade acceptance requirements. | Candidate instructions delivered; final publication reconciliation pending |
 | G51-05 | Independent diff review, affected checks and full source suite; record package, real session/VM and publication results separately. | HTTP correction, Shell observer regressions, source/review/protected delivery and fresh signed build PASS; new VM/publication acceptance pending; previous failed/cancelled results retained |
@@ -60,6 +60,38 @@ promote one nonempty Unreleased changelog entry before freezing the tag. Histori
 commands/results keep their identities; old tags and assets are never rewritten.
 
 ### Current checkpoint and remaining gates
+
+[PR78](https://github.com/snaplyze/arch-linux/pull/78) delivered the extension
+inventory/readiness ordering correction and the reviewed pre-evidence retry
+procedure. Local initial/documented source suites and independent review passed;
+exact-head CI 37977462863 passed. Protected squash merge completed at 19:08 UTC.
+Main is `65f67132d9e2f657672f58033b75c6af0cca9028`; the sole checkout returned by
+fast-forward with the index preserved. Fresh main CI 37978123346 passed.
+[Release 37978505750](https://github.com/snaplyze/arch-linux/actions/runs/37978505750)
+prepared child `1274611da69b5eb78990f7c01fd8350215a58d49`; independent source
+transport/deterministic transformation verification passed, including 1.0.7 pins.
+The clean seven-package build and protected unsigned readback passed; independent
+metadata/payload/MTREE verification also passed. All five release-host gates and
+Phase-A signing passed. Independent readback verified fourteen assets, twelve
+manifest rows, three release signatures and twenty-five snapshot objects. Fresh
+Minimal passed fourteen assertions and core Stock passed twenty-two; both frozen
+strict consumers passed. Core Marble failed at return-user-login: global extensions disabled/all eight
+INITIALIZED. Its typed journal query was unknown. Read-only native control
+reproduced application logs exhausting the 129-record diagnostic window; filtering
+known lifecycle MESSAGE_IDs returned one typed event. This proves an observer
+defect, not the actual guest failure cause. Filtered-window/rejection-reason and
+post-logout/early-return observations passed a HEAD control, focused twenty tests,
+native control and all 150 runtime checks. A separate intermittent TLS fixture
+FAIL exposed a readiness publication race; actual-server controlled-preemption
+RED/GREEN and atomic no-overwrite publication passed. Combined twenty-four focused
+and all 152 runtime tests passed. Independent review found no material issues;
+`bash tests/source-tests.sh` passed, including full namespace repository acceptance
+(ten scenarios, signer, 14+18, no deferral). Candidate is ready for protected source
+delivery after final documentation/diff checks; no product/settings/deadline
+change is justified yet. Six supplementary scenarios
+continue independently. VM/public gates remain open; no earlier PASS transfers. The concrete firstboot transient-versus-crash cause and
+the older logout/recovery cause remain unproved; only harness observation/readiness
+was corrected. Public latest remains 1.0.6, and the workstation is unchanged.
 
 [PR77](https://github.com/snaplyze/arch-linux/pull/77) delivered the corrected
 GNOME 50/51 user-unit observer and bounded recovery chronology. Local final source
