@@ -125,7 +125,7 @@ it does not construct the old four AUR owners or local No Screenshot Box copy.
 Its PASS must not close the new migration gate. Source is reviewable locally.
 GitHub rules for main currently require a pull request and successful `Source checks`;
 the checkout contract requires an owner exception before a PR branch is created.
-No branch exception has yet been supplied for this task. The canonical unsigned
+The owner subsequently granted the branch/delivery exception recorded below. The canonical unsigned
 build receipt binds `6b13bbd`; subsequent documentation edits do not relabel that
 receipt. The eventual release child still requires its own build, signatures,
 actual old-AUR/local-extension migration and runtime acceptance.
@@ -244,9 +244,16 @@ ShellCheck and full repository namespaces with ten scenarios, exact 14/18
 closures and no deferrals. Exact commit/tree/log identities are in validation.
 All delegated work has returned; no owned build/diagnostic container remains.
 Remote main remains `bc135f0` and the latest public release remains 1.0.6.
-The candidate is local: protected-PR delivery awaits the requested owner exception
-for a branch in this same checkout. Actual signed upgrade/GDM/functional and
+The candidate is local. On 2026-10-09 the owner explicitly granted full permission
+for `fix/gnome51-upgrade-20261009` in this same checkout, protected PR/merge and
+the configured release process. Preserve the candidate commits on that branch
+and return the canonical checkout to main by fast-forward after the accepted
+squash merge. No additional checkout, trust change or historical asset replacement
+is needed. Actual signed upgrade/GDM/functional and
 appearance acceptance, publication and public pacman recovery remain open.
+The final pre-authorization candidate `bb62952`, tree
+`dbf40c5f12331ba6e45ceaa2b9aed55788b10a2b`, also passed the complete source suite;
+log SHA-256 `94b73f0fdee0f508886d09c8412485401863d4a18ff126221e97ba2b004670c9`.
 
 ## Local runner migration — 2026-10-08
 
