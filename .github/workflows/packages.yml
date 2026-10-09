@@ -447,11 +447,45 @@ jobs:
             \( ! -user root -o ! -group root \) -print -quit)"
           test -z "$(find "${canonical_source}" -perm /022 -print -quit)"
 
+      - name: Prepare protected readback input directory
+        run: |
+          set -euo pipefail
+          umask 022
+          readback_inputs=/opt/arch-linux-readback-inputs
+          current=/opt
+          while :; do
+            test -d "${current}"
+            test ! -L "${current}"
+            test "$(stat -c '%u:%g' -- "${current}")" = 0:0
+            test -z "$(find "${current}" -maxdepth 0 -perm /022 -print -quit)"
+            test "${current}" = / && break
+            current="$(dirname -- "${current}")"
+          done
+          test ! -e "${readback_inputs}"
+          test ! -L "${readback_inputs}"
+          install -d -m0755 -o root -g root -- "${readback_inputs}"
+
       - name: Download run-scoped artifact
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
         with:
           name: ${{ needs.build.outputs.artifact_name }}
-          path: ${{ runner.temp }}/canonical-readback
+          path: /opt/arch-linux-readback-inputs
+
+      - name: Protect downloaded readback inputs
+        run: |
+          set -euo pipefail
+          readback_inputs=/opt/arch-linux-readback-inputs
+          test -d "${readback_inputs}"
+          test ! -L "${readback_inputs}"
+          test -z "$(find "${readback_inputs}" ! -type d ! -type f -print -quit)"
+          test -z "$(find "${readback_inputs}" -type f -links +1 -print -quit)"
+          chown -R root:root -- "${readback_inputs}"
+          find "${readback_inputs}" -type d -exec chmod 0755 -- {} +
+          find "${readback_inputs}" -type f -exec chmod 0644 -- {} +
+          test -z "$(find "${readback_inputs}" \
+            \( ! -user root -o ! -group root \) -print -quit)"
+          test -z "$(find "${readback_inputs}" \
+            \( -type d ! -perm 0755 -o -type f ! -perm 0644 \) -print -quit)"
 
       - name: Verify readback identity and bytes
         working-directory: /opt/arch-linux-canonical
@@ -488,9 +522,9 @@ jobs:
           }
           check_readback_source
           printf '%s *%s\n' "${BUILD_METADATA_SHA256}" \
-            "${RUNNER_TEMP}/canonical-readback/BUILD-METADATA.json" | sha256sum --check --strict
+            "/opt/arch-linux-readback-inputs/BUILD-METADATA.json" | sha256sum --check --strict
           printf '%s *%s\n' "${UNSIGNED_MANIFEST_SHA256}" \
-            "${RUNNER_TEMP}/canonical-readback/UNSIGNED-SHA256SUMS" | sha256sum --check --strict
-          PACKAGE_ARTIFACT_DIR="${RUNNER_TEMP}/canonical-readback" \
+            "/opt/arch-linux-readback-inputs/UNSIGNED-SHA256SUMS" | sha256sum --check --strict
+          PACKAGE_ARTIFACT_DIR="/opt/arch-linux-readback-inputs" \
             bash "${canonical_source}/tests/package-checks.sh"
           check_readback_source

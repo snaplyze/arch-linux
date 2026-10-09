@@ -84,6 +84,71 @@ class ActionsReleaseChecks(unittest.TestCase):
                     if not refresh_status:
                         self.assertTrue(calls[3].startswith("pacman -Syu --noconfirm --needed "))
 
+    def test_release_checker_clone_sets_its_own_umask(self) -> None:
+        workflow = (ROOT / '.github/workflows/release.yml').read_text()
+        step = workflow.split('      - name: Execute full namespace and publication regression gates\n',1)[1].split('\n      - name:',1)[0]
+        # Execute the real clone and unprivileged-gate prefix; privileged publication gates are outside this fixture.
+        script = textwrap.dedent(step.split('        run: |\n',1)[1]).split('/usr/bin/env -i HOME=/root',1)[0]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); source = root / 'canonical'; source.mkdir(); home = root / 'checker'; home.mkdir()
+            (source / 'sentinel').write_text('tracked public source\n')
+            tests = source / 'tests'; tests.mkdir()
+            (tests / 'repository-checks.sh').write_text('set -eu\nmode="$(stat -c %a "$(dirname "$0")/../sentinel")"\n[ "$mode" = 644 ] || { echo "clone source mode differs: $mode" >&2; exit 43; }\n')
+            for args in (['init','-q'],['add','sentinel','tests/repository-checks.sh'],
+                         ['-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','public fixture']):
+                subprocess.run(['git','-C',str(source),*args],check=True,capture_output=True)
+            bins = root / 'bin'; bins.mkdir()
+            (bins / 'useradd').write_text('#!/bin/bash\nexit 0\n')
+            (bins / 'getent').write_text('#!/bin/bash\nprintf "release-checker:x:1000:1000::%s:/bin/bash\n" "$CHECKER_HOME"\n')
+            (bins / 'runuser').write_text('#!/bin/bash\n[[ $1 == -u && $2 == release-checker && $3 == -- ]] || exit 90\nshift 3; exec "$@"\n')
+            for path in bins.iterdir(): path.chmod(0o755)
+            environment = dict(os.environ,PATH=str(bins)+':'+os.environ['PATH'],CHECKER_HOME=str(home),GITHUB_WORKSPACE=str(source))
+            script = script.replace('/opt/arch-linux-canonical',str(source))
+            result = subprocess.run(['bash','-c','umask 000\n'+script],env=environment,cwd=root,capture_output=True,text=True,timeout=10)
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.assertEqual((home / 'source/sentinel').stat().st_mode & 0o777,0o644)
+
+    def test_readback_normalizes_download_modes_and_rejects_unsafe_objects(self) -> None:
+        workflow = (ROOT / '.github/workflows/packages.yml').read_text().split('\n  readback:\n',1)[1]
+        self.assertIn('      - name: Protect downloaded readback inputs\n', workflow,
+                      'downloaded artifact needs an owned input normalization boundary')
+        step = workflow.split('      - name: Protect downloaded readback inputs\n',1)[1].split('\n      - name:',1)[0]
+        original = textwrap.dedent(step.split('        run: |\n',1)[1])
+        production = (ROOT / 'repository/verify-unsigned-build.sh').read_text()
+        guard = next(line.strip() for line in production.splitlines() if 'unsigned package mode differs:' in line)
+        for kind, artifact_mode in [('ordinary',0o600),('ordinary',0o666),('ordinary',0o640),
+                                    ('ordinary',0o777),('symlink',0o600),('fifo',0o600),('hardlink',0o600)]:
+            with self.subTest(kind=kind,mode=oct(artifact_mode)), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory); inputs = root / 'inputs'; inputs.mkdir(mode=0o777); inputs.chmod(0o777)
+                metadata = inputs / 'metadata'; metadata.mkdir(); metadata.chmod(0o700)
+                package = inputs / 'fixture.pkg.tar.zst'; package.write_bytes(b'public-package'); package.chmod(artifact_mode)
+                (metadata / 'fixture.SRCINFO').write_bytes(b'public-metadata')
+                before = {str(path.relative_to(inputs)):hashlib.sha256(path.read_bytes()).hexdigest()
+                          for path in inputs.rglob('*') if path.is_file()}
+                # Execute the unchanged production file-mode assertion on the actual fixture bytes.
+                check = 'set -euo pipefail\nfile=("$1"); repository_die(){ printf "%s\n" "$*" >&2; return 1; }; '+guard
+                failed = subprocess.run(['bash','-c',check,'fixture',str(package)],capture_output=True,text=True)
+                self.assertNotEqual(failed.returncode,0); self.assertIn('unsigned package mode differs',failed.stderr)
+                if kind == 'symlink': (inputs / 'unsafe').symlink_to(package)
+                elif kind == 'fifo': os.mkfifo(inputs / 'unsafe')
+                elif kind == 'hardlink': os.link(package,inputs / 'unsafe')
+                # Map only the protected path and root ownership to this unprivileged disposable fixture.
+                script = original.replace('/opt/arch-linux-readback-inputs',str(inputs)).replace('root:root',f'{os.getuid()}:{os.getgid()}')
+                script = script.replace('! -user root -o ! -group root',f'! -uid {os.getuid()} -o ! -gid {os.getgid()}')
+                result = subprocess.run(['bash','-c',script],capture_output=True,text=True,timeout=10)
+                if kind != 'ordinary':
+                    self.assertNotEqual(result.returncode,0,kind)
+                    self.assertEqual(package.stat().st_mode & 0o777,artifact_mode,'reject before normalization')
+                    continue
+                self.assertEqual(result.returncode,0,result.stderr)
+                self.assertEqual(inputs.stat().st_mode & 0o777,0o755)
+                self.assertEqual(metadata.stat().st_mode & 0o777,0o755)
+                self.assertEqual(package.stat().st_mode & 0o777,0o644)
+                after = {str(path.relative_to(inputs)):hashlib.sha256(path.read_bytes()).hexdigest()
+                         for path in inputs.rglob('*') if path.is_file()}
+                self.assertEqual(after,before,'permission normalization must preserve all bytes')
+                self.assertEqual(subprocess.run(['bash','-c',check,'fixture',str(package)],capture_output=True,text=True).returncode,0)
+
     def test_staged_migration_input_failure_blocks_the_actual_vm_dispatch(self) -> None:
         workflow = (ROOT / ".github/workflows/release.yml").read_text()
         step = workflow.split("      - name: Download accepted ISO and execute real staged scenario\n", 1)[1].split("\n      - name:", 1)[0]

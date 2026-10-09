@@ -409,7 +409,9 @@ def validate_packages(text: str) -> None:
         '      - name: Check out exact verifier source\n',
         '      - name: Restore and verify release child\n',
         '      - name: Require exact frozen verifier source\n',
+        '      - name: Prepare protected readback input directory\n',
         '      - name: Download run-scoped artifact\n',
+        '      - name: Protect downloaded readback inputs\n',
         '      - name: Verify readback identity and bytes\n',
     )
     ordered(readback, readback_steps, 'package artifact readback')
@@ -426,7 +428,33 @@ def validate_packages(text: str) -> None:
         'test "${current}" = / && break',
     ):
         demand(literal in frozen, f'package readback canonicalization differs: {literal}')
-    verifier = block(readback, readback_steps[4], None)
+    prepared = block(readback, readback_steps[3], readback_steps[4])
+    downloaded = block(readback, readback_steps[4], readback_steps[5])
+    protected = block(readback, readback_steps[5], readback_steps[6])
+    for literal in (
+        'umask 022', 'readback_inputs=/opt/arch-linux-readback-inputs',
+        'current=/opt', 'test ! -L "${current}"',
+        "test \"$(stat -c '%u:%g' -- \"${current}\")\" = 0:0",
+        'find "${current}" -maxdepth 0 -perm /022', 'test "${current}" = / && break',
+        'test ! -e "${readback_inputs}"', 'test ! -L "${readback_inputs}"',
+        'install -d -m0755 -o root -g root -- "${readback_inputs}"',
+    ):
+        demand(literal in prepared, f'readback download target boundary differs: {literal}')
+    demand('path: /opt/arch-linux-readback-inputs' in downloaded, 'readback download uses an unprotected input path')
+    for literal in (
+        'readback_inputs=/opt/arch-linux-readback-inputs', 'test ! -L "${readback_inputs}"',
+        'find "${readback_inputs}" ! -type d ! -type f',
+        'find "${readback_inputs}" -type f -links +1',
+        'chown -R root:root -- "${readback_inputs}"',
+        'find "${readback_inputs}" -type d -exec chmod 0755 -- {} +',
+        'find "${readback_inputs}" -type f -exec chmod 0644 -- {} +',
+        '! -user root -o ! -group root', '-type d ! -perm 0755 -o -type f ! -perm 0644',
+    ):
+        demand(literal in protected, f'readback input protection differs: {literal}')
+    demand(protected.index('! -type d ! -type f') < protected.index('chown -R') and
+           protected.index('-type f -links +1') < protected.index('chown -R'),
+           'unsafe download objects are normalized before rejection')
+    verifier = block(readback, readback_steps[-1], None)
     for literal in (
         PROTECTED_WORKDIR, 'set -euo pipefail\n          umask 022\n',
         f'canonical_source={CANONICAL_SOURCE}', 'check_readback_source() {',
@@ -440,6 +468,9 @@ def validate_packages(text: str) -> None:
         '! -user root -o ! -group root',
         '"${BUILD_METADATA_SHA256}"', '"${UNSIGNED_MANIFEST_SHA256}"',
         'sha256sum --check --strict', 'bash "${canonical_source}/tests/package-checks.sh"',
+        'PACKAGE_ARTIFACT_DIR="/opt/arch-linux-readback-inputs"',
+        '"/opt/arch-linux-readback-inputs/BUILD-METADATA.json"',
+        '"/opt/arch-linux-readback-inputs/UNSIGNED-SHA256SUMS"',
     ):
         demand(literal in verifier, f'package readback verifier boundary differs: {literal}')
     demand(verifier.count('check_readback_source') == 3,
@@ -582,6 +613,14 @@ readback_mutations = (
     ('dirty sources', 'status --porcelain=v1 --untracked-files=all', 'status --porcelain=v1 --untracked-files=no'),
     ('metadata digest unbound', '"${BUILD_METADATA_SHA256}"', '"ignored"'),
     ('unsigned digest unbound', '"${UNSIGNED_MANIFEST_SHA256}"', '"ignored"'),
+    ('mutable input download', 'path: /opt/arch-linux-readback-inputs', 'path: ${{ runner.temp }}/canonical-readback'),
+    ('preexisting download inputs', 'test ! -e "${readback_inputs}"', ':'),
+    ('symlink download inputs', 'test ! -L "${readback_inputs}"', ':'),
+    ('special download objects', 'find "${readback_inputs}" ! -type d ! -type f', 'find "${readback_inputs}" -type f'),
+    ('hardlinked download objects', 'find "${readback_inputs}" -type f -links +1', 'find "${readback_inputs}" -type f -links +2'),
+    ('unfixed download file modes', '-type f -exec chmod 0644', '-type f -exec chmod 0600'),
+    ('unfixed download directory modes', '-type d -exec chmod 0755', '-type d -exec chmod 0700'),
+    ('foreign input owner', 'chown -R root:root -- "${readback_inputs}"', 'chown -R 1000:1000 -- "${readback_inputs}"'),
     ('post-verification recheck', '          check_readback_source\n', ''),
 )
 for label, before, after in readback_mutations:

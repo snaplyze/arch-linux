@@ -333,6 +333,49 @@ Signing, real VM migration/functionality, publication and public recovery remain
 open. This progress record is local until the final documentation reconciliation
 is published.
 
+Readback correction delivered through [PR #66](https://github.com/snaplyze/arch-linux/pull/66).
+Exact head `6647443346414c1c225ad7649f7e67e4c6d639d6`, tree
+`40003be954e025d0c82aad905c2d4c1cee704f6d`, passed the full local source suite
+(log SHA-256 `9d2d593f59f79191abcc24c4b78ca02947c81f6e81f0f882184af7736eb25143`)
+and [CI 37880505032](https://github.com/snaplyze/arch-linux/actions/runs/37880505032)
+(log SHA-256 `a18ff65ce180015602949a7ec96e5b6eefca9adf425ee6fd04d0a72bce8a4e36`).
+After exact-head/base/check/review-thread verification, protected squash merge
+produced main `aa462e1bdfafa5df29b994d0795a9066a2e2cfe9` with the same tree and
+canonical SHA-256 `6f7fc682f32df4c627f5270f208adde604fed3d3c6d198a522f1efda3eab6a3d`.
+This checkout returned to main by fast-forward; candidate history remains on
+`fix/gnome51-release-readback-20261009`.
+[Main CI 37880765176](https://github.com/snaplyze/arch-linux/actions/runs/37880765176)
+passed and triggered [Release 37880984567](https://github.com/snaplyze/arch-linux/actions/runs/37880984567).
+Child preparation and canonical seven-package build passed. The protected source
+check now passed in the actual readback job, which then rejected a downloaded
+package's mode (`unsigned package mode differs`). This second run is terminal
+FAIL before signing; VM and publication stages were skipped. The first native
+replay reproduced source checkout modes but did not reproduce action-extracted
+artifact modes. Correction now covers the downloaded-input boundary explicitly,
+with deterministic public-file modes in an owned protected directory and an
+expanded native replay. Symlinks, special objects and hardlinks are rejected
+before normalization. Executed workflow regressions reject the original package
+mode failure and pass after byte-preserving normalization; 23 Actions tests and
+26 readback mutation checks pass. Lookahead review also reproduced a new-shell
+umask failure in the snapshot regression clone: a controlled ambient mask 000
+produced mode 0666 and failed; step-local mask 022 fixed it. This is a fixture
+reproduction, not a previously executed snapshot failure. Independent review
+found no remaining material issue in the four-file correction. Production
+package mode/byte guards remain unchanged.
+The expanded native replay passed against this attempt's actual seven-package
+artifact, including controlled mode-0666 failure before normalization, unchanged
+bytes afterward, protected-archive tamper rejection, and the real release clone
+prefix under ambient mask 000. Native log SHA-256:
+`5c676e29a3e41656e3a9d3554b20d8ee6bc5ff54019c005d5b5149854ed4e750`.
+The full source suite passed before this evidence prose (log SHA-256
+`74018840ade4c96650db680758e8268cca5de2e8c27232264d3e574de5724a71`).
+Owned containers and large replay fixtures were removed. A tiny no-network probe
+on the idle actual runner confirmed directory link counts of two under both
+`/var/lib` and `/run`; the local Docker count of one does not establish a runner
+signing-boundary failure. No host setting or signing authority changed.
+Exact child and failed-run identities are retained in validation. Signed VM
+acceptance and public recovery remain pending.
+
 ## Local runner migration — 2026-10-08
 
 Owner request: move all five GitHub Actions workflows for `snaplyze/arch-linux`

@@ -184,6 +184,57 @@ Executed freeze/verify workflow-block SHA-256 values:
 This closes the native correction check, not a future release child's CI,
 signing, VM or public acceptance.
 
+## Prepared release 1.0.7 — second failed pre-signing attempt
+
+[PR #66](https://github.com/snaplyze/arch-linux/pull/66) delivered the protected
+readback correction after the full local source suite and exact-head
+[CI 37880505032](https://github.com/snaplyze/arch-linux/actions/runs/37880505032)
+passed. [Main CI 37880765176](https://github.com/snaplyze/arch-linux/actions/runs/37880765176)
+passed and triggered [Release 37880984567](https://github.com/snaplyze/arch-linux/actions/runs/37880984567).
+This is a new prepared child, distinct from the failed attempt above; no old
+receipt is transferred to it. Preparation and canonical seven-package build
+passed. The protected source passed readback, which then failed at the existing
+unsigned-package mode guard. Signing, all VM stages, tag/draft creation and
+publication were skipped; the run is terminal FAIL.
+
+| Prepared source binding | Exact value |
+| --- | --- |
+| Accepted PR candidate | `6647443346414c1c225ad7649f7e67e4c6d639d6` |
+| Accepted main | `aa462e1bdfafa5df29b994d0795a9066a2e2cfe9` |
+| Candidate/main tree | `40003be954e025d0c82aad905c2d4c1cee704f6d` |
+| Candidate/main canonical SHA-256 | `6f7fc682f32df4c627f5270f208adde604fed3d3c6d198a522f1efda3eab6a3d` |
+| Prepared release child | `3c3b237104ef0b7482b787767a4ce8c0c2e890a0` |
+| Prepared child tree | `552a3b0d1172929d9b7e0916a0e9437610f7dcaf` |
+| Prepared child canonical SHA-256 | `2bf3d89832ab1c9c87bdb0aba4438731adc6066e69b8e8608471b7f51bdac25d` |
+| Source transport bundle SHA-256 | `7a94373a80df74acea964035ee09ad623ead87b1da906c968390d5d7d0983feb` |
+| Unsigned artifact ZIP SHA-256 | `3adbe2184ccbdf44874dec774db03cbc5d572c8fdf3aed7c2dea1b3bd1648b44` |
+| Build metadata SHA-256 | `a2dbc5f1f97271a7a3d822aeb8bbd0b43825f28387b1ce2f8908c61da04b6275` |
+| Unsigned manifest SHA-256 | `cec8557a6db3f58e6a1beaaa0f4c6f5e94471a02b66bbbef7bd492303ed4dc37` |
+| Failed readback log SHA-256 | `1f7a6b91059915ea10da32994c4effbf74a20714816332239911e6bb5aadc6b2` |
+| Local full source-suite log SHA-256 | `9d2d593f59f79191abcc24c4b78ca02947c81f6e81f0f882184af7736eb25143` |
+| PR CI log SHA-256 | `a18ff65ce180015602949a7ec96e5b6eefca9adf425ee6fd04d0a72bce8a4e36` |
+
+Independent deterministic reconstruction, downloaded bundle verification and
+mode-and-byte canonical hashing matched the prepared identity without changing
+the checkout, refs or existing documentation edits. Independent artifact
+transport checks matched the ZIP digest, source binding and fourteen manifest
+members. The first replay's intentionally writable checkout did not cover
+action-extracted artifact modes; it cannot close this later failure. Publication,
+real GNOME/GDM migration and public recovery are not yet accepted.
+
+The expanded native replay passed with this attempt's actual artifact. It
+reproduced the original unsigned-package mode rejection using a controlled
+`0666` file, executed the exact corrected protected-input workflow blocks,
+matched both metadata digests and all seven package archives, then rejected a
+writable protected archive. Normalization preserved hashes; the unsafe source
+fixture stayed `0666`, protected source became `0644`, and artifact directories /
+files became `0755` / `0644`. The actual snapshot regression clone prefix under
+ambient umask `000` also produced safe checker files and passed public-certificate
+verification. Native log SHA-256:
+`5c676e29a3e41656e3a9d3554b20d8ee6bc5ff54019c005d5b5149854ed4e750`.
+This validates the correction in a disposable two-CPU / 4-GiB container, not a
+new configured release run. Containers and large fixtures were removed.
+
 ## Verified release 1.0.6 — 2026-10-04
 
 [Configured run37214392242](https://github.com/snaplyze/arch-linux/actions/runs/37214392242)
