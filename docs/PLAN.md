@@ -405,7 +405,15 @@ errors, and requires final root absence. A deterministic real-GNU-find regressio
 reproduces the socket disappearance; negative owner/mode/link/root/shutdown,
 persistent-delete and retained-root cases remain failures. All 25 Actions
 regressions and an actual private-agent/control fixture pass. Full source and
-real ordinary/privileged checks remain required for the frozen correction.
+real ordinary/privileged checks subsequently passed on frozen `b819ab9`, tree
+`e7786d4fdad1810cd90af9c773f04f4ec87f99b5`. The source log SHA-256 is
+`0bb9cbf92d04b027d77e7aa9e8c8499c017b93c927bcff81bc6fdda3832e457e`.
+Both keyring commands exited zero, with privileged full namespaces, ten scenarios
+and no deferrals. Ordinary / privileged log SHA-256 values are
+`fe74de28be8117dfe6234912abb3b070041be1080d16e6aad4f41d3618fe4d45` /
+`ed3726a10b67301b391a7b5a61ebf297b53e478d7cd5d9580fbf38ae2a6ad08f`.
+Owned container, loop/mapper and cgroup resources were removed; host device
+metadata stayed unchanged. These are disposable test keys, not release signatures.
 Independent review found no cleanup implementation issue. Its test observation
 was tightened from socket existence to the same responding control-agent PID
 before and after cleanup, with `--no-autostart`; all 25 regressions pass.

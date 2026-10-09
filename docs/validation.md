@@ -284,8 +284,20 @@ to be absent. The exact socket race was reproduced with real GNU find; 25
 regressions pass, including unsafe roots/homes, shutdown/delete errors and a
 retained root. Actual private-agent/control isolation also passed, requiring
 the same responding control-agent PID before/after with automatic restart
-disabled. Independent review found no cleanup implementation issue. Full frozen
-source and both real keyring command modes remain pending.
+disabled. Independent review found no cleanup implementation issue. The full
+source suite and both actual keyring commands then passed on frozen candidate
+`b819ab95354828825cd23d2b5c924ab9c1ea45c3`, tree
+`e7786d4fdad1810cd90af9c773f04f4ec87f99b5`, canonical SHA-256
+`85f40ed226901100c03a1b72424dfef5a244df3511bd0b7b7ccf943aa25af83c`.
+Source log SHA-256: `0bb9cbf92d04b027d77e7aa9e8c8499c017b93c927bcff81bc6fdda3832e457e`.
+Ordinary / privileged logs:
+`fe74de28be8117dfe6234912abb3b070041be1080d16e6aad4f41d3618fe4d45` /
+`ed3726a10b67301b391a7b5a61ebf297b53e478d7cd5d9580fbf38ae2a6ad08f`.
+Both commands exited zero; privileged acceptance reported full namespaces, ten
+scenarios, signer PASS and `deferred=none`. The isolated container used two CPUs /
+4 GiB, private cgroup namespace and immutable source. Its loop/mapper/cgroup
+resources and container were removed; host device metadata was unchanged. These
+results bind that test candidate and ephemeral keys, not a future release child.
 
 ## Verified release 1.0.6 — 2026-10-04
 
