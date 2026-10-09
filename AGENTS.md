@@ -325,6 +325,11 @@ pin differ. Render reviewed Unreleased changelog notes for the selected version
 without copying previous acceptance claims. Test generated documentation as part
 of the candidate source suite. Post-publication documentation edits on main
 cannot repair an immutable tag; never move the tag or replace published bytes.
+Before freezing, inventory all tracked Markdown, including prose outside generated
+blocks and documentation indexes. Keep installation recommendations consistent
+with the generated pin. Describe mutable publication/runtime status through exact
+evidence links or explicitly historical records, so a frozen tag cannot retain an
+unqualified claim that its current release is an older version or remains untested.
 
 After immutable publication, verified Pages/public readback and the required public VM acceptance
 succeed, inventory every tracked Markdown file, including the root README, nested READMEs,

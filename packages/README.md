@@ -34,7 +34,7 @@ Normal updates use `pacman -Syu`.
 
 ## GNOME 51 candidate
 
-The candidate adds a seventh package, `arch-linux-gnome-extensions`, independent of appearance.
+The GNOME 51 transition adds a seventh package, `arch-linux-gnome-extensions`, independent of appearance.
 Both Stock and Marble install it; the Marble profile depends on it. The bundle owns five curated
 extension UUIDs under `/usr/share/gnome-shell/extensions`, including Dash to Dock 109, Blur my Shell 74
 and Just Perfection 37. Clipboard Indicator is the selected upstream PR 641 source; No Screenshot
@@ -44,15 +44,16 @@ bounded preparer and complete file manifest live in
 runs during preparation; schema caches and Clipboard translations are compiled from pinned data.
 
 The bundle's versioned provides/conflicts/replaces take over four corresponding AUR packages
-through pacman. The user-session service separately removes only the exact known installer-created
-No Screenshot Box tree when the verified system replacement is present. Edited or foreign local
+through pacman. The user-session service separately retires only the exact known installer-created
+No Screenshot Box tree by moving its original directory outside the extension search path when the
+verified system replacement is present. Edited or foreign local
 copies remain and produce a shadowing diagnostic; extension preferences remain editable.
 
 The reviewed profile tuples are GNOME 50 / GTK 4.22.x / libadwaita 1.9.x and GNOME 51 /
 GTK 4.24.x / libadwaita 1.10.x. GDM keeps distinct reviewed GNOME 50 and 51 resources and
 platform hashes. Both helpers retain deactivation for unsupported or mismatched inputs.
-The upstream Marble source version remains 50.0.0; this candidate does not claim an upstream
-Marble 51 release or successful live activation.
+The upstream Marble source version remains 50.0.0; the project composition does not claim an upstream
+Marble 51 release. Live activation requires acceptance of the exact delivered package set.
 
 The new GNOME installer paths bootstrap the strict signed project repository for both Stock and
 Marble. Stock remains free of Colloid/Marble theme packages; Minimal TTY remains independent of
@@ -64,8 +65,11 @@ Before delivery, generated package revisions must exceed the active signed basel
 `pkgrel` is not the final release-child revision; see the
 [release transform](../docs/release-process.md#1-source-candidate). Source checks, real package
 builds, signed old-to-new transactions and password-login functionality are separate gates.
-As of 2026-10-09, the GNOME 51 candidate has not completed publication or real-session acceptance; see
-[upgrade checks](../docs/testing.md#gnome-51-candidate-upgrade-acceptance).
+Current publication and real-session results are bound to exact inputs in
+[validation](../docs/validation.md), signed release acceptance and the
+[recovery checkpoint](../docs/PLAN.md#gnome-51-update-recovery--2026-10-09). See the
+[upgrade checks](../docs/testing.md#gnome-51-candidate-upgrade-acceptance); future unknown
+GNOME/GTK/libadwaita versions require fresh qualification rather than a compatibility promise.
 
 ## Validation
 

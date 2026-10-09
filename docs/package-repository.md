@@ -1,6 +1,6 @@
 # Signed package repository
 
-The GNOME 51 candidate uses the project-owned signed pacman repository for curated extensions
+The GNOME 51 implementation uses the project-owned signed pacman repository for curated extensions
 in both Stock GNOME and Marble. Stock retains vendor appearance and installs no Colloid/Marble
 theme packages, but its new installer path requires repository availability. Minimal TTY does
 not need the desktop extension bundle. Historical release inputs retain their original behavior.
@@ -38,12 +38,12 @@ version/pkgrel.
 
 ## GNOME 51 candidate package delivery
 
-The GNOME 51 design adds `arch-linux-gnome-extensions` as a seventh package. This independent
+The GNOME 51 transition adds `arch-linux-gnome-extensions` as a seventh package. This independent
 bundle serves both Stock GNOME and Marble; the Marble profile depends on it. It owns
 five curated system extensions: Dash to Dock 109, Blur my Shell 74, Just Perfection 37,
 Clipboard Indicator from the selected upstream PR 641 commit, and No Screenshot Box 6
-with a project metadata port. The latter two are candidates requiring real functionality
-checks, not newly accepted upstream releases. Source identities, licenses and exact runtime
+with a project metadata port. The latter two are project ports requiring real functionality
+checks, not newly accepted upstream releases; the selected Clipboard patch remains unmerged upstream. Source identities, licenses and exact runtime
 file hashes are pinned in the [bundle inputs](../packages/arch-linux-gnome-extensions/extension-sources.json)
 and [notices](../packages/arch-linux-gnome-extensions/THIRD-PARTY-EXTENSIONS).
 
@@ -58,18 +58,19 @@ service retires only its exact known file tree after validating the package-owne
 it preserves modified, extra, linked or foreign copies and reports their continued shadowing.
 It does not reset extension preferences or settings.
 
-The candidate profile accepts GNOME 50 with GTK 4.22.x/libadwaita 1.9.x and GNOME 51 with
+The profile accepts GNOME 50 with GTK 4.22.x/libadwaita 1.9.x and GNOME 51 with
 GTK 4.24.x/libadwaita 1.10.x. Unknown tuples deactivate the managed profile. The separate
 GDM package retains the reviewed GNOME 50 closure and adds an independently pinned GNOME 51
 platform/resource closure; matching the major number alone is insufficient to activate it.
 Vendor resources and ordinary user-session environment remain outside that overlay.
 
-As of 2026-10-09, these changes are not yet published or accepted in a real GNOME/GDM session. Source and
-payload checks do not demonstrate delivery through a signed repository or an installed-system
-upgrade. Require a fresh clean Arch build, strict signatures, real old-to-new `pacman -Syu`,
+Current delivery and GNOME/GDM acceptance are recorded for exact release inputs in
+[validation](validation.md), the signed release acceptance and the
+[recovery checkpoint](PLAN.md#gnome-51-update-recovery--2026-10-09). Source and
+payload checks alone do not demonstrate signed repository delivery or an installed-system upgrade. Require a fresh clean Arch build, strict signatures, real old-to-new `pacman -Syu`,
 password login, extension functionality, reboot and fallback checks described in
 [testing](testing.md#gnome-51-candidate-upgrade-acceptance). Package-only publication remains
-subject to the separate procedure and authority below; the candidate does not widen it.
+subject to the separate procedure and authority below; this transition does not widen it.
 
 This closure and installer change require a new full installer release. The immutable 1.0.6
 installer still requests the four AUR packages and cannot serve as the unchanged installer for

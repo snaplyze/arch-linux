@@ -5,10 +5,12 @@ source candidate.
 
 ## GNOME 51 candidate — 2026-10-09
 
-The [active plan](PLAN.md#gnome-51-update-recovery--2026-10-09) records the installed
-GNOME 51 regression and the seven-package recovery candidate. No new release,
-signed package update, real GDM/upgrade VM or public pacman delivery has been
-accepted for it. Historical release 1.0.6 evidence below remains unchanged.
+This historical section records initial source/native/unsigned checks, including
+the exact `6b13bbd` and `d81f0a0` identities below. At that stage no new release,
+signed package update, real GDM/upgrade VM or public pacman delivery had been
+accepted. Later prepared-child and signed-snapshot records below retain their
+separate identities; consult the [active plan](PLAN.md#gnome-51-update-recovery--2026-10-09)
+for current delivery status. Historical release 1.0.6 evidence remains unchanged.
 
 Scoped native checks used installed Shell/Mutter/GDM 51.0, GTK 4.24.1 and libadwaita
 1.10.0. The existing Shell/GTK stylesheets parsed. An isolated DynamicUser,
@@ -26,12 +28,12 @@ source checks are in the plan. The legacy GTK3 VM scenario does not create the o
 four AUR extension owners or the user-local No Screenshot Box tree, so that
 existing scenario cannot establish the new upgrade's acceptance.
 
-The candidate now adds a separate mandatory staged 1.0.6-to-GNOME-51 migration
+The source candidate added a separate mandatory staged 1.0.6-to-GNOME-51 migration
 with actual AUR build inputs, an independent manifest digest, password logins,
 preference/custody checks and exact package replacement through `pacman -Syu`.
-Its source regressions are separate from execution: no real VM result is recorded
-yet. Its eight-extension enabled-state check also leaves behavioral extension
-acceptance open.
+Its source regressions were separate from execution: this initial record contains
+no real VM result. Its eight-extension enabled-state check also did not establish
+behavioral extension acceptance.
 
 The full clean Arch build subsequently passed `repository/build-packages.sh` and
 `repository/verify-unsigned-build.sh` for all seven packages. A separate host-side
@@ -435,6 +437,80 @@ Result JSON SHA-256 is `45995b7b0b5bdbeaa27c0413774bc5a9c780cbc6fb1a308df735695b
 harness SHA-256 `d722051e656f6f0bbcdd4087cb129d23c152ddbef649993564acf0e47e24322b`.
 This diagnostic replay validates the fix against real input; it does not transfer
 the old child's VM PASS to the forthcoming corrected child.
+
+## Unpublished release 1.0.7 — harness-order correction
+
+[Release 37890827364](https://github.com/snaplyze/arch-linux/actions/runs/37890827364)
+ran from the protected PR #69 merge after successful main CI. It was cancelled
+before publication to correct a contradictory installation recommendation in
+the frozen documentation; its signed snapshot and actual Minimal result retain
+their own identities below.
+
+| Input | Exact value |
+| --- | --- |
+| Reviewed main | `4924cb8676ed76b6e4e3475c9287a6fd40bc96c7` |
+| Main tree | `b984e46f50503242845602d6c0752c0df4b4504d` |
+| Deterministic release child | `5d291a967970c4aba6712af66ebc7dc0ddbb94a3` |
+| Child tree | `7c99a254773d768d0181c3d9774c973d3b291058` |
+| Canonical child mode-and-byte SHA-256 | `32d64e315d8cb37a9df3ffe3c0206f35f164a5a5deb4d267f41bdea61736fd75` |
+| Source bundle SHA-256 | `014fbfab2ab89523afb0e19c4d10910d1439a059bce207cd6771ee0293ee7646` |
+| Source artifact | `11597543806` |
+| Source transport SHA-256 | `5a9cdfc6638eb51f69070f517f9071b740f91f4e436908429dfd2ddb0b2cff1f` |
+
+Independent ZIP closure/digest, bundle verification and deterministic source-child
+reconstruction passed; refs, checkout and pending Markdown were unchanged.
+The child's source suite, canonical seven-package build and protected artifact
+readback passed. Independent transport verification matched source identity,
+package names and all fourteen unsigned-manifest members.
+
+| Unsigned object | SHA-256 / identity |
+| --- | --- |
+| Canonical artifact | `11598268604` |
+| Artifact ZIP | `855a559fb5c3c07e570cdd16e7667a6f280b38a45d09040b87d125364f8a735e` |
+| BUILD-METADATA.json | `4323460ecddb9c5d309008a0cf144ec4f8af4b13f9aded4329f47bfd5a0c12ed` |
+| UNSIGNED-SHA256SUMS | `cec8557a6db3f58e6a1beaaa0f4c6f5e94471a02b66bbbef7bd492303ed4dc37` |
+
+Package bytes reproduce the earlier reviewed seven-package set; build provenance
+is specific to this child. Snapshot job `113692422714` passed both full repository
+modes (`namespace_fixtures=full`, ten scenarios, fourteen/eighteen closures,
+no deferrals), the full root publication boundary and ordinary/privileged keyring
+modes. Production signing completed for this child. Independent readback passed
+the ZIP digest and exact fourteen-file closure, all twelve manifest-member hashes,
+unchanged public trust bytes, unsigned provenance and all three public-key
+signatures. The retained signer is the published signing-only subkey; no new
+trust was accepted.
+
+| Signed Phase-A object | SHA-256 / identity |
+| --- | --- |
+| Artifact | `11598089613` |
+| Artifact ZIP | `e4745e02f975a8a33bee8f2205a1db4bde0e7793edbf6ae7f559cf390bee9c10` |
+| Repository snapshot | `938304fae3c866ac4abba1bd8dc950ada61319f979af10aa0bec7e52c6ffa7c6` |
+| RELEASE-SHA256SUMS | `22a512b4aca045228c39fcab87e4e10f99ea39575b6a46f0cb2890ef1b36fd84` |
+| Snapshot job log | `0941bc479bfcd03be971dcd3889891add2c9f323dcfcb96fe569187564e484b7` |
+
+The actual Minimal run `minimal-20261009T060459Z-d019ec7a` completed all fourteen
+assertions, including plain `pacman -Syu`, a different boot ID, clean shutdown,
+QEMU exits, image integrity and no owned process. Its artifact uploaded before
+the workflow/job completed as cancelled. Independent readback passed the exact
+transport digest, production evidence unpacker and strict `directory_run`
+consumer without changing assertion order or weakening any check. This validates
+the harness-order correction on actual evidence, not just a fixture.
+
+| Minimal evidence | SHA-256 / identity |
+| --- | --- |
+| Artifact | `11598936098` |
+| Artifact ZIP | `5fd5f4058639eb8e03616be8a9bbd597581786b4cfde8e904d78285a9e7e7e4e` |
+| Evidence archive | `e9cd274c286bb64369dd908af7dde76290de8e18fec2c0ff8e80057d3249cd10` |
+| result.json | `043dd303c1ea8138b5253ec1aebd07004dc9e1985b6657e507a1683e5190d4c6` |
+| Actual consumer | `7aca0ba1f89c8a0a193ceb8cc4bc19d8172d257f05f3b22e164f0ac2bd5b505c` |
+| Cancelled job log | `e114564f1a114bd65319626189d44280216406b7e50524c424b163e283d6e863` |
+
+The remaining eight scenarios did not execute. No finalizer, tag, immutable
+release or Pages publication occurred. This child's Minimal PASS cannot be
+transferred to the documentation-corrected child.
+An independent read-only runner check after cancellation found no QEMU process
+referencing the exact project evidence prefix and confirmed that the evidence
+base was absent; no QEMU process entry was unreadable.
 
 ## Verified release 1.0.6 — 2026-10-04
 

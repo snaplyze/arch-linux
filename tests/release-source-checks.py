@@ -114,6 +114,9 @@ class ReleaseSourceChecks(unittest.TestCase):
         self.assertIn(b"immutable release **1.0.7**", readme)
         self.assertIn(b"These examples pin 1.0.7", readme)
         self.assertIn(b"documented immutable release tag `1.0.7`", installation)
+        for path, generated in (("README.md", readme), ("docs/installation.md", installation)):
+            for instructed_version in re.findall(rb"(?i)\buse release ([0-9]+\.[0-9]+\.[0-9]+)\b", generated):
+                self.assertEqual(instructed_version, b"1.0.7", f"stale installation instruction in {path}")
         self.assertIn(b"2026-10-04", readme)
         repeated = self.module.prepare(self.root, self.main, "1.0.7", Path(self.temporary.name) / "retry-docs")
         self.assertEqual(identity, repeated)

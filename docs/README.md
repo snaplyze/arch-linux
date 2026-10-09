@@ -1,7 +1,9 @@
 # Documentation
 
-Current published product: [immutable release 1.0.6](https://github.com/snaplyze/arch-linux/releases/tag/1.0.6).
-The [validation record](validation.md#verified-release-106--2026-10-04) binds its source, assets and actual acceptance.
+Use the release-pinned instructions and signed-acceptance links in the
+[root README](../README.md). The [validation record](validation.md) binds each
+recorded result to its own source, assets and actual acceptance; historical
+results do not establish acceptance of a newer tagged tree.
 
 ## Install and use
 

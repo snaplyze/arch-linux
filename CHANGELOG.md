@@ -13,12 +13,15 @@ separately through the signed repository; see [package delivery](docs/package-re
 - Bootstrap the strict signed project repository for both GNOME installer options while keeping
   Stock free of Colloid/Marble themes. Require a full new installer release for this closure and
   behavior transition; package-only mode cannot change the historical six-package baseline.
-- Keep Clipboard Indicator's selected upstream PR and No Screenshot Box's project metadata
-  port explicitly pending real signed-upgrade, password-login and functionality acceptance.
+- Preserve Clipboard Indicator's selected upstream PR and No Screenshot Box's project metadata
+  port provenance; require real signed-upgrade, password-login and functionality acceptance
+  bound to the delivered release.
 
 - Render release-pinned bootstrap commands and prose from the selected release version,
   independently of the installer source floor and earlier documentation pin. Keep historical
-  release dates and acceptance evidence bound to their original inputs.
+  release dates and acceptance evidence bound to their original inputs. Keep installation
+  recommendations outside generated blocks consistent with the selected pin, and link
+  mutable acceptance status to exact evidence instead of freezing unqualified status claims.
 - Bind authored changes to the deterministic release child without claiming publication or
   acceptance. Source checks, installation acceptance and release/public readback remain separate
   gates; see [release evidence](docs/validation.md).

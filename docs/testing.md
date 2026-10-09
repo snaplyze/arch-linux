@@ -213,7 +213,7 @@ not establish migration, real-session or visual acceptance. See [VM commands](..
 
 ## GNOME 51 candidate upgrade acceptance
 
-The source candidate adds a seventh package, `arch-linux-gnome-extensions`, for five curated
+The GNOME 51 implementation adds a seventh package, `arch-linux-gnome-extensions`, for five curated
 extensions in both Stock and Marble. The theme profile depends on this independent bundle.
 The source suite checks archive bounds, metadata, payload inventories,
 versioned AUR replacement metadata and conservative user-local migration. The explicit pinned-input
@@ -244,7 +244,7 @@ guest proves the old installation before plain `pacman -Syu` and real GDM login,
 then checks package replacement, settings, original-directory custody and eight
 active extensions. The finalizer requires that assertion and the bound evidence.
 This extends the unchanged GTK3 migration test. Enabled-state checks alone cannot
-establish extension behavior. The candidate harness additionally requires real
+establish extension behavior. The harness additionally requires real
 keyboard/pointer actions after migration and after reboot: an otherwise unused
 Dash extension shortcut must launch a disposable GTK app; Clipboard history must
 restore and paste two synthetic values; No Screenshot Box must save the selected
@@ -286,9 +286,10 @@ versions and harness inputs, then execute these checks in a disposable installat
 
 Clipboard Indicator's selected PR and No Screenshot Box's project metadata port require these
 functional checks specifically. Do not substitute autologin or a QGA-started session for password
-login. As of 2026-10-09, the GNOME 51 candidate is not published and has no real GDM/functionality/VM acceptance;
-report each unexecuted gate separately. Historical release 1.0.6 results retain their own
-source and input identities.
+login. Consult [validation](validation.md), the signed acceptance for the exact delivered release
+and the [recovery checkpoint](PLAN.md#gnome-51-update-recovery--2026-10-09) for current
+GDM/functionality/VM and publication results; report every unexecuted gate separately.
+Historical release 1.0.6 results retain their own source and input identities.
 
 ## Release/public acceptance
 

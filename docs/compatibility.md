@@ -6,10 +6,10 @@
 | --- | --- | --- |
 | Installation media | Official Arch Linux x86_64 ISO, UEFI, Secure Boot disabled; accepted validation input is in `maintenance/accepted-arch-iso.json` | New media requires fresh qualification; latest availability is not acceptance. |
 | Minimal TTY | Current Arch package set on x86_64 UEFI | Not applicable. |
-| Stock GNOME | Current Arch stable GNOME/GDM/Wayland packages; candidate signed extension bundle requires the project repository | Stock remains the graphical baseline with vendor appearance and no Colloid/Marble themes. |
+| Stock GNOME | Current Arch stable GNOME/GDM/Wayland packages; signed extension bundle requires the project repository | Stock remains the graphical baseline with vendor appearance and no Colloid/Marble themes. |
 | Marble desktop | GNOME majors listed by `packages/arch-linux-marble-profile/supported-gnome-majors` with exact reviewed assets | Remove only Marble defaults; use Stock. |
-| Marble GTK4/libadwaita | GNOME 50 + GTK 4.22.x + libadwaita 1.9.x; GNOME 51 candidate + GTK 4.24.x + libadwaita 1.10.x, with exact packaged CSS/assets | Deactivate project defaults and remove only unchanged project CSS wrappers. |
-| Experimental Marble GDM | Separate reviewed GNOME Shell `1:50.5-1` and candidate `1:51.0-1` resources and exact service/session/vendor-dconf hashes | Keep the project overlay inactive and use Stock GDM. |
+| Marble GTK4/libadwaita | GNOME 50 + GTK 4.22.x + libadwaita 1.9.x; GNOME 51 + GTK 4.24.x + libadwaita 1.10.x, with exact packaged CSS/assets | Deactivate project defaults and remove only unchanged project CSS wrappers. |
+| Experimental Marble GDM | Separate reviewed GNOME Shell `1:50.5-1` and `1:51.0-1` resources and exact service/session/vendor-dconf hashes | Keep the project overlay inactive and use Stock GDM. |
 | Filesystems | Btrfs or ext4; optional LUKS2 root | Stop on validation or mount failure. |
 | Boot | GRUB or systemd-boot on UEFI | Stop before installation when UEFI prerequisites fail. |
 | Dual boot | Existing vfat ESP and distinct root partition on the selected disk; known selected-kernel/bootloader footprint must be free | Release 1.0.6 refuses collisions/uncertainty before root mutation; staged collision refusal, neighbor preservation and real boot passed. |
@@ -26,9 +26,10 @@ in [validation](validation.md). Fresh public-only Marble/GDM acceptance passed s
 
 ## GNOME update rules
 
-As of 2026-10-09, the GNOME 51 changes are an unpublished candidate; follow the
-[update recovery checkpoint](PLAN.md#gnome-51-update-recovery--2026-10-09) for
-source, package, installed-session and delivery status. Release 1.0.6's Marble
+Follow [validation](validation.md) and the
+[update recovery checkpoint](PLAN.md#gnome-51-update-recovery--2026-10-09) for the
+exact source, package, installed-session and signed delivery status of the GNOME 51 transition.
+Only acceptance bound to the delivered release establishes those results. Release 1.0.6's Marble
 packages support GNOME 50 only. Installing newer Arch GNOME packages does not
 make an older profile or extension compatible.
 
@@ -43,9 +44,11 @@ GNOME extension compatibility is evaluated per extension. A package being instal
 that its metadata or runtime supports a new GNOME major. The signed VM evidence linked from
 [validation.md](validation.md) records the checks for the verified release.
 The staged Marble scenario checks the eight enabled profile extensions, including User Themes;
-this does not establish support for a future GNOME major.
+this does not establish support for a future GNOME major. Future GNOME/GTK/libadwaita
+inputs require new qualification and signed delivery; `pacman -Syu` alone cannot make
+unreviewed themes or extensions compatible.
 
-The candidate adds the independent seventh package `arch-linux-gnome-extensions` for Dash to
+The GNOME 51 transition adds the independent seventh package `arch-linux-gnome-extensions` for Dash to
 Dock, Blur my Shell, Just Perfection, Clipboard Indicator and No Screenshot Box in both Stock
 and Marble. The Marble theme profile depends on it; extension fixes do not depend on theme
 activation. Both new GNOME installer paths require the strict signed project repository, while
@@ -54,8 +57,8 @@ and User Themes remain native Arch dependencies. A modified user-local extension
 the migration preserves that user content and reports the conflict. Fresh-install
 and existing-install upgrade results must be recorded separately. This transition
 requires a new full installer release: package-only mode cannot add the seventh package to the
-old six-package baseline or change the immutable 1.0.6 installer's AUR requests. The candidate
-still requires separate [real upgrade/functionality checks](testing.md#gnome-51-candidate-upgrade-acceptance);
+old six-package baseline or change the immutable 1.0.6 installer's AUR requests. The transition
+requires separate [real upgrade/functionality checks](testing.md#gnome-51-candidate-upgrade-acceptance);
 historical results and immutable assets must not be rewritten.
 
 ## Hardware and virtual machines

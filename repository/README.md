@@ -48,7 +48,7 @@ repository/build-packages.sh "$ARTIFACT_DIR/unsigned"
 repository/verify-unsigned-build.sh "$ARTIFACT_DIR/unsigned"
 ```
 
-The GNOME 51 candidate build output contains seven package files, `metadata/*.SRCINFO`,
+The GNOME 51 build output contains seven package files, `metadata/*.SRCINFO`,
 `UNSIGNED-SHA256SUMS` and
 schema-2 `BUILD-METADATA.json`. The two manifests bind the exact source commit/tree, installer,
 package set, source epoch, metadata and package bytes. Every real package archive is checked for its
@@ -66,8 +66,10 @@ repository/compare-package-builds.sh "$ARTIFACT_DIR/build-a" "$ARTIFACT_DIR/buil
 `arch-linux-gnome-extensions` separates curated extensions and exact legacy local migration from
 Marble theme activation. Stock and Marble consume this bundle; only Marble depends on the theme
 profile and Colloid packages. Stock's new installer path requires repository availability while
-retaining vendor appearance. The candidate has no signed delivery or real session/VM acceptance;
-see [required upgrade checks](../docs/testing.md#gnome-51-candidate-upgrade-acceptance).
+retaining vendor appearance. Exact signed delivery and session/VM results are recorded in
+[validation](../docs/validation.md), the signed release acceptance and the
+[recovery checkpoint](../docs/PLAN.md#gnome-51-update-recovery--2026-10-09). Source and unsigned
+build checks do not replace the [required upgrade checks](../docs/testing.md#gnome-51-candidate-upgrade-acceptance).
 
 ## Authorized signing and host recovery
 
@@ -336,7 +338,7 @@ the Pages artifact. The Pages job receives no signing secret or private material
 
 ### Package-only updates
 
-The GNOME 51 candidate adds `arch-linux-gnome-extensions` and changes both GNOME installer
+The GNOME 51 transition adds `arch-linux-gnome-extensions` and changes both GNOME installer
 paths to consume the strict signed project repository. This requires a full new installer release.
 The existing package-only route cannot add a seventh name to the historical six-package baseline,
 or change the old installer's unconditional AUR requests. Historical bundles and acceptance stay
