@@ -338,6 +338,113 @@ run_extension_functional_acceptance upgrade
                              [str(inputs), str(server / 'gnome51-inputs')])
             self.assertFalse((root / 'gnome51-extracted').exists())
 
+    def test_gnome51_dependency_failure_precedes_all_baseline_side_effects(self):
+        with tempfile.TemporaryDirectory() as directory:
+            script = ('set -euo pipefail\ngnome51_migration_state="$1/state"\n' +
+                      function('install_gnome51_baseline') + '\n' +
+                      'gnome51_require_platform(){ :; }\n'
+                      'provision_gnome51_migration_dependencies(){ echo PROVISION; return 7; }\n'
+                      'install(){ echo SIDE_EFFECT; return 88; }\ninstall_gnome51_baseline\n')
+            result = subprocess.run(['bash', '-c', script, 'fixture', directory], capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(result.stdout, 'PROVISION\n')
+            self.assertFalse((Path(directory) / 'state').exists())
+
+    def test_gnome51_manifest_preflight_precedes_baseline_side_effects(self):
+        import json
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = Path(directory) / 'manifest.json'
+            document = {'baseline': {'packages': {'package-' + str(i): '1-1' for i in range(6)}},
+                        'aur': [{'filename': 'aur/package-' + str(i) + '.pkg.tar.zst'} for i in range(4)]}
+            script = ('set -euo pipefail\ngnome51_migration_manifest="$1" mode="$2" gnome51_migration_state="$3/state"\n' +
+                      function('install_gnome51_baseline') + r'''
+gnome51_require_platform(){ :; }
+provision_gnome51_migration_dependencies(){ echo PROVISION; }
+jq(){
+    case "$mode" in
+        missing-jq) return 127;;
+        partial) command jq "$@"; return 7;;
+        empty) return 0;;
+        *) command jq "$@";;
+    esac
+}
+install(){ echo SIDE_EFFECT; return 88; }
+install_gnome51_baseline
+''')
+            for mode in ('valid', 'missing-jq', 'partial', 'empty', 'malformed', 'few-projects', 'bad-aur-path'):
+                with self.subTest(mode=mode):
+                    data = json.loads(json.dumps(document))
+                    if mode == 'few-projects': data['baseline']['packages'].pop('package-0')
+                    if mode == 'bad-aur-path': data['aur'][0]['filename'] = '../foreign.pkg.tar.zst'
+                    manifest.write_text('{' if mode == 'malformed' else json.dumps(data))
+                    result = subprocess.run(['bash', '-c', script, 'fixture', str(manifest), mode, directory], capture_output=True, text=True)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertEqual(result.stdout, 'PROVISION\nSIDE_EFFECT\n' if mode == 'valid' else 'PROVISION\n')
+                    self.assertFalse((Path(directory) / 'state').exists())
+
+    def test_gnome51_jq_provisioning_is_official_verified_and_fail_closed(self):
+        match = re.search(r'^provision_gnome51_migration_dependencies\(\) \{\n.*?^\}', VERIFY.read_text(), re.M | re.S)
+        body = match.group(0) if match else ''
+        with tempfile.TemporaryDirectory() as directory:
+            executable = Path(directory) / 'jq'
+            executable.write_text('#!/bin/sh\nprintf "jq-1.8.1\\n"\n'); executable.chmod(0o755)
+            body = body.replace('/usr/bin/jq', str(executable))
+            script = r'''set -euo pipefail
+mode="$1" fixture_installed=false phase=gnome51-baseline-install
+if [ "$mode" = existing ]; then fixture_installed=true; fi
+package_installed_exact(){ [ "$1" = jq ] && [ "$fixture_installed" = true ]; }
+pacman-conf(){
+    [ "$mode" != trust-query ] || return 7
+    if [ "$mode" = untrusted ]; then printf 'PackageOptional\nPackageTrustAll\n';
+    else printf 'PackageRequired\nPackageTrustedOnly\n'; fi
+}
+pacman(){
+    case "$1" in
+        -S) [ "$*" = '-S --needed --noconfirm --disable-download-timeout -- extra/jq' ] || return 8
+            printf 'OFFICIAL_INSTALL\n'; [ "$mode" != install-failed ] || return 7
+            [ "$mode" = not-installed ] || fixture_installed=true;;
+        -Qi) printf 'Name : jq\nValidated By : %s\n' "$(if [ "$mode" = unsigned ]; then echo None; else echo Signature; fi)";;
+        -Qqo) if [ "$mode" = wrong-owner ]; then echo foreign; else echo jq; fi;;
+        *) return 9;;
+    esac
+}
+verify_package_qkk_zero(){ [ "$mode" != integrity ]; }
+''' + body + '\nprovision_gnome51_migration_dependencies\n'
+            for mode in ('valid', 'existing', 'untrusted', 'trust-query', 'install-failed', 'not-installed', 'unsigned', 'wrong-owner', 'integrity', 'missing-executable'):
+                with self.subTest(mode=mode):
+                    if mode == 'missing-executable': executable.chmod(0o644)
+                    result = subprocess.run(['bash', '-c', script, 'fixture', mode], capture_output=True, text=True)
+                    self.assertEqual(result.returncode == 0, mode in ('valid', 'existing'), result.stderr)
+                    if mode == 'valid': self.assertIn('OFFICIAL_INSTALL', result.stdout)
+                    if mode == 'existing': self.assertNotIn('OFFICIAL_INSTALL', result.stdout)
+                    if mode in ('untrusted', 'trust-query'): self.assertNotIn('OFFICIAL_INSTALL', result.stdout)
+
+    def test_gnome51_input_download_rejects_failed_and_empty_producers_before_curl(self):
+        import json, hashlib
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); manifest = root / 'manifest.json'; data = b'fixture'
+            fixture = root / 'input'; fixture.write_bytes(data)
+            manifest.write_text(json.dumps({'files': {'aur/input.pkg.tar.zst': {'sha256': hashlib.sha256(data).hexdigest(), 'size': len(data)}}}))
+            script = ('set -euo pipefail\ngnome51_migration_manifest="$1" gnome51_migration_state="$2" mode="$3" fixture="$4"\n' +
+                      function('gnome51_download_inputs') + r'''
+jq(){
+    case "$mode" in
+        failed) return 7;;
+        partial) command jq "$@"; return 7;;
+        empty) return 0;;
+        malformed) printf '{' | command jq -r '.files | to_entries[]';;
+        *) command jq "$@";;
+    esac
+}
+curl(){ echo CURL; cp "$fixture" "${@: -1}"; }
+gnome51_download_inputs https://fixture.invalid
+''')
+            for mode in ('valid', 'failed', 'partial', 'empty', 'malformed'):
+                with self.subTest(mode=mode):
+                    result = subprocess.run(['bash', '-c', script, 'fixture', str(manifest), str(root / mode), mode, str(fixture)], capture_output=True, text=True)
+                    self.assertEqual(result.returncode == 0, mode == 'valid', result.stderr)
+                    if mode != 'valid': self.assertNotIn('CURL', result.stdout)
+
     def test_gnome51_production_upgrade_requires_real_baseline_and_plain_syu(self):
         with tempfile.TemporaryDirectory() as directory:
             state = Path(directory); (state / 'candidate-repository.conf').write_text('signed candidate\n')
@@ -408,15 +515,20 @@ run_extension_functional_acceptance upgrade
                 'aur': [{'name': name, 'version': '1-1'} for name in aur]}))
             script = ('set -euo pipefail\ngnome51_migration_manifest="$1" mode="$2"\n' +
                       function('gnome51_verify_baseline_packages') + '\n' + function('gnome51_aur_packages') + '\n' +
+                      'jq(){ if [ "$mode" = failed-project-stream ] && [[ "$*" = *".baseline.packages | to_entries"* ]]; then return 7; fi;\n'
+                      '  if [ "$mode" = failed-aur-stream ] && [[ "$*" = *".aur[] | [.name,.version]"* ]]; then return 7; fi; command jq "$@"; }\n'
                       'package_installed_exact(){ [ "$mode" = bundle ]; }\n'
                       'installed_package_version_exact(){\n'
                       '  if [ "$mode" = missing ] && [ "$1" = gnome-shell-extension-blur-my-shell ]; then return 1; fi\n'
                       '  jq -r --arg name "$1" \'(.baseline.packages[$name] // (.aur[] | select(.name == $name) | .version))\' "$gnome51_migration_manifest"; }\n'
                       'verify_package_qkk_zero(){ :; }\n'
                       'pacman(){ case "$1" in -Qq) jq -r ".baseline.packages | keys[]" "$gnome51_migration_manifest";; '
-                      '-Qi) echo "Validated By : Signature";; -Ql) echo "/usr/share/gnome-shell/extensions/owned/extension.js";; esac; }\n'
+                      '-Qi) echo "Validated By : Signature";; -Ql) '
+                      'if [ "$mode" = large-listing ]; then python3 -c \'print("/usr/share/gnome-shell/extensions/owned/extension.js"); print("foreign /usr/share/other/fixture\\n" * 30000)\'; '
+                      'elif [ "$mode" = no-extension ]; then echo "/usr/share/other/fixture"; '
+                      'else echo "/usr/share/gnome-shell/extensions/owned/extension.js"; [ "$mode" != failed-listing ]; fi;; esac; }\n'
                       'gnome51_verify_baseline_packages\n')
-            for mode, accepted in [('exact', True), ('bundle', False), ('missing', False)]:
+            for mode, accepted in [('exact', True), ('bundle', False), ('missing', False), ('failed-project-stream', False), ('failed-aur-stream', False), ('large-listing', True), ('no-extension', False), ('failed-listing', False)]:
                 result = subprocess.run(['bash', '-c', script, 'fixture', str(manifest), mode],
                                         capture_output=True, text=True, timeout=5)
                 self.assertEqual(result.returncode == 0, accepted, result.stderr)

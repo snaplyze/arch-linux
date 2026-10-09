@@ -1179,6 +1179,360 @@ closures and no deferrals. Independent review found no material issue. A new
 installed Marble run and downstream privileged/public gates remain required;
 none of these source fixtures is a VM verdict.
 
+The final `PYTHONDONTWRITEBYTECODE=1 bash tests/source-tests.sh` passed after
+reconciling the failure records and testing documentation; log SHA-256
+`50f502bd6ca943f816a181559ca95b8547126d1ae252c7e4c935eaadf7e0a0d3`.
+[PR #74](https://github.com/snaplyze/arch-linux/pull/74) passed exact-head
+[CI 37921242937](https://github.com/snaplyze/arch-linux/actions/runs/37921242937)
+for accepted head `c0a56659a222420dcef1fff34357b60b82e19543`; CI log SHA-256
+`4ea111b627870b74f15cdd34390bcf844d651285a4494ba4d288d4dac26c1199`.
+Protected squash merge produced main `b10e1158824d8191640f22b4a9f8e591aa59be92`.
+Both commits share tree `485c84c5fd7845ca8b62ccd0a528b40bebf086b6` and canonical
+source SHA-256 `108d566251c4bfc25c6880e9dc7443c01d4fe3b29fba0ebb0c8a4c05374e46c4`.
+The same checkout returned to main by fast-forward and independently verified
+those identities.
+[Main CI 37921663176](https://github.com/snaplyze/arch-linux/actions/runs/37921663176)
+passed, log SHA-256
+`ddfe3fa91f9c9a99ea3beb5f98e212e90f7a1597ac96e9a9241dee3e8849185e`,
+and triggered [Release 37921973159](https://github.com/snaplyze/arch-linux/actions/runs/37921973159).
+No earlier build or VM result is transferred to the new release child.
+
+Independent source transport, bundle and deterministic transformation checks
+passed for the new child. Generated README/installation instructions pin 1.0.7
+and the release overview is rendered for that version. Canonical refs, index and
+the dirty checkpoint documents were preserved during readback.
+
+| Consumer/baseline corrected child | Exact identity / SHA-256 |
+| --- | --- |
+| Origin main | `b10e1158824d8191640f22b4a9f8e591aa59be92` |
+| Origin tree | `485c84c5fd7845ca8b62ccd0a528b40bebf086b6` |
+| Release child | `a35fa3e7f238e4c3f3d675eed7c346e1d536c2d6` |
+| Release tree | `e1a15708f2ef8b4bb69731a375c978c8bcaf7b93` |
+| Canonical release source | `b5cd21912b4b33a5f05c635861925f3da5085f963731d7c9add59dd709cdc51c` |
+| Source artifact | `11611603725` |
+| Source transport ZIP | `3dc5da88ab799ea9812efc679aca295bc37709cc706a675023a59c1cf3831703` |
+| Source bundle | `4810bce49cd18039324971bd33e694a14b28a5f75b7dbc168fc4e1d77ff9a258` |
+
+The clean seven-package build and protected artifact readback passed. Independent
+unsigned readback verified the API ZIP digest, exact sixteen-file closure,
+fourteen unsigned rows, canonical schema-2 source binding and pinned epoch
+`1787529600`. All seven PKGINFO/BUILDINFO/SRCINFO and PKGBUILD digest comparisons
+passed, as did 19,564 MTREE file size/hash comparisons. All seven unchanged
+production payload validators passed against the full Git-blob/mode/closure and
+canonical-hash-verified read-only exact-child export, removed afterward. This is
+scoped readback, not a claim that the full Git-bound unsigned shell entrypoint ran
+against the export without Git metadata. Protected CI readback passed separately.
+The seven package versions are unchanged from the preceding candidate, but their
+new BUILD binding and retained bytes were checked afresh.
+
+| New unsigned readback | SHA-256 / identity |
+| --- | --- |
+| Artifact | `11612443048` |
+| Transport ZIP | `9d1043938fb5156147c64ffadf6417077598347ea031e350040d8abb4101620a` |
+| BUILD-METADATA.json | `ea4d1475f233b72c966353c323f5412e5fbe989b11d01efb12813c4567c95d7d` |
+| UNSIGNED-SHA256SUMS | `cec8557a6db3f58e6a1beaaa0f4c6f5e94471a02b66bbbef7bd492303ed4dc37` |
+| Scoped independent receipt | `1716b1fdcb6de35302716aeebf212a51abe27d7d40e8fad18449dcf0f3fe8b9b` |
+
+Phase-A signing passed. Independent transport and signature readback verified
+the exact fourteen-file closure, twelve signed manifest rows, three detached
+signatures and all twenty-five repository objects against this child's source,
+build and unsigned inputs.
+
+| New signed Phase-A readback | SHA-256 / identity |
+| --- | --- |
+| Artifact | `11612224733` |
+| Transport ZIP | `bbcff4f064e67f4ada7d7ca07dad4daf1ab7ff84bfeb2f493bdd1e3e00bebec1` |
+| Repository snapshot | `df8a056a3e54fcd8f580466f4965ca3c031a6c56094d7bfaba78ef667194b68e` |
+| RELEASE-SHA256SUMS | `ed90641907fc5d531067770bc2924b6e14b04509a3939c19a485ac7bea83b73e` |
+| Complete signing-job log | `1d0388f9c38f165b3a2b22284e4c0397d120c50e370889a8e4a3eb148117c68a` |
+
+The complete log independently confirms unflagged and explicit full repository
+modes with ten scenarios, signer PASS, exact 14/18 closures and no deferrals;
+the corrected root publication fixture with all four namespaces and no deferrals;
+ordinary keyring mode and the separate full privileged keyring mode. These are
+fresh executions for this child, including the changed Stock runtime fixture.
+The staged VM matrix is running. Finalization, publication, Pages/public readback
+and the public Marble VM remain open.
+
+The new child's `minimal-ext4-systemdboot` run
+`minimal-20261009T111955Z-7432e167` passed all fourteen runtime assertions.
+Independent API transport, exact source/build/snapshot binding and the frozen
+`a35fa3e7` strict core consumer also passed. No GNOME or publication acceptance
+follows from this Minimal result.
+
+| New Minimal VM evidence | SHA-256 / identity |
+| --- | --- |
+| Artifact | `11613985216` |
+| Transport ZIP | `5b97bd51236295c4d94ec736266870866853974a83fcb38e0a0182c6a85e2435` |
+| Evidence archive | `5f3d6e76be2fbf660f84335c90774e18d395dc5b4de235a4beb64181ec47253b` |
+| Result JSON | `591540d88021dd7f337d3826b4c95eeb2b9c0ea81422f29b0ddda9040abaae8e` |
+
+The current child's `stock-gnome-btrfs-luks2-plymouth-grub` run
+`luksgrub-20261009T113627Z-bcd8ac14` subsequently passed all twenty-two assertions,
+including real GDM password login, lock/unlock, update and another boot.
+Independent API transport/source/build/snapshot readback and the frozen strict
+core consumer passed, exercising the corrected Stock runtime-manifest and port
+identity contract. The Marble upgrade and publication gates are still open.
+
+| New Stock VM evidence | SHA-256 / identity |
+| --- | --- |
+| Artifact | `11613678217` |
+| Transport ZIP | `0d1ce7d2a6f48fe6740d3033578fe641bcc273a7cb211cf360698464100dbd48` |
+| Evidence archive | `17f7a55d591d77555c987c3861ab5f468744bb9afcf61c7fc9eeb5c8a3a11914` |
+| Result JSON | `ca372005c5fa1ddc34e33c78d71d0839f7063a441703b48826b4c729732e0463` |
+
+Core Marble subsequently failed in run `marble-20261009T115401Z-7138c8f4`, phase
+`install-archiso`, with zero completed runtime assertions. Job 113794670441 reports
+`Arch ISO bootstrap did not reach the installer` at 12:01:24 UTC: the host did not
+observe the expected readiness marker, so credential delivery never ran. During
+the attempt, the installer diagnostic log was 7,302 bytes and the serial log
+7,482 bytes, with no completed installer phase. The compact diagnostic classifies
+the cause as unknown; it does not establish a GNOME, AUR or package failure.
+Raw logs were removed by the normal evidence-compaction boundary. Bootstrap and
+serial-protocol investigation remains open before a retry; the six independent
+supplemental scenarios continue. No Marble migration or functional PASS is implied.
+
+| Current Marble bootstrap failure | SHA-256 / identity |
+| --- | --- |
+| Artifact | `11613864835` |
+| Transport ZIP | `e38d81f011abf50f784868d4e1283232844ceec2ce5a22d7b0cd3660734ccda5` |
+| Evidence archive | `22043f742b393b4047ae79618ab0da2fab80bd8ece117c65f599489674a938bd` |
+| Result JSON | `8463437ce09dbfa1a1b01e384916b374755bf30347298c6d8c6649417e17b881` |
+| Complete job log | `c232d16da44f45e1f3d801571f3af2cbe6a567e500d234b4eb3e34c46cbaf4b1` |
+
+The independent supplemental `stock-gnome-ext4-systemdboot` run
+`stock-20261009T120352Z-ddf6f332` passed twenty-one assertions. API transport,
+source/tree/build/snapshot and result readback passed; the strict three-core
+consumer is not applicable to this supplemental scenario. This result does not
+close the failed Marble bootstrap.
+
+| Current supplemental Stock ext4 VM | SHA-256 / identity |
+| --- | --- |
+| Artifact | `11614559938` |
+| Transport ZIP | `8a56dad146f36fe27183069b97b5e277cb166ea9028bd99abaa09c5ba1c09ced` |
+| Evidence archive | `ea1d082a3519f262f4670ac256709e7e0b9c42e004abfe3976cbf1f51b008eb8` |
+| Result JSON | `22bcadf0ca881f39679c75d7bb4a47a00ba713bc7bcbf1b8f6d87b3502f0095e` |
+
+Supplemental `stock-gnome-btrfs-systemdboot` subsequently passed twenty-one
+assertions in run `btrfs-20261009T121700Z-f9f1fae6`. Independent transport,
+source/tree/build/snapshot and result readback passed; the core-only strict
+consumer is not applicable.
+
+| Current supplemental Stock Btrfs VM | SHA-256 / identity |
+| --- | --- |
+| Artifact | `11615163925` |
+| Transport ZIP | `376697f9caf09d570c57eee6d1784e21b5681ea6f222ecf3be75b61ed0a8f549` |
+| Evidence archive | `4e4150c8dd01c03088f4c5f7bcd8f92e3581824eb34117630b3943251b93d5b8` |
+| Result JSON | `d0ed70bd91fd71dbcf2d1ad8129e95e6cf318f8d5fffc67872b997e7a35157b5` |
+
+Supplemental `stock-gnome-btrfs-grub` passed twenty-three assertions, including
+snapshot boot and return, in run `grub-20261009T122917Z-79465487`. Independent
+transport, source/tree/build/snapshot and result readback passed; the core-only
+strict consumer is not applicable.
+
+| Current supplemental Stock Btrfs/GRUB VM | SHA-256 / identity |
+| --- | --- |
+| Artifact | `11616601602` |
+| Transport ZIP | `e6f789bd1ce5538d1464ee2e6c0f839354fdee02f9d0250c2e71273f6fb14b0f` |
+| Evidence archive | `1de7a74615aa5d47aaf1430ffde33d2465b4438fb233f7f5b3e1543945b2a9ab` |
+| Result JSON | `3f2eb15a7c54d714bad4b4c46b789e40939b004f62b2d452a8d4f98040429245` |
+
+Supplemental `stock-gnome-btrfs-luks2-plymouth-systemdboot` passed twenty-one
+assertions in run `luks-20261009T124645Z-8ee5cc74`. Independent transport,
+source/tree/build/snapshot and result readback passed; the core-only strict
+consumer is not applicable.
+
+| Current supplemental Stock Btrfs/LUKS2/systemd-boot VM | SHA-256 / identity |
+| --- | --- |
+| Artifact | `11617490629` |
+| Transport ZIP | `d123fb0ffc4b08b9841cb893311f3944b527d0afef63a59f603f167ed70aac40` |
+| Evidence archive | `5ec925be1f68ffbedd46ac45fe3285b8ad67888023519c2c38a473e5bf7bc00c` |
+| Result JSON | `13acadadf448e4395888db887c495c0f146d52861a2c91821d6e8594349b0fa8` |
+
+While that installation was active, a passive read of its installer log confirmed
+the completed Bootsplash phase, a primary Plymouth AUR build path and no mirror
+build path. This is a scoped transport observation, separate from the complete
+VM verdict above. Observation receipt SHA-256:
+`57da5f04501dde2a732c7237a1ad397df1c7d44fb897bf8f773aa4a6c35047f8`.
+
+Supplemental `marble-gnome-btrfs-luks2-plymouth-systemdboot-stock-gdm` passed
+seventeen assertions in run `marblestock-20261009T130025Z-2a5cd945`. Its effective
+blue-dark Shell, Colloid GTK3/GTK4/libadwaita, icons, Bibata and eight enabled
+extensions passed, together with real GDM password login, lock/unlock, strict
+`pacman -Syu`, repeat login, package integrity and clean shutdown. Stock GDM had
+no Marble GDM package or resource overlay. Independent transport and
+source/tree/build/snapshot/result readback passed; the core-only strict consumer
+is not applicable. This fresh-install result does not prove the separate core
+Marble legacy/GNOME 51 migration or extension functionality gates. Supplemental
+dual boot was still pending at this milestone.
+
+| Current supplemental Marble/Stock-GDM VM | SHA-256 / identity |
+| --- | --- |
+| Artifact | `11617916145` |
+| Transport ZIP | `fa0fe6589cfbe4c0e1218edc14c32e5ed8460e317a2ef0b73b0b25fb8f9f5df1` |
+| Evidence archive | `9b939b329e58ff460310c8083db1288e8fcf86a93404aeeea7d85c033757b267` |
+| Result JSON | `4416b5c1ae89f35790f7164d193489d19c367b8d7628c925f82adf8ac891086b` |
+
+The retained `firstboot-desktop.ppm` was inspected as an optional diagnostic.
+It shows the blue-dark rounded Shell and Colloid dock icons, with the first-login
+welcome modal dimming/obscuring much of the desktop. No post-reboot desktop frame
+was retained. This limited visual inspection does not replace functional checks.
+
+Supplemental `minimal-dualboot-ext4-systemdboot` passed seventeen assertions in
+run `dualboot-20261009T131425Z-4e94aabd`, including collision refusal before
+mutation, preserved neighbor/EFI identities and real neighbor boot. Independent
+transport, source/tree/build/snapshot and result readback passed; the core-only
+strict consumer is not applicable. All eight scenarios other than core Marble
+now have independently verified PASS artifacts (156 assertions in total).
+
+| Current supplemental dual-boot VM | SHA-256 / identity |
+| --- | --- |
+| Artifact | `11618930163` |
+| Transport ZIP | `2e7953f0a11f3f72fa71430ec81a89e0716bec0bb3b89f3d2ddc29c4790ed833` |
+| Evidence archive | `9bae91ad6a14bc4de12504f781e342536cf6c015593cef408ff1e71ff2abe959` |
+| Result JSON | `d16b6c02b04a1cf8bcf9b84663baad00af44f73cc29f2a2b723dfce6e78b61d0` |
+
+A separate passive diagnostic read of the earlier active Stock ext4 run found exactly one
+expected READY substring and one fully source-bound READY line, no foreign
+run/scenario marker, the diagnostic installer-BEGIN marker, structured installer
+log records, two password-prompt strings and one boot nonce acknowledgement.
+Only fixed counters/booleans were emitted; no credentials, input or source changes
+were involved. This checks the observer used for the next Marble attempt, not
+the cause of the failed attempt whose raw bytes were no longer retained.
+Read-only source review confirms that the guest emits READY before starting the
+installer log tail or installer. The ttyS1 sink's size alone does not prove those
+statements ran. No source correction is justified yet. An early request to rerun
+only failed job 113794670441 was rejected by GitHub with HTTP 403 because the
+workflow was still running; that request left run attempt 1 unchanged. A diagnostic
+retry with unchanged source, ISO and signed snapshot had to wait until the independent
+matrix jobs finished. The original failure
+artifact, compact bytes and complete job log are retained separately.
+The failed attempt also retains its fifteen-file GNOME 51 baseline manifest,
+SHA-256 `14d4dc69a179ad4a4613826b3db1cfcf4da1bad02aa73d9c3018501a6587bfb0`.
+The normal preparer rebuilds four legacy AUR archives from unchanged reviewed
+recipes for a fresh attempt; their generated bytes receive new independent
+run-specific hashes. This does not claim byte identity of all generated test
+fixtures across attempts or transfer any failed attempt's result.
+
+After all independent scenarios completed, attempt 1 ended `failure` solely for
+the core Marble bootstrap; finalization and publication were skipped. GitHub then
+accepted `POST /actions/jobs/113794670441/rerun` with debug logging disabled.
+Run 37921973159 attempt 2 started at 13:27 UTC with only core Marble job
+113841142300 active. Main/source/ISO/build/signed-snapshot inputs are unchanged.
+A separate local readback stage contains byte-identical copies of the fourteen
+public Phase-A inputs; the failed attempt's evidence remains untouched. This is
+a separate retry, not a Marble or publication PASS.
+
+Fresh run `marble-20261009T133129Z-36d5e155` reached exactly one source-bound
+READY line, the installer-BEGIN marker and two password-prompt strings, then
+started the installer. The earlier readiness failure did not reproduce; its
+exact cause remains unproven. The passive bootstrap observer completed its
+bounded task and was stopped without affecting runner/guest processes. This
+closes only the retry's bootstrap stage, not its migration/runtime gates.
+The new fifteen-file baseline manifest is
+`521c2998cd2f355f9699f34f0f8786e09c8dbef40734da6722c82b5b2a350b31`:
+all source/baseline/recipe identities and eleven fixed files match the first
+attempt; precisely the four rebuilt legacy AUR archives have new byte hashes.
+
+Read-only review of the exact pinned
+[download action](https://github.com/actions/download-artifact/blob/634f93cb2916e3fdff6788551b99b062d0335ce0/src/download-artifact.ts#L125)
+and its bundled toolkit confirms `listArtifacts({latest: true})` selects the
+highest artifact ID per name before applying the core pattern. An executed
+duplicate-name fixture against that bundled filter passed. The pinned upload
+action defaults to `overwrite: false`; this workflow does not request deletion.
+Thus no old failure artifact needs removal. Actual retry upload and finalizer
+selection are separate gates: upload subsequently created artifact 11620967409
+while retaining failed artifact 11613864835. Finalizer selection remains
+unexecuted because the retry failed before full Marble acceptance.
+
+Attempt 2 ended `failure` at 13:55 UTC in `gnome51-baseline-install`, after seven
+PASS assertions. Installation, scoped Marble GDM, real legacy GTK3 migration,
+light/dark application launches and fresh-user/return-user GDM sessions passed.
+The failure was after successful return-user login, before the actual 1.0.6/AUR
+baseline transaction or extension recovery. Runtime diagnostic lines 3927/4020
+reported status 127 and line 4021 status 1. The ten-line QGA input prefix maps
+these to `gnome51_download_inputs`, the baseline `jq` producer and the six-package
+count guard. A bounded execution of the actual functions reproduced missing
+`jq`: Bash process substitution lets its caller return success with empty output,
+then the count guard fails. The staged guest does not provision this test-only
+dependency; public-media mode has a separate prerequisite. Correct the staged
+prerequisite before state mutation and propagate producer failures; do not weaken
+the baseline, package signature or six-package checks.
+
+Retry artifact ZIP SHA-256:
+`1aa2d0c314622e03187ff0c7611636b99adf06aefe15d47aaee97417f17333bb`;
+evidence archive:
+`5cbffa72a000ee27b619b3d18a25c0b0af9204cd24952f6fc402bac9d4119d72`;
+FAIL result:
+`2d41b892ebcc1ad0b7e72bc9683b9190c3f38cfbde2c33d670be12ed9ea463e3`;
+complete job log:
+`3f4ae48c39313c553765ab1a78ed3644c3739dc661b39a8faaf2dcd283f1d966`.
+Independent transport, extraction and source/snapshot binding succeeded; the
+readback rejected the FAIL result before invoking the strict core consumer. Finalization, tag, Pages,
+publication and public acceptance were skipped. All eight other scenario PASS
+results remain bound only to child `a35fa3e7...` and its signed inputs.
+
+The focused harness correction provisions official `extra/jq` before migration
+state changes or logout, preserving the effective package signature/trust policy
+and checking the installed package, signature validation, executable ownership
+and integrity. Checked buffered manifest producers reject failed, partial or
+empty output before consuming it. A separate executed large-listing fixture
+reproduced SIGPIPE from `pacman -Ql | grep -q`; consuming the complete listing
+retains the required extension path match and producer status. Product package
+dependencies, source pins, installer behavior and signing policy are unchanged.
+Five focused regressions and all 138 guest-runtime checks passed; Bash syntax,
+ShellCheck, independent review, documentation checks (29 files) and the full
+`bash tests/source-tests.sh` passed. The repository fixture result was
+`schema=1 namespace_fixtures=full scenarios=10 signer=passed release_closures=14+18 deferred=none`.
+The final documented candidate must repeat the required source suite before
+protected delivery. These local results do not establish the still-pending real
+GNOME 51 migration or transfer any old VM result to a changed child.
+
+The additional `python3 maintenance/check-sources.py --network --report ...`
+advisory observed forty sources at `2026-10-09T11:21:02+00:00`: fourteen unchanged,
+fourteen drift and twelve error records. All errors were direct AUR Git queries;
+the structured overall result is `error`, even though this advisory command
+exits zero. Arch reports Shell `1:51.0-1`, GDM `51.0-1`, GTK `1:4.24.1-1` and
+libadwaita `1:1.10.0-1`, matching the candidate's reviewed platform. Marble latest
+remains 50.0.0; the No Screenshot Box catalog endpoint responds for the retained
+GNOME-50 v6 input. That catalog response does not qualify its project GNOME 51
+port or replace functional VM testing. Other drift findings remain advisory;
+no source pin or acceptance baseline was automatically changed.
+Manifest SHA-256:
+`c146c1234307d6b616a356c0abfafaee195bcfc66dbee8daabda12c1024b5353`;
+report SHA-256:
+`04bd863584a32dd6965ecb4710dca3b301e4dd3a4a928494090c462069b7f416`.
+
+After the owner's report that AUR had recovered, fresh direct `git ls-remote`
+queries for Plymouth and Bibata succeeded. The repeated full network advisory at
+`2026-10-09T11:43:40+00:00` queried all forty sources successfully: 23 unchanged,
+17 drift and zero errors; all twelve direct AUR Git observations succeeded.
+Overall status is `advisory`, not an error and not a no-drift verdict. Plymouth
+and Bibata HEADs still match their retained reviewed commits. The source manifest
+is unchanged; new report SHA-256 is
+`9134962413715a93c25c038a97b97c0182d879dd50a3df447d68427f2d4f50cc`.
+The earlier failed queries are not rewritten. Primary AUR remains the first clone
+attempt; only a clone failure selects Arch's official GitHub mirror, after which
+the same immutable commit, archive and metadata predicates apply. The existing
+primary-success fixture requires zero mirror calls. No source pin, release input
+or workstation package changed for this availability recovery.
+The subsequent GitHub API readback still reports Clipboard Indicator PR 641 as
+open/unmerged, with head `39a0f9077daca21a62adaa975eb6a03bda499f27`, exactly the
+candidate's retained source. Its real functional acceptance remains required.
+
+Independent read-only classification of that fresh advisory against main
+`b10e1158824d8191640f22b4a9f8e591aa59be92` found no additional GNOME 51 blocker.
+Eight findings are rolling Arch package observations; four concern historical
+extension source/recipe inputs superseded by the signed bundle. Paru/Pikaur are
+optional helper proposals, while Gum 2 remains subject to the previously
+reproduced styling incompatibility. The exact
+[Colloid comparison](https://github.com/vinceliuice/Colloid-gtk-theme/compare/6c2dc65865628bda9fdc8157a30cd5eda6fd41f9...fe11342f37f124f1b29d44cf33e9a06053f4bba2)
+still changes only unshipped Cinnamon/switcher files; the consumed SPDX license
+text retains its earlier byte-identity decision. These are scoped review results,
+not new PTY or VM results. The monitor's GNOME 50 accepted observations remain
+unchanged pending the actual GNOME 51 upgrade, GDM and public-delivery gates;
+supported profile tuples and accepted advisory observations are distinct.
+
 ## Verified release 1.0.6 — 2026-10-04
 
 [Configured run37214392242](https://github.com/snaplyze/arch-linux/actions/runs/37214392242)

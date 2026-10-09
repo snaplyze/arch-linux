@@ -3901,6 +3901,28 @@ gnome51_require_platform() {
     [ "$(stat -c '%u:%a' "${gnome51_migration_manifest}")" = 0:400 ]
 }
 
+provision_gnome51_migration_dependencies() {
+    local info siglevel
+    if ! package_installed_exact jq; then
+        # Harness-only tooling from the synchronized official database. Do not
+        # refresh it or upgrade the running kernel before its pairing checks.
+        siglevel="$(pacman-conf --repo extra SigLevel)" || return 1
+        if [ -z "${siglevel}" ]; then siglevel="$(pacman-conf SigLevel)" || return 1; fi
+        grep -Fxq PackageRequired <<<"${siglevel}" &&
+            grep -Fxq PackageTrustedOnly <<<"${siglevel}" || return 1
+        SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+            pacman -S --needed --noconfirm --disable-download-timeout -- extra/jq || return 1
+    fi
+    package_installed_exact jq || return 1
+    info="$(pacman -Qi -- jq)" || return 1
+    grep -Eq '^Name[[:space:]]*:[[:space:]]*jq$' <<<"${info}" || return 1
+    grep -Eq '^Validated By[[:space:]]*:[[:space:]]*Signature([[:space:]]|$)' <<<"${info}" || return 1
+    [ -x /usr/bin/jq ] && [ ! -L /usr/bin/jq ] || return 1
+    [ "$(pacman -Qqo -- /usr/bin/jq)" = jq ] || return 1
+    verify_package_qkk_zero jq >/dev/null || return 1
+    /usr/bin/jq --version >/dev/null || return 1
+}
+
 gnome51_aur_packages() {
     printf '%s\n' gnome-shell-extension-blur-my-shell gnome-shell-extension-clipboard-indicator \
         gnome-shell-extension-dash-to-dock gnome-shell-extension-just-perfection-desktop
@@ -3915,7 +3937,10 @@ gnome51_preferences() {
 }
 
 gnome51_download_inputs() {
-    local server="$1" name hash size destination
+    local server="$1" name hash size destination rows
+    rows="$(jq -er '.files | to_entries | sort_by(.key)[] | [.key,.value.sha256,(.value.size|tostring)] | @tsv' \
+        "${gnome51_migration_manifest}")" || return 1
+    [ -n "${rows}" ] || return 1
     while IFS=$'\t' read -r name hash size; do
         case "${name}" in aur/* | local/no-screenshot-box.zip) ;;
         *) continue ;;
@@ -3929,14 +3954,16 @@ gnome51_download_inputs() {
         [ "$(stat -c '%s' "${destination}")" = "${size}" ]
         [ "$(sha256sum --binary -- "${destination}" | awk '{print $1}')" = "${hash}" ]
         chmod 0400 -- "${destination}"
-    done < <(jq -r '.files | to_entries | sort_by(.key)[] | [.key,.value.sha256,(.value.size|tostring)] | @tsv' \
-        "${gnome51_migration_manifest}")
+    done <<<"${rows}"
 }
 
 gnome51_verify_baseline_packages() {
-    local package version info actual expected
+    local package version info actual expected project_rows aur_rows
     if package_installed_exact arch-linux-gnome-extensions; then return 1; fi
-    expected="$(jq -r '.baseline.packages | keys[]' "${gnome51_migration_manifest}" | LC_ALL=C sort)"
+    project_rows="$(jq -er '.baseline.packages | to_entries[] | [.key,.value] | @tsv' "${gnome51_migration_manifest}")" || return 1
+    aur_rows="$(jq -er '.aur[] | [.name,.version] | @tsv' "${gnome51_migration_manifest}")" || return 1
+    [ -n "${project_rows}" ] && [ -n "${aur_rows}" ] || return 1
+    expected="$(cut -f1 <<<"${project_rows}" | LC_ALL=C sort)"
     actual="$(pacman -Qq | sed -n '/^arch-linux-/p' | LC_ALL=C sort)"
     [ "${actual}" = "${expected}" ]
     while IFS=$'\t' read -r package version; do
@@ -3944,14 +3971,14 @@ gnome51_verify_baseline_packages() {
         info="$(pacman -Qi -- "${package}")"
         grep -Eq '^Validated By[[:space:]]*:[[:space:]]*Signature([[:space:]]|$)' <<<"${info}"
         verify_package_qkk_zero "${package}" >/dev/null
-    done < <(jq -r '.baseline.packages | to_entries[] | [.key,.value] | @tsv' "${gnome51_migration_manifest}")
+    done <<<"${project_rows}"
     [ "$(jq '.aur | length' "${gnome51_migration_manifest}")" -eq 4 ]
     [ "$(jq -r '.aur[].name' "${gnome51_migration_manifest}" | LC_ALL=C sort)" = "$(gnome51_aur_packages | LC_ALL=C sort)" ]
     while IFS=$'\t' read -r package version; do
         [ "$(installed_package_version_exact "${package}")" = "${version}" ]
         verify_package_qkk_zero "${package}" >/dev/null
-        pacman -Ql -- "${package}" | grep -q '/usr/share/gnome-shell/extensions/'
-    done < <(jq -r '.aur[] | [.name,.version] | @tsv' "${gnome51_migration_manifest}")
+        pacman -Ql -- "${package}" | grep '/usr/share/gnome-shell/extensions/' >/dev/null
+    done <<<"${aur_rows}"
 }
 
 gnome51_record_local_tree() {
@@ -3980,9 +4007,20 @@ GNOME51_TREE_PY
 }
 
 install_gnome51_baseline() {
-    local uid candidate_server server baseline_server package filename zip local_tree
-    local -a baseline_packages=() remove_packages=()
+    local uid candidate_server server baseline_server package filename zip local_tree baseline_names aur_names
+    local -a baseline_packages=() remove_packages=() aur_files=()
     gnome51_require_platform
+    provision_gnome51_migration_dependencies
+    # Check producer status before any state mutation, logout or package removal.
+    baseline_names="$(jq -er '.baseline.packages | keys[]' "${gnome51_migration_manifest}")" || return 1
+    aur_names="$(jq -er '.aur[].filename' "${gnome51_migration_manifest}")" || return 1
+    mapfile -t baseline_packages <<<"${baseline_names}"
+    [ "${#baseline_packages[@]}" -eq 6 ]
+    while IFS= read -r filename; do
+        [[ "${filename}" =~ ^aur/[A-Za-z0-9+._-]+\.pkg\.tar\.(zst|xz|gz)$ ]] || return 1
+        aur_files+=("${gnome51_migration_state}/inputs/${filename}")
+    done <<<"${aur_names}"
+    [ "${#aur_files[@]}" -eq 4 ]
     [ ! -e "${gnome51_migration_state}" ]
     install -d -m0700 -- "${gnome51_migration_state}"
     install -m0600 -- "${legacy_repository_file}" "${gnome51_migration_state}/candidate-repository.conf"
@@ -4007,17 +4045,9 @@ install_gnome51_baseline() {
     baseline_server="${server}/gnome51-baseline/\$arch"
     printf '[arch-linux]\nSigLevel = PackageRequired DatabaseRequired TrustedOnly\nServer = %s\n' \
         "${baseline_server}" >"${legacy_repository_file}"
-    mapfile -t baseline_packages < <(jq -r '.baseline.packages | keys[]' "${gnome51_migration_manifest}")
-    [ "${#baseline_packages[@]}" -eq 6 ]
     mapfile -t remove_packages < <(marble_theme_packages)
     pacman -Rdd --noconfirm arch-linux-gnome-extensions "${remove_packages[@]}"
     SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt pacman -Syy --noconfirm --disable-download-timeout "${baseline_packages[@]}"
-    local -a aur_files=()
-    while IFS= read -r filename; do
-        [[ "${filename}" =~ ^aur/[A-Za-z0-9+._-]+\.pkg\.tar\.(zst|xz|gz)$ ]] || return 1
-        aur_files+=("${gnome51_migration_state}/inputs/${filename}")
-    done < <(jq -r '.aur[].filename' "${gnome51_migration_manifest}")
-    [ "${#aur_files[@]}" -eq 4 ]
     pacman -U --noconfirm -- "${aur_files[@]}"
     local_tree="/home/${username}/.local/share/gnome-shell/extensions/no-screenshot-box@screenshot"
     [ ! -e "${local_tree}" ] && [ ! -L "${local_tree}" ]
