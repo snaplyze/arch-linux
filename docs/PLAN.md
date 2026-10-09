@@ -212,6 +212,17 @@ epoch-free VM input filename while retaining exact epoch-bearing `.PKGINFO`
 validation. Sixteen input checks pass, including byte-preserving copy and wrong
 version rejection. A complete four-package preparation receipt is still pending;
 the incomplete output and owned container were removed.
+The subsequent `4f3b120` attempt built all four actual packages, then rejected the
+Clipboard archive's existing `clipboard-history` conflict. Exact, hash-bound
+original `.SRCINFO` records confirmed that this is the only declared conflict
+among the four recipes. The verifier now requires precisely that conflict for
+Clipboard and none for the others, while still rejecting provides, replaces and
+install authority. Seventeen input regressions pass, including unexpected,
+duplicate and missing conflict cases. Full archive acceptance remains pending
+the corrected clean preparer run; no unsigned package was installed on the host.
+The independent publication-root rerun also passed for `a1a3d26`, with the new
+functional-evidence consumer and fixture; its original tree binding is retained
+in validation rather than transferred to later helper changes.
 
 ## Local runner migration — 2026-10-08
 

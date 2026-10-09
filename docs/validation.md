@@ -81,6 +81,11 @@ The full source suite subsequently passed functional candidate commit
 This includes 126 runtime fixtures, seven functional-evidence checks, the exact
 33-assertion Marble contract and full repository namespaces with no deferrals.
 The separate native GTK probe startup is not GNOME behavior or VM acceptance.
+The exact root publication command also passed on that same `a1a3d26` identity,
+including the six behavior-receipt requirements and full 14/18 fixture closures;
+log SHA-256 `1561bc69968f00829813e9c1d6253cb264c4535717d57ce36aac5ccc51cb61ea`.
+Its disposable container and immutable source bundle were removed. Later
+upgrade-input helper fixes do not inherit this tree-bound receipt.
 
 ## Verified release 1.0.6 — 2026-10-04
 

@@ -215,10 +215,13 @@ def verify_aur_package(root, path, row):
     with tempfile.TemporaryDirectory(prefix='arch-linux-g51-guard-') as temporary:
         installer_call(root, 'SCRIPT_TMP_DIR="$1"; aur_package_archive_is_safe "$2" "$3"', temporary, row['name'], path)
     info = package_identity(path, row['name'], row['version'])
-    expected_dependencies = ['gnome-shell>=46.0'] if row['name'].endswith('-clipboard-indicator') else ['gnome-shell']
+    expected_dependencies = ['gnome-shell>=46.0'] if row['name'] == 'gnome-shell-extension-clipboard-indicator' else ['gnome-shell']
     if info.get('depend') != expected_dependencies:
         raise ValueError('legacy package runtime dependencies differ')
-    if any(key in info for key in ('replaces', 'conflict', 'provides', 'install')):
+    expected_conflicts = ['gnome-shell-extension-clipboard-history'] if row['name'] == 'gnome-shell-extension-clipboard-indicator' else []
+    if info.get('conflict', []) != expected_conflicts:
+        raise ValueError('legacy package conflicts differ from the reviewed recipe')
+    if any(key in info for key in ('replaces', 'provides', 'install')):
         raise ValueError('legacy package grants unexpected metadata authority')
 
 

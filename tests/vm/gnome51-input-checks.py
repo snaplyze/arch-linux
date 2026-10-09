@@ -9,6 +9,14 @@ from unittest import mock
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 M = importlib.machinery.SourceFileLoader('gnome51_inputs', str(ROOT / 'tests/vm/prepare-gnome51-upgrade-inputs.py')).load_module()
 
+# Exact public recipe metadata fixtures; SHA-256 checked against reviewed pins.
+REVIEWED_SRCINFO = {
+    'gnome-shell-extension-blur-my-shell': b'pkgbase = gnome-shell-extension-blur-my-shell\n\tpkgdesc = Extension that adds a blur look to different parts of the GNOME Shell\n\tpkgver = 72\n\tpkgrel = 1\n\turl = https://github.com/aunetx/blur-my-shell\n\tarch = any\n\tlicense = MIT\n\tmakedepends = git\n\tmakedepends = jq\n\tdepends = gnome-shell\n\toptdepends = gnome-rounded-blur: help fix the corners issue found while using dynamic blur\n\tsource = git+https://github.com/aunetx/blur-my-shell.git#tag=v72\n\tsha256sums = 75e1519568d201220a598933b3084a15fea9166dade317cb9ffb54afaf1df2c0\n\npkgname = gnome-shell-extension-blur-my-shell\n',
+    'gnome-shell-extension-clipboard-indicator': b'pkgbase = gnome-shell-extension-clipboard-indicator\n\tpkgdesc = Adds a clipboard indicator to the top panel, and caches clipboard history\n\tpkgver = 71\n\tpkgrel = 1\n\turl = https://github.com/Tudmotu/gnome-shell-extension-clipboard-indicator\n\tarch = any\n\tlicense = MIT\n\tdepends = gnome-shell>=46.0\n\tconflicts = gnome-shell-extension-clipboard-history\n\tsource = gnome-shell-extension-clipboard-indicator-71.tar.gz::https://github.com/Tudmotu/gnome-shell-extension-clipboard-indicator/archive/v71.tar.gz\n\tsha256sums = 31d6c3694889b0f1c257b113926643e6a37610495f501cbd810eb2c14b9ebd85\n\npkgname = gnome-shell-extension-clipboard-indicator\n',
+    'gnome-shell-extension-dash-to-dock': b'pkgbase = gnome-shell-extension-dash-to-dock\n\tpkgdesc = Move the dash out of the overview transforming it in a dock\n\tpkgver = 106\n\tpkgrel = 1\n\tepoch = 1\n\turl = https://micheleg.github.io/dash-to-dock/\n\tarch = any\n\tlicense = GPL-2.0-or-later\n\tmakedepends = gettext\n\tmakedepends = git\n\tmakedepends = sassc\n\tdepends = gnome-shell\n\tsource = git+https://github.com/micheleg/dash-to-dock.git#commit=a7b19816b7277e41c18ea5c3ff165e493a14e0d4\n\tsha256sums = SKIP\n\npkgname = gnome-shell-extension-dash-to-dock\n',
+    'gnome-shell-extension-just-perfection-desktop': b'pkgbase = gnome-shell-extension-just-perfection-desktop\n\tpkgdesc = Just Perfection GNOME Shell Desktop\n\tpkgver = 37\n\tpkgrel = 1\n\turl = https://gitlab.gnome.org/jrahmatzadeh/just-perfection\n\tarch = any\n\tlicense = GPL3\n\tmakedepends = git\n\tdepends = gnome-shell\n\tsource = gnome-shell-extension-just-perfection-desktop::git+https://gitlab.gnome.org/jrahmatzadeh/just-perfection.git#tag=37.0\n\tmd5sums = SKIP\n\npkgname = gnome-shell-extension-just-perfection-desktop\n',
+}
+
 class InputChecks(unittest.TestCase):
     def test_pins_match_installer(self):
         M.check_installer_pins(ROOT, M.load_pins(ROOT))
@@ -142,6 +150,34 @@ class InputChecks(unittest.TestCase):
             with self.assertRaises(ValueError): M.verify_aur_package(ROOT,pathlib.Path('/tmp/test.pkg.tar.zst'),row)
             del info['provides']; info['depend']=['bash']
             with self.assertRaises(ValueError): M.verify_aur_package(ROOT,pathlib.Path('/tmp/test.pkg.tar.zst'),row)
+
+    def test_real_reviewed_metadata_and_unexpected_conflicts(self):
+        for row in M.load_pins(ROOT)['aur']:
+            raw=REVIEWED_SRCINFO[row['name']]
+            self.assertEqual(M.digest(raw),row['srcinfoSha256'])
+            fields={}
+            for line in raw.decode().splitlines():
+                if ' = ' in line:
+                    key,value=line.strip().split(' = ',1);fields.setdefault(key,[]).append(value)
+            fullver=(fields['epoch'][0]+':' if 'epoch' in fields else '')+fields['pkgver'][0]+'-'+fields['pkgrel'][0]
+            info={'pkgname':fields['pkgname'],'pkgver':[fullver],'arch':fields['arch'],'depend':fields['depends']}
+            if 'conflicts' in fields: info['conflict']=fields['conflicts']
+            for field in ('provides','replaces','install'): self.assertNotIn(field,fields)
+            with mock.patch.object(M,'installer_call'),mock.patch.object(M,'pkginfo',return_value=info):
+                # Namespace parsing and PKGINFO extraction are stubbed using real
+                # reviewed SRCINFO; actual archive acceptance remains a required
+                # full preparer integration check.
+                M.verify_aur_package(ROOT,pathlib.Path('/tmp/reviewed.pkg.tar.zst'),row)
+                for unexpected in (['unrelated-package'],['gnome-shell-extension-clipboard-history','unrelated-package'],['gnome-shell-extension-clipboard-history','gnome-shell-extension-clipboard-history']):
+                    with mock.patch.object(M,'pkginfo',return_value=info|{'conflict':unexpected}):
+                        with self.assertRaises(ValueError): M.verify_aur_package(ROOT,pathlib.Path('/tmp/reviewed.pkg.tar.zst'),row)
+                if 'conflict' in info:
+                    no_conflict=dict(info);del no_conflict['conflict']
+                    with mock.patch.object(M,'pkginfo',return_value=no_conflict):
+                        with self.assertRaises(ValueError): M.verify_aur_package(ROOT,pathlib.Path('/tmp/reviewed.pkg.tar.zst'),row)
+                for field in ('provides','replaces','install'):
+                    with mock.patch.object(M,'pkginfo',return_value=info|{field:['unexpected']}):
+                        with self.assertRaises(ValueError): M.verify_aur_package(ROOT,pathlib.Path('/tmp/reviewed.pkg.tar.zst'),row)
 
     def test_local_pin_is_mandatory(self):
         with tempfile.TemporaryDirectory() as t:
