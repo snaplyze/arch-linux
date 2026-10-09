@@ -207,7 +207,7 @@ def verify_release(root, directory, pins):
 
 
 def package_filename(row):
-    # makepkg omits the epoch from archive names.
+    # Stable VM input names omit the epoch; makepkg output names retain it.
     return row['name'] + '-' + row['version'].split(':')[-1] + '-any.pkg.tar.zst'
 
 
@@ -376,7 +376,7 @@ install -d -o builder -g builder -m 0755 /out /work/build
 '''
     for name in names:
         script += f'cp -a /recipes/{name} /work/build/{name}\nchown -R builder:builder /work/build/{name}\n'
-        script += 'runuser -u builder -- env -i HOME=/work/home PATH=/usr/bin LANG=C LC_ALL=C XDG_CACHE_HOME=/work/build/cache bash --noprofile --norc -c ' + shlex.quote('set -euo pipefail; test "$(id -u)" -ne 0; cd /work/build/' + name + '; makepkg --printsrcinfo > /out/' + name + '.srcinfo; makepkg --nodeps --noconfirm; cp -- ' + package_filename(next(r for r in pins['aur'] if r['name'] == name)) + ' /out/') + '\n'
+        script += 'runuser -u builder -- env -i HOME=/work/home PATH=/usr/bin LANG=C LC_ALL=C XDG_CACHE_HOME=/work/build/cache bash --noprofile --norc -c ' + shlex.quote('set -euo pipefail; test "$(id -u)" -ne 0; cd /work/build/' + name + '; makepkg --printsrcinfo > /out/' + name + '.srcinfo; makepkg --nodeps --noconfirm; cp -- ' + name + '-' + next(r for r in pins['aur'] if r['name'] == name)['version'] + '-any.pkg.tar.zst /out/' + package_filename(next(r for r in pins['aur'] if r['name'] == name))) + '\n'
     script += 'pkill -KILL -u builder || test "$?" -eq 1\nif pgrep -u builder >/dev/null; then exit 1; fi\n'
     return script
 

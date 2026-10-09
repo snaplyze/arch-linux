@@ -201,6 +201,17 @@ disposable test keys do not establish production signing. Exact receipts are in
 [validation](validation.md#gnome-51-candidate--2026-10-09).
 The full source suite also passed `d81f0a0`, log SHA-256
 `296434ddd3e019d9594bcfd1843f58bb07fbf803feed35de2a01f74bd07bfcae`.
+The expanded functional candidate `a1a3d26` then passed the complete source suite,
+including the 33-assertion producer/consumer contract and full repository
+namespaces without deferrals; log SHA-256
+`7f1c29d8bc24346e1ac969a5812e8dda8470ca6a25f2092effbb22586370ca1c`.
+Real input preparation built the old Blur, Clipboard and Dash packages, then
+rejected the Dash handoff because makepkg retains its `1:` epoch in the archive
+filename. The focused fix copies those unchanged bytes to the already agreed
+epoch-free VM input filename while retaining exact epoch-bearing `.PKGINFO`
+validation. Sixteen input checks pass, including byte-preserving copy and wrong
+version rejection. A complete four-package preparation receipt is still pending;
+the incomplete output and owned container were removed.
 
 ## Local runner migration — 2026-10-08
 

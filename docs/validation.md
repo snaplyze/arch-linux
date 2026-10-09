@@ -74,6 +74,14 @@ was unchanged. These checks do not establish production signing.
 Subsequent functional-harness changes require fresh affected
 checks and do not inherit these receipts.
 
+The full source suite subsequently passed functional candidate commit
+`a1a3d2683de1f21fa3fcd3f926b901b087bae908`, tree
+`ecbf5bd73e547338f4639c37ec9d1ef0e27a6983`; log SHA-256
+`7f1c29d8bc24346e1ac969a5812e8dda8470ca6a25f2092effbb22586370ca1c`.
+This includes 126 runtime fixtures, seven functional-evidence checks, the exact
+33-assertion Marble contract and full repository namespaces with no deferrals.
+The separate native GTK probe startup is not GNOME behavior or VM acceptance.
+
 ## Verified release 1.0.6 — 2026-10-04
 
 [Configured run37214392242](https://github.com/snaplyze/arch-linux/actions/runs/37214392242)

@@ -57,6 +57,27 @@ class InputChecks(unittest.TestCase):
         self.assertNotIn('makepkg --skip', script)
         self.assertIn('makepkg --nodeps --noconfirm', script)
 
+    def test_epoch_archive_handoff_retains_canonical_input_name(self):
+        pins=M.load_pins(ROOT)
+        dash=next(row for row in pins['aur'] if row['name'].endswith('-dash-to-dock'))
+        self.assertEqual(M.package_filename(dash),'gnome-shell-extension-dash-to-dock-106-1-any.pkg.tar.zst')
+        script=M.builder_script(pins)
+        command='cp -- gnome-shell-extension-dash-to-dock-1:106-1-any.pkg.tar.zst /out/gnome-shell-extension-dash-to-dock-106-1-any.pkg.tar.zst'
+        self.assertIn(command,script)
+        import subprocess
+        with tempfile.TemporaryDirectory() as t:
+            work=pathlib.Path(t);(work/'out').mkdir()
+            produced=work/'gnome-shell-extension-dash-to-dock-1:106-1-any.pkg.tar.zst'
+            raw=b'\x00exact package byte fixture\xff';produced.write_bytes(raw)
+            subprocess.run(['/usr/bin/bash','--noprofile','--norc','-c',command.replace('/out/',str(work/'out')+'/')],cwd=work,check=True)
+            self.assertEqual((work/'out'/M.package_filename(dash)).read_bytes(),raw)
+        info={'pkgname':[dash['name']],'pkgver':['1:106-1'],'arch':['any']}
+        with mock.patch.object(M,'pkginfo',return_value=info):
+            M.package_identity(pathlib.Path('/tmp/canonical.pkg.tar.zst'),dash['name'],dash['version'])
+            info['pkgver']=['106-1']
+            with self.assertRaises(ValueError):
+                M.package_identity(pathlib.Path('/tmp/canonical.pkg.tar.zst'),dash['name'],dash['version'])
+
     def test_container_trust_sequence_and_failure_propagation(self):
         # Execute the generated script with an isolated command fixture. None of
         # its package-manager, user-management or recipe commands reach the host.
