@@ -87,6 +87,34 @@ log SHA-256 `1561bc69968f00829813e9c1d6253cb264c4535717d57ce36aac5ccc51cb61ea`.
 Its disposable container and immutable source bundle were removed. Later
 upgrade-input helper fixes do not inherit this tree-bound receipt.
 
+Authentic legacy upgrade-input preparation subsequently passed on clean commit
+`7a61c40fd42087928e1a2611d02f3ed059dbbfc1`, tree
+`ea4367c55601b3c4c920759e5ecf90468e519613`. Execution used
+`python3 tests/vm/prepare-gnome51-upgrade-inputs.py --source-root "$PWD" --output "$INPUT_DIR"`
+with an absent output directory and the pinned disposable Arch builder. The
+preparer returned the manifest digest through stdout; independent worker and
+root calls to `verify_inputs(source_root, input_dir, expected_manifest_sha256)`
+both passed with that trusted digest supplied separately.
+
+| Legacy-input binding | SHA-256 |
+| --- | --- |
+| Canonical manifest, exact 15 payloads | `4df9dfb4bb0089d4dca0db10c75173e414d417f38d6d6ad013a0b3f1320a4972` |
+| Blur my Shell 72-1 archive | `1ed802469128a4b5c88c60c6a4c4109fc30499d2f3814abb6eeb338da5f4e164` |
+| Clipboard Indicator 71-1 archive | `ccefdda5329aee53fa73d441adef92be5539e61b87f6c950265d9d2499a493c2` |
+| Dash to Dock 1:106-1 archive | `8c0a05c958ec098ecc40a9e43876d89bb9df21a084a2f9e9b421417189e6523e` |
+| Just Perfection 37-1 archive | `8bc46a4d26fe068adaa9dd046331d92269d5787267e9ad32434f12473d9dbc6d` |
+| Original local No Screenshot Box archive | `6b1c5184579ca03dc9bf0ad6ded39d99e618c8baf4577ff5391cfa185eb0736e` |
+| Preparation log | `28f34f07f25f22bf3c16c3fd543933ab5b113c1f9fed1b2a864fd1086bccd048` |
+
+The closure also contains the ten pinned release 1.0.6 assets. Production archive
+and metadata checks verify all four packages, including the Dash epoch and the
+sole Clipboard conflict declared by its original hash-bound `.SRCINFO`. Public
+inputs and compact logs are retained at
+`/tmp/arch-linux-g51-upgrade-inputs.k7RaB53Q`; the owned container and temporary
+recipes were removed. This is input preparation, not an installed upgrade or a
+GNOME behavior PASS, and it does not transfer to the future release child's
+different source identity.
+
 ## Verified release 1.0.6 — 2026-10-04
 
 [Configured run37214392242](https://github.com/snaplyze/arch-linux/actions/runs/37214392242)

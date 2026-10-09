@@ -14,7 +14,7 @@ preserved. Existing immutable releases and their evidence must not be rewritten.
 | G51-02 | Prepare reviewed package/extension upgrade paths, preserve user overrides and safe unsupported-version handling; reproduce failures before fixes and test recovery. | IN_PROGRESS: seven-package candidate; actual upgrade acceptance pending |
 | G51-03 | Correct deterministic release documentation rendering; test independently differing source/document/release versions and preserve historical evidence. | DONE: deterministic overview/bootstrap/changelog rendering; 52 regressions PASS |
 | G51-04 | Update agent, update/release and user documentation with package delivery and real upgrade acceptance requirements. | DONE for local candidate; publication reconciliation remains conditional |
-| G51-05 | Independent diff review, affected checks and full source suite; record package, real session/VM and publication results separately. | Source/review and clean seven-package build PASS; real signed upgrade, GDM/VM and publication NOT_TESTED |
+| G51-05 | Independent diff review, affected checks and full source suite; record package, real session/VM and publication results separately. | Source/review, clean seven-package build and authentic legacy upgrade inputs PASS on their recorded trees; real signed upgrade, GDM/VM and publication NOT_TESTED |
 
 Confirmed host evidence: GNOME Shell/Mutter/GDM 51.0; GTK 4.24.1 and libadwaita
 1.10.0. Installed Marble Shell/GDM remain 50.0.0-7/-8, profile 1.0.0-10.
@@ -177,9 +177,9 @@ That change alone did not fix the large transaction's GPGME failure. A controlle
 repeat with Docker `--init` passed all 422 signed packages with unchanged trust and
 resource limits; peak task count was 16/256 with no limit hits. The preparer now
 requires an init process to reap orphaned children. Sequencing/failure fixtures
-pass. This does not relax package signature checks or establish successful
-preparation of the four AUR inputs; that execution remains pending. Owned
-preparation/diagnostic containers were removed.
+pass. This did not relax package signature checks; the subsequent complete
+four-package preparation is recorded below. Owned preparation/diagnostic
+containers were removed.
 
 Release-host diagnostic attempt for `6b13bbd`: ordinary and required-full-namespace
 repository modes passed in the disposable Arch container. The publication-root
@@ -209,20 +209,33 @@ Real input preparation built the old Blur, Clipboard and Dash packages, then
 rejected the Dash handoff because makepkg retains its `1:` epoch in the archive
 filename. The focused fix copies those unchanged bytes to the already agreed
 epoch-free VM input filename while retaining exact epoch-bearing `.PKGINFO`
-validation. Sixteen input checks pass, including byte-preserving copy and wrong
-version rejection. A complete four-package preparation receipt is still pending;
-the incomplete output and owned container were removed.
+validation. Sixteen input checks passed, including byte-preserving copy and wrong
+version rejection. That incomplete output and its owned container were removed.
 The subsequent `4f3b120` attempt built all four actual packages, then rejected the
 Clipboard archive's existing `clipboard-history` conflict. Exact, hash-bound
 original `.SRCINFO` records confirmed that this is the only declared conflict
 among the four recipes. The verifier now requires precisely that conflict for
 Clipboard and none for the others, while still rejecting provides, replaces and
 install authority. Seventeen input regressions pass, including unexpected,
-duplicate and missing conflict cases. Full archive acceptance remains pending
-the corrected clean preparer run; no unsigned package was installed on the host.
+duplicate and missing conflict cases. No unsigned package was installed on the host.
 The independent publication-root rerun also passed for `a1a3d26`, with the new
 functional-evidence consumer and fixture; its original tree binding is retained
 in validation rather than transferred to later helper changes.
+
+Complete legacy-input preparation and two independent verification executions
+passed on clean commit `7a61c40`, tree
+`ea4367c55601b3c4c920759e5ecf90468e519613`. All four real AUR packages pass the
+production archive/metadata guards; ten original release assets and the local
+extension match their authenticated pins. The exact 15-file payload closure is
+bound to independently captured manifest SHA-256
+`4df9dfb4bb0089d4dca0db10c75173e414d417f38d6d6ad013a0b3f1320a4972`.
+The root verifier used that literal trusted receipt rather than accepting a hash
+derived from the mutable manifest. Compact logs and public inputs remain in
+`/tmp/arch-linux-g51-upgrade-inputs.k7RaB53Q`; its container and temporary recipes
+were removed. Full identities are in validation. This closes preparation only;
+the clean release child must prepare its own tree-bound inputs and execute the
+actual migration, the baseline and both recovery GDM logins, and six functional
+assertions before acceptance.
 
 ## Local runner migration — 2026-10-08
 
