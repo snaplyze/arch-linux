@@ -67,7 +67,7 @@ and atomic VM HTTPS readiness. Local source suite, independent review and exact-
 head CI 37988082025 passed. Protected squash merge completed at 20:42:55 UTC;
 main is `69377c37a47c03c5f2d091d7cdea25a25d3cf5da`. The sole checkout returned by
 fast-forward with the index and root-owned evidence updates preserved. Fresh main
-CI 37988828109 remains in progress. A source-bound read-only process observation
+CI 37988828109 subsequently hung. A source-bound read-only process observation
 found `tests/package-archive-limits.py` waiting in `futex_do_wait` with a zombie
 child; the source wrapper waits for that test. Deterministic real-signal RED
 reproduced the wait-lock race in integrity and decode, each bounded by an outer
@@ -79,9 +79,41 @@ pre-mutation snapshot and mandatory cleanup now passed both exceptional-return
 regressions and all seventeen archive tests. Independent re-review found no
 material issues and reran both focused tests. The fresh full source suite passed
 (all seventeen archive tests, 152 runtime checks, full namespace/signer/14+18/no
-deferral). The corrected candidate is ready for protected PR delivery; exact-head
-CI and fresh main/build/VM/public gates remain required. No runner restart or
-host update. New
+deferral). The corrected candidate was delivered through protected PR. [PR80](https://github.com/snaplyze/arch-linux/pull/80)
+delivered candidate `ba63e63f372595bf64b0052e39cfd06ae40a1e65`; exact-head CI
+37992671357 passed. Protected squash merge completed at 21:23:10 UTC; main
+is `6ef601b805325f9e886c335a48a16366a96e3797`. The sole checkout returned by
+fast-forward with index/docs preserved. Fresh main CI 37993132347 passed.
+[Release 37993529797](https://github.com/snaplyze/arch-linux/actions/runs/37993529797)
+prepared source child `a5cb4b5859fc82918e2b8c7b8f5c897b7a62a376`; independent
+source transport/deterministic transformation readback passed, including 1.0.7
+pre-freeze pins. Clean build and protected unsigned readback passed; independent
+schema-2 source/metadata/payload/MTREE readback passed separately. All five
+release-host gates and snapshot signing passed. Independent Phase-A readback
+verified fourteen assets, twelve manifest rows, three release signatures and
+all twenty-five snapshot objects. Fresh Minimal passed fourteen assertions;
+its frozen strict consumer passed. Fresh Core Stock also passed twenty-two
+assertions and its frozen strict consumer; primary Plymouth/Bibata AUR paths
+were observed without mirror use. Core Marble failed at `extension-upgrade-dash`
+after eight assertions passed, including real signed pacman owner/local-copy
+migration with preserved settings and all eight extensions active. The functional
+probe has no launch receipt; cause remains under investigation. Native checks
+confirmed matching desktop/application IDs and the GJS PID API, without starting
+a GTK application on the workstation. Focused lifecycle/desktop lookup diagnostics
+now passed 160 runtime tests and independent review; timeout remains FAIL and
+diagnostic receipts never create functional custody. The added bounded Shell
+stack observer exports only allowlisted module names and typed timing, with no
+causal claim. Fresh full source suite passed (160 runtime checks, seventeen
+archive checks, full namespace/signer/14+18/no deferral); protected PR delivery
+is next. Cancellation of the obsolete failed release was requested; terminal/
+cleanup proof remains pending. No Dash product-fix claim. Filtered lifecycle
+evidence records Shell SIGSEGV at original-user logout (core-dump, signal 11);
+return login kept extensions enabled in this run. The old-owner baseline uses
+already-upgraded GNOME 51, not a binary GNOME-50-to-51 transition; prior progress
+wording overstated that distinction. Supplemental Stock ext4 also passed twenty-one assertions; five scenarios
+continue. Final
+functional/reboot/public gates remain open; no publication.
+No runner restart or host update. New
 child/build/VM/public gates are required; actual Marble recovery cause remains open.
 
 [PR78](https://github.com/snaplyze/arch-linux/pull/78) delivered the extension

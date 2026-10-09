@@ -268,11 +268,20 @@ emit_marble_action_pass(){ printf 'PASS:%s\n' "$1"; }
                 script = ('set -euo pipefail\nprobe_state="$1" username="$2" probe_source="$3" probe_trusted="$4" run_id="$5" probe_round=upgrade\n' +
                     # Only trust-file owner differs in this unprivileged fixture; live exe/argv/starttime remain production checks.
                     function('verify_extension_probe_receipt').replace('trusted_uid = 0','trusted_uid = os.getuid()') +
-                    '\nverify_extension_probe_receipt "$6" "$7"\n')
+                    '\nverify_extension_probe_receipt "$6" "$7" "${8:-functional}"\n')
                 path = state / 'dash-ready.json'
-                def check(stage='dash-ready', expected='-'):
-                    return subprocess.run(['bash','-c',script,'fixture',str(state),str(os.getuid()),str(frozen),str(trusted),identity,stage,expected],capture_output=True,text=True)
+                def check(stage='dash-ready', expected='-', mode='functional'):
+                    return subprocess.run(['bash','-c',script,'fixture',str(state),str(os.getuid()),str(frozen),str(trusted),identity,stage,expected,mode],capture_output=True,text=True)
                 self.assertNotEqual(check().returncode,0)
+                observation=state/'process-started.json'
+                observation.write_text(json.dumps(receipt | {'stage':'process-started'})); observation.chmod(0o600)
+                observed=check('process-started','-','diagnostic')
+                self.assertEqual(observed.returncode,0,observed.stderr)
+                self.assertFalse((trusted/'identity.json').exists(),'diagnostic must not create functional custody')
+                self.assertNotEqual(check('process-started').returncode,0,'functional custody still requires dash-ready')
+                for key, value in (('pid',os.getpid()),('probeSha256','b'*64),('round','postreboot'),('runId','old')):
+                    observation.write_text(json.dumps(receipt | {'stage':'process-started',key:value}))
+                    self.assertNotEqual(check('process-started','-','diagnostic').returncode,0,key)
                 path.write_text(json.dumps(receipt)); path.chmod(0o600)
                 self.assertEqual(check().returncode,0,check().stderr)
                 wrong = receipt | {'pid':os.getpid()}; path.write_text(json.dumps(wrong))
@@ -412,6 +421,65 @@ run_extension_functional_acceptance upgrade
                     self.assertTrue(all(0 <= event['data']['value'] <= 32767 for event in events if event['type']=='abs'))
                 else: self.assertEqual(frames, [])
 
+    def test_probe_timeout_diagnostics_are_finite_and_do_not_turn_failure_into_pass(self):
+        for present, reason in (([], "not-started"), (["process-started"], "not-activated"), (["process-started", "app-activated"], "not-mapped"), (["process-started", "app-activated", "window-mapped"], "not-focused")):
+            with self.subTest(reason=reason), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                for stage in present: (root / (stage + ".json")).touch()
+                script = 'set -euo pipefail\nprobe_state="$1" probe_round=upgrade username=fixture phase=extension-upgrade-dash\n'
+                script += 'id(){ printf 1000; }\nverify_extension_probe_receipt(){ [ "$3" = diagnostic ]; }\n'
+                script += 'run_in_user_session(){ printf "desktop_gio=yes desktop_exec=yes favorite_first=yes\\n"; }\nsleep(){ SECONDS=$((SECONDS+31)); }\n'
+                script += function('emit_extension_probe_diagnostic') + "\n" + function('wait_extension_probe_receipt') + '\nwait_extension_probe_receipt dash-ready\n'
+                result = subprocess.run(['bash','-c',script,'fixture',directory],capture_output=True,text=True,timeout=5)
+                self.assertEqual(result.returncode,1)
+                self.assertIn('EXTENSION_FUNCTIONAL_FAIL',result.stderr)
+                self.assertIn('EXTENSION_PROBE_DIAGNOSTIC',result.stderr)
+                self.assertIn('reason='+reason,result.stderr)
+                self.assertNotIn('PASS',result.stdout)
+                self.assertNotIn(directory,result.stderr)
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);(root/'process-started.json').touch()
+            script='set -euo pipefail\nprobe_state="$1" probe_round=upgrade username=fixture phase=extension-upgrade-dash\nid(){ printf 1000; }\nverify_extension_probe_receipt(){ printf SECRET_INVALID_RECEIPT >&2; return 1; }\nrun_in_user_session(){ printf SECRET_DESKTOP_UNKNOWN; return 2; }\n'
+            script+=function('emit_extension_probe_diagnostic')+'\nemit_extension_probe_diagnostic\n'
+            result=subprocess.run(['bash','-c',script,'fixture',directory],capture_output=True,text=True,timeout=5)
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.assertIn('process=unknown',result.stderr)
+            self.assertIn('desktop_gio=unknown',result.stderr)
+            self.assertNotIn('SECRET',result.stderr)
+
+    def test_probe_desktop_gio_lookup_is_native_readonly_and_exact(self):
+        import os, shutil
+        if not shutil.which('gjs'): self.skipTest('native GJS is not installed')
+        body=function('emit_extension_probe_diagnostic')
+        program=re.search(r"/usr/bin/gjs -c '\n(.*?)\n' ",body,re.S).group(1)
+        identity='org.archlinux.QemuExtensionProbe.upgrade.desktop'
+        for present, executable, expected in ((True,'/usr/bin/gjs','yes'),(False,'/usr/bin/gjs','no'),(True,'/usr/bin/false','yes')):
+            with self.subTest(present=present, executable=executable), tempfile.TemporaryDirectory() as directory:
+                root=Path(directory);applications=root/'applications';applications.mkdir()
+                path=applications/identity
+                if present: path.write_text('[Desktop Entry]\nType=Application\nName=Synthetic test\nExec='+executable+' -m /controlled/probe.js\nTerminal=false\n')
+                env={'PATH':os.environ.get('PATH','/usr/bin'),'HOME':directory,'LANG':'C.UTF-8','XDG_DATA_HOME':directory,'XDG_CONFIG_HOME':directory,'XDG_CACHE_HOME':directory,'GSETTINGS_BACKEND':'memory'}
+                result=subprocess.run(['gjs','-c',program,identity,str(path)],env=env,capture_output=True,text=True,timeout=10)
+                self.assertEqual(result.returncode,0,result.stderr)
+                self.assertEqual(result.stdout.strip(),'desktop_gio='+expected+' desktop_exec='+('yes' if present and executable=='/usr/bin/gjs' else 'no')+' favorite_first=no')
+                self.assertNotIn(directory,result.stdout)
+                self.assertNotIn('Synthetic',result.stdout)
+
+    def test_probe_failure_diagnostics_survive_actual_evidence_compaction(self):
+        host=(ROOT/'tests/vm/run.sh').read_text()
+        body=re.search(r'^compact_run_evidence\(\) \{\n.*?^\}',host,re.M|re.S).group(0)
+        import gzip
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);evidence=root/'evidence';evidence.mkdir()
+            (evidence/'probe.stderr').write_text('SECRET_RAW_STDERR\nEXTENSION_FUNCTIONAL_FAIL phase=upgrade feature=observation stage=dash-ready reason=missing-receipt\nEXTENSION_PROBE_DIAGNOSTIC phase=upgrade process=no reason=not-started\n')
+            script='set -euo pipefail\nrun_root="$1" evidence="$1/evidence"\nremove_secret_bearing_evidence(){ :; }\n'+body+'\ncompact_run_evidence\n'
+            result=subprocess.run(['bash','-c',script,'fixture',directory],capture_output=True,text=True,timeout=5)
+            self.assertEqual(result.returncode,0,result.stderr)
+            output=gzip.open(evidence/'scenario.log.gz','rt').read()
+            self.assertIn('EXTENSION_FUNCTIONAL_FAIL',output)
+            self.assertIn('EXTENSION_PROBE_DIAGNOSTIC',output)
+            self.assertNotIn('SECRET',output)
+
     def test_native_probe_accepts_canonical_real_run_identity(self):
         import os, shutil
         if not shutil.which('gjs'): self.skipTest('native GJS is not installed')
@@ -430,7 +498,14 @@ run_extension_functional_acceptance upgrade
                 result = subprocess.run(['gjs','-m',str(root / 'identity.js'),directory,identity,'upgrade'],
                     capture_output=True,text=True,env=environment,timeout=10)
                 self.assertEqual(result.returncode == 0, accepted, result.stderr)
-                if accepted: self.assertIn('IDENTITY_NATIVE_PASS GUI_NOT_RUN',result.stdout)
+                if accepted:
+                    self.assertIn('IDENTITY_NATIVE_PASS GUI_NOT_RUN',result.stdout)
+                    import json
+                    started=json.loads((root/'process-started.json').read_text())
+                    self.assertEqual(started['stage'],'process-started')
+                    self.assertEqual(started['runId'],identity)
+                    self.assertGreater(started['pid'],1)
+                    self.assertFalse((root/'app-activated.json').exists())
                 else: self.assertIn('Invalid probe identity',result.stderr)
 
     def test_gnome51_inputs_are_mandatory_only_for_main_staged_marble(self):
@@ -1490,6 +1565,8 @@ rm(){ if [ "$case_fixture" = cleanup-fail ]; then return 1; fi; command rm "$@";
                     raise subprocess.TimeoutExpired(args, 5)
                 if any(arg.endswith("/gsettings") for arg in args):
                     raw = "SECRET_FLAG" if case == "malformed" else ("true" if case == "recovery" else "false")
+                elif "journalctl" in " ".join(args) and any(arg.startswith("--grep=") for arg in args):
+                    raw = ""
                 elif "journalctl" in " ".join(args):
                     records = []
                     if case == "recovery":
@@ -1523,7 +1600,9 @@ rm(){ if [ "$case_fixture" = cleanup-fail ]; then return 1; fi; command rm "$@";
                     if case == "oversized": raw = "x" * 262145
                     if case == "capped": raw = "\n".join(json.dumps({"USER_UNIT": "org.gnome.Shell@user.service"}) for _ in range(129))
                 else:
-                    raw = "LoadState=loaded\nResult=success\nExecMainCode=1\nExecMainStatus=0\nExecMainStartTimestampMonotonic=12345\nInvocationID=" + "a" * 32 + "\n"
+                    raw = "LoadState=loaded\nResult=success\nConditionResult=yes\nExecMainCode=1\nExecMainStatus=0\nExecMainStartTimestampMonotonic=12345\nInvocationID=" + "a" * 32 + "\n"
+                    if case == "condition-no": raw = raw.replace("ConditionResult=yes", "ConditionResult=no")
+                    if case == "condition-secret": raw = raw.replace("ConditionResult=yes", "ConditionResult=SECRET_CONDITION")
                     if case == "malformed": raw += "Result=SECRET_RESULT\n"
                 kwargs["stdout"].write(raw.encode())
                 return subprocess.CompletedProcess(args, 0)
@@ -1690,12 +1769,94 @@ rm(){ if [ "$case_fixture" = cleanup-fail ]; then return 1; fi; command rm "$@";
                 self.assertTrue(any("/usr/bin/journalctl" in call for call in calls))
                 self.assertFalse(any("set" in call for call in calls))
 
+    def test_shell_lifecycle_condition_result_is_typed_and_private(self):
+        for case, expected in (("normal", "yes"), ("condition-no", "no"), ("condition-secret", "unknown")):
+            with self.subTest(case=case):
+                output, calls = self.shell_lifecycle(case)
+                self.assertIn("condition_result=" + expected, output)
+                self.assertNotIn("SECRET", output)
+                self.assertTrue(any("ConditionResult" in arg for call in calls for arg in call))
+
+    def shell_stack(self, records, filter_stream=False):
+        import contextlib, io, json
+        source=re.search(r"^emit_gnome_shell_lifecycle_diagnostic\(\) \{\n.*?<<'PY'\n(.*?)\nPY\n",VERIFY.read_text(),re.M|re.S).group(1)
+        ns={'__name__':'stack_fixture'};exec(compile(source,'actual-stack-observer','exec'),ns)
+        calls=[]
+        def query(args,cap=262144):
+            calls.append((args,cap))
+            if records is None:return None
+            if isinstance(records,str):return records
+            selected=records
+            if filter_stream:
+                pattern=next(arg.removeprefix('--grep=') for arg in args if arg.startswith('--grep='))
+                selected=[record for record in records if re.search(pattern,record.get('MESSAGE',''))][-129:]
+            return '\n'.join(json.dumps(record) for record in selected)
+        ns['query']=query
+        output=io.StringIO()
+        with contextlib.redirect_stderr(output):ns['emit_stack_attribution']('1000','GNOME_SHELL_DIAGNOSTIC checkpoint=after-original-user-logout')
+        return output.getvalue(),calls
+
+    def test_shell_stack_attribution_keeps_only_public_modules(self):
+        def record(path, timestamp='100', kind='i'):
+            return {'_UID':'1000','_SYSTEMD_USER_UNIT':'org.gnome.Shell@user.service','_TRANSPORT':'stdout','__MONOTONIC_TIMESTAMP':timestamp,'MESSAGE':f'#0 {"0x1234":>14} {kind}   {path}:77 (0xabcd @ 42)'}
+        records=[record('resource:///org/gnome/shell/ui/main.js'),record('file:///usr/share/gnome-shell/extensions/dash-to-dock@micxgx.gmail.com/appIcons.js','110','b'),record('/private/SECRET/extension.js','120')]
+        output,calls=self.shell_stack(records)
+        self.assertIn('stack_query=ok stack_records=3 attributed=2 unclassified=1',output)
+        self.assertIn('module_category=shell module=main.js event_monotonic_us=100',output)
+        self.assertIn('module_category=dash-to-dock@micxgx.gmail.com module=appIcons.js event_monotonic_us=110',output)
+        for value in ('SECRET','0x1234','0xabcd',':77','@ 42','resource:///','/usr/share'):
+            self.assertNotIn(value,output)
+        args,cap=calls[0]
+        self.assertIn('--lines=129',args)
+        self.assertTrue(any(arg.startswith('--grep=^#') for arg in args))
+        self.assertIn('_UID=1000',args)
+        self.assertIn('_SYSTEMD_USER_UNIT=org.gnome.Shell@user.service',args)
+        self.assertIn('_TRANSPORT=stdout',args)
+        self.assertEqual(cap,262144)
+
+    def test_shell_stack_query_filters_application_noise_before_window(self):
+        record={'_UID':'1000','_SYSTEMD_USER_UNIT':'org.gnome.Shell@user.service','_TRANSPORT':'stdout','__MONOTONIC_TIMESTAMP':'100','MESSAGE':'#0         0x1234 i   resource:///org/gnome/shell/ui/main.js:77 (0xabcd @ 42)'}
+        output,_=self.shell_stack([record]+[record|{'MESSAGE':'SECRET ordinary application message'} for _ in range(200)],filter_stream=True)
+        self.assertIn('stack_query=ok stack_records=1 attributed=1',output)
+        self.assertNotIn('SECRET',output)
+
+    def test_shell_stack_formatter_variants_and_unknown_paths_are_private(self):
+        private_account = 'SECRET'
+        paths=(f'file:///home/{private_account}/extensions/dash-to-dock@micxgx.gmail.com/appIcons.js', '/usr/share/gnome-shell/extensions/SECRET_UUID/appIcons.js', '/usr/share/gnome-shell/extensions/dash-to-dock@micxgx.gmail.com/../appIcons.js', 'appIcons.js', '/usr/share/gnome-shell/extensions/dash-to-dock@micxgx.gmail.com/SECRET.js')
+        records=[{'_UID':'1000','_SYSTEMD_USER_UNIT':'org.gnome.Shell@user.service','_TRANSPORT':'stdout','__MONOTONIC_TIMESTAMP':'100','MESSAGE':f'#1 {"(nil)":>14} ?   {path}:0 ((nil))'} for path in paths]
+        output,_=self.shell_stack(records)
+        self.assertIn('stack_query=ok stack_records=5 attributed=0 unclassified=5',output)
+        self.assertNotIn('SECRET',output)
+        self.assertNotIn('module_category=',output)
+        for kind in 'ibIW?':
+            record=records[0]|{'MESSAGE':f'#1 {"0x1234":>14} {kind}   /usr/share/gnome-shell/extensions/dash-to-dock@micxgx.gmail.com/appIcons.js:7 (0x5678)'}
+            output,_=self.shell_stack([record])
+            self.assertIn('attributed=1',output)
+            self.assertIn('module=appIcons.js',output)
+        record=records[0]|{'MESSAGE':'#1         0x1234 i   file:///usr/share/gnome-shell/extensions/dash-to-dock@micxgx.gmail.com/fileManager1API.js:7 (0x5678 @ 12)'}
+        output,_=self.shell_stack([record])
+        self.assertIn('module=fileManager1API.js',output)
+        self.assertNotIn('file:///',output)
+
+    def test_shell_stack_attribution_rejects_invalid_windows_without_partial_output(self):
+        valid={'_UID':'1000','_SYSTEMD_USER_UNIT':'org.gnome.Shell@user.service','_TRANSPORT':'stdout','__MONOTONIC_TIMESTAMP':'100','MESSAGE':'#0         0x1234 i   resource:///org/gnome/shell/ui/main.js:77 (0xabcd @ 42)'}
+        for records,reason in ((None,'query-unavailable'),([valid]*129,'window-exhausted'),([valid,valid|{'_UID':'2000'}],'invalid-field'),([valid,valid|{'_SYSTEMD_USER_UNIT':'SECRET_UNIT'}],'invalid-field'),([valid,valid|{'__MONOTONIC_TIMESTAMP':'-1'}],'invalid-timestamp'),([valid,valid|{'MESSAGE':'SECRET not a frame'}],'invalid-frame'),([valid,valid|{'MESSAGE':[]}],'invalid-field'),('SECRET_JSON','invalid-json')):
+            with self.subTest(reason=reason):
+                output,_=self.shell_stack(records)
+                self.assertIn('stack_query=unknown',output)
+                self.assertIn('stack_rejection_reason='+reason,output)
+                self.assertNotIn('module_category=',output)
+                self.assertNotIn('SECRET',output)
+        output,_=self.shell_stack([valid]*128)
+        self.assertIn('stack_query=ok stack_records=128',output)
+        self.assertEqual(output.count('module_category='),128)
+
     def test_shell_lifecycle_normal_and_early_sentinel(self):
         for case, sentinel in (("normal", "absent"), ("early", "present")):
             output, calls = self.shell_lifecycle(case)
             self.assertIn("early_sentinel=" + sentinel, output)
             self.assertIn("disabled_user_extensions=false", output)
-            self.assertIn("result=success exit_code=exited exit_status=0 start_monotonic_us=12345 invocation=yes", output)
+            self.assertIn("result=success exit_code=exited exit_status=0 start_monotonic_us=12345 invocation=yes condition_result=yes", output)
             self.assertRegex(output, r"recovery_unit_sha256=[a-f0-9]{64}")
             self.assertIn("stop_events=" + ("1" if case == "normal" else "0"), output)
             self.assertFalse(any("set" in call for call in calls))

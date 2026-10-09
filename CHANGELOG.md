@@ -17,6 +17,11 @@ separately through the signed repository; see [package delivery](docs/package-re
   port provenance; require real signed-upgrade, password-login and functionality acceptance
   bound to the delivered release.
 
+- Retain bounded extension-probe failure diagnostics for desktop lookup and GTK
+  process, activation, mapping and focus. Keep diagnostic observations separate
+  from functional acceptance and retain the Shell recovery condition result.
+  Preserve only allowlisted public stack module names for logout-crash diagnosis.
+
 - Prevent archive-inspection deadline signals from stranding subprocess wait locks.
   Preserve time/resource limits, child cleanup and the caller's signal state.
 

@@ -24,8 +24,11 @@ function receipt(stage, value = '') {
         output, null, false, Gio.FileCreateFlags.PRIVATE, null);
 }
 
+receipt('process-started');
+
 const app = new Gtk.Application({application_id: `org.archlinux.QemuExtensionProbe.${round}`});
 app.connect('activate', () => {
+    receipt('app-activated');
     const window = new Gtk.ApplicationWindow({application: app,
         title: 'Arch Linux extension acceptance', default_width: 640, default_height: 240});
     const entry = new Gtk.Entry({text: a, hexpand: true});
@@ -59,8 +62,12 @@ app.connect('activate', () => {
             step = 'done'; setText(''); receipt('pasted-b', b);
         }
     });
+    window.connect('map', () => receipt('window-mapped'));
     window.connect('notify::is-active', () => {
-        if (window.is_active()) receipt('dash-ready');
+        if (window.is_active()) {
+            receipt('window-focused');
+            receipt('dash-ready');
+        }
     });
     const monitors = Gdk.Display.get_default().get_monitors();
     if (monitors.get_n_items() !== 1) throw new Error('Probe requires one guest monitor');
