@@ -10,6 +10,91 @@ VERIFY = ROOT / "tests/vm/guest/verify.sh"
 def function(name):
     return re.search(r"^" + name + r"\(\) \{\n.*?^\}", VERIFY.read_text(), re.M | re.S).group(0)
 class RuntimeChecks(unittest.TestCase):
+    def test_repository_https_always_transfers_candidate_database_and_signature(self):
+        import os, time
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); repository = root / 'repository'; repository.mkdir()
+            database = repository / 'fixture.db'; signature = repository / 'fixture.db.sig'
+            candidate = b'candidate database bytes\n'; candidate_signature = b'candidate detached signature bytes\n'
+            database.write_bytes(candidate); signature.write_bytes(candidate_signature)
+            # The baseline was extracted later than the immutable candidate snapshot.
+            candidate_time = 1600000000
+            for path in (database, signature): os.utime(path, (candidate_time, candidate_time))
+            baseline = root / 'baseline.db'; baseline.write_bytes(b'previous signed database bytes\n')
+            certificate = root / 'certificate.pem'; key = root / 'key.pem'; ready = root / 'ready'
+            subprocess.run(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes',
+                            '-keyout', str(key), '-out', str(certificate), '-days', '1',
+                            '-subj', '/CN=localhost', '-addext', 'subjectAltName=IP:127.0.0.1'],
+                           capture_output=True, check=True, timeout=15)
+            server = subprocess.Popen(['python3', str(ROOT / 'tests/vm/https-server.py'),
+                                       str(repository), str(certificate), str(key), str(ready)],
+                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            try:
+                deadline = time.monotonic() + 5
+                while not ready.exists() and server.poll() is None and time.monotonic() < deadline:
+                    time.sleep(0.02)
+                self.assertTrue(ready.exists(), 'TLS fixture did not become ready')
+                url = 'https://127.0.0.1:' + ready.read_text().strip() + '/'
+                for baseline_time in (candidate_time, candidate_time + 60, 2200000000):
+                    os.utime(baseline, (baseline_time, baseline_time))
+                    for attempt in range(2):
+                        for name, expected in (('fixture.db', candidate), ('fixture.db.sig', candidate_signature)):
+                            with self.subTest(baseline_time=baseline_time, attempt=attempt, name=name):
+                                output = root / 'download'; headers = root / 'headers'
+                                output.unlink(missing_ok=True)
+                                result = subprocess.run(['curl', '--silent', '--show-error', '--fail',
+                                    '--max-time', '5', '--noproxy', '*', '--cacert', str(certificate),
+                                    '-z', str(baseline), '--dump-header', str(headers),
+                                    '--output', str(output), '--write-out', '%{http_code}', url + name],
+                                    capture_output=True, text=True, timeout=7)
+                                self.assertEqual(result.returncode, 0, result.stderr)
+                                self.assertEqual(result.stdout, '200')
+                                self.assertTrue(output.exists(), 'conditional curl suppressed the candidate body')
+                                self.assertEqual(output.read_bytes(), expected)
+                                self.assertNotIn('last-modified:', headers.read_text().lower())
+                result = subprocess.run(['curl', '--silent', '--show-error', '--fail', '--head',
+                    '--max-time', '5', '--noproxy', '*', '--cacert', str(certificate),
+                    '-z', str(baseline), url + 'fixture.db'], capture_output=True, text=True, timeout=7)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn('200 OK', result.stdout)
+                self.assertIn('Content-Length: ' + str(len(candidate)), result.stdout)
+                self.assertNotIn('last-modified:', result.stdout.lower())
+            finally:
+                server.terminate()
+                try: server.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    server.kill(); server.wait(timeout=5)
+
+    def test_curl_still_suppresses_http200_body_if_last_modified_is_retained(self):
+        import http.server, os, threading
+        class IgnoreConditionalDate(http.server.SimpleHTTPRequestHandler):
+            def send_head(self):
+                if 'If-Modified-Since' in self.headers:
+                    del self.headers['If-Modified-Since']
+                return super().send_head()
+            def log_message(self, *args): pass
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); candidate = root / 'fixture.db'; candidate.write_bytes(b'new database')
+            os.utime(candidate, (1600000000, 1600000000))
+            baseline = root / 'baseline.db'; baseline.write_bytes(b'old database')
+            os.utime(baseline, (1600000060, 1600000060))
+            def handler(*args, **kwargs): return IgnoreConditionalDate(*args, directory=directory, **kwargs)
+            with http.server.ThreadingHTTPServer(('127.0.0.1', 0), handler) as server:
+                thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+                try:
+                    result = subprocess.run(['curl', '--silent', '--show-error', '--fail',
+                        '--max-time', '5', '--noproxy', '*', '-z', str(baseline),
+                        '--dump-header', str(root / 'headers'), '--write-out', '\n%{http_code}',
+                        'http://127.0.0.1:' + str(server.server_port) + '/fixture.db'],
+                        capture_output=True, text=True, timeout=7)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    # libcurl may report a synthetic 304 after receiving HTTP 200.
+                    self.assertIn(result.stdout, ('\n200', '\n304'))
+                    self.assertIn('200 OK', (root / 'headers').read_text())
+                    self.assertIn('Last-Modified:', (root / 'headers').read_text())
+                finally:
+                    server.shutdown(); thread.join(timeout=5)
+
     def legacy_session(self, version="50.0", theme="Colloid-Dark", fault=""):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

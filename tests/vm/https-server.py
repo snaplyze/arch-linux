@@ -38,6 +38,20 @@ class RepositoryHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args: object, **kwargs: object) -> None:
         super().__init__(*args, directory=os.fspath(root), **kwargs)
 
+    def send_head(self):
+        # A previous baseline can have a newer extraction mtime than this frozen
+        # snapshot. Always transfer the candidate bytes for GET and HEAD.
+        if "If-Modified-Since" in self.headers:
+            del self.headers["If-Modified-Since"]
+        return super().send_head()
+
+    def send_header(self, keyword: str, value: str) -> None:
+        # libcurl also checks Last-Modified itself, even after HTTP 200. Omitting
+        # only the request condition would still leave the old pacman database
+        # beside a newly downloaded signature from the candidate snapshot.
+        if keyword.lower() != "last-modified":
+            super().send_header(keyword, value)
+
     def list_directory(self, path: str) -> None:
         self.send_error(http.HTTPStatus.FORBIDDEN)
         return None
