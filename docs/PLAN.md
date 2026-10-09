@@ -244,7 +244,8 @@ ShellCheck and full repository namespaces with ten scenarios, exact 14/18
 closures and no deferrals. Exact commit/tree/log identities are in validation.
 All delegated work has returned; no owned build/diagnostic container remains.
 Remote main remains `bc135f0` and the latest public release remains 1.0.6.
-The candidate is local. On 2026-10-09 the owner explicitly granted full permission
+The delivery candidate is in [PR #65](https://github.com/snaplyze/arch-linux/pull/65).
+On 2026-10-09 the owner explicitly granted full permission
 for `fix/gnome51-upgrade-20261009` in this same checkout, protected PR/merge and
 the configured release process. Preserve the candidate commits on that branch
 and return the canonical checkout to main by fast-forward after the accepted
@@ -278,6 +279,18 @@ Arch Docker image, runner-account Docker access and KVM API 12, four vCPUs,
 storage. The QGA channel belongs to the documented `ubuntu-actions` VM under
 `qemu:///session`. No shared setting, service or workload was changed; these
 readiness checks do not substitute for the release's actual nested-QEMU run.
+
+PR candidate `7a632ea` passed the full local source suite (log SHA-256
+`d186c9d19131a0213d58f964c60de2739815c83683068781b18ffa5510a2be72`).
+[CI 37878221431](https://github.com/snaplyze/arch-linux/actions/runs/37878221431)
+then failed the custody fixture: ext4 reused the just-freed inode when the test
+unlinked and recreated identical bytes. An independent runner-account experiment
+reproduced reuse three times out of three. The corrected fixture allocates its
+replacement while the original is live, asserts distinct device/inode identity,
+then replaces the pathname; the unchanged production verifier must reject it.
+The focused test and independent review pass. Its one tiny runner fixture was
+removed. The fresh PR head still requires complete local and GitHub source checks;
+no failed CI result is treated as acceptance.
 
 ## Local runner migration — 2026-10-08
 

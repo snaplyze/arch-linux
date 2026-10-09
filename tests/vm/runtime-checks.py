@@ -310,7 +310,12 @@ run_extension_functional_acceptance upgrade
             self.assertEqual(check().returncode, 0)
             (moved / 'extension.js').write_bytes(b'changed')
             self.assertNotEqual(check().returncode, 0)
-            (moved / 'extension.js').unlink(); (moved / 'extension.js').write_bytes(b'original')
+            # Allocate while the original is live: ext4 may immediately reuse a freed inode.
+            replacement = moved / '.replacement'; replacement.write_bytes(b'original')
+            replacement_info = replacement.stat()
+            self.assertNotEqual((replacement_info.st_dev, replacement_info.st_ino),
+                                (info.st_dev, info.st_ino))
+            os.replace(replacement, moved / 'extension.js')
             self.assertNotEqual(check().returncode, 0)  # Matching bytes in replacement inode are insufficient.
 
     def test_gnome51_baseline_rejects_bundle_and_missing_aur_owner(self):
