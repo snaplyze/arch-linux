@@ -211,9 +211,86 @@ def package_filename(row):
     return row['name'] + '-' + row['version'].split(':')[-1] + '-any.pkg.tar.zst'
 
 
+def archive_guard_identity(path):
+    path = pathlib.Path(path)
+    before = path.lstat()
+    if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or not 0 < before.st_size <= MAX_PACKAGE:
+        raise ValueError('unsafe verifier source/archive')
+    checksum = hashlib.sha256()
+    with path.open('rb') as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b''): checksum.update(chunk)
+    after = path.lstat()
+    identity = lambda info: (info.st_dev, info.st_ino, info.st_mode, info.st_uid, info.st_gid,
+                             info.st_nlink, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+    if identity(before) != identity(after): raise ValueError('verifier input changed while hashing')
+    return identity(after), checksum.hexdigest()
+
+
+def verifier_setup_script():
+    return '''set -euo pipefail
+pacman-key --init
+pacman-key --populate archlinux
+pacman -Sy --noconfirm --needed archlinux-keyring
+pacman -Syu --noconfirm --needed bash coreutils libarchive python
+gpgconf --homedir /etc/pacman.d/gnupg --kill all
+'''
+
+
+def verify_aur_archives(root, archives):
+    """Run the unchanged Arch-only installer oracle in a separate, offline verifier."""
+    source = pathlib.Path(root) / 'arch-linux-installer.sh'
+    originals = [source] + [pathlib.Path(path) for path, _ in archives]
+    before = {path: archive_guard_identity(path) for path in originals}
+    name = 'arch-linux-g51-verifier-' + uuid.uuid4().hex[:16]
+    with tempfile.TemporaryDirectory(prefix='arch-linux-g51-verifier-') as temporary:
+        inputs = pathlib.Path(temporary); names = ['arch-linux-installer.sh']
+        names += [package_filename(row) for _, row in archives]
+        if len(names) != len(set(names)): raise ValueError('duplicate verifier input')
+        for original, filename in zip(originals, names, strict=True):
+            target = inputs / filename
+            shutil.copyfile(original, target); target.chmod(0o400)
+            if archive_guard_identity(target)[1] != before[original][1]:
+                raise ValueError('verifier copy bytes differ')
+        (inputs / 'inputs.sha256').write_text(''.join(before[path][1]+'  '+filename+'\n' for path, filename in zip(originals,names,strict=True)))
+        (inputs / 'inputs.sha256').chmod(0o400)
+        try:
+            run(['docker', 'run', '--init', '--detach', '--pull=never', '--name', name,
+                 '--cpus=2', '--memory=4g', '--memory-swap=4g', '--pids-limit=256',
+                 '--network=bridge', '--security-opt', 'no-new-privileges',
+                 '--label', 'arch-linux.gnome51-input=' + name,
+                 '--mount', f'type=bind,source={inputs},target=/inputs,readonly',
+                 '--tmpfs', '/tmp:rw,nosuid,nodev,size=1g',
+                 load_pins(root)['container'], 'sleep', '1800'], capture_output=True)
+            execute = ['docker', 'exec', '-i', name, '/usr/bin/env', '-i', 'HOME=/tmp',
+                       'PATH=/usr/bin', 'LANG=C', 'LC_ALL=C', '/usr/bin/bash', '--noprofile', '--norc']
+            run(execute, input=verifier_setup_script().encode(), timeout=600)
+            run(['docker', 'network', 'disconnect', 'bridge', name], capture_output=True)
+            networks = run(['docker', 'inspect', '--format', '{{json .NetworkSettings.Networks}}', name], capture_output=True, text=True).stdout
+            if json.loads(networks) != {}: raise ValueError('verifier retains network attachment')
+            script = '''set -euo pipefail
+/usr/bin/python -I -S -c 'import socket; assert {name for _,name in socket.if_nameindex()} == {"lo"}'
+cd /inputs
+sha256sum --check --strict inputs.sha256
+source /inputs/arch-linux-installer.sh
+SCRIPT_TMP_DIR=/tmp/archive-guard
+install -d -m0700 -- "$SCRIPT_TMP_DIR"
+'''
+            for (_, row), filename in zip(archives, names[1:], strict=True):
+                script += 'aur_package_archive_is_safe ' + shlex.quote(row['name']) + ' ' + shlex.quote('/inputs/'+filename) + '\n'
+            script += 'sha256sum --check --strict /inputs/inputs.sha256\n'
+            run(execute, input=script.encode(), timeout=600)
+            if {path: archive_guard_identity(path) for path in originals} != before:
+                raise ValueError('verifier original input/source changed')
+        finally:
+            failed = sys.exc_info()[0] is not None
+            try:
+                cleanup_container(name)
+            except BaseException as error:
+                if not failed: raise
+                print(f'GNOME51 owned verifier cleanup failed: {name}: {error}', file=sys.stderr)
+
+
 def verify_aur_package(root, path, row):
-    with tempfile.TemporaryDirectory(prefix='arch-linux-g51-guard-') as temporary:
-        installer_call(root, 'SCRIPT_TMP_DIR="$1"; aur_package_archive_is_safe "$2" "$3"', temporary, row['name'], path)
     info = package_identity(path, row['name'], row['version'])
     expected_dependencies = ['gnome-shell>=46.0'] if row['name'] == 'gnome-shell-extension-clipboard-indicator' else ['gnome-shell']
     if info.get('depend') != expected_dependencies:
@@ -262,6 +339,7 @@ def verify_inputs(source_root, directory, expected_manifest_sha256):
     if manifest['aur'] != expected_aur or manifest['local'] != expected_local or manifest['files'] != actual or set(actual) != expected_names:
         raise ValueError('input closure/provenance differs')
     verify_release(root, directory / 'release', pins)
+    verify_aur_archives(root, [(directory / row['filename'], row) for row in expected_aur])
     for row in expected_aur:
         verify_aur_package(root, directory / row['filename'], row)
     check_local(directory / pins['local']['filename'], pins)
@@ -403,7 +481,6 @@ def build_aur(root, recipes, output, pins):
             with path.open('xb') as stream:
                 run(['docker', 'exec', name, 'head', '-c', str(MAX_PACKAGE + 1), '--', '/out/' + filename], stdout=stream)
             if path.stat().st_size != size: raise ValueError('builder output copy differs')
-            verify_aur_package(root, path, row)
     finally:
         failed = sys.exc_info()[0] is not None
         try:
@@ -412,6 +489,11 @@ def build_aur(root, recipes, output, pins):
             if not failed:
                 raise
             print(f'GNOME51 owned container cleanup failed: {name}: {error}', file=sys.stderr)
+    # The hostile recipe builder is gone before any root archive oracle is started.
+    archives = [(output / package_filename(row), row) for row in pins['aur']]
+    verify_aur_archives(root, archives)
+    for path, row in archives:
+        verify_aur_package(root, path, row)
 
 
 def cleanup_container(name):

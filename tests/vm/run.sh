@@ -758,6 +758,50 @@ wait_for_install_outcome() {
     return 1
 }
 
+serial_archiso_ready() {
+    python3 - "$1" "$2" <<'PY'
+import pathlib
+import sys
+path = pathlib.Path(sys.argv[1])
+if not path.is_file():
+    raise SystemExit(1)
+with path.open('rb') as source:
+    data = source.read(128 * 1024 * 1024 + 1)
+if len(data) > 128 * 1024 * 1024:
+    raise SystemExit(2)
+marker = sys.argv[2].encode('ascii')
+count = sum(line.endswith(b'\n') and line.rstrip(b'\r\n') == marker
+            for line in data.splitlines(keepends=True))
+raise SystemExit(0 if count == 1 else 2 if count > 1 else 1)
+PY
+}
+
+wait_for_archiso_shell() {
+    local timeout="$1" deadline attempt=0 marker probe_deadline status
+    [[ "${run_id}" =~ ^[a-z]+-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}$ ]] || return 1
+    deadline=$((SECONDS + timeout))
+    while [ "${SECONDS}" -lt "${deadline}" ]; do
+        attempt=$((attempt + 1))
+        marker="ARCHISO-READY-${run_id}-${attempt}"
+        # Only public probes may be repeated. Await the most recent completely
+        # typed command, so no older queued input can cross the bootstrap boundary.
+        hmp_request type "echo ${marker} >/dev/ttyS0" || return 1
+        probe_deadline=$((SECONDS + 10))
+        while [ "${SECONDS}" -lt "${deadline}" ] && [ "${SECONDS}" -lt "${probe_deadline}" ]; do
+            if serial_archiso_ready "${evidence}/install-serial.log" "${marker}"; then
+                return 0
+            else
+                status=$?
+                [ "${status}" -eq 1 ] || return 1
+            fi
+            process_is_exact_qemu "${qemu_pid}" "${qemu_start_time}" || return 1
+            kill -0 "${serial_bridge_pid}" 2>/dev/null || return 1
+            sleep 1
+        done
+    done
+    return 1
+}
+
 hmp_request() {
     local operation="$1" value="$2"
     python3 - "${hmp_socket}" "${qemu_pid}" "${operation}" "${value}" <<'PY'
@@ -800,7 +844,7 @@ with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
         raise SystemExit('HMP peer identity differs')
     frame(connection)
     if operation == 'type':
-        mapping = {' ': 'spc', '/': 'slash', '-': 'minus', ';': 'semicolon', '=': 'equal', '.': 'dot'}
+        mapping = {' ': 'spc', '/': 'slash', '-': 'minus', ';': 'semicolon', '=': 'equal', '.': 'dot', '>': 'shift-dot'}
         keys = []
         for char in value:
             if 'a' <= char <= 'z' or '0' <= char <= '9':
@@ -2750,7 +2794,9 @@ main() {
 
     current_phase='install-archiso'
     launch_qemu install true
+    # Allow the ISO's firmware/menu countdown to finish before any keyboard input.
     sleep 60
+    wait_for_archiso_shell 300 || die 'Arch ISO root shell did not acknowledge the current public probe'
     hmp_request type "${bootstrap_command}"
     [ "${scenario_id}" != minimal-dualboot-ext4-systemdboot ] || bootstrap_timeout=1800
     deliver_installer_credentials

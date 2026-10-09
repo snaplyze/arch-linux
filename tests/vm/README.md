@@ -9,17 +9,17 @@ package build and independent verification of the production-signed release asse
 - OVMF firmware and a pristine VARS template;
 - an accepted official Arch ISO;
 - `qemu-img`, QEMU Guest Agent support, OpenSSL and Python 3;
+- Docker access for the main staged Marble upgrade-input builder and verifier;
 - an absolute artifact/evidence directory outside the source tree.
 
-On a GitHub Linux runner, create a distinct mode-`0700` output directory for each matrix job, make
-`/dev/kvm` readable and writable by the runner, then run the preflight for that exact scenario before
+On a GitHub Linux runner, create a distinct mode-`0700` output directory for each matrix job, ensure
+the provisioned runner has KVM access through its group, then run the preflight for that exact scenario before
 `run.sh`. The preflight verifies the accepted ISO digest, runner clock, available RAM and storage,
 KVM access and a stopped QEMU KVM-acceleration probe. It is safe to run before release assets are
 downloaded into the job workspace.
 
 ```bash
 install -d -m 0700 -- "$RUNNER_TEMP/qemu-evidence"
-sudo chmod a+rw /dev/kvm
 bash tests/vm/preflight.sh \
   --scenario marble-gnome-btrfs-luks2-plymouth-systemdboot \
   --iso "$ARCH_ISO" --iso-sha256 "$ARCH_ISO_SHA256" \
@@ -33,6 +33,11 @@ sequentially: the final retention measurement includes that entire root. For con
 give each one its own generated output root, keeping all accepted source/ISO/package hashes equal;
 otherwise another live VM disk would be counted as retained evidence. These are disposable VM
 data directories, not additional development checkouts.
+After the ISO boot-menu quiet period, the harness requires an exact fresh public nonce from
+the live root shell through its serial channel. Only those harmless readiness probes may repeat;
+the installer bootstrap command is sent once. Runtime credentials still wait for the complete
+source-bound installer READY record and its password prompt. A missing readiness response fails
+the run before installer launch; QEMU monitor acknowledgement alone is insufficient.
 Use the same values for the three sequential staged commands:
 
 ```bash
@@ -70,6 +75,13 @@ entire copied closure against the same digest before starting the private TLS se
 That directory binds the authentic signed 1.0.6 six-package
 baseline, four actual pinned AUR packages built by disposable unprivileged builders, and the exact
 installer No Screenshot Box v6 archive. Other scenarios and public mode reject this input.
+
+Preparation and each subsequent input verification require Docker and authenticated Arch
+package-mirror access. A separate pinned Arch container provisions Python/libarchive, disconnects
+its network and verifies loopback-only isolation before running the unchanged installer archive
+guard on read-only input copies. Builder containers are removed first; package recipes never run
+in the verifier. This also applies when replaying retained inputs on an Ubuntu host: installing
+Python aliases or redirecting host library paths is unnecessary.
 
 After the existing GTK3 migration round trip, a separate GNOME51 phase installs this baseline with
 the new bundle absent, authenticates through GDM, and checks the four old extension failures.
