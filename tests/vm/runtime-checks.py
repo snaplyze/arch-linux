@@ -65,6 +65,83 @@ class RuntimeChecks(unittest.TestCase):
                 except subprocess.TimeoutExpired:
                     server.kill(); server.wait(timeout=5)
 
+    def repository_https_fixture_inputs(self, root):
+        repository = root / "repository"; repository.mkdir()
+        candidate = b"atomic readiness candidate bytes\n"
+        (repository / "fixture.db").write_bytes(candidate)
+        certificate = root / "certificate.pem"; key = root / "key.pem"
+        subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", str(key), "-out", str(certificate), "-days", "1", "-subj", "/CN=localhost", "-addext", "subjectAltName=IP:127.0.0.1"], capture_output=True, check=True, timeout=15)
+        return repository, certificate, key, candidate
+
+    def test_repository_https_readiness_is_published_only_after_complete_write(self):
+        import os, socket, sys
+        wrapper = r"""
+import os, runpy, socket, sys
+control = socket.socket(fileno=int(sys.argv.pop(1)))
+script = sys.argv.pop(1)
+sys.argv[0] = script
+original_fdopen, original_link = os.fdopen, os.link
+paused = False
+def fdopen(fd, *args, **kwargs):
+    global paused
+    if not paused and args == ("w",) and kwargs.get("encoding") == "ascii":
+        paused = True
+        control.sendall(b"P")
+        if control.recv(1) != b"G": raise RuntimeError("fixture release unavailable")
+    return original_fdopen(fd, *args, **kwargs)
+def link(*args, **kwargs):
+    result = original_link(*args, **kwargs)
+    control.sendall(b"R")
+    return result
+os.fdopen, os.link = fdopen, link
+runpy.run_path(script, run_name="__main__")
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository, certificate, key, candidate = self.repository_https_fixture_inputs(root)
+            ready = root / "ready"
+            parent, child = socket.socketpair()
+            parent.settimeout(5)
+            process = subprocess.Popen([sys.executable, "-c", wrapper, str(child.fileno()), str(ROOT / "tests/vm/https-server.py"), str(repository), str(certificate), str(key), str(ready)], pass_fds=(child.fileno(),), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            child.close()
+            try:
+                self.assertEqual(parent.recv(1), b"P")
+                self.assertFalse(ready.exists(), "ready was visible before the port was written")
+                parent.sendall(b"G")
+                self.assertEqual(parent.recv(1), b"R")
+                port = ready.read_text()
+                self.assertRegex(port, r"[1-9][0-9]{0,4}\n\Z")
+                self.assertLessEqual(int(port), 65535)
+                self.assertEqual(ready.stat().st_mode & 0o777, 0o600)
+                result = subprocess.run(["curl", "--silent", "--show-error", "--fail", "--max-time", "5", "--noproxy", "*", "--cacert", str(certificate), "https://127.0.0.1:" + port.strip() + "/fixture.db"], capture_output=True, timeout=7)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, candidate)
+                self.assertEqual(list(root.glob(".ready.*")), [])
+            finally:
+                parent.close()
+                process.terminate()
+                try: process.wait(timeout=5)
+                except subprocess.TimeoutExpired: process.kill(); process.wait(timeout=5)
+
+    def test_repository_https_readiness_never_overwrites_existing_file_or_symlink(self):
+        import sys
+        for kind in ("file", "symlink"):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                repository, certificate, key, _ = self.repository_https_fixture_inputs(root)
+                ready = root / "ready"; target = root / "foreign"
+                target.write_bytes(b"preserve foreign readiness\n")
+                if kind == "file": ready.write_bytes(b"preserve existing readiness\n")
+                else: ready.symlink_to(target)
+                before = ready.lstat()
+                result = subprocess.run([sys.executable, str(ROOT / "tests/vm/https-server.py"), str(repository), str(certificate), str(key), str(ready)], capture_output=True, timeout=10)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual((ready.lstat().st_dev, ready.lstat().st_ino), (before.st_dev, before.st_ino))
+                self.assertEqual(ready.read_bytes(), b"preserve existing readiness\n" if kind == "file" else b"preserve foreign readiness\n")
+                self.assertEqual(target.read_bytes(), b"preserve foreign readiness\n")
+                self.assertEqual(ready.is_symlink(), kind == "symlink")
+                self.assertEqual(list(root.glob(".ready.*")), [])
+
     def test_curl_still_suppresses_http200_body_if_last_modified_is_retained(self):
         import http.server, os, threading
         class IgnoreConditionalDate(http.server.SimpleHTTPRequestHandler):
@@ -1422,6 +1499,15 @@ rm(){ if [ "$case_fixture" = cleanup-fail ]; then return 1; fi; command rm "$@";
                         records.append({"USER_UNIT": "org.gnome.Shell@user.service", "MESSAGE_ID": "98e322203f7a4ed290d09fe03c09fe15", "EXIT_CODE": "killed", "EXIT_STATUS": "9"})
                     if case == "normal":
                         records.append({"USER_UNIT": "org.gnome.Shell@user.service", "MESSAGE_ID": "9d1aaa27d60140bd96365438aad20286"})
+                    if case == "journal-flood":
+                        records = [
+                            {"USER_UNIT": "org.gnome.Shell@user.service", "MESSAGE_ID": "d9b373ed55a64feb8242e02dbe79a49c", "UNIT_RESULT": "timeout"},
+                            {"USER_UNIT": "org.gnome.Shell-disable-extensions.service", "MESSAGE_ID": "39f53479d3a045ac8e11786248231fbf"},
+                        ] + [{"USER_UNIT": "org.gnome.Shell@user.service"} for _ in range(200)]
+                        selected_ids = {arg.split("=", 1)[1] for arg in args if arg.startswith("MESSAGE_ID=")}
+                        if selected_ids:
+                            records = [record for record in records if record.get("MESSAGE_ID") in selected_ids]
+                        records = records[-129:]
                     if journal_records is not None:
                         records = journal_records
                     # Emulate journalctl's actual unit filter, so a wrong instance silently
@@ -1432,6 +1518,7 @@ rm(){ if [ "$case_fixture" = cleanup-fail ]; then return 1; fi; command rm "$@";
                         records = [record | {"__MONOTONIC_TIMESTAMP": "12345"} for record in records]
                     raw = "SECRET_MALFORMED" if case == "malformed" else "\n".join(json.dumps(record | {"_SYSTEMD_USER_UNIT": "init.scope", "MESSAGE": "SECRET_RAW_JOURNAL"}) for record in records)
                     if case == "duplicate-json": raw = '{"USER_UNIT":"org.gnome.Shell@user.service","USER_UNIT":"SECRET"}'
+                    if case == "invalid-object": raw = "[]"
                     if case == "unknown-unit": raw = '{"USER_UNIT":"SECRET_UNIT","MESSAGE_ID":"SECRET_EVENT"}'
                     if case == "oversized": raw = "x" * 262145
                     if case == "capped": raw = "\n".join(json.dumps({"USER_UNIT": "org.gnome.Shell@user.service"}) for _ in range(129))
@@ -1554,6 +1641,55 @@ rm(){ if [ "$case_fixture" = cleanup-fail ]; then return 1; fi; command rm "$@";
         self.assertIn("journal_query=unknown records=unknown", output)
         self.assertNotIn("journal_event=", output)
 
+    def test_shell_lifecycle_filters_noise_before_bounded_window(self):
+        output, calls = self.shell_lifecycle("journal-flood")
+        self.assertIn("journal_query=ok records=2 stop_events=0 failure_events=1", output)
+        self.assertIn("timeout_events=1", output)
+        self.assertIn("recovery_started=yes", output)
+        journal = next(call for call in calls if "/usr/bin/journalctl" in call)
+        groups = [[]]
+        for arg in journal:
+            if arg == "+": groups.append([])
+            else: groups[-1].append(arg)
+        self.assertEqual(len(groups), 4)
+        self.assertEqual({arg for group in groups for arg in group if arg.startswith(("USER_UNIT=", "_SYSTEMD_USER_UNIT="))}, {field + "=" + unit for field in ("USER_UNIT", "_SYSTEMD_USER_UNIT") for unit in ("org.gnome.Shell@user.service", "org.gnome.Shell-disable-extensions.service")})
+        self.assertEqual(len({arg for group in groups for arg in group if arg.startswith("_UID=")}), 1)
+        known = {"MESSAGE_ID=" + value for value in ("39f53479d3a045ac8e11786248231fbf", "9d1aaa27d60140bd96365438aad20286", "d9b373ed55a64feb8242e02dbe79a49c", "98e322203f7a4ed290d09fe03c09fe15")}
+        for group in groups:
+            self.assertEqual({arg for arg in group if arg.startswith("MESSAGE_ID=")}, known)
+            self.assertEqual(sum(arg.startswith("_UID=") for arg in group), 1)
+            self.assertEqual(sum(arg.startswith(("USER_UNIT=", "_SYSTEMD_USER_UNIT=")) for arg in group), 1)
+        self.assertNotIn("SECRET", output)
+
+    def test_shell_lifecycle_rejection_reasons_are_finite_and_private(self):
+        for case, reason in (("unavailable", "query-unavailable"), ("oversized", "query-unavailable"), ("capped", "window-exhausted"), ("malformed", "invalid-json"), ("duplicate-json", "duplicate-json"), ("unknown-unit", "invalid-field"), ("invalid-object", "invalid-object")):
+            with self.subTest(case=case):
+                output, _ = self.shell_lifecycle(case)
+                self.assertIn("journal_query=unknown", output)
+                self.assertIn("rejection_reason=" + reason, output)
+                self.assertNotIn("journal_event=", output)
+                self.assertNotIn("SECRET", output)
+                self.assertNotIn("Traceback", output)
+        valid = {"USER_UNIT": "org.gnome.Shell@user.service", "MESSAGE_ID": "39f53479d3a045ac8e11786248231fbf", "__MONOTONIC_TIMESTAMP": "100"}
+        for field, value, reason in (("MESSAGE_ID", [], "invalid-field"), ("UNIT_RESULT", "SECRET_RESULT", "invalid-enum"), ("EXIT_CODE", "SECRET_CODE", "invalid-enum"), ("EXIT_STATUS", "256", "invalid-number"), ("__MONOTONIC_TIMESTAMP", "SECRET_TIMESTAMP", "invalid-timestamp")):
+            with self.subTest(field=field):
+                output, _ = self.shell_lifecycle(journal_records=[valid, valid | {field: value}])
+                self.assertIn("rejection_reason=" + reason, output)
+                self.assertIn("records=unknown", output)
+                self.assertNotIn("journal_event=", output)
+                self.assertNotIn("SECRET", output)
+        output, _ = self.shell_lifecycle()
+        self.assertIn("rejection_reason=none", output)
+
+    def test_shell_lifecycle_new_checkpoints_query_filtered_history(self):
+        for checkpoint in ("after-original-user-logout", "return-user-login"):
+            with self.subTest(checkpoint=checkpoint):
+                output, calls = self.shell_lifecycle(checkpoint=checkpoint)
+                self.assertIn("checkpoint=" + checkpoint, output)
+                self.assertIn("journal_query=ok", output)
+                self.assertTrue(any("/usr/bin/journalctl" in call for call in calls))
+                self.assertFalse(any("set" in call for call in calls))
+
     def test_shell_lifecycle_normal_and_early_sentinel(self):
         for case, sentinel in (("normal", "absent"), ("early", "present")):
             output, calls = self.shell_lifecycle(case)
@@ -1649,7 +1785,7 @@ wait_for_named_user_logout(){ printf 'LOGOUT_WAIT:%s\\n' "$1"; }
 ''' + body[start:end]
         result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=5)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.splitlines(), ["CHECKPOINT:before-original-user-logout", "SESSION_COMMAND:1000 /usr/bin/gnome-session-quit --logout --no-prompt", "LOGOUT_WAIT:vmtest"])
+        self.assertEqual(result.stdout.splitlines(), ["CHECKPOINT:before-original-user-logout", "SESSION_COMMAND:1000 /usr/bin/gnome-session-quit --logout --no-prompt", "LOGOUT_WAIT:vmtest", "CHECKPOINT:after-original-user-logout"])
 
     def test_shell_lifecycle_actual_migrated_session_checkpoint_route(self):
         body = function("verify_marble_user_session").split('    shell_environment=', 1)[0] + "\n}\n"
@@ -1667,7 +1803,7 @@ emit_gnome_shell_lifecycle_diagnostic(){ printf 'CHECKPOINT:%s\\n' "$2"; }
         for phase in ("migrated-login", "return-user-login"):
             result = subprocess.run(["bash", "-c", setup + body + "phase=" + phase + "\nverify_marble_user_session marble\n"], capture_output=True, text=True, timeout=5)
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(result.stdout, "CHECKPOINT:migrated-login\n" if phase == "migrated-login" else "")
+            self.assertEqual(result.stdout, "CHECKPOINT:" + phase + "\n")
 
     def media_prepare(self, available=False, install_status=0, installed=True, trusted=True, mode="public", qualification="true", inherited=False, missing=""):
         body = function("require_public_readback_tools") + "\n" + function("prepare_media_readback")

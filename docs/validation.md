@@ -1988,6 +1988,158 @@ This final result prose follows the executed suite; documentation/link/diff chec
 and exact-head CI are required before protected delivery. None of the old VM
 results transfers to the changed harness candidate.
 
+[PR78](https://github.com/snaplyze/arch-linux/pull/78) delivered accepted head
+`1f1242c7ee8cf6eebc2a823c2bce74cb3c607f79`, tree
+`cff8a588c6eb873d4c069106816ee937e07c438d`, canonical source SHA-256
+`b71fe4aff19a89935de644af66f5cc6749e90b69c2f1db105e04e1296da84eee`.
+Exact-head CI 37977462863/job 113979239989 passed; complete log SHA-256:
+`3cd061945410f3ca3331db3c8c0049f12cd87eecd53895f991cfc11c54482a7e`.
+The required check belongs to app 15368 and the exact accepted head. Live head/base,
+CLEAN/MERGEABLE status and all review threads (none) were rechecked; protected
+squash merge completed at 19:08:02 UTC. Merged main
+`65f67132d9e2f657672f58033b75c6af0cca9028` has the same tree/canonical hash. The
+sole checkout returned to main by fast-forward, with the index preserved. Main CI
+37978123346/job 113981467059 passed; complete log SHA-256:
+`62ee7e6e02994e74f2f5ea245da94f2b4791a5eb0db2e02f7fe200b2ea6bd194`.
+[Release 37978505750](https://github.com/snaplyze/arch-linux/actions/runs/37978505750)
+preparation job 113982761309 passed and emitted child
+`1274611da69b5eb78990f7c01fd8350215a58d49`, tree
+`bd7e3f81d17cc7e942be2c1964523a577d53f328`, canonical source SHA-256
+`01b3ec2f4f2868f71b45d0bc11c68779eb95572e5f2713be3496bb97b825ec80`.
+Source artifact 11639648807 ZIP SHA-256:
+`e1c4c8c3b222a753e91ef277f6ee3fb6e32ba44919e28aba111a5a3f8df2bfe0`;
+bundle SHA-256: `f3182042fb0bb99614592f1fd67aa3f52de97eb925fa49428263dee5bddf9bee`.
+Independent source transport and deterministic transformation verification passed,
+including 1.0.7 README/bootstrap pins and preserved historical identities. The
+frozen ordered ten-file harness SHA-256, recomputed directly from the Git blobs:
+`2941348bff3390fd38aa010e70796f868d7b2a02d4166b0f088075869b71c08b`.
+Installer SHA-256 remains
+`e6228b0f655d5551eaf5cc8d085ea8111b24df3930b27cc78700d0944432ff71`.
+Build job 113982865078 and protected unsigned readback job 113984622626 passed.
+Independent scoped unsigned readback verified artifact 11640565543, exact sixteen
+files/fourteen manifest rows, seven packages, 212 source modes/bytes, all 19,564
+MTREE files and seven unchanged production payload validators. ZIP SHA-256:
+`f3ab462d7c1713b756fcf2aa3cc5d452bc06510884232f13a346c23bbb282e2d`;
+scoped receipt SHA-256:
+`f315f577c8186ab20d6661f4cc371fb172f53d9974fa5b4fb27c2ae77de1f6cd`.
+This independent scope does not replace the protected Git-bound shell entrypoint.
+BUILD-METADATA SHA-256:
+`161c4df1dce548486be91dd230db91d254ef83ace5a753886db32534b7a73fd3`;
+UNSIGNED-SHA256SUMS SHA-256:
+`cec8557a6db3f58e6a1beaaa0f4c6f5e94471a02b66bbbef7bd492303ed4dc37`.
+Snapshot job 113985013173 passed both full namespace repository modes, the root
+publication boundary, ordinary and privileged keyring modes, then signing.
+Complete snapshot job log SHA-256:
+`8c08ef94e9b610b747c656b6631f52af3b47e5558c24e5700b235bdacecd8510`.
+Independent Phase-A readback verified artifact 11640486444: fourteen assets, twelve
+signed manifest rows, three release signatures and twenty-five snapshot objects.
+ZIP SHA-256: `90ee40800d65d7a42151cd989a3b190c687e0d5ca6ed007b709f716794f74fbe`;
+repository archive SHA-256:
+`a4ce97bd9a479e7ae816638d1a84f7064c4470994836e38766cd3fae4ae3002e`;
+RELEASE-SHA256SUMS SHA-256:
+`700304ea1462922c309d55a804009ba7c5d3b8711008f53bc536c5f1dd0623cc`.
+Fresh Minimal job 113986280484 passed fourteen assertions; its frozen strict core
+consumer also passed. Run `minimal-20261009T192426Z-6e2c89e3`, artifact 11640872585:
+API ZIP SHA-256 `e92438131c4206cc1512d3788ec1f6bb4ba077137d5671b79e65356441d2f3aa`;
+evidence archive SHA-256
+`2f6cfe1565a45f396e9fc5f4edca658b1c3c4fd2307ff34f6ddba0a8866bd227`;
+structured result SHA-256
+`bc30e628b28338eeb5197c993bff3242e04862bf46d0e6d249b3c20cf59141ca`;
+independent receipt SHA-256
+`2e0f79e35ec37a6e42180435771202ff0be2396f1230cac220eaef48d0797720`.
+Fresh core Stock job 113986280483 passed twenty-two assertions and its frozen strict
+consumer. Run `luksgrub-20261009T193601Z-57be1996`, artifact 11642550334:
+API ZIP SHA-256 `be34db44e53556a4494be57fd443240d71a371dbfe0fb3e78e9206ecf8515ea8`;
+evidence archive SHA-256
+`d5b7467fadb7d7f34c2b18d948996950d1c43fdd8f72c3103f21d0cdfe04f887`;
+structured result SHA-256
+`b9b122f600b174972bc26329159d898317c21dc6142c1db806ecae9a8cb6aa95`;
+independent receipt SHA-256
+`4b85e78596917ff8f067c4c2ac64bcbe06795e095965bec58ca52853fb077e03`.
+Source-bound runtime observation recorded both Plymouth and Bibata primary AUR
+build paths, with no mirror transport. This does not expose exact official package
+patch versions, which remain NOT_OBSERVED in compact evidence.
+Core Marble job 113986280344 failed at `return-user-login`, firstboot exit status 1,
+after four recorded assertions. Run `marble-20261009T195923Z-a1ae373a`, artifact
+11642599197: API ZIP SHA-256
+`859800c9b3ffc4c220ff6826ae58e87677a7b4aaf89fa11d5650951f5f545570`;
+evidence archive SHA-256
+`17d1fbbda1612996e48befb846c1b5c960b92a3805c4eb62916279b4b30556f0`;
+structured result SHA-256
+`0240d9b7fbcd7fa2638178a30212e2b40a45b84d2a29dae7c965e7df717a26f5`;
+independent failure receipt SHA-256
+`9a290fe3dbe6c4c1e79d8acc5073eecbbfc096e80eab659b4b44d7830ba55dbf`;
+complete job log SHA-256
+`ef89d5c72b1a716277f28a037222566e79549bcacecc8d8560ac303fac66223b`.
+API digest, safe unpack, source/tree/Phase-A and frozen harness bindings passed;
+the PASS consumer correctly rejected FAIL. A full strict PASS is not applicable.
+The scenario reached the legacy GTK migration, GTK4 app smoke, fresh-user login/
+logout and original-user return, but not the separate GNOME-50/51 upgrade phase.
+Global disable was false with the sentinel present before original logout; actual
+user Shell age was 39.287 seconds. At timeout the return Shell age was 183.283
+seconds, global disable true, eight known extensions INITIALIZED and sentinel
+absent. The correct `@user` unit was observed, but `journal_query=unknown` leaves
+recovery timing/cause unproved; current inactive recovery-unit state cannot rule
+out earlier execution because systemd may collect it.
+An independent read-only native control reproduced a diagnostic-window defect:
+the exact broad query returned 129 valid-timestamp Shell application records,
+all without MESSAGE_ID, so the existing all-window validator rejected it. The
+same UID/units/OR groups filtered to the four known systemd lifecycle MESSAGE_IDs
+returned one typed started event. A retained native control executed the actual new
+producer request builder and parser: broad query 129 records/50,012 bytes/reason
+`window-exhausted`; filtered query one record/457 bytes/typed started event/query
+ok. The receipt contains only public command fields and bounded aggregates, not
+raw journal; SHA-256:
+`325444d26dff2a292887eb9242541ab14f76d3594f4c797c4d2b7bcafc6737c1`.
+This demonstrates lost diagnostic chronology, not the actual guest query's
+rejection reason. A filtered query, finite rejection
+reason and immediate post-logout/early-return observations were implemented.
+A HEAD control produced eighteen failures in five focused tests; the corrected
+focused run passed twenty tests and the fresh full runtime run passed all 150.
+RED log SHA-256:
+`7d2952867b04c95f8ea77a6707ccc487653e133662e2d2a979985db3c17f6443`;
+focused log SHA-256:
+`2aaec1794039c6ea772704638aa7c6e5c8be5932795eacb3067bab83b8a5fa1c`;
+fresh full runtime log SHA-256:
+`d244d69148d27ab31606cd7a8a0f095d9ea00db9f26c1f7e36c016caf7b517dc`.
+No settings reset, longer delay or product correction is justified yet.
+An earlier full-runtime repeat failed thirteen subcases of the independent TLS
+fixture: curl attempted port 443 rather than the server's ephemeral port. The
+existing producer creates the final readiness pathname before writing the port,
+while its consumers wait only for pathname existence; this exposes an empty-port
+race. The failed run did not retain the read port, so its exact interleaving remains
+unproved. Isolated TLS and a fresh full repeat passed; the prior FAIL is retained,
+log SHA-256 `3f8275e512b2426bbe212ccbfe09155891fd4b6a7ee485c6d3f0d64aa3509e0b`.
+A deterministic actual-server pre-write pause reproduced final readiness exposure
+against HEAD (one failure in two tests). The corrected server writes/fsyncs/closes
+an owned same-directory mode-0600 temporary file, then publishes with no-overwrite
+`os.link` and removes only its temporary file. The controlled pause now keeps
+readiness absent until complete port publication; real TLS GET returns exact bytes.
+Existing regular-file/symlink identity and content preservation passed. No HTTP,
+TLS, timeout or package acceptance policy changed.
+Atomic control RED log SHA-256:
+`de76d85395791282727dc75bea0b7a0377633d426cee2708e27044afca6f835e`;
+GREEN log SHA-256:
+`eebf5532fefc25f421deb2e218f6fa6e45631d5eec0577316740170dc9cc638d`;
+combined focused twenty-four PASS log SHA-256:
+`fd179a4163ab1526761f70a643e5e215dec3fad400c8d4b731a6d7759a9344c6`;
+fresh full runtime 152 PASS log SHA-256:
+`aee42c9d4ce8d9723e87313b4ac0b92154020b9a29649d37ccef87c5d7bf2a1a`.
+This proves the publication defect; the prior intermittent test's exact empty-port
+interleaving remains an inference. Independent review of the stable three-file
+implementation found no material issues in grouping, privacy, checkpoints,
+descriptor/temporary-file cleanup or no-overwrite publication. The reviewer did
+not rerun tests. `bash tests/source-tests.sh` then passed for the combined candidate,
+including all 152 runtime checks and full namespace repository acceptance:
+schema 1, ten scenarios, signer passed, release closures 14+18, no deferral.
+Complete source-suite log SHA-256:
+`e46ee181875e9e79fdb601814ec07fec5d49a8c79d00c4acbbba17fc7e91bc22`.
+This result prose follows that executed suite; final documentation/diff checks
+and exact-head protected CI remain required. No old VM result transfers to the
+changed harness; the actual Marble recovery cause remains open.
+The six supplementary scenarios continue independently. Marble upgrade/public
+acceptance remains open; public latest is 1.0.6 and the workstation is unchanged.
+
 The additional `python3 maintenance/check-sources.py --network --report ...`
 advisory observed forty sources at `2026-10-09T11:21:02+00:00`: fourteen unchanged,
 fourteen drift and twelve error records. All errors were direct AUR Git queries;
@@ -2011,6 +2163,9 @@ Overall status is `advisory`, not an error and not a no-drift verdict. Plymouth
 and Bibata HEADs still match their retained reviewed commits. The source manifest
 is unchanged; new report SHA-256 is
 `9134962413715a93c25c038a97b97c0182d879dd50a3df447d68427f2d4f50cc`.
+A further direct availability check at 19:28 UTC succeeded for Plymouth and Bibata;
+both HEADs still match the retained commits. This is a fresh transport observation,
+not a replacement for the forty-source advisory or installed-system acceptance.
 The earlier failed queries are not rewritten. Primary AUR remains the first clone
 attempt; only a clone failure selects Arch's official GitHub mirror, after which
 the same immutable commit, archive and metadata predicates apply. The existing
