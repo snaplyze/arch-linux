@@ -48,8 +48,8 @@ EVIDENCE_FIXED = {
 HARNESS_FILES = (
     "tests/vm/run.sh", "tests/vm/frame-evidence.py", "tests/vm/qga-client.py",
     "tests/vm/https-server.py", "tests/vm/prepare-marble-repository.sh",
-    "tests/vm/guest/bootstrap.sh", "tests/vm/guest/verify.sh",
     "tests/vm/prepare-gnome51-upgrade-inputs.py", "tests/vm/gnome51-upgrade-baseline.json",
+    "tests/vm/guest/bootstrap.sh", "tests/vm/guest/verify.sh",
     "tests/vm/guest/extension-probe.js",
 )
 EXPECTED_ASSERTIONS = {

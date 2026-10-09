@@ -299,6 +299,143 @@ scenarios, signer PASS and `deferred=none`. The isolated container used two CPUs
 resources and container were removed; host device metadata was unchanged. These
 results bind that test candidate and ephemeral keys, not a future release child.
 
+## Prepared release 1.0.7 — fourth failed pre-signing attempt
+
+[Release 37884673557](https://github.com/snaplyze/arch-linux/actions/runs/37884673557)
+failed during build after the ordinary-keyring cleanup correction and successful main CI.
+This candidate has its own identity; earlier failed attempts remain failed.
+
+| Input | Exact value |
+| --- | --- |
+| Reviewed main | `7203ec6d2650add1477325e60670629702246495` |
+| Main tree | `74d877af34047cbdf38e67494f5f6f87407b8cb8` |
+| Deterministic release child | `9143b7726a21f7f3e1629f850379b671b3b9ee53` |
+| Child tree | `015c773af5e9001fa905a3496929169685b391c9` |
+| Canonical child mode-and-byte SHA-256 | `6c8fd3f79fdae321cf5fa40d0f6e12200ed03c4f0166d9895c3c7d772e221290` |
+| Source bundle SHA-256 | `44aff551aceb99a3389147995c3701f1d29211070613ad54e6fbfcc184bc990f` |
+| Source artifact | `11595129285` |
+| Source transport SHA-256 | `7584d9889a26833c1ed6efb48a7a6eeb3a179bdc4fbc4b4d544fc8103c372f8c` |
+
+Independent source ZIP closure/digest, bundle verification and deterministic child
+reconstruction passed. The canonical checkout, existing refs and pending
+Markdown bytes were unchanged. The child's complete source suite passed. Build
+failed while fetching the pinned Dash to Dock archive from GNOME Extensions:
+curl error 35, TLS unexpected EOF. The keyring package built, but the canonical
+seven-package artifact did not complete. Signing, QEMU and all publication stages
+were skipped. Failed build log SHA-256:
+`f8d06c37bee466b0a3d4fdc985882f92ae22ab1012a78dfe98822536c59756b0`.
+This external download failure does not establish a package or signature defect.
+
+## Prepared release 1.0.7 — failed same-input retry
+
+After a same-runner download matched the unchanged Dash to Dock pin, successful
+main CI attempt 2 triggered
+[Release 37885316974](https://github.com/snaplyze/arch-linux/actions/runs/37885316974).
+Independent source transport verification passed for artifact `11595912002`,
+ZIP SHA-256 `8b3da8b5acc64b711c0659d0b0891cf2002b586dd4d863e3c296a2f18916255d`.
+Both `identity.json` and `source.bundle` are byte-identical to run 37884673557:
+child `9143b7726a21f7f3e1629f850379b671b3b9ee53`, tree
+`015c773af5e9001fa905a3496929169685b391c9`, canonical SHA-256
+`6c8fd3f79fdae321cf5fa40d0f6e12200ed03c4f0166d9895c3c7d772e221290`.
+No source, source pin or trust change was made for this retry. Source checks passed,
+but the same pinned Dash download received HTTP 503 on all four attempts. The
+canonical build did not complete; readback, signing, VM and publication were
+skipped. Failed log SHA-256:
+`0c5d5b6165ae6b3ed930e4f7f433703730a45be682849f7278b03684bf5da622`.
+A separate workstation request reproduced HTTP/1.0 503 through synthetic DNS;
+subsequent bounded response inspection identified the OpenShift “Application is
+not available” page. Resolving through public DNS while preserving the exact
+HTTPS hostname, certificate verification and URL also returned 503. An independent
+runner probe reproduced the failure with both plain curl and makepkg flags.
+No diagnostic payload was accepted as an archive; no DNS/TLS/pin setting changed,
+and all owned probe containers were removed. The present evidence points to the
+application/ingress being unavailable during those attempts. After the owner's
+explicit goal resume, four exact pinned GNOME Extensions downloads passed on the
+actual runner without retries, all HTTP 200 and matching hashes. CI attempt 3 was
+requested for unchanged main `7203ec6`; this availability evidence does not relabel
+either failed release run or establish signed delivery.
+
+## Prepared release 1.0.7 — retry after upstream recovery
+
+Successful main CI attempt 3 triggered
+[Release 37888302371](https://github.com/snaplyze/arch-linux/actions/runs/37888302371)
+after all four pinned GNOME Extensions archives were available on the runner.
+Source artifact `11597535545` passed independent ZIP digest and exact two-file
+closure checks, SHA-256
+`2bb886e9a9f8a10005a03b729037cd4396c1689dd79cf5c786bc57e74096aa60`.
+Identity JSON and source bundle are byte-identical to the previous attempts:
+reviewed main `7203ec6d2650add1477325e60670629702246495`, release child
+`9143b7726a21f7f3e1629f850379b671b3b9ee53`, tree
+`015c773af5e9001fa905a3496929169685b391c9`, canonical mode-and-byte SHA-256
+`6c8fd3f79fdae321cf5fa40d0f6e12200ed03c4f0166d9895c3c7d772e221290`.
+The child's source suite and clean canonical build passed. Independent transport
+verification matched all fourteen unsigned-manifest members, seven package names
+and source commit/tree. Exact transport receipts:
+
+| Object | SHA-256 / identity |
+| --- | --- |
+| Canonical unsigned artifact | `11596764540` |
+| Artifact ZIP | `9fc8309aa9bb7bcf266b1124a3ec4021deb8753950857085dd857cb678581c6c` |
+| BUILD-METADATA.json | `ba78b339ebfcdd9fd82e488577e91a1203b9e074f1c366566ab62847414b4ebc` |
+| UNSIGNED-SHA256SUMS | `cec8557a6db3f58e6a1beaaa0f4c6f5e94471a02b66bbbef7bd492303ed4dc37` |
+
+The package byte set matches the seven versions recorded for the first 1.0.7
+attempt; this child's build metadata retains its own identity. The protected
+readback and snapshot jobs passed. Both full repository modes, publication-root
+and ordinary/privileged keyring commands succeeded before production signing.
+Required full/privileged receipts have `deferred=none`; the ordinary keyring mode's
+expected privileged deferral was closed by the following privileged command.
+Snapshot job log SHA-256:
+`45cb4d545d1a33b488b1476f1a02161994fe7a17eeb90b7397b5024f3a68430d`.
+Its early snapshot/finalize messages belong to ephemeral publication fixtures;
+the later production snapshot operation completed at 05:31:15 UTC.
+
+| Signed Phase-A object | SHA-256 / identity |
+| --- | --- |
+| Artifact | `11597980161` |
+| Artifact ZIP | `ad8e0a51abc44ea08f49b6ca2446f8375ac607732e8117934f727c8ea6b4c913` |
+| Repository snapshot | `032449b92ae8c922fd5b6afe2e5be2f8298e73e4b2aa696fb9a9a3152e8f495a` |
+| RELEASE-SHA256SUMS | `f4daf35541ddc05caa979e5469f1ab970db42f4068308641d7729093c58f1d44` |
+
+Root independently verified the exact fourteen-file ZIP closure/digest, every
+member of the twelve-file signed manifest, unchanged trust bytes, matching
+BUILD/UNSIGNED hashes and the manifest/installer/archive signatures. GPGv bound
+them to signing subkey `B294D26BDAD5469EE334B0453DA0736C98322CCA` under primary
+`9C603F25F83F4B0F4745D790D97919282A24E748` in a fresh public verification home.
+This transport/signature verification does not establish installed behavior.
+Actual Minimal TTY scenario `minimal-20261009T053309Z-44dd08b9` completed with
+`status=PASS`, `exitStatus=0` and all fourteen assertions. Evidence includes plain
+`pacman -Syu`, new boot ID, zero failed units, clean shutdown, successful final
+`qemu-img check` and absence of its QEMU process. Artifact `11598290558` has ZIP
+SHA-256 `6a1117ed1e19270243cf3f461524fa4cacd94b776ddd57c3994c669169bec2f8`;
+the inner `.tar.gz` SHA-256 is
+`25d5880add9620966cdbcd2109e6cdbafe4422e055d83ea75615299e8ba85c07`.
+Source commit/tree, build/unsigned/snapshot hashes match the exact candidate above.
+
+Production-consumer replay against this actual evidence rejected it with
+`QEMU harness manifest row differs`. The evidence producer's `harness_files`
+sequence places the two GNOME 51 preparation inputs before guest bootstrap/verify;
+`HARNESS_FILES` in the acceptance consumer expects the reverse ordering. The
+exact ordered-closure guard correctly exposes this integration defect. The
+observed Minimal installation PASS is retained; final acceptance is not PASS.
+The workflow is terminal CANCELLED: Stock GNOME was interrupted and its evidence
+packaging had no completed result; queued scenarios/finalization/publication did
+not run. Runner cleanup completed, its temporary evidence root disappeared and
+no project QEMU process remained. Cancelled Stock log SHA-256:
+`55343615b61bdd1645fd0707a35248779bf6aa152bf3157c3f818cda43aaa9df`.
+No tag, immutable release or Pages deployment was produced by this attempt.
+
+The focused two-file correction reorders only the consumer tuple and adds an
+actual-producer regression with negative closure/hash/readback cases. Independent
+review found no issue; nine evidence and 25 Actions regressions passed. Replaying
+the complete production `snapshot_contract` and `directory_run` against the
+unchanged actual Minimal evidence now passes with consumer file SHA-256
+`7aca0ba1f89c8a0a193ceb8cc4bc19d8172d257f05f3b22e164f0ac2bd5b505c`.
+Result JSON SHA-256 is `45995b7b0b5bdbeaa27c0413774bc5a9c780cbc6fb1a308df735695bbcddc30a`,
+harness SHA-256 `d722051e656f6f0bbcdd4087cb129d23c152ddbef649993564acf0e47e24322b`.
+This diagnostic replay validates the fix against real input; it does not transfer
+the old child's VM PASS to the forthcoming corrected child.
+
 ## Verified release 1.0.6 — 2026-10-04
 
 [Configured run37214392242](https://github.com/snaplyze/arch-linux/actions/runs/37214392242)
