@@ -831,6 +831,9 @@ def child_resource_limits() -> None:
 
 
 def run_zstd_bounded(command: list[str], deadline: float, output=None) -> int:
+    # Snapshot before owning a child. pthread_sigmask may change the OS mask and
+    # then dispatch a Python signal handler before returning its previous mask.
+    previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
     child = subprocess.Popen(command, stdin=subprocess.DEVNULL,
                              stdout=subprocess.PIPE if output is not None else subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL, start_new_session=True,
@@ -851,19 +854,34 @@ def run_zstd_bounded(command: list[str], deadline: float, output=None) -> int:
                     if expanded > MAX_EXPANDED_BYTES:
                         fail("archive expanded size limit exceeded")
                     output.write(chunk)
+        # Popen.wait acquires a nonreentrant lock before entering its release
+        # finally. An asynchronous exception in that gap strands cleanup in a
+        # second wait. Its monotonic timeout still bounds this protected wait;
+        # launch, pipe decoding and tar parsing retain the outer alarm.
+        signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
         try:
             return child.wait(timeout=inspection_time_remaining(deadline))
         except subprocess.TimeoutExpired:
             fail("package inspection time limit exceeded")
     finally:
-        # Reap on success, parser failure, timeout, signal, or output-size rejection.
+        # Defer any pending alarm until the process group is killed, the child is
+        # reaped and its pipe is closed, including failures before the wait.
         try:
-            os.killpg(child.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        child.wait()
-        if child.stdout is not None:
-            child.stdout.close()
+            try:
+                signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
+            finally:
+                # A mutate-then-raise from the block call must not bypass cleanup.
+                try:
+                    os.killpg(child.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                try:
+                    child.wait()
+                finally:
+                    if child.stdout is not None:
+                        child.stdout.close()
+        finally:
+            signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
 
 
 def verify_package_tar(archive: tarfile.TarFile, package: str) -> None:

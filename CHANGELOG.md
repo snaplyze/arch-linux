@@ -17,6 +17,9 @@ separately through the signed repository; see [package delivery](docs/package-re
   port provenance; require real signed-upgrade, password-login and functionality acceptance
   bound to the delivered release.
 
+- Prevent archive-inspection deadline signals from stranding subprocess wait locks.
+  Preserve time/resource limits, child cleanup and the caller's signal state.
+
 - Render release-pinned bootstrap commands and prose from the selected release version,
   independently of the installer source floor and earlier documentation pin. Keep historical
   release dates and acceptance evidence bound to their original inputs. Keep installation

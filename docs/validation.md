@@ -2137,8 +2137,114 @@ Complete source-suite log SHA-256:
 This result prose follows that executed suite; final documentation/diff checks
 and exact-head protected CI remain required. No old VM result transfers to the
 changed harness; the actual Marble recovery cause remains open.
-The six supplementary scenarios continue independently. Marble upgrade/public
-acceptance remains open; public latest is 1.0.6 and the workstation is unchanged.
+Fresh Stock ext4 job 113986280411 passed twenty-one assertions. Supplemental
+readback verified source/tree/Phase-A and frozen harness; the strict core consumer
+is not applicable. Run `stock-20261009T202125Z-f6a5e449`, artifact 11643772203:
+API ZIP SHA-256 `d1a1c310edb11c8f867c9d42be6f6c317d66cf62b715eb02154816f1bf6d946d`;
+evidence archive SHA-256
+`6cb77f47702a19c79e42afa7618b104173beabd0b054841aad8a615b519e2705`;
+structured result SHA-256
+`5d12db917cfb1eb824676c8171b826280c29cbba775cb014bc11f900be3175f7`;
+independent receipt SHA-256
+`a142105464c49ae46991d2b44c214c1a7a42183150c32cf1911c5b933ec308d6`.
+After the corrected observer/readiness candidate passed source/review and PR79 was
+created, the failed old release was cancelled. Terminal cancellation is confirmed:
+three PASS, one FAIL, five cancelled. Btrfs job 113986280570, GRUB 113986280493,
+LUKS/systemd-boot 113986280332, Marble/Stock-GDM 113986280515 and dual boot
+113986280389 have no scenario artifacts. The bounded source-specific runtime
+observer returned no remaining runs; this is not a global resource inventory.
+No finalization/tag/release/Pages/public VM occurred. The retained results belong
+to 127461 only and do not transfer to the changed diagnostic harness.
+[PR79](https://github.com/snaplyze/arch-linux/pull/79) holds accepted source candidate
+`d802ed29a991403af89816e6ab1cb442f114f1ea`, tree
+`19969b851e0b985eceb9e1b972af2b0ac476cf36`, canonical source SHA-256
+`79c542b68188a75e606006a455f745d0baef9f0adad00fff3674a6258b8d1f98`.
+Required exact-head CI 37988082025/job 114014985049 passed, including full namespace
+repository acceptance; complete log SHA-256:
+`757ba53076e4345da8653dc49d2c0344871e57dd708cf5b9c6615c41f6f9685a`.
+The required Source checks run belongs to app 15368 and the exact accepted head.
+Live head/base, CLEAN/MERGEABLE state and all review threads (none) were rechecked.
+Protected squash merge completed at 20:42:55 UTC; main
+`69377c37a47c03c5f2d091d7cdea25a25d3cf5da` has the same tree/canonical source hash.
+The sole checkout returned to main through a fast-forward fetch, preserving the
+index and root-owned post-candidate evidence updates. Fresh main CI 37988828109
+remains in progress. At 21:00 UTC, source-bound read-only outer-QGA observation
+confirmed source wrapper PID 80048, package wrapper 118477 and archive-limit
+test 118480 waiting in `futex_do_wait`, with zombie child 118560. No environment,
+raw arguments or private process data were exposed; protected executable links
+remained protected. `tests/package-archive-limits.py` invokes the real verifier
+with short integrity/decode deadlines. Timeout/reaping diagnosis is open; this
+is a source-check obstruction, not evidence of a desktop regression. The shared
+runner has not been restarted. New child/build/VM/public gates remain open.
+Public latest is 1.0.6; workstation packages/settings have not been changed.
+
+### Archive inspection alarm/wait-lock race
+
+The main CI obstruction has a deterministic local reproduction: the one-shot
+`SIGALRM` is delivered immediately after CPython acquires `_waitpid_lock`, before
+its `try/finally` release is established. Raising `SystemExit` at that point
+leaves the lock held; verifier cleanup kills the child but its subsequent wait
+blocks on the same lock. This matches the observed sleeping parent/zombie child,
+although that original process has no Python stack trace. The official
+[Python signal guidance](https://docs.python.org/3/library/signal.html#note-on-signal-handlers-and-exceptions)
+describes this asynchronous exception hazard. The regression injects a real
+signal into real subprocess waiting, with an independent five-second timeout.
+Against unchanged main, integrity and decode cases both timed out:
+`python3 -B tests/package-archive-limits.py ArchiveLimits.test_alarm_in_wait_lock_acquisition_reaps_before_pending_signal_delivery`
+— EXECUTED_FAIL, two subcase errors; log SHA-256
+`4e8c9fd07b33b78b66858ab5583378d1daef0c656e560f1dca6a8eb792a58344`.
+The one-shot injector disarms the original timer before delivery, preventing a
+second artificial alarm from accidentally rescuing the deadlocked cleanup.
+After this reproduction, the hung main CI 37988828109 was cancelled; terminal
+job 114017496279 completed at 21:04:55 UTC. Container/network cleanup passed,
+and the bounded source-specific process observer returned no remaining source
+wrappers (not a global inventory). Complete cancelled-job log SHA-256:
+`07ed84f2b8fdc7b2c377fe6e1d3e9bd8f1045965aa6dd4c9cc0a544a55026ef5`.
+The corrected candidate remains pending. No shared runner restart, host update
+or protection change was performed.
+
+The first focused correction masks `SIGALRM` only over native timed wait and
+kill/reap/pipe-close, leaving launch, decoder and parser alarms active. Its
+real-signal acquire-gap test passed (log SHA-256
+`fa9a20fc6cee27d7eee932bb3a85d98cefb2bb2b3415368c1d0b77464408636d`);
+all sixteen archive tests passed (log SHA-256
+`96b21696486ebfcaa651771e71d6e88d4ed2691a3f09cf4df6bd98621c927840`).
+`bash tests/source-tests.sh` also passed, with full namespace acceptance, log
+SHA-256 `aa9c0d2c7fb5176de5373d9a13c5a7c2a833145f78128b5a9bf5982e9f7f36ea`.
+This working-tree result is historical, not an accepted candidate: independent
+review found a second mask-acquisition race. CPython changes the native mask
+before checking pending Python signals and returning its old value; an
+exception there prevents assignment of the original mask. Cleanup can then
+restore the already-blocked mask. Review reproduced the leaked blocked alarm;
+[CPython signal implementation](https://raw.githubusercontent.com/python/cpython/3.14/Modules/signalmodule.c)
+confirms that call ordering. A pre-mutation mask snapshot and exceptional-return
+regression are required, followed by fresh archive/source checks and review.
+No protection or timeout is intentionally weakened to obtain PASS.
+
+The revised correction snapshots the original mask before acquiring a child;
+mutating block operations cannot replace that snapshot. Nested cleanup performs
+kill/reap/pipe-close even when blocking changes the mask and raises before
+returning. Deterministic exceptional-return RED reproduced both mask leakage
+(wait entry) and an unreaped child (early cleanup), log SHA-256
+`d5fff522e1296c789cefcea3190dd79d63b8cc1e788e33031dfa29f40e4e8853`.
+The corrected test passed, including caller mask/handler/periodic timer, reaping,
+pipe closure and temporary cleanup, log SHA-256
+`1dd935566e54e8d6820f2832d578c7e92ab37d2875ad2381e9ce18769488507a`.
+`python3 -B tests/package-archive-limits.py` passed all seventeen tests, log
+SHA-256 `97095c3d9bf11f31f6f9a94f544ed65c6e9b940fec12d048f4ee971a48a4547f`.
+Independent revised-delta review found no material issues and reran both focused
+tests successfully. Launch/decoder/parser alarms, native monotonic deadlines,
+resource caps and process-group cleanup remain intact; blocking OS reap after
+SIGKILL retains its existing operating-system limitation. The original hung CI
+has no captured Python stack, so its exact interleaving remains an inference
+from matching process state and a reproduced real-signal race. Fresh full source
+checks subsequently passed: `bash tests/source-tests.sh`, EXECUTED_PASS,
+including all seventeen archive tests, 152 VM runtime checks and
+`REPOSITORY_CHECKS_RESULT schema=1 namespace_fixtures=full scenarios=10 signer=passed release_closures=14+18 deferred=none`.
+Complete final working-tree suite log SHA-256:
+`0c4342ecb9ee7b37faf57a13a9d598701352ab8707073379e8b8a9e312e3656c`.
+Protected exact-head CI, fresh main/build/VM/public delivery remain required;
+no new release is claimed.
 
 The additional `python3 maintenance/check-sources.py --network --report ...`
 advisory observed forty sources at `2026-10-09T11:21:02+00:00`: fourteen unchanged,
