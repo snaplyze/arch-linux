@@ -16,7 +16,7 @@ publication. Exact historical attempts and evidence belong in
 | G51-02 | Prepare reviewed package/extension upgrade paths, preserve user overrides and safe unsupported-version handling; reproduce failures before fixes and test recovery. | Source delivered; current signed build PASS; real GNOME upgrade acceptance pending |
 | G51-03 | Correct deterministic release documentation rendering; test independently differing source/document/release versions and preserve historical evidence. | DONE: overview/bootstrap/changelog rendering and 52 regressions PASS |
 | G51-04 | Update agent, update/release and user documentation with package delivery and real upgrade acceptance requirements. | Candidate instructions delivered; final publication reconciliation pending |
-| G51-05 | Independent diff review, affected checks and full source suite; record package, real session/VM and publication results separately. | HTTP correction/regressions/native ALPM/source suite/review and protected delivery PASS; fresh child/build/VM/publication acceptance pending; previous failed/cancelled results retained |
+| G51-05 | Independent diff review, affected checks and full source suite; record package, real session/VM and publication results separately. | HTTP correction, Shell observer regressions, source/review/protected delivery and fresh signed build PASS; new VM/publication acceptance pending; previous failed/cancelled results retained |
 
 ### Confirmed cause and delivery design
 
@@ -61,8 +61,42 @@ commands/results keep their identities; old tags and assets are never rewritten.
 
 ### Current checkpoint and remaining gates
 
+[PR77](https://github.com/snaplyze/arch-linux/pull/77) delivered the corrected
+GNOME 50/51 user-unit observer and bounded recovery chronology. Local final source
+checks and independent review passed; exact-head CI 37966226074 passed and the
+protected squash merge completed at 17:30 UTC. Main is
+`30ebf25cd70f8f76140996dcf54b2445198f1b84`; the sole checkout returned to main by
+fast-forward with the index preserved. Fresh main CI 37966792524 passed.
+[Release 37967163595](https://github.com/snaplyze/arch-linux/actions/runs/37967163595)
+prepared child `a7730ddab4dd88fede3f8ca83489806f559d6a0f`; independent source
+transport and deterministic transformation verification passed, including 1.0.7
+README/bootstrap pins. The clean seven-package build and protected unsigned
+readback passed; independent metadata/payload/MTREE verification also passed.
+All five release-host gates and Phase-A signing passed. Independent readback
+verified the exact fourteen-file signed closure, twelve manifest rows, three
+release signatures and twenty-five snapshot objects. Fresh Minimal passed
+fourteen assertions and core Stock passed twenty-two;
+both frozen strict consumers passed. Core Marble failed before VM creation: the
+accepted ISO HTTPS transfer ended with curl 56 / TLS unexpected EOF, before its
+mandatory hash verification. Supplemental Stock ext4 then failed after seven
+assertions at the premature extension inventory query (CLI status 2), before the
+existing bounded readiness poll. The exact transient-versus-crash cause is unknown.
+A focused two-line query-order correction passed a HEAD control (four failures),
+two executable regression tests with twenty negative cases, all 147 runtime checks
+and independent review. Product behavior/settings/deadlines/expected extension sets
+are unchanged. Initial and documented full source suites passed, including full
+namespace repository gates. This final result prose follows the checks; exact-head
+CI is required before protected delivery. Changed harness inputs require a fresh
+child and VM results. The earlier
+unchanged-input ISO retry plan is superseded. Run 37967163595 is now CANCELLED:
+two PASS, two FAIL and five cancelled scenarios. No finalization/publication ran;
+no old PASS transfers. The local release procedure documents the separate
+pre-evidence retry boundary, with artifact-absence checks and no overwrite/deletion;
+independent review passed. Finalization and public gates remain pending. No Shell
+recovery product-cause correction has been inferred from these harness changes.
+
 [PR76](https://github.com/snaplyze/arch-linux/pull/76) passed exact-head CI and the
-protected squash merge at 15:50 UTC. Main is
+protected squash merge at 15:50 UTC. Its main was
 `0d6b246cd5e6fb3cde8818be33d70bc6d32e8392`; main CI 37954693122 passed.
 [Release 37955123850](https://github.com/snaplyze/arch-linux/actions/runs/37955123850)
 prepared child `00d97e3ee254cee318b8bce7c51ebbf3e64c2c95`. Independent source
@@ -78,8 +112,8 @@ The observer wrongly queried `org.gnome.Shell@wayland.service`; both reviewed
 GNOME 50 and 51 run `org.gnome.Shell@user.service`. Its zero failure counts do not
 exclude a real Shell failure. The focused observer/timestamp correction passed
 145 runtime checks, seventeen lifecycle fixtures, independent review and both
-initial/documented full source runs. Protected delivery and fresh VM diagnosis
-remain pending; the exact product cause is not established. Supplemental Stock
+initial/documented full source runs. PR77 delivered that observer correction;
+fresh VM diagnosis remains pending and the exact product cause is not established. Supplemental Stock
 ext4 also passed all twenty-one assertions. The unpublished run was cancelled:
 three PASS, one FAIL and five cancelled scenarios. Finalization/publication did
 not run. No result transfers to the changed diagnostic candidate.

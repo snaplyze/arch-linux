@@ -2026,6 +2026,78 @@ emit_runtime_action_pass(){ printf 'ACTION_PASS:%s
             self.assertNotIn("Traceback", result.stderr)
             self.assertNotIn("/tmp/", result.stderr)
 
+    def extension_inventory_sequence(self, profile, case="delayed-api"):
+        if profile == "stock":
+            body = function("verify_stock_session")
+            start = body.index('    expected_extensions=')
+        else:
+            body = function("verify_marble_user_session")
+            start = body.index('    [ "${cursor_theme}" = "\'Bibata-Modern-Classic\'" ]')
+            start = body.index("\n", start) + 1
+        end = body.index('    boot_id=', start) if profile != "stock" else body.index('    [ "$(run_in_user_session', body.index('    done <<<"${expected_extensions}"', start))
+        sequence = body[start:end]
+        if profile != "stock":
+            # Execute the actual extension inventory/wait branches, excluding unrelated
+            # theme/filesystem acceptance so this fixture touches no installed system.
+            equality = re.escape('        [ "${enabled_extensions}" = "${expected_extensions}" ]\n')
+            sequence = re.sub('(' + equality + ').*?(?=    else\n)', r'\1', sequence, count=1, flags=re.S)
+            active, removed = sequence.split('    else\n', 1)
+            removed = re.sub('(' + equality + ').*?(?=    fi\n    (?:installed_extensions=|while ))', r'\1', removed, count=1, flags=re.S)
+            sequence = active + '    else\n' + removed
+            sequence = sequence.replace('        verify_marble_packages\n', '').replace('        verify_vendor_integrity\n', '')
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            script = 'set -euo pipefail\nuid=1000 expected="$1" fixture_case="$2" fixture_root="$3"\n'
+            script += r"""
+run_in_user_session(){
+    if [[ "$*" = *--enabled* ]]; then
+        local count=0
+        [ ! -f "$fixture_root/count" ] || count="$(cat "$fixture_root/count")"
+        printf '%s\n' "$((count+1))" > "$fixture_root/count"
+        case "$fixture_case" in
+          persistent-api) return 2;;
+          missing-enabled) printf '%s\n' "${expected_extensions%%$'\n'*}"; return 0;;
+          unexpected-enabled) printf '%s\nunexpected-extension@fixture\n' "$expected_extensions"; return 0;;
+        esac
+        [ "$count" -ge 1 ] || return 2
+        touch "$fixture_root/ready"
+        printf '%s\n' "$expected_extensions"
+    else
+        [ -f "$fixture_root/ready" ] || return 2
+        [ "$fixture_case" != inventory-api-failure ] || return 2
+        if [ "$fixture_case" = missing-inventory ]; then
+            printf '%s\n' "${expected_extensions%%$'\n'*}"
+        else
+            printf '%s\n' "$expected_extensions"
+        fi
+    fi
+}
+sleep(){ [ "$fixture_case" = delayed-api ] || [ "$fixture_case" = inventory-api-failure ] || [ "$fixture_case" = missing-inventory ] || SECONDS=$((SECONDS+181)); }
+emit_extension_timeout_diagnostic(){ printf 'BOUNDED_WAIT_FAILED\n' >&2; }
+"""
+            script += function("wait_for_enabled_extensions") + "\n" + sequence + '\nprintf "INVENTORY_PASS expected_count=%s queries=%s\\n" "$(wc -l <<<"$expected_extensions")" "$(cat "$fixture_root/count")"\n'
+            expected = "stock" if profile in ("stock", "removed") else profile
+            return subprocess.run(["bash", "-c", script, "fixture", expected, case, str(root)], capture_output=True, text=True, timeout=5)
+
+    def test_extension_inventory_waits_for_real_api_readiness_in_all_profiles(self):
+        for profile, count in (("stock", 7), ("marble", 8), ("fallback", 8), ("removed", 7)):
+            with self.subTest(profile=profile):
+                result = self.extension_inventory_sequence(profile)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(f"INVENTORY_PASS expected_count={count} queries=2", result.stdout)
+
+    def test_extension_inventory_keeps_persistent_and_post_ready_failures(self):
+        for profile in ("stock", "marble", "fallback", "removed"):
+            for case in ("persistent-api", "missing-enabled", "unexpected-enabled", "inventory-api-failure", "missing-inventory"):
+                with self.subTest(profile=profile, case=case):
+                    result = self.extension_inventory_sequence(profile, case)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertNotIn("INVENTORY_PASS", result.stdout)
+                    if case in ("persistent-api", "missing-enabled", "unexpected-enabled"):
+                        self.assertIn("BOUNDED_WAIT_FAILED", result.stderr)
+                    if case == "inventory-api-failure":
+                        self.assertEqual(result.returncode, 2)
+
     def extension_wait(self, case="exact", disabled="false", info="ERROR"):
         text = VERIFY.read_text()
         names = ["emit_extension_timeout_diagnostic", "wait_for_enabled_extensions"]

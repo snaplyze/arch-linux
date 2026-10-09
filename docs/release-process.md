@@ -105,8 +105,28 @@ no Colloid/Marble theme packages. This requires a new full installer release. Th
 unchanged six-package update. Package-only mode must reject that closure/installer transition.
 
 The manual **Run workflow** action resumes an existing release for the current reviewed `main`
-commit; it cannot start a fresh candidate. To retry preparation before a tag exists, rerun that
-commit's CI push run and let its successful completion trigger the release workflow.
+commit; it cannot start a fresh candidate. To retry source preparation before a tag exists,
+rerun that commit's CI push run and let its successful completion trigger the release workflow.
+
+For a confirmed transport failure before an individual staged VM job produces evidence,
+preserve the failed attempt and let the current workflow finish its independent jobs.
+Verify through the artifact API that the exact failed scenario artifact and all
+colliding downstream artifacts are absent. Artifact names have no attempt suffix;
+retrying a job that already uploaded evidence would collide with its retained artifact.
+Do not enable overwrite or delete it; that case needs separately reviewed retry and
+selection handling which preserves history. If source preparation,
+canonical build and Phase-A signing already passed, repeat only that failed job and its
+[dependent jobs](https://docs.github.com/en/rest/actions/workflow-runs#re-run-a-job-from-a-workflow-run)
+using `gh run rerun RUN_ID --job JOB_DATABASE_ID`. Obtain the database ID from
+`gh run view RUN_ID --json jobs`; a browser job URL number is not the CLI job selector.
+Before retrying, recheck the reviewed main commit, exact release child/tree, accepted
+ISO/hash, and retained BUILD/UNSIGNED/Phase-A identities. Reuse their verified bytes;
+do not rerun successful build/signing jobs, repin inputs, alter the workflow or use a
+manual dispatch to create another candidate. Keep the original failure distinct from
+new VM results and independently verify every later artifact and source/input binding.
+An incomplete download never bypasses its hash or signature check. Repeated failures
+need new diagnosis; a retry is not functional acceptance. Changed source or inputs need
+fresh applicable gates and their own results, rather than a transfer of the old PASS.
 
 The executor verifies its own process group and cgroup before acknowledging entry. A child that
 finishes before the parent can inspect `/proc` is accepted only after a successful Bash child wait,

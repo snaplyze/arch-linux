@@ -3107,9 +3107,9 @@ verify_stock_session() {
         dash-to-dock@micxgx.gmail.com \
         just-perfection-desktop@just-perfection \
         no-screenshot-box@screenshot)"
-    installed_extensions="$(run_in_user_session "${uid}" /usr/bin/gnome-extensions list)"
     enabled_extensions="$(wait_for_enabled_extensions "${uid}" "${expected_extensions}")"
     [ "${enabled_extensions}" = "${expected_extensions}" ]
+    installed_extensions="$(run_in_user_session "${uid}" /usr/bin/gnome-extensions list)"
     while IFS= read -r extension_uuid; do
         grep -qxF -- "${extension_uuid}" <<<"${installed_extensions}"
     done <<<"${expected_extensions}"
@@ -3709,7 +3709,6 @@ verify_marble_user_session() {
     gtk_theme="$(run_in_user_session "${uid}" gsettings get org.gnome.desktop.interface gtk-theme)"
     icon_theme="$(run_in_user_session "${uid}" gsettings get org.gnome.desktop.interface icon-theme)"
     [ "${cursor_theme}" = "'Bibata-Modern-Classic'" ]
-    installed_extensions="$(run_in_user_session "${uid}" gnome-extensions list)"
     if [ "${expected}" = marble ] || [ "${expected}" = fallback ]; then
         verify_marble_packages
         verify_vendor_integrity
@@ -3747,6 +3746,7 @@ verify_marble_user_session() {
         [ ! -e "/home/${username}/.config/gtk-4.0/gtk-dark.css" ]
         verify_package_qkk_zero gnome-shell gdm >/dev/null
     fi
+    installed_extensions="$(run_in_user_session "${uid}" gnome-extensions list)"
     while IFS= read -r extension_uuid; do
         grep -qxF -- "${extension_uuid}" <<<"${installed_extensions}"
     done <<<"${expected_extensions}"
