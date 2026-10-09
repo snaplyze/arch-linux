@@ -587,14 +587,17 @@ flow = re.search(r'^run_marble_acceptance\(\) \{.*?^\}', host, re.M | re.S).grou
 ordered = ['qga_verify legacy-install', 'qga_verify migration-update', 'run_fresh_marble_user_round_trip',
            'qga_verify gnome51-baseline-install', 'marble_gdm_login gnome51-baseline-login',
            'qga_verify gnome51-upgrade', 'marble_gdm_login gnome51-upgraded-login',
-           'record_assertion gnome51-signed-extension-owner-migration']
+           'record_assertion gnome51-signed-extension-owner-migration', 'run_extension_functional_acceptance upgrade',
+           'marble_gdm_login secondlogin', 'run_extension_functional_acceptance postreboot']
 positions = [flow.index(item) for item in ordered]; assert positions == sorted(positions)
 functions = [re.search(r'^' + name + r'\(\) \{\n.*?^\}', host, re.M | re.S).group(0)
              for name in ('remove_secret_bearing_evidence', 'compact_run_evidence')]
 with tempfile.TemporaryDirectory() as temporary:
     directory = Path(temporary); evidence = directory / 'evidence'; evidence.mkdir()
     (evidence / 'phase.stdout').write_text('GNOME51_UPGRADE_BASELINE_PASS run_id=fixture old_incompatible=4\n'
-                                         'GNOME51_UPGRADE_RECOVERY_PASS run_id=fixture extensions=8-active\n')
+                                         'GNOME51_UPGRADE_RECOVERY_PASS run_id=fixture extensions=8-active\n' +
+                                         ''.join('EXTENSION_FUNCTIONAL_PASS phase=' + phase + ' feature=' + feature + ' run_id=fixture session=1 probe_sha256=' + 'a'*64 + '\n'
+                                                 for phase in ['upgrade','postreboot'] for feature in ['clipboard','dash','screenshot']))
     for name in ['gnome51-upgrade-manifest.json', 'gnome51-upgrade-baseline-repository-manifest.json',
                  'gnome51-upgrade-baseline-repository-manifest.json.sig']:
         (evidence / name).write_text('public fixture')
@@ -603,6 +606,7 @@ with tempfile.TemporaryDirectory() as temporary:
     assert result.returncode == 0, result.stderr
     log = gzip.decompress((evidence / 'scenario.log.gz').read_bytes()).decode()
     assert 'GNOME51_UPGRADE_BASELINE_PASS' in log and 'GNOME51_UPGRADE_RECOVERY_PASS' in log
+    assert log.count('EXTENSION_FUNCTIONAL_PASS ') == 6
     assert len(list(evidence.iterdir())) == 4
 print('GNOME51 migration: production ordering and evidence retention passed; VM NOT_RUN')
 PY_GNOME51_CLOSURE

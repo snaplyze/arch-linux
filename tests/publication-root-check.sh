@@ -469,6 +469,7 @@ executable_sources=(
     tests/vm/prepare-gnome51-upgrade-inputs.py
     tests/vm/guest/bootstrap.sh
     tests/vm/guest/verify.sh
+    tests/vm/guest/extension-probe.js
 )
 for relative in "${executable_sources[@]}"; do
     /usr/bin/install -D -m0755 -o 0 -g 0 -- "$repo_root/$relative" "$fixture_source/$relative"
@@ -1152,6 +1153,7 @@ for index, (scenario, prefix, serial_code) in enumerate(scenarios, 1):
     ).encode()
     if prefix == 'marble':
         log += b'GNOME51_UPGRADE_BASELINE_PASS synthetic_unit_fixture=1\nGNOME51_UPGRADE_RECOVERY_PASS synthetic_unit_fixture=1\n'
+        log += upgrade_fixture.functional_log(source, run_id)
     write(evidence / 'scenario.log.gz', gzip.compress(log, mtime=0))
     write(evidence / 'final-qemu-img-check.txt', b'No errors were found on the image.\n')
     write(

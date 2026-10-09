@@ -357,7 +357,7 @@ def prepare_recipes(root, directory, pins):
 
 
 def container_command(root, recipes, name):
-    return ['docker', 'run', '--detach', '--pull=never', '--name', name, '--cpus=2', '--memory=4g', '--memory-swap=4g', '--pids-limit=256',
+    return ['docker', 'run', '--init', '--detach', '--pull=never', '--name', name, '--cpus=2', '--memory=4g', '--memory-swap=4g', '--pids-limit=256',
             '--security-opt', 'no-new-privileges', '--label', 'arch-linux.gnome51-input=' + name,
             '--mount', f'type=bind,source={recipes},target=/recipes,readonly', '--tmpfs', '/work:rw,nosuid,nodev,size=2g',
             load_pins(root)['container'], 'sleep', '1800']

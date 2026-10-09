@@ -243,8 +243,19 @@ digest directly to the harness. Missing or changed inputs stop dispatch. The
 guest proves the old installation before plain `pacman -Syu` and real GDM login,
 then checks package replacement, settings, original-directory custody and eight
 active extensions. The finalizer requires that assertion and the bound evidence.
-This extends the unchanged GTK3 migration test. It does not replace the behavioral
-extension checks below; enabled-state checks alone cannot establish those.
+This extends the unchanged GTK3 migration test. Enabled-state checks alone cannot
+establish extension behavior. The candidate harness additionally requires real
+keyboard/pointer actions after migration and after reboot: an otherwise unused
+Dash extension shortcut must launch a disposable GTK app; Clipboard history must
+restore and paste two synthetic values; No Screenshot Box must save the selected
+area on pointer release, with a disabled-setting control requiring an explicit
+capture action. The finalizer requires all six distinct behavior assertions and
+compact receipts bound to the run, actual session and hashed probe source.
+Missing observations, stale receipts and enabled-state-only results fail.
+The app and captured guest images are temporary test outputs, not a visual
+evidence framework. These checks leave Blur rendering, menu appearance and the
+remaining behavioral checks below separate; they are not executed VM acceptance
+until the exact signed candidate is actually run.
 
 Real acceptance must bind the older installed state, new signed package set, GNOME/GTK/libadwaita
 versions and harness inputs, then execute these checks in a disposable installation:

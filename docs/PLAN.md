@@ -33,6 +33,10 @@ and installation commands pinned 1.0.6. The candidate now renders bounded canoni
 bootstrap blocks for the selected child version and promotes exactly one nonempty
 Unreleased changelog section. Historical acceptance remains bound to its original
 release. Existing immutable tag 1.0.6 and its bytes are not modified.
+Live readback of that tag confirmed its README still directs readers to 1.0.5
+and describes old audit status; correcting main after publication did not change
+the frozen tag. The new pre-freeze renderer addresses future release commands and
+overview text rather than rewriting that historical release.
 
 Current implementation: the seventh package `arch-linux-gnome-extensions` owns
 five reviewed non-distribution extensions and four versioned AUR replacements.
@@ -142,6 +146,19 @@ after the input copy. Docker cleanup also handles timeout after daemon-side
 creation using the exact per-run ownership label. These checks do not establish
 actual migration or extension behavior: eight enabled states leave the separate
 Clipboard/Dash/Blur/No Screenshot Box functional checks open.
+The candidate now additionally drives three behaviors through real QMP keys and
+pointer input after migration and after reboot: Clipboard history/copy/paste,
+Dash-specific app launch and No Screenshot Box capture on release with a disabled
+control. A small ordinary GTK probe observes synthetic values only. Six distinct
+assertions and run/session/probe-bound receipts are mandatory in the finalizer.
+Independent review fixed canonical run-ID handling, live process/start identity,
+root-frozen probe hash binding and rejection of renamed old screenshot inodes.
+All 126 runtime fixtures, seven evidence-consumer tests and native isolated GTK
+startup passed. These are source/native-probe results, not execution of the six
+GNOME behavior assertions. Actual signed VM migration and Blur/appearance checks
+remain open. The full source run caught an outdated assertion-producer fixture;
+it now invokes the real new helper with only VM/input observations stubbed and
+checks the complete 33-assertion Marble closure.
 Official AUR Git TLS failed; the official
 Arch AUR mirror reproduced all four existing archive, `.SRCINFO` and hardened
 PKGBUILD hashes without changing the trusted pins. Upstream source builds remain
@@ -151,14 +168,18 @@ The expanded source candidate `79623c4` passed the full source suite, including
 121 VM fixture checks, 15 upgrade-input checks and full repository namespaces
 with no deferrals. Its source log SHA-256 is
 `57d5b5f32f4b4240e14b0e01de55803b36fe3bd9ec0dc42f3866bec318da3a8a`.
-Real input preparation then reproduced an outdated Arch keyring in the pinned
-container before any AUR build. Authenticated `archlinux-keyring` upgrade from
+Real input preparation found an outdated Arch keyring in the pinned container
+before any AUR build. Authenticated `archlinux-keyring` upgrade from
 20260727 to 20260909 passed in a disposable diagnostic container; preparation now
 requires it before the full system upgrade, following the
 [Arch package-signing guidance](https://wiki.archlinux.org/title/Pacman/Package_signing#Upgrade_system_regularly).
-Sequencing/failure fixtures pass. This does not relax package signature checks or
-establish successful preparation of the four AUR inputs; that execution remains
-pending. Both owned preparation/diagnostic containers were removed.
+That change alone did not fix the large transaction's GPGME failure. A controlled
+repeat with Docker `--init` passed all 422 signed packages with unchanged trust and
+resource limits; peak task count was 16/256 with no limit hits. The preparer now
+requires an init process to reap orphaned children. Sequencing/failure fixtures
+pass. This does not relax package signature checks or establish successful
+preparation of the four AUR inputs; that execution remains pending. Owned
+preparation/diagnostic containers were removed.
 
 Release-host diagnostic attempt for `6b13bbd`: ordinary and required-full-namespace
 repository modes passed in the disposable Arch container. The publication-root
@@ -169,9 +190,17 @@ container was removed; the next integrated attempt must provision the same locke
 account as the configured release setup before running those checks.
 The `79623c4` attempt provisioned that account and again passed both repository
 modes, but the sealed launcher's snapshot mode rejected the container boundary.
-The two keyring modes were not reached. Its exact cause is under investigation;
-neither a product failure nor a release-host PASS is inferred from the generic
-launcher error. The owned container was removed.
+The cause was Docker overlayfs directories reporting one link, violating the
+existing strict directory identity check. A private tmpfs fixture, without a
+source or safety-policy change, passed the complete publication-root test for
+`d81f0a0`, including supervisor death and exact 14/18 closures. Ordinary and full
+privileged keyring checks also passed. The latter used only its own verified
+Docker cgroup subtree and disposable loop-backed disk; all owned resources were
+removed and host device metadata stayed unchanged. These
+disposable test keys do not establish production signing. Exact receipts are in
+[validation](validation.md#gnome-51-candidate--2026-10-09).
+The full source suite also passed `d81f0a0`, log SHA-256
+`296434ddd3e019d9594bcfd1843f58bb07fbf803feed35de2a01f74bd07bfcae`.
 
 ## Local runner migration — 2026-10-08
 

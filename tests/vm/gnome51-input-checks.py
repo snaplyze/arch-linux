@@ -47,6 +47,7 @@ class InputChecks(unittest.TestCase):
         cmd = M.container_command(ROOT, pathlib.Path('/tmp/recipes'), 'arch-linux-g51-test')
         self.assertIn('--cpus=2', cmd); self.assertIn('--memory=4g', cmd)
         self.assertIn('--pids-limit=256', cmd)
+        self.assertIn('--init', cmd)
         self.assertIn('no-new-privileges', cmd)
         mounts = [cmd[index + 1] for index, argument in enumerate(cmd) if argument == '--mount']
         self.assertEqual(mounts, ['type=bind,source=/tmp/recipes,target=/recipes,readonly'])

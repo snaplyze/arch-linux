@@ -425,7 +425,8 @@ cp -- "$repo_root/maintenance/accepted-arch-iso.json" \
 for harness_file in \
     tests/vm/run.sh tests/vm/frame-evidence.py tests/vm/qga-client.py tests/vm/https-server.py \
     tests/vm/prepare-marble-repository.sh tests/vm/prepare-gnome51-upgrade-inputs.py \
-    tests/vm/gnome51-upgrade-baseline.json tests/vm/guest/bootstrap.sh tests/vm/guest/verify.sh; do
+    tests/vm/gnome51-upgrade-baseline.json tests/vm/guest/bootstrap.sh tests/vm/guest/verify.sh \
+    tests/vm/guest/extension-probe.js; do
     cp -- "$repo_root/$harness_file" "$fixture_project/$harness_file"
 done
 for package in arch-linux-keyring arch-linux-gnome-extensions arch-linux-marble-profile; do
@@ -1089,6 +1090,7 @@ for index,(scenario,prefix,serial_code) in enumerate(scenarios,1):
     log=f'{marker}_QEMU_INSTALLER_EXIT status=0\n{marker}_QEMU_INSTALL_COMPLETE run_id={run_id}\n'.encode()
     if prefix=='marble':
         log+=b'GNOME51_UPGRADE_BASELINE_PASS synthetic_unit_fixture=1\nGNOME51_UPGRADE_RECOVERY_PASS synthetic_unit_fixture=1\n'
+        log+=upgrade_fixture.functional_log(source, run_id)
     write(evidence/'scenario.log.gz',gzip.compress(log,mtime=0))
     write(evidence/'final-qemu-img-check.txt',b'No errors were found on the image.\n')
     write(evidence/'no-qemu-process.txt',f'no matching QEMU process remains for {run_id}\n'.encode())
@@ -1254,6 +1256,19 @@ for scenario, _, _ in scenarios:
                               {'evidence/scenario.log.gz': gzip.compress(log.replace(marker, b'MISSING'), mtime=0)}))
             negatives.append(('upgrade duplicate marker ' + marker.decode(), payloads |
                               {'evidence/scenario.log.gz': gzip.compress(log + marker + b'\n', mtime=0)}))
+        log = gzip.decompress(payloads['evidence/scenario.log.gz'])
+        for phase in ('upgrade', 'postreboot'):
+            for feature in ('clipboard', 'dash', 'screenshot'):
+                marker = f'EXTENSION_FUNCTIONAL_PASS phase={phase} feature={feature} '.encode()
+                negatives.append(('missing functional receipt ' + phase + '/' + feature, payloads |
+                    {'evidence/scenario.log.gz': gzip.compress(log.replace(marker, b'MISSING '), mtime=0)}))
+        for label, changed in (
+                ('stale run', log.replace(b'feature=clipboard run_id=', b'feature=clipboard run_id=stale-')),
+                ('stale probe', log.replace(b'probe_sha256=', b'probe_sha256=f')),
+                ('mixed session', log.replace(b'feature=dash run_id=' + run_id.encode() + b' session=c2',
+                                             b'feature=dash run_id=' + run_id.encode() + b' session=c3'))):
+            negatives.append(('functional ' + label, payloads |
+                {'evidence/scenario.log.gz': gzip.compress(changed, mtime=0)}))
         negatives += [
             ('legacy signature', payloads | {'evidence/legacy-repository-manifest.json.sig': repository_signature}),
             ('missing legacy manifest', {name:value for name,value in payloads.items()

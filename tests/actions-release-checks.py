@@ -216,14 +216,22 @@ build_result "$2" "$3" "$4"
         def outer_assertion(identifier: str) -> str:
             return re.search(r'^\s*record_assertion ' + re.escape(identifier) +
                              r" \\\n\s*'[^']*'", source, re.M).group(0)
-        program = "set -euo pipefail\n" + function("record_assertion") + "\n" + function("run_marble_acceptance") + r'''
+        program = ("set -euo pipefail\n" + function("record_assertion") + "\n" +
+                   function("run_extension_functional_acceptance") + "\n" + function("run_marble_acceptance")) + r'''
 assertions_file="$1/assertions.tsv"
+evidence="$1"
 scenario_id=marble-gnome-btrfs-luks2-plymouth-systemdboot
 input_mode=staged
 last_boot_id=first
 current_phase=firstboot
 die(){ return 1; }
-qga_verify(){ if [ "$1" = postreboot-prelogin ]; then last_boot_id=second; fi; }
+qga_verify(){
+    if [ "$1" = postreboot-prelogin ]; then last_boot_id=second; fi
+    case "$1" in extension-*-dash)
+        printf 'EXTENSION_PROBE_DISPLAY width=1280 height=800 scale=1\n' >"${evidence}/$2.stdout" ;;
+    esac
+}
+qmp_extension_input(){ :; }
 capture_screen(){ :; }
 marble_gdm_login(){ :; }
 run_fresh_marble_user_round_trip(){ :; }
@@ -245,7 +253,7 @@ wait_qga(){ :; }
             rows = (Path(tmp) / "assertions.tsv").read_bytes()
         assertions = [dict(zip(("id", "status", "detail"), line.split("\t"), strict=True))
                       for line in rows.decode().splitlines()]
-        self.assertEqual(len(assertions), 27)
+        self.assertEqual(len(assertions), 33)
         # Run the actual run_record assertion-validation statements, avoiding fake
         # repository signatures/VM evidence and retaining the exact ordered closure.
         path = ROOT / "repository/acceptance-manifest.py"

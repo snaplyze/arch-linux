@@ -20,6 +20,16 @@ def digest(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
+def functional_log(source: Path, run_id: str) -> bytes:
+    """Synthetic finalizer input; never a record of actual extension behavior."""
+    probe = digest((source / 'tests/vm/guest/extension-probe.js').read_bytes())
+    return ''.join(
+        f'EXTENSION_FUNCTIONAL_PASS phase={phase} feature={feature} run_id={run_id} '
+        f'session=c2 probe_sha256={probe} synthetic_unit_fixture=1\n'
+        for phase in ('upgrade', 'postreboot')
+        for feature in ('clipboard', 'dash', 'screenshot')).encode()
+
+
 def write(path: Path, raw: bytes) -> None:
     path.write_bytes(raw)
     path.chmod(0o644)

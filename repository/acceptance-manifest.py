@@ -50,6 +50,7 @@ HARNESS_FILES = (
     "tests/vm/https-server.py", "tests/vm/prepare-marble-repository.sh",
     "tests/vm/guest/bootstrap.sh", "tests/vm/guest/verify.sh",
     "tests/vm/prepare-gnome51-upgrade-inputs.py", "tests/vm/gnome51-upgrade-baseline.json",
+    "tests/vm/guest/extension-probe.js",
 )
 EXPECTED_ASSERTIONS = {
     SCENARIOS[0]: (
@@ -78,11 +79,15 @@ EXPECTED_ASSERTIONS = {
         "legacy-signed-package-migration", "fresh-user-gdm-gtk4-activation",
         "gtk4-libadwaita-light-dark-smoke",
         "gnome51-signed-extension-owner-migration",
+        "clipboard-history-copy-paste", "dash-extension-app-activation",
+        "no-screenshot-box-capture-on-release",
         "gdm-user-password-no-autologin", "first-gdm-login-wayland", "marble-shell-active",
         "colloid-gtk3-gtk4-icons-bibata", "user-themes-extension-profile",
         "gdm-process-scoped-overlays", "user-shell-overlay-isolation", "vendor-paths-clean",
         "project-packages-qkk-clean", "lock-password-unlock", "update-hooks-safe",
         "reboot-plymouth-gdm-reactivation", "second-gdm-login-wayland",
+        "clipboard-history-copy-paste-postreboot", "dash-extension-app-activation-postreboot",
+        "no-screenshot-box-capture-on-release-postreboot",
         "gdm-helper-failure-honest", "gdm-explicit-deactivation",
         "gdm-stock-fallback-and-restore", "marble-package-removal-stock", "marble-package-reinstall",
         "clean-poweroff-image-health-hygiene",
@@ -966,6 +971,33 @@ def validate_identity_record(raw: bytes, result: dict[str, object], scenario: st
         fail("QEMU target serial differs from its scenario")
 
 
+def validate_extension_functional_log(log: str, run_id: str, probe_sha256: str) -> None:
+    """Require distinct behavior observations for this harness/run after both logins."""
+    expected = {(phase, feature) for phase in ("upgrade", "postreboot")
+                for feature in ("clipboard", "dash", "screenshot")}
+    observed: set[tuple[str, str]] = set()
+    sessions: dict[str, str] = {}
+    pattern = re.compile(
+        r"EXTENSION_FUNCTIONAL_PASS phase=(upgrade|postreboot) "
+        r"feature=(clipboard|dash|screenshot) run_id=([A-Za-z0-9-]+) "
+        r"session=([A-Za-z0-9_-]{1,64}) probe_sha256=([a-f0-9]{64})(?: [^\r\n]*)?\Z")
+    for line in log.splitlines():
+        if not line.startswith("EXTENSION_FUNCTIONAL_PASS"):
+            continue
+        match = pattern.fullmatch(line) if len(line) <= 2048 else None
+        if match is None:
+            fail("extension functional receipt syntax differs")
+        phase, feature, recorded_run, session, recorded_probe = match.groups()
+        key = (phase, feature)
+        if (key in observed or recorded_run != run_id or recorded_probe != probe_sha256 or
+                sessions.get(phase, session) != session):
+            fail("extension functional receipt identity differs or repeats")
+        observed.add(key)
+        sessions[phase] = session
+    if observed != expected:
+        fail("extension functional observations are incomplete")
+
+
 def validate_runtime_markers(read: Callable[[str, int], bytes], result: dict[str, object],
                              scenario: str, run_id: str) -> dict[str, str]:
     harness_raw = read("harness.sha256", MAX_JSON)
@@ -1020,6 +1052,7 @@ def validate_runtime_markers(read: Callable[[str, int], bytes], result: dict[str
             re.search(r"QEMU_HOST_FAIL|_QEMU_GUEST_FAIL|exit_status=[1-9]", log)):
         fail("QEMU compact scenario log lacks success or contains failure")
     if scenario == SCENARIOS[2]:
+        validate_extension_functional_log(log, run_id, harness["tests/vm/guest/extension-probe.js"])
         for marker in ("GNOME51_UPGRADE_BASELINE_PASS", "GNOME51_UPGRADE_RECOVERY_PASS"):
             if len(re.findall(r"(?m)^" + marker + r"(?:[ \t].*)?$", log)) != 1:
                 fail("GNOME 51 upgrade real-session marker missing or repeated")

@@ -426,7 +426,7 @@ compact_run_evidence() {
         case "${candidate}" in
         *.ppm | *.request.json | *.start.json | *.status.json) continue ;;
         esac
-        grep -aEh '^[[:space:]]*([A-Z]+_QEMU_(READY|INSTALLER_EXIT|INSTALL_COMPLETE|NEIGHBOR_PRESERVED|ESP_COLLISION_REFUSAL_PASS|COLLISION_PROBE_READY|COLLISION_PROBE_EXIT|FAIL|GUEST_PASS)|QEMU_HOST_FAIL|QEMU_FAILURE_DIAGNOSTIC[[:space:]]|QEMU_DIAGNOSTIC_WARNING:|SCREENSHOT_WARNING:|GTK4_APP_(DIAGNOSTIC|LAUNCH_FAIL)|GTK4_SESSION_DIAGNOSTIC|SNAPSHOT_ENTRY_DIAGNOSTIC|SNAPSHOT_PREPARE_DIAGNOSTIC[[:space:]]|SNAPSHOT_UNIT_DIAGNOSTIC[[:space:]]|SNAPSHOT_RUNTIME_DIAGNOSTIC[[:space:]]|QEMU_BOOT_DIAGNOSTIC|GNOME51_UPGRADE_(BASELINE|RECOVERY)_PASS|GNOME_EXTENSION_DIAGNOSTIC|GNOME_SHELL_DIAGNOSTIC[[:space:]]|GDM_ACTIVATION_DIAGNOSTIC|exit_status=|qemu-img|signed repository checks passed|release asset checks passed)' \
+        grep -aEh '^[[:space:]]*([A-Z]+_QEMU_(READY|INSTALLER_EXIT|INSTALL_COMPLETE|NEIGHBOR_PRESERVED|ESP_COLLISION_REFUSAL_PASS|COLLISION_PROBE_READY|COLLISION_PROBE_EXIT|FAIL|GUEST_PASS)|QEMU_HOST_FAIL|QEMU_FAILURE_DIAGNOSTIC[[:space:]]|QEMU_DIAGNOSTIC_WARNING:|SCREENSHOT_WARNING:|GTK4_APP_(DIAGNOSTIC|LAUNCH_FAIL)|GTK4_SESSION_DIAGNOSTIC|SNAPSHOT_ENTRY_DIAGNOSTIC|SNAPSHOT_PREPARE_DIAGNOSTIC[[:space:]]|SNAPSHOT_UNIT_DIAGNOSTIC[[:space:]]|SNAPSHOT_RUNTIME_DIAGNOSTIC[[:space:]]|QEMU_BOOT_DIAGNOSTIC|EXTENSION_FUNCTIONAL_PASS|GNOME51_UPGRADE_(BASELINE|RECOVERY)_PASS|GNOME_EXTENSION_DIAGNOSTIC|GNOME_SHELL_DIAGNOSTIC[[:space:]]|GDM_ACTIVATION_DIAGNOSTIC|exit_status=|qemu-img|signed repository checks passed|release asset checks passed)' \
             "${candidate}" 2>/dev/null || true
     done < <(find "${evidence}" -maxdepth 1 -type f -print0 | LC_ALL=C sort -z) |
         awk 'NR <= 2000 { print substr($0, 1, 4096) }' >>"${summary}" || return 1
@@ -824,6 +824,94 @@ with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
     else:
         raise SystemExit('unsupported HMP operation')
 PY
+}
+
+qmp_extension_input() {
+    local operation="$1" width="${2:-0}" height="${3:-0}"
+    python3 - "${script_dir}/frame-evidence.py" "${qmp_socket}" "${qmp_socket_identity}" \
+        "${qemu_pid}" "${qemu_start_time}" "${operation}" "${width}" "${height}" <<'EXTENSION_INPUT_PY'
+import importlib.util, json, pathlib, sys, time
+module_path, socket_path, expected_identity, pid, start, operation, width, height = sys.argv[1:]
+spec = importlib.util.spec_from_file_location('extension_input_boundary', module_path)
+boundary = importlib.util.module_from_spec(spec); sys.modules[spec.name] = boundary; spec.loader.exec_module(boundary)
+path = pathlib.Path(socket_path); info = path.lstat()
+boundary.demand(f'{info.st_dev}:{info.st_ino}' == expected_identity, 'QMP socket replaced')
+keys = {'dash': ['meta_l', 'f6'], 'copy': ['ctrl', 'c'], 'paste': ['ctrl', 'v'],
+        'previous': ['ctrl', 'f11'], 'next': ['ctrl', 'f12'], 'print': ['print'],
+        'selection': ['s'], 'capture': ['ret'], 'escape': ['esc']}
+boundary.demand(operation in {*keys, 'drag'}, 'unsupported functional input')
+class InputQMP(boundary.QMP):
+    def execute(self, command, arguments):
+        boundary.demand(command in ('qmp_capabilities', 'send-key', 'input-send-event'), 'unsupported input command')
+        self.connection.sendall(json.dumps({'execute': command, 'arguments': arguments}).encode() + b'\r\n')
+        response = self.read()
+        boundary.demand('return' in response and 'error' not in response, 'QMP input rejected')
+connection = InputQMP(path, int(pid), start)
+try:
+    if operation in keys:
+        connection.execute('send-key', {'keys': [{'type': 'qcode', 'data': key} for key in keys[operation]], 'hold-time': 60})
+    else:
+        width, height = int(width), int(height)
+        boundary.demand(640 <= width <= 8192 and 480 <= height <= 8192, 'invalid guest monitor geometry')
+        def move(x, y):
+            connection.execute('input-send-event', {'events': [
+                {'type': 'abs', 'data': {'axis': 'x', 'value': round(x * 32767 / (width - 1))}},
+                {'type': 'abs', 'data': {'axis': 'y', 'value': round(y * 32767 / (height - 1))}}]})
+        def button(down):
+            connection.execute('input-send-event', {'events': [{'type': 'btn', 'data': {'down': down, 'button': 'left'}}]})
+        move(100, 100); time.sleep(0.15); button(True)
+        try:
+            for x, y in [(150, 133), (200, 167), (250, 200), (300, 233), (350, 267), (400, 300)]:
+                move(x, y); time.sleep(0.08)
+        finally:
+            button(False)
+    boundary.demand(boundary.exact_qemu(int(pid), start), 'QEMU changed during input')
+    info = path.lstat()
+    boundary.demand(f'{info.st_dev}:{info.st_ino}' == expected_identity, 'QMP socket changed during input')
+finally:
+    connection.close()
+time.sleep(0.2)
+EXTENSION_INPUT_PY
+}
+
+run_extension_functional_acceptance() {
+    local round="$1" width height suffix=''
+    [ "${input_mode}:${scenario_id}" = staged:marble-gnome-btrfs-luks2-plymouth-systemdboot ] || return 1
+    case "${round}" in upgrade) ;; postreboot) suffix='-postreboot' ;; *) return 1 ;; esac
+    qga_verify "extension-${round}-prepare" "extension-${round}-prepare"
+    qmp_extension_input dash
+    qga_verify "extension-${round}-dash" "extension-${round}-dash"
+    width="$(sed -n 's/^EXTENSION_PROBE_DISPLAY width=\([0-9]*\) height=[0-9]* scale=[0-9]*$/\1/p' "${evidence}/extension-${round}-dash.stdout")"
+    height="$(sed -n 's/^EXTENSION_PROBE_DISPLAY width=[0-9]* height=\([0-9]*\) scale=[0-9]*$/\1/p' "${evidence}/extension-${round}-dash.stdout")"
+    [[ "${width}" =~ ^[0-9]+$ && "${height}" =~ ^[0-9]+$ ]] || die 'probe monitor receipt is absent'
+    qmp_extension_input copy
+    qga_verify "extension-${round}-copied-a" "extension-${round}-copied-a"
+    sleep 2
+    qmp_extension_input copy
+    qga_verify "extension-${round}-copied-b" "extension-${round}-copied-b"
+    sleep 2
+    qmp_extension_input next
+    qga_verify "extension-${round}-history-a" "extension-${round}-history-a"
+    qmp_extension_input paste
+    qga_verify "extension-${round}-pasted-a" "extension-${round}-pasted-a"
+    qmp_extension_input previous
+    qga_verify "extension-${round}-history-b" "extension-${round}-history-b"
+    qmp_extension_input paste
+    qga_verify "extension-${round}-pasted-b" "extension-${round}-pasted-b"
+    qga_verify "extension-${round}-control-prepare" "extension-${round}-control-prepare"
+    qmp_extension_input print; sleep 1; qmp_extension_input selection
+    qmp_extension_input drag "${width}" "${height}"
+    qga_verify "extension-${round}-control-no-capture" "extension-${round}-control-no-capture"
+    qmp_extension_input capture
+    qga_verify "extension-${round}-control-captured" "extension-${round}-control-captured"
+    qga_verify "extension-${round}-positive-prepare" "extension-${round}-positive-prepare"
+    qmp_extension_input print; sleep 1; qmp_extension_input selection
+    qmp_extension_input drag "${width}" "${height}"
+    qga_verify "extension-${round}-positive-captured" "extension-${round}-positive-captured"
+    qga_verify "extension-${round}-cleanup" "extension-${round}-cleanup"
+    record_assertion "clipboard-history-copy-paste${suffix}" 'real copy keys, extension history shortcuts and real paste restored both synthetic values'
+    record_assertion "dash-extension-app-activation${suffix}" 'a unique Dash binding launched the absent probe app and activated its real GTK window'
+    record_assertion "no-screenshot-box-capture-on-release${suffix}" 'real drag saved a geometry-matched PNG on release; disabled control required a separate capture key'
 }
 
 hmp_type_password() {
@@ -1777,9 +1865,13 @@ capture_public_repository_evidence() {
 qga_verify() {
     local phase="$1" stem="$2"
     local request start guest_pid status_request status_response=''
-    local stdout_file stderr_file attempts=900 upgrade_contract=''
+    local stdout_file stderr_file attempts=900 upgrade_contract='' probe_contract='' probe_hash='-'
     if [ "${gnome51_upgrade_manifest_sha256}" != - ]; then
         upgrade_contract="$(base64 -w0 -- "${evidence}/gnome51-upgrade-manifest.json")"
+    fi
+    if [ "${input_mode}:${scenario_id}" = staged:marble-gnome-btrfs-luks2-plymouth-systemdboot ]; then
+        probe_contract="$(base64 -w0 -- "${script_dir}/guest/extension-probe.js")"
+        probe_hash="$(sha256sum --binary -- "${script_dir}/guest/extension-probe.js" | awk '{print $1}')"
     fi
     # Carry source bytes through QGA stdin, keeping exec arguments small. The fixed
     # loader reads FD 3 as its script and gives diagnostic commands /dev/null stdin.
@@ -1800,6 +1892,7 @@ qga_verify() {
         --arg legacy_release_version "${legacy_release_version:--}" \
         --arg legacy_profile_version "${legacy_profile_version:--}" \
         --arg legacy_gtk3_version "${legacy_gtk3_version:--}" --arg media_qualification "${media_qualification}" \
+        --arg probe_contract "${probe_contract}" --arg probe_hash "${probe_hash}" \
         --arg upgrade_contract "${upgrade_contract}" --arg upgrade_hash "${gnome51_upgrade_manifest_sha256}" \
         --arg gdm_worker_baseline "${gdm_worker_baseline:--}" '
         {execute:"guest-exec",arguments:{path:"/usr/bin/bash","capture-output":true,
@@ -1809,6 +1902,10 @@ qga_verify() {
             " | base64 --decode >\"$p\"; chmod 0400 -- \"$p\"; fi\n" +
             "[ -f \"$p\" ] && [ ! -L \"$p\" ]\n" +
             "actual=$(sha256sum --binary -- \"$p\"); [ \"${actual%% *}\" = " + $upgrade_hash + " ]\n"
+            end) + (if $probe_contract == "" then "" else
+            "set -Eeuo pipefail\np=/run/arch-linux-qemu-extension-probe.js\n" +
+            "if [ ! -e \"$p\" ]; then printf %s " + $probe_contract + " | base64 --decode >\"$p\"; chmod 0500 -- \"$p\"; fi\n" +
+            "[ -f \"$p\" ] && [ ! -L \"$p\" ]\nactual=$(sha256sum --binary -- \"$p\"); [ \"${actual%% *}\" = " + $probe_hash + " ]\n"
             end) + $script | @base64),
           arg:["-c","exec 3<&0 </dev/null; exec /usr/bin/bash /dev/fd/3 \"$@\"","minimal-verify",$phase,$serial,$vendor,$model,$username,$scenario,$run_id,
             $repository_primary,$repository_signing,$input_mode,$release_version,$target_disk_metadata,$pages_url,$public_key_url,
@@ -2015,6 +2112,7 @@ run_marble_acceptance() {
         marble_gdm_login gnome51-upgraded-login gnome51-upgraded
         record_assertion gnome51-signed-extension-owner-migration \
             'authenticated six-package 1.0.6 baseline, four actual pinned AUR owners and installer v6 local copy migrated by plain signed pacman -Syu; real GDM login verified preserved preferences, original-directory custody and all eight active extensions'
+        run_extension_functional_acceptance upgrade
     else
         marble_gdm_login firstlogin firstboot firstboot-gdm-password
     fi
@@ -2069,6 +2167,9 @@ run_marble_acceptance() {
     marble_gdm_login secondlogin postreboot
     record_assertion second-gdm-login-wayland \
         'the second real GDM password authentication reached Marble GNOME Wayland with storage, isolation and Qkk intact'
+    if [ "${input_mode}:${scenario_id}" = staged:marble-gnome-btrfs-luks2-plymouth-systemdboot ]; then
+        run_extension_functional_acceptance postreboot
+    fi
     if [ "${input_mode}" = staged ] && [[ "${scenario_id}" != *-stock-gdm ]]; then
         current_phase='marble-lifecycle'
         qga_verify helper-failure helper-failure
@@ -2301,6 +2402,7 @@ main() {
         tests/vm/gnome51-upgrade-baseline.json
         tests/vm/guest/bootstrap.sh
         tests/vm/guest/verify.sh
+        tests/vm/guest/extension-probe.js
     )
 
     [ "$#" -ge 1 ] || { usage; exit 2; }

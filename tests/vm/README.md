@@ -78,7 +78,14 @@ signed candidate repository. A second actual password login must verify replacem
 AUR owners, all eight extensions active, preserved settings, the original v6 file bytes and inodes
 retained outside extension discovery, and the candidate GDM resource isolation. No synthetic
 package database or missing-input shortcut satisfies this gate. The baseline and recovery receipts
-are retained in the compact scenario log; this source implementation is not an executed VM PASS.
+are retained in the compact scenario log. After this login and again after reboot,
+real QMP keyboard/pointer input exercises Clipboard history/paste, a dedicated
+Dash app-launch shortcut and No Screenshot Box capture on release with its
+disabled-setting control. A disposable GTK probe uses synthetic clipboard data;
+all six receipts bind this run, actual session and the probe's harness hash.
+Enabled states cannot substitute for these observations. Blur rendering and
+appearance remain separate checks. This source implementation is not an executed
+VM PASS.
 
 The main staged Marble case additionally requires the ten public legacy assets from the immutable
 release recorded in `legacy-marble-release.json`: build metadata, unsigned manifest, signed

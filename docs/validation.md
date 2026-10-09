@@ -53,6 +53,27 @@ the future release child's upgrade revisions, production signing, real package
 migration, GDM acceptance or public delivery. Later documentation edits preserve
 this original source identity.
 
+Additional source/test-boundary receipts bind commit
+`d81f0a07a5962e47317251745789ddc3b727e75d`, tree
+`f3d7f15e26f80ddcc2a590224fccf011d8b37540`:
+
+| Executed check | Result and log SHA-256 |
+| --- | --- |
+| `PYTHONDONTWRITEBYTECODE=1 bash tests/source-tests.sh` | PASS; `296434ddd3e019d9594bcfd1843f58bb07fbf803feed35de2a01f74bd07bfcae` |
+| Exact empty-environment root publication check from AGENTS.md | PASS, exact 14/18 closures, four namespaces, supervisor-death cleanup and no deferrals; `07dba168db2f1564cb18cc4e014d1b18d8215cf876b5a2e37a49a3a8ef86f644` |
+| Ordinary `bash tests/keyring-rotation-checks.sh` | PASS; `fe74de28be8117dfe6234912abb3b070041be1080d16e6aad4f41d3618fe4d45` |
+| `env ARCH_LINUX_PRIVILEGED_ACCEPTANCE=true bash tests/keyring-rotation-checks.sh` | PASS, full namespace fixtures, ten scenarios, signer passed, no deferrals; `4129134eac1c23c902481e0788166ee76242817b9fc4534f1355754e48821281` |
+
+The root checks used disposable fixture keys and a pinned Arch container with
+private tmpfs test directories. Earlier overlayfs attempts rejected directory
+link counts before private signing access; no production check was weakened to
+accommodate the container. Privileged fixtures used an independently verified
+private Docker cgroup subtree and an owned disposable loop-backed disk. All
+containers, loops, mapper and child cgroups were removed; host device metadata
+was unchanged. These checks do not establish production signing.
+Subsequent functional-harness changes require fresh affected
+checks and do not inherit these receipts.
+
 ## Verified release 1.0.6 — 2026-10-04
 
 [Configured run37214392242](https://github.com/snaplyze/arch-linux/actions/runs/37214392242)
