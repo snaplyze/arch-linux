@@ -3838,7 +3838,7 @@ install_legacy_migration_packages() {
 }
 
 verify_legacy_user_session() {
-    local session uid
+    local session uid gnome_version gtk_theme path
     verify_common >/dev/null
     session="$(wait_for_user_session)"
     uid="$(id -u "${username}")"
@@ -3848,8 +3848,21 @@ verify_legacy_user_session() {
     [ "$(installed_package_version_exact arch-linux-marble-profile)" = "${legacy_profile_version}" ]
     [ "$(installed_package_version_exact arch-linux-colloid-gtk3)" = "${legacy_gtk3_version}" ]
     if package_installed_exact arch-linux-colloid-gtk; then return 1; fi
-    [ "$(run_in_user_session "${uid}" gsettings get org.gnome.desktop.interface gtk-theme)" = \
-        "'Colloid-Dark'" ]
+    gnome_version="$(installed_package_version_exact gnome-shell)"
+    gtk_theme="$(run_in_user_session "${uid}" gsettings get org.gnome.desktop.interface gtk-theme)"
+    case "${gnome_version#*:}" in
+        50.*) [ "${gtk_theme}" = "'Colloid-Dark'" ] ;;
+        51.*)
+            # The authenticated legacy profile supports GNOME 50 only. On 51 its
+            # successful deactivation is the baseline that the update must recover.
+            [ "${gtk_theme}" = "'Adwaita'" ]
+            for path in /usr/share/themes/ArchLinux-Marble-Blue-Filled-Dark \
+                /etc/dconf/db/local.d/05-arch-linux-marble-profile; do
+                [ ! -e "${path}" ] && [ ! -L "${path}" ] || return 1
+            done
+            ;;
+        *) return 1 ;;
+    esac
     [ ! -e "/home/${username}/.config/gtk-4.0/gtk.css" ]
     [ ! -e "/home/${username}/.config/gtk-4.0/gtk-dark.css" ]
     emit_marble_action_pass legacy-real-gdm-wayland-session

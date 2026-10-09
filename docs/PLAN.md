@@ -778,6 +778,65 @@ evidence runs and zero active private-Docker containers. The exact owned observe
 was stopped after verifying its command identity. The corrected source needs a
 new protected candidate and fresh build/signature/VM/publication evidence.
 
+[PR #73](https://github.com/snaplyze/arch-linux/pull/73) passed exact-head
+[CI 37913814911](https://github.com/snaplyze/arch-linux/actions/runs/37913814911)
+and merged through the protected squash path. Accepted head
+`5ea2c38078a447fd56866bcb4e536c9e29f338fd` and main
+`cadd63d6b9191e928182f70d3cd2aa1cffffcb36` share tree
+`ef4b7a2376a5c7600a515715eb1c0b9a7b8fe127` and canonical source SHA-256
+`ed99ddbc6de359d8b27ff8b079989f2f5863d41def6a2d80b7a3c6845af46f1b`.
+The sole checkout returned to main by fast-forward.
+[Main CI 37914195356](https://github.com/snaplyze/arch-linux/actions/runs/37914195356)
+passed and triggered [Release 37914520768](https://github.com/snaplyze/arch-linux/actions/runs/37914520768).
+Independent source transport and deterministic transformation checks passed for
+new child `35ff8df8951a4e0a7d9f2e8a70c68027573ee62a`; generated README /
+installation instructions pin 1.0.7, and refs/index/dirty documents were preserved.
+The fresh seven-package build and independent unsigned transport/closure/schema-2
+source binding and production package validators passed. The verified read-only
+exact-child source export was removed afterward. Protected unsigned readback and
+Phase-A signing also passed. Independent readback verified all fourteen assets,
+twelve signed manifest rows, three detached signatures and twenty-five repository
+objects against this child. Fresh Minimal TTY passed fourteen assertions and
+independent strict evidence consumption. Stock LUKS/GRUB subsequently passed all
+22 runtime assertions, including password login, lock/unlock, update and reboot.
+Passive readback also observed both corrected Plymouth/Bibata mirror paths.
+However, independent strict evidence consumption rejected its newly emitted
+`repository-runtime.sha256`; direct identity verification separately rejected the
+Stock `repository_server_port` row. Those boundaries still assume only Marble
+uses the signed repository, while the current Stock producer also does. A focused
+consumer/fixture correction now requires the exact runtime file, port and four
+ordered nonzero hash rows for both graphical profiles. Marble-only migration
+evidence stays separate; Minimal still rejects repository-runtime extras.
+Three focused regressions failed before the production correction and passed
+after it. All 28 Actions release checks, static checks and the complete source
+suite passed, including full repository namespaces, ten scenarios, signer PASS,
+exact 14/18 closures and no deferrals. Independent review found no material issue.
+The actual retained Stock artifact now passes the corrected full consumer as a
+debug replay; this does not change the old candidate's rejection or transfer VM
+acceptance to a new source child. The affected root publication fixture was also
+updated; its fresh privileged execution remains a required downstream gate.
+Marble subsequently passed installation, encrypted unlock and the initial GDM
+prelogin checks, then failed during `legacy-login` after installing the signed
+legacy profile/GTK3 packages. Runtime line 3861/status 1 maps through the ten-line
+QGA prefix to the old unconditional Colloid GTK-theme assertion. The exact signed
+1.0.3 profile supports only GNOME 50 and deactivates its alias/defaults on 51;
+the actual returned GTK value was not retained. The corrected baseline requires
+Colloid on 50, or Adwaita plus absent project alias/defaults on 51, and rejects
+unknown majors. Real GDM/Wayland, UID, package and GTK4 absence checks remain.
+Three executed regressions reproduced five failing old-code cases; a subsequent
+negative caught an errexit exemption for existing activation files, corrected
+with an explicit return. All three focused regressions, all 134 guest runtime
+tests and the full source suite now pass. Independent review found no material
+issue. Protected candidate delivery and fresh downstream acceptance remain
+required before publication of a new release child.
+None of the later migration/extension VM checks passed.
+Release 37914520768 is cancelled before finalization/publication. Cleanup readback
+found zero project QEMU processes, current evidence runs and active private-Docker
+containers; the exact owned observer was stopped after command-identity checking.
+Finalization/publication/public VM gates remain open. Runtime PASS is not
+strict-consumer or publication PASS.
+No previous child PASS transfers. Exact identities are in validation.
+
 ## Local runner migration — 2026-10-08
 
 Owner request: move all five GitHub Actions workflows for `snaplyze/arch-linux`

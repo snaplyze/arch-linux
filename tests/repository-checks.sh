@@ -1115,7 +1115,7 @@ for index,(scenario,prefix,serial_code) in enumerate(scenarios,1):
         assertion_values.append({'id':assertion_id,'status':'PASS','detail':detail})
     write(run/'assertions.tsv',''.join(assertion_rows).encode())
     write(run/'qemu-version.txt',b'QEMU emulator version 9.2.0\n')
-    if prefix=='marble':
+    if prefix in ('luksgrub','marble'):
         runtime_suffixes=('/repository/repository.env','/repository.contract','/repository-ca.crt',
                           '/repository-server.crt')
         write(run/'repository-runtime.sha256',b''.join(
@@ -1165,10 +1165,11 @@ for index,(scenario,prefix,serial_code) in enumerate(scenarios,1):
     identity_text+=''.join(
         f"repository_object_sha256={item['sha256']} name={item['name']} size={item['size']}\n"
         for item in objects)
+    if prefix in ('luksgrub', 'marble'):
+        identity_text += 'repository_server_port=43210\n'
     if prefix=='marble':
         write(evidence/'legacy-repository-manifest.json',legacy_manifest)
         write(evidence/'legacy-repository-manifest.json.sig',legacy_signature)
-        identity_text+='repository_server_port=43210\n'
         legacy_rows = [('legacy_release_version','0.9.0'),('legacy_snapshot_sha256',digest(b'legacy archive')),
                        ('legacy_source_commit','a'*40),('legacy_source_tree','b'*40),
                        ('legacy_manifest_sha256',digest(legacy_manifest)),

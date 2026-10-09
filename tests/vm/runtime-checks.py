@@ -10,6 +10,83 @@ VERIFY = ROOT / "tests/vm/guest/verify.sh"
 def function(name):
     return re.search(r"^" + name + r"\(\) \{\n.*?^\}", VERIFY.read_text(), re.M | re.S).group(0)
 class RuntimeChecks(unittest.TestCase):
+    def legacy_session(self, version="50.0", theme="Colloid-Dark", fault=""):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            home = root / 'home'; css = home / 'fixture/.config/gtk-4.0'; css.mkdir(parents=True)
+            alias = root / 'alias'; defaults = root / 'defaults'
+            if fault in ('alias', 'defaults'):
+                (alias if fault == 'alias' else defaults).write_text('stale activation')
+            if fault in ('alias-link', 'defaults-link'):
+                (alias if fault == 'alias-link' else defaults).symlink_to(root / 'absent')
+            if fault in ('gtk.css', 'gtk-dark.css'):
+                (css / fault).write_text('foreign override')
+            body = function('verify_legacy_user_session')
+            # Relocate only target filesystem paths; execute the production predicate unchanged.
+            body = body.replace('/home/${username}', str(home) + '/${username}')
+            body = body.replace('/usr/share/themes/ArchLinux-Marble-Blue-Filled-Dark', str(alias))
+            body = body.replace('/etc/dconf/db/local.d/05-arch-linux-marble-profile', str(defaults))
+            script = r'''set -euo pipefail
+username=fixture legacy_profile_version=1.0.0-4 legacy_gtk3_version=20260808-4
+fixture_version="$1" fixture_theme="$2" fixture_fault="$3"
+verify_common(){ [ "$fixture_fault" != common ]; }
+wait_for_user_session(){ printf '%s\n' session1; }
+id(){ printf '%s\n' 1000; }
+session_property(){
+    case "$2" in
+        User) if [ "$fixture_fault" = uid ]; then echo 1001; else echo 1000; fi;;
+        Service) if [ "$fixture_fault" = service ]; then echo other; else echo gdm-password; fi;;
+        Type) if [ "$fixture_fault" = type ]; then echo x11; else echo wayland; fi;;
+        *) return 1;;
+    esac
+}
+installed_package_version_exact(){
+    case "$1" in
+        gnome-shell) printf '%s\n' "$fixture_version";;
+        arch-linux-marble-profile) if [ "$fixture_fault" = profile ]; then echo wrong; else echo "$legacy_profile_version"; fi;;
+        arch-linux-colloid-gtk3) if [ "$fixture_fault" = gtk3 ]; then echo wrong; else echo "$legacy_gtk3_version"; fi;;
+        *) return 1;;
+    esac
+}
+package_installed_exact(){ [ "$fixture_fault" = unified-gtk ]; }
+run_in_user_session(){
+    [ "$fixture_fault" != settings-query ] || return 7
+    [ "$*" = '1000 gsettings get org.gnome.desktop.interface gtk-theme' ]
+    printf "'%s'\n" "$fixture_theme"
+}
+emit_marble_action_pass(){ printf 'PASS:%s\n' "$1"; }
+''' + body + '\nverify_legacy_user_session\n'
+            return subprocess.run(['bash', '-c', script, 'fixture', version, theme, fault],
+                                  capture_output=True, text=True, timeout=5)
+
+    def test_legacy_session_accepts_supported_theme_and_gnome51_stock_fallback(self):
+        for version, theme in [('50.0', 'Colloid-Dark'), ('51.0', 'Adwaita'), ('1:51.0-1', 'Adwaita')]:
+            with self.subTest(version=version):
+                result = self.legacy_session(version, theme)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, 'PASS:legacy-real-gdm-wayland-session\n')
+
+    def test_legacy_session_rejects_wrong_themes_unknown_major_and_stale_activation(self):
+        cases = [('50.0', 'Adwaita', ''), ('51.0', 'Colloid-Dark', ''),
+                 ('51.0', 'foreign', ''), ('52.0', 'Colloid-Dark', ''),
+                 ('52.0', 'Adwaita', ''), ('invalid', 'Colloid-Dark', '')]
+        cases += [('51.0', 'Adwaita', fault) for fault in
+                  ('alias', 'defaults', 'alias-link', 'defaults-link')]
+        for version, theme, fault in cases:
+            with self.subTest(version=version, theme=theme, fault=fault):
+                result = self.legacy_session(version, theme, fault)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn('PASS:', result.stdout)
+
+    def test_legacy_session_preserves_login_package_and_css_guards(self):
+        for version, theme in [('50.0', 'Colloid-Dark'), ('51.0', 'Adwaita')]:
+            for fault in ('common', 'uid', 'service', 'type', 'profile', 'gtk3', 'unified-gtk',
+                          'settings-query', 'gtk.css', 'gtk-dark.css'):
+                with self.subTest(version=version, fault=fault):
+                    result = self.legacy_session(version, theme, fault)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertNotIn('PASS:', result.stdout)
+
     def test_functional_receipt_binds_live_native_probe_and_frozen_source(self):
         import hashlib, json, os, shutil, time
         if not shutil.which('gjs'): self.skipTest('native GJS is not installed')

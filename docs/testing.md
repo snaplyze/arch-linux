@@ -191,6 +191,11 @@ both repositories before use. The guest records the fresh candidate package set,
 legacy profile and GTK3 theme from the strict signed repository, enters a real GDM session, then
 runs `pacman -Syu` against the candidate and logs in again. It checks replacement of
 `arch-linux-colloid-gtk3`, package-version parity, the packaged GTK4 hashes and active session CSS.
+The pinned legacy profile supports GNOME 50 only. Its first session must have
+Colloid on 50, or Adwaita with absent project alias/defaults on GNOME 51; other
+majors are not qualified by this test. Real login, exact package versions and
+absence of legacy GTK4 wrappers remain required before the update. The upgraded
+session must activate the candidate profile normally.
 This is a real package migration from legacy profile/theme state; it does not rerun the old
 installer or claim coverage of every customization on an existing workstation.
 
@@ -243,8 +248,8 @@ digest directly to the harness. Missing or changed inputs stop dispatch. The
 guest proves the old installation before plain `pacman -Syu` and real GDM login,
 then checks package replacement, settings, original-directory custody and eight
 active extensions. The finalizer requires that assertion and the bound evidence.
-This extends the unchanged GTK3 migration test. Enabled-state checks alone cannot
-establish extension behavior. The harness additionally requires real
+This extends the GTK3 migration test with its platform-specific legacy baseline.
+Enabled-state checks alone cannot establish extension behavior. The harness additionally requires real
 keyboard/pointer actions after migration and after reboot: an otherwise unused
 Dash extension shortcut must launch a disposable GTK app; Clipboard history must
 restore and paste two synthetic values; No Screenshot Box must save the selected

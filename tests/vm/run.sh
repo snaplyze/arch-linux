@@ -2148,7 +2148,7 @@ run_marble_acceptance() {
         capture_screen gtk4-app-smoke-dark
         run_fresh_marble_user_round_trip
         record_assertion legacy-signed-package-migration \
-            'signed legacy profile and GTK3 packages ran in a real session, then candidate pacman -Syu replaced GTK3 with the unified package before another GDM login'
+            'signed legacy profile and GTK3 packages ran in a real session with the expected GNOME 50 theme or GNOME 51 Stock fallback, then candidate pacman -Syu restored the profile and replaced GTK3 before another GDM login'
         record_assertion fresh-user-gdm-gtk4-activation \
             'a newly created ordinary user authenticated through GDM and received automatic owned GTK4 CSS and an active user service before returning to the original user'
         record_assertion gtk4-libadwaita-light-dark-smoke \
