@@ -1387,7 +1387,7 @@ rm(){ if [ "$case_fixture" = cleanup-fail ]; then return 1; fi; command rm "$@";
                 else: self.assertIn("reason=lower-source-query", result.stderr)
                 if case == "foreign-file": self.assertEqual((work / "foreign").read_text(), "preserve")
 
-    def shell_lifecycle(self, case="normal", checkpoint="extension-timeout", requested_uid=None, stat_change=None):
+    def shell_lifecycle(self, case="normal", checkpoint="extension-timeout", requested_uid=None, stat_change=None, journal_records=None):
         text = VERIFY.read_text()
         match = re.search(r"^emit_gnome_shell_lifecycle_diagnostic\(\) \{\n.*?<<'PY'\n(.*?)\nPY\n", text, re.M | re.S)
         self.assertIsNotNone(match, "actual lifecycle diagnostic helper missing")
@@ -1418,15 +1418,23 @@ rm(){ if [ "$case_fixture" = cleanup-fail ]; then return 1; fi; command rm "$@";
                     if case == "recovery":
                         records.append({"USER_UNIT": "org.gnome.Shell-disable-extensions.service", "MESSAGE_ID": "39f53479d3a045ac8e11786248231fbf"})
                     if case in ("killed", "timeout"):
-                        records.append({"USER_UNIT": "org.gnome.Shell@wayland.service", "MESSAGE_ID": "d9b373ed55a64feb8242e02dbe79a49c", "UNIT_RESULT": "timeout" if case == "timeout" else "signal"})
-                        records.append({"USER_UNIT": "org.gnome.Shell@wayland.service", "MESSAGE_ID": "98e322203f7a4ed290d09fe03c09fe15", "EXIT_CODE": "killed", "EXIT_STATUS": "9"})
+                        records.append({"USER_UNIT": "org.gnome.Shell@user.service", "MESSAGE_ID": "d9b373ed55a64feb8242e02dbe79a49c", "UNIT_RESULT": "timeout" if case == "timeout" else "signal"})
+                        records.append({"USER_UNIT": "org.gnome.Shell@user.service", "MESSAGE_ID": "98e322203f7a4ed290d09fe03c09fe15", "EXIT_CODE": "killed", "EXIT_STATUS": "9"})
                     if case == "normal":
-                        records.append({"USER_UNIT": "org.gnome.Shell@wayland.service", "MESSAGE_ID": "9d1aaa27d60140bd96365438aad20286"})
+                        records.append({"USER_UNIT": "org.gnome.Shell@user.service", "MESSAGE_ID": "9d1aaa27d60140bd96365438aad20286"})
+                    if journal_records is not None:
+                        records = journal_records
+                    # Emulate journalctl's actual unit filter, so a wrong instance silently
+                    # loses failures exactly as it does in an installed GNOME session.
+                    selected = {arg.split("=", 1)[1] for arg in args if arg.startswith("USER_UNIT=")}
+                    records = [record for record in records if record.get("USER_UNIT") in selected]
+                    if journal_records is None:
+                        records = [record | {"__MONOTONIC_TIMESTAMP": "12345"} for record in records]
                     raw = "SECRET_MALFORMED" if case == "malformed" else "\n".join(json.dumps(record | {"_SYSTEMD_USER_UNIT": "init.scope", "MESSAGE": "SECRET_RAW_JOURNAL"}) for record in records)
-                    if case == "duplicate-json": raw = '{"USER_UNIT":"org.gnome.Shell@wayland.service","USER_UNIT":"SECRET"}'
+                    if case == "duplicate-json": raw = '{"USER_UNIT":"org.gnome.Shell@user.service","USER_UNIT":"SECRET"}'
                     if case == "unknown-unit": raw = '{"USER_UNIT":"SECRET_UNIT","MESSAGE_ID":"SECRET_EVENT"}'
                     if case == "oversized": raw = "x" * 262145
-                    if case == "capped": raw = "\n".join(json.dumps({"USER_UNIT": "org.gnome.Shell@wayland.service"}) for _ in range(129))
+                    if case == "capped": raw = "\n".join(json.dumps({"USER_UNIT": "org.gnome.Shell@user.service"}) for _ in range(129))
                 else:
                     raw = "LoadState=loaded\nResult=success\nExecMainCode=1\nExecMainStatus=0\nExecMainStartTimestampMonotonic=12345\nInvocationID=" + "a" * 32 + "\n"
                     if case == "malformed": raw += "Result=SECRET_RESULT\n"
@@ -1463,6 +1471,88 @@ rm(){ if [ "$case_fixture" = cleanup-fail ]; then return 1; fi; command rm "$@";
             with patch("subprocess.run", run), patch("os.fstat", fstat), contextlib.redirect_stderr(output):
                 namespace["diagnose"](str(os.getuid() if requested_uid is None else requested_uid), str(os.getgid()), "fixture", "return-user-login", checkpoint)
             return output.getvalue(), calls
+
+    def test_shell_lifecycle_checkpoint_clock_anchors_typed_events(self):
+        from unittest.mock import patch
+        for checkpoint in ("before-original-user-logout", "extension-timeout"):
+            with self.subTest(checkpoint=checkpoint), patch("time.monotonic_ns", return_value=140999):
+                output, _ = self.shell_lifecycle(checkpoint=checkpoint)
+                first = output.splitlines()[0]
+                self.assertTrue(first.endswith("checkpoint_monotonic_us=140"))
+                prefix = first.split(" disabled_user_extensions=", 1)[0]
+                self.assertIn("checkpoint=" + checkpoint, prefix)
+                for event in (line for line in output.splitlines() if "journal_event=" in line):
+                    self.assertTrue(event.startswith(prefix + " "))
+                    self.assertRegex(event, r"event_monotonic_us=(?:0|[1-9][0-9]*)$")
+        for clock in (-1000, (1 << 63) * 1000):
+            with self.subTest(clock=clock), patch("time.monotonic_ns", return_value=clock):
+                output, _ = self.shell_lifecycle()
+                self.assertIn("checkpoint_monotonic_us=unknown", output)
+                self.assertIn("journal_query=ok", output)
+        with patch("time.monotonic_ns", side_effect=OSError("SECRET_CLOCK_FAILURE")):
+            output, _ = self.shell_lifecycle()
+            self.assertIn("checkpoint_monotonic_us=unknown", output)
+            self.assertIn("journal_query=ok", output)
+            self.assertNotIn("SECRET", output)
+
+    def test_shell_lifecycle_actual_user_instance_failure_and_chronology(self):
+        records = [
+            {"USER_UNIT": "org.gnome.Shell@user.service", "MESSAGE_ID": "9d1aaa27d60140bd96365438aad20286", "__MONOTONIC_TIMESTAMP": "100"},
+            {"USER_UNIT": "org.gnome.Shell@user.service", "MESSAGE_ID": "d9b373ed55a64feb8242e02dbe79a49c", "UNIT_RESULT": "timeout", "__MONOTONIC_TIMESTAMP": "110"},
+            {"USER_UNIT": "org.gnome.Shell-disable-extensions.service", "MESSAGE_ID": "39f53479d3a045ac8e11786248231fbf", "__MONOTONIC_TIMESTAMP": "120"},
+            {"USER_UNIT": "org.gnome.Shell@user.service", "MESSAGE_ID": "39f53479d3a045ac8e11786248231fbf", "__MONOTONIC_TIMESTAMP": "130"},
+        ]
+        output, calls = self.shell_lifecycle(journal_records=records)
+        self.assertIn("stop_events=1 failure_events=1", output)
+        self.assertIn("timeout_events=1", output)
+        self.assertIn("recovery_started=yes", output)
+        timeline = [line for line in output.splitlines() if "journal_event=" in line]
+        self.assertEqual(len(timeline), 4)
+        self.assertEqual([re.search(r"event_monotonic_us=([0-9]+)", line).group(1) for line in timeline], ["100", "110", "120", "130"])
+        self.assertIn("unit=org.gnome.Shell@user.service journal_event=failure-result", timeline[1])
+        self.assertIn("result=timeout", timeline[1])
+        self.assertIn("unit=org.gnome.Shell-disable-extensions.service journal_event=started", timeline[2])
+        self.assertNotIn("SECRET", output)
+        journal = next(call for call in calls if "/usr/bin/journalctl" in call)
+        self.assertIn("--output-fields=USER_UNIT,_SYSTEMD_USER_UNIT,MESSAGE_ID,UNIT_RESULT,EXIT_CODE,EXIT_STATUS,__MONOTONIC_TIMESTAMP", journal)
+        self.assertFalse(any("@wayland" in arg for call in calls for arg in call))
+
+    def test_shell_lifecycle_unknown_event_is_counted_without_raw_identifier(self):
+        record = {"USER_UNIT": "org.gnome.Shell@user.service", "MESSAGE_ID": "SECRET_UNKNOWN_EVENT", "__MONOTONIC_TIMESTAMP": "100"}
+        output, _ = self.shell_lifecycle(journal_records=[record])
+        self.assertIn("journal_query=ok records=1", output)
+        self.assertIn("unclassified_events=1", output)
+        self.assertNotIn("journal_event=", output)
+        self.assertNotIn("SECRET", output)
+
+    def test_shell_lifecycle_invalid_timeline_is_atomic_and_unknown(self):
+        valid = {"USER_UNIT": "org.gnome.Shell@user.service", "MESSAGE_ID": "39f53479d3a045ac8e11786248231fbf", "__MONOTONIC_TIMESTAMP": "100"}
+        for field, value in [("__MONOTONIC_TIMESTAMP", value) for value in (None, True, 123, "-1", "01", "1.0", "1\nSECRET", "9223372036854775808", "9" * 1000)] + [("EXIT_STATUS", "256"), ("EXIT_STATUS", True), ("UNIT_RESULT", "SECRET_UNKNOWN_RESULT"), ("EXIT_CODE", "SECRET_UNKNOWN_CODE"), ("MESSAGE_ID", [])]:
+            with self.subTest(field=field, value=value):
+                output, _ = self.shell_lifecycle(journal_records=[valid, valid | {field: value}])
+                self.assertIn("journal_query=unknown records=unknown", output)
+                self.assertIn("recovery_started=unknown", output)
+                self.assertNotIn("journal_event=", output)
+                self.assertNotIn("SECRET", output)
+        output, _ = self.shell_lifecycle(journal_records=[valid, {key: value for key, value in valid.items() if key != "__MONOTONIC_TIMESTAMP"}])
+        self.assertIn("journal_query=unknown records=unknown", output)
+        self.assertNotIn("journal_event=", output)
+        for timestamp in ("0", "9223372036854775807"):
+            output, _ = self.shell_lifecycle(journal_records=[valid | {"__MONOTONIC_TIMESTAMP": timestamp}])
+            self.assertIn("journal_query=ok", output)
+            self.assertIn("event_monotonic_us=" + timestamp, output)
+
+    def test_shell_lifecycle_timeline_bound_and_monotonic_order(self):
+        records = [{"USER_UNIT": "org.gnome.Shell@user.service", "MESSAGE_ID": "39f53479d3a045ac8e11786248231fbf", "__MONOTONIC_TIMESTAMP": str(timestamp)} for timestamp in range(127, -1, -1)]
+        output, _ = self.shell_lifecycle(journal_records=records)
+        self.assertIn("journal_query=ok records=128", output)
+        timeline = [line for line in output.splitlines() if "journal_event=" in line]
+        self.assertEqual(len(timeline), 128)
+        self.assertEqual([int(re.search(r"event_monotonic_us=([0-9]+)", line).group(1)) for line in timeline], list(range(128)))
+        self.assertLess(len(output), 50000)
+        output, _ = self.shell_lifecycle(journal_records=records + records[:1])
+        self.assertIn("journal_query=unknown records=unknown", output)
+        self.assertNotIn("journal_event=", output)
 
     def test_shell_lifecycle_normal_and_early_sentinel(self):
         for case, sentinel in (("normal", "absent"), ("early", "present")):

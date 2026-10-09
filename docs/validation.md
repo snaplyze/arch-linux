@@ -1673,9 +1673,153 @@ server-log SHA-256:
 `de6d7d91af0d59ec4a20057a077ba82128aa18670d9727aecd3f189c1a0ab65b`;
 plain candidate `-Syu` log SHA-256:
 `02a40f6898d62f137b38a172156662482be6f52a1f91a94bd085694f9e8b72c5`.
-Protected delivery and fresh child/build/VM acceptance remain pending.
+The final documented candidate repeated the full source suite successfully,
+with log SHA-256 `33e0222c913bb464950827313aff6ad0c1d7ae058b0e289a3e150ff6b64ac08c`.
+[PR76](https://github.com/snaplyze/arch-linux/pull/76) passed exact-head
+[CI 37954160765](https://github.com/snaplyze/arch-linux/actions/runs/37954160765)
+and the protected squash merge at 15:50 UTC. Accepted head
+`d956d77ff0d234a2b9a513b8c6810f028c5af347` and merged main
+`0d6b246cd5e6fb3cde8818be33d70bc6d32e8392` share tree
+`97943ffe495d5085f3496335f467c00679eb2796` and canonical source SHA-256
+`35d6c1698ff310f27cdebf365118f2a9520a048982be2ad316a815908127f91c`.
+PR CI log SHA-256:
+`11e76eb575f5e49c72f8c259572bb758d448ba256163a508bc5f03ba6252f085`.
+The sole checkout returned to main by fast-forward. Main CI 37954693122 passed;
+its log SHA-256 is `75d8119b4f3bb6f1c5808b23e27293de68df7ebef7e58625b1e1a3eecca0cdde`.
+[Release 37955123850](https://github.com/snaplyze/arch-linux/actions/runs/37955123850)
+started from the accepted main. Preparation job 113903575096 passed and emitted
+child `00d97e3ee254cee318b8bce7c51ebbf3e64c2c95`, tree
+`ace4eba07963cb19586069c8dba1027711858072`, canonical source SHA-256
+`76d771a0b2e025f70775fd4cc22a12982c381eae659d33a4070e916955f3402a`.
+Source artifact 11627477376 ZIP SHA-256:
+`5bbaf57a3432332765dd659d78409b50a58255839c609c4bcb2d0a3f93c292c5`;
+bundle SHA-256: `0c8bb4c6f5f3fe92ec49e859187dd6cc7252d31fcebc953f6022f8d8e1ddee82`.
+Independent source transport/deterministic transformation passed, including correct
+1.0.7 README/bootstrap pins and preserved historical identities. Relative to the
+preceding child, only two evidence documents, release-origin metadata and the two
+test files differ; product/installer/package/trust/maintenance inputs are unchanged.
+A further bounded read-only review checked Clipboard ordering, Dash launch and
+No Screenshot capture controls against the actual bundled sources and found no
+material mismatches. That review does not replace the still-pending functional VM
+checks after update and reboot. Clean build job 113903756240 and protected
+unsigned readback 113906648886 passed. Unsigned artifact 11628170960 ZIP SHA-256:
+`17a022c8854d3827e2c9ca6011bf684edb5fc62137de69ee048381c7fe072db0`;
+BUILD metadata SHA-256:
+`e8d54e692ce68517a0f22e3389b4d1c1d2b86e27be0f12ce6a123ad6f22d721f`;
+UNSIGNED manifest SHA-256 remains
+`cec8557a6db3f58e6a1beaaa0f4c6f5e94471a02b66bbbef7bd492303ed4dc37`.
+Independent scoped verification passed the exact sixteen-file/fourteen-row closure,
+schema-2 provenance, all seven package/recipe/SRCINFO/BUILDINFO bindings, 19,564
+MTREE file checks and seven production payload validators. The 212-file read-only
+verifier export was mode/byte/canonical-hash checked and removed afterward.
+Receipt SHA-256: `57775e5abb45ad3e06cedc2f25236e77d97123982fb05a26c66e1f922a7e9679`.
+All seven package versions remain as recorded for the preceding child. This scoped
+verification is separate from the protected Git-bound unsigned verifier, which
+also passed. Phase-A signing job 113907144469 passed all five release-host gates:
+both full repository modes (ten scenarios, signer, 14+18 closures, no deferral),
+root publication (sealed closure, four namespaces, FIFO/memfd/PID1/supervisor),
+ordinary keyring (five scenarios, privileged mode explicitly deferred there), and
+privileged keyring (ten scenarios, no deferral). Complete job-log SHA-256:
+`4c32a4bcd8d643a652a35fb4290246f5ae73d2d4b656b29ee49c6f40c6388130`.
+Phase-A artifact 11628675564 ZIP SHA-256:
+`4084fa04290e349c03ec94087e8ef126e4b825e8df8c891a9e3904b0ea16308c`;
+snapshot SHA-256:
+`ce5dc8a17f8325ba292883f5df8cc0d96ebc7ca958b2f014f9158a2064ffe23a`;
+RELEASE manifest SHA-256:
+`63d327847aff31ce2ffe6438ae1215b9b60527a129b61461ecc19b12221d31ac`.
+Independent readback passed exact fourteen-file closure/twelve signed rows,
+three detached signatures, unchanged build/unsigned bytes and all 25 repository
+objects. Staged Minimal job 113908703980 passed all fourteen assertions, including
+ordinary update, reboot, unit health and clean disk shutdown; independent readback
+and the frozen strict consumer passed. Run ID:
+`minimal-20261009T160925Z-dd37331b`; artifact 11627924847 ZIP SHA-256:
+`f545ab92a8b5bb6c8b738f7c5a3d9064d3b89cde81b86401ae0bad768e6fd537`;
+evidence archive SHA-256:
+`92b245b729f8bd28cecb074bebaa5764de74f65e7b3f575a6b5b0945c4ef4cac`;
+result SHA-256:
+`dc48def6e442c13c3715cfb71f9742a03bca4bc90c2362ea6e15481ca3315699`.
+Core Stock job 113908703986 passed all twenty-two assertions, including real GDM
+login, lock/password unlock, ordinary update and repeated encrypted boot/login.
+Independent readback and the frozen strict consumer passed. Run ID:
+`luksgrub-20261009T161926Z-33fba858`; artifact 11630682519 ZIP SHA-256:
+`63c7d4ab8b76af7a09273627d1ce0ed933db9a4c913d8073cbe63b84be46ca6a`;
+evidence archive SHA-256:
+`84e28a402f6ffa3e66f0ebba55c477c1c21108bdeafab8f362bd1181661cb97c`;
+result SHA-256:
+`56cfa7b20510b856fe6b37228bafbed175f464eb2e5a835c685a2a751bdc242b`;
+complete job-log SHA-256:
+`2e3bd1036462e67dc80e57bc93175a16c36e84c894cbf8d3ff4137f287f1b2c2`.
+The preceding child's lock failure remains recorded; this changed-child PASS
+does not prove its exact cause. Source-bound live observation separately saw
+Plymouth and Bibata use primary AUR, with no mirror attempt. The compact artifact
+does not retain those transport rows, so this is not an artifact-derived claim.
+Core Marble job 113908704005 failed at `return-user-login` after successful
+legacy theme update, GTK4 light/dark app checks and fresh-user password login/logout.
+Only four assertions had been committed to the verdict; the later three grouped
+assertions and GNOME 51 baseline/upgrade/functional checks were not reached.
+Run ID: `marble-20261009T164217Z-b00eee3b`; artifact 11632891691 ZIP SHA-256:
+`0f8858dea4dfb0345de6179dc427a98938cc9f0f435f64dee107034c4aed747c`;
+archive SHA-256: `ca0473eacfa190093758d1d59f797f1f4b6df7d8c2cd1b52f9a440daa0471c2d`;
+result SHA-256: `97bbf24cb35e2f3c7f277b0f5e6649f4fd5b7c05ed28f80a9c4189ccb98e74fe`;
+complete job-log SHA-256:
+`aca43ff0d890f0bd1071f11d1f21bf412010811cb184828ef875d187d0dcb60e`.
+API transport, exact archive/source/tree/Phase-A bindings passed before rejection
+of the FAIL verdict; the strict core consumer was not run. At return login all
+eight known extensions were INITIALIZED, the global disable boolean was true,
+and the upstream recovery service had started. Before original-user logout the
+boolean was false and its early-failure sentinel was present. The observer queried
+the wrong `org.gnome.Shell@wayland.service`; official
+[GNOME 50](https://github.com/GNOME/gnome-session/blob/50.0/data/gnome.session.conf)
+and [GNOME 51](https://github.com/GNOME/gnome-session/blob/51.0/data/gnome.session.conf)
+start `org.gnome.Shell@user.service`. Zero timestamps/invocations/failure counts
+therefore do not exclude a real Shell failure. The upstream
+[60-second sentinel](https://gitlab.gnome.org/GNOME/gnome-shell/-/blob/51.0/js/ui/extensionSystem.js#L54-74)
+and [conditional recovery unit](https://gitlab.gnome.org/GNOME/gnome-shell/-/blob/51.0/data/org.gnome.Shell-disable-extensions.service)
+explain the disabled state, but do not identify the triggering signal/timeout or
+extension. Preserve that protection and user preferences; a corrected bounded
+observer with event chronology is required before attributing the failure.
+Supplemental Stock ext4 job 113908703984 passed all twenty-one assertions,
+including ordinary update, repeated GDM login and lock/unlock. Independent
+readback passed source/tree/Phase-A bindings and the ordered harness digest
+reconstructed from frozen child Git blobs; its strict core consumer is not
+applicable. Run ID: `stock-20261009T170557Z-5b47c779`; artifact 11633430585 ZIP
+SHA-256: `3173444468d836b7e9e66519bc5ee3c9c1dd822e6fe84d340152755e94bd2f29`;
+archive SHA-256: `1b57b4c241c78c75072f5f1edddef190722f463b5462b7da8b24c76b5c4d79bb`;
+result SHA-256: `7acfca7e6513c2f33fd3f033d70c6589709ab559e676b48008fe46ffae48864a`.
+After the diagnostic correction was verified, root cancelled the superseded
+unpublished workflow. Terminal API readback confirms three PASS, one FAIL and
+five cancelled scenarios (Stock Btrfs/systemd-boot, Stock Btrfs/GRUB, Stock
+LUKS/systemd-boot, Marble with Stock GDM and dual boot). Their pending acceptance
+is NOT_TESTED. Finalization, tag/release creation, Pages and public VM acceptance
+did not run. No earlier child's VM results transfer to the diagnostic candidate.
 These source results do not establish the still-pending real
 GNOME 51 migration or transfer any old VM result to a changed child.
+
+The focused diagnostic correction observes the shared GNOME 50/51 `@user`
+instance, keeps the recovery unit unchanged and adds a bounded typed event
+timeline with current-boot monotonic timestamps plus a pre-query checkpoint anchor.
+The original observer's RED fixture missed actual `@user` failure/timeout events;
+its log SHA-256 is `872b8900940ffb33bf8cdc33e5df583c05742512224a1b9a20c23c78248ccd3e`.
+The checkpoint RED log SHA-256 is
+`6052a5d0c4106d15462ad4453c7d1dc4a53c4898b6946aa3336c715fefa96b7f`.
+Only validated public unit/event/result/exit fields are emitted, after the entire
+window validates; unknown IDs remain unclassified counts, while invalid numbers,
+fields or exhausted bounds yield unknown without a partial timeline. No journal
+message, arbitrary identifier, command line or private path is retained. Upstream
+crash protection, preferences, login timing and acceptance requirements are unchanged.
+Final seventeen lifecycle fixtures passed (focused log SHA-256
+`fced11b1a7f4c85700b9fd1e784859e281346688b86a2a4a4940bab9ea3f08e2`);
+`python3 tests/vm/runtime-checks.py` passed all 145 checks (log SHA-256
+`bd5f2fa05859324038df9e4a29ca0915df047bf4c674d14d192c985ec1235175`).
+Bash syntax, source modes and diff checks passed. Independent read-only review
+found no material issues. `bash tests/source-tests.sh` passed, including full
+namespace repository scenarios (ten, signer, 14+18 closures, no deferral); initial
+source log SHA-256:
+`a6b537d94f41f90981680b01ef40337ae6ad968082fda203901c93beddb06f6a`.
+The documented full source run also passed; log SHA-256:
+`41bd86806aad9d6f5fc2903427367771d0cb2f3057d8d11569136fe7ea62d4cc`.
+Repeat the full suite after this final cancellation/evidence reconciliation before
+protected delivery. The real VM cause and recovery are not yet established.
 
 The additional `python3 maintenance/check-sources.py --network --report ...`
 advisory observed forty sources at `2026-10-09T11:21:02+00:00`: fourteen unchanged,
