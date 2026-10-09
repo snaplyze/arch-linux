@@ -29,7 +29,7 @@ umask 077
 [ "${EUID}" -eq 0 ] || fail 'real pacman-key regression requires root in an isolated Arch environment'
 [ -f /etc/arch-release ] && [ ! -L /etc/arch-release ] ||
     fail 'keyring rotation checks require a disposable Arch environment'
-for command_name in awk bash bsdtar cat chmod chown cp date find getcap getent getfacl gpg grep \
+for command_name in awk bash bsdtar cat chmod chown cp date find getcap getent getfacl gpg gpgconf grep \
     id install ln mkfifo mktemp mv pacman-key paste python realpath rm runuser sed setcap setfacl \
     sha256sum sh stat truncate; do
     command -v -- "${command_name}" >/dev/null 2>&1 || fail "missing command: ${command_name}"
@@ -49,10 +49,25 @@ fi
 
 test_root="$(mktemp -d /tmp/arch-linux-keyring.XXXXXXXX)"
 cleanup_test_root() {
+    local home
     case "${test_root}" in /tmp/arch-linux-keyring.*) ;; *) return 1 ;; esac
     [ -d "${test_root}" ] && [ ! -L "${test_root}" ] &&
         [ "$(stat -c '%u:%a' -- "${test_root}")" = '0:700' ] || return 1
-    find "${test_root}" -xdev -depth -delete
+    # Validate every exact fixture home before asking GPG to stop its own daemons.
+    for home in "${test_root}/packet-home" "${test_root}/signing-home" "${test_root}/pacman-gnupg"; do
+        if [ -e "${home}" ] || [ -L "${home}" ]; then
+            [ -d "${home}" ] && [ ! -L "${home}" ] &&
+                [ "$(stat -c '%u:%a' -- "${home}")" = '0:700' ] || return 1
+        fi
+    done
+    for home in "${test_root}/packet-home" "${test_root}/signing-home" "${test_root}/pacman-gnupg"; do
+        if [ -d "${home}" ]; then
+            gpgconf --homedir "${home}" --kill all || return 1
+        fi
+    done
+    # Agent shutdown may unlink sockets after enumeration; ignore only vanished entries.
+    find "${test_root}" -ignore_readdir_race -xdev -depth -delete || return 1
+    [ ! -e "${test_root}" ] && [ ! -L "${test_root}" ]
 }
 trap cleanup_test_root EXIT
 packet_home="${test_root}/packet-home"
