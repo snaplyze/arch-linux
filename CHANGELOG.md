@@ -3,6 +3,26 @@
 Release entries describe their immutable tagged source. Package-only updates can be delivered
 separately through the signed repository; see [package delivery](docs/package-repository.md).
 
+## Unreleased
+
+- Prepare the GNOME 51 Marble profile tuple alongside GNOME 50, with distinct reviewed GDM
+  platform/resource closures and unsupported-input deactivation.
+- Add the independent `arch-linux-gnome-extensions` seventh package for Stock and Marble,
+  replacing four AUR packages through pacman. Make the Marble profile depend on that bundle.
+  Retire only the exact installer-created No Screenshot Box local payload and preserve modified copies and editable preferences.
+- Bootstrap the strict signed project repository for both GNOME installer options while keeping
+  Stock free of Colloid/Marble themes. Require a full new installer release for this closure and
+  behavior transition; package-only mode cannot change the historical six-package baseline.
+- Keep Clipboard Indicator's selected upstream PR and No Screenshot Box's project metadata
+  port explicitly pending real signed-upgrade, password-login and functionality acceptance.
+
+- Render release-pinned bootstrap commands and prose from the selected release version,
+  independently of the installer source floor and earlier documentation pin. Keep historical
+  release dates and acceptance evidence bound to their original inputs.
+- Bind authored changes to the deterministic release child without claiming publication or
+  acceptance. Source checks, installation acceptance and release/public readback remain separate
+  gates; see [release evidence](docs/validation.md).
+
 ## 1.0.6 — 2026-10-04
 
 - Publish immutable release child `7af2209be497a0a5f0e314cd8cc20f691e52b064` after all nine

@@ -19,12 +19,16 @@ python3 tests/volatile-fstab-checks.py
 python3 tests/retained-multilib-checks.py
 bash tests/vm/harness-checks.sh
 python3 tests/vm/runtime-checks.py
+python3 tests/vm/gnome51-input-checks.py
+python3 tests/extension-evidence-checks.py
 python3 tests/release-source-checks.py
 python3 tests/actions-release-checks.py
 python3 tests/actions-signing-checks.py
 bash tests/marble-checks.sh
 python3 tests/colloid-migration-checks.py
 python3 tests/gtk4-session-checks.py
+python3 tests/extension-session-checks.py
+python3 tests/profile-extension-checks.py
 bash tests/package-checks.sh
 python3 tests/docs-checks.py
 python3 tests/portability-checks.py

@@ -1,0 +1,92 @@
+Curated Marble GNOME extensions
+==============================
+
+Exact source URLs, archive SHA-256 values, UUIDs and versions are recorded in
+extension-sources.json. extensions.sha256 records the complete prepared runtime
+file closure, including locally rebuilt schemas and translations. Preparation
+never runs an upstream Makefile or extension JavaScript.
+
+Dash to Dock 109
+---------------
+UUID: dash-to-dock@micxgx.gmail.com
+Source: extensions.gnome.org version tag 75334, archive dash-to-dock.zip.
+License: GPL-2.0-or-later; README.md expressly grants version 2 or later,
+and COPYING contains the GPL v2 text. desktopIconsIntegration.js additionally
+carries the BSD-1-Clause grant below. Retain that file and its notice.
+
+Copyright (C) 2021 Sergio Costas (rastersoft@gmail.com)
+
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice,
+   this list of conditions and the following disclaimer.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+POSSIBILITY OF SUCH DAMAGE.
+
+Blur my Shell 74
+----------------
+UUID: blur-my-shell@aunetx
+Source: extensions.gnome.org version tag 75939, archive blur-my-shell.zip.
+License: GPL-3.0-only, conservatively recorded from the shipped LICENSE.
+No separate project grant of a later-version option was established from these
+pinned bytes. Do not infer that option from generic GPL boilerplate.
+
+Just Perfection 37
+------------------
+UUID: just-perfection-desktop@just-perfection
+Source: extensions.gnome.org version tag 74466, archive just-perfection.zip.
+License: GPL-3.0-only, explicitly declared in extension.js; LICENSE contains
+the GPL v3 text. Copyright 2020-2026 Javad Rahmatzadeh.
+
+Clipboard Indicator project-selected GNOME 51 port
+-------------------------------------------------
+UUID: clipboard-indicator@tudmotu.com
+Source: Tudmotu/gnome-shell-extension-clipboard-indicator commit
+39a0f9077daca21a62adaa975eb6a03bda499f27, archive clipboard-indicator.tar.gz.
+This is the selected open upstream pull request 641, not an upstream release:
+https://github.com/Tudmotu/gnome-shell-extension-clipboard-indicator/pull/641
+License: MIT, LICENSE.rst, copyright 2014 Yotam Bar-On.
+The source replaces removed GNOME APIs while retaining GNOME 50 compatibility.
+The actual README.md is retained; the upstream Makefile names a nonexistent
+README.rst. Only its runtime modules, stylesheet, metadata, license, README,
+schema XML and compiled translations are packaged. Existing .mo files are
+rebuilt from the pinned .po inputs. No Makefile target is executed.
+
+No Screenshot Box 6, project metadata port
+-----------------------------------------
+UUID: no-screenshot-box@screenshot
+Source: abdallah-alkanani/no-screenshot-box commit
+049690c3a003afd005fad5459f783ba3f46cdb81, archive no-screenshot-box.tar.gz.
+License: GPL-3.0-or-later, explicitly granted by README.md; LICENSE contains
+GPL v3. The extension.js bytes equal the pinned legacy version 6 payload.
+Only metadata adds shell-version 51 and the explicit version-name
+6-arch-linux-gnome51-port. This is a project compatibility declaration, not a
+new upstream version or proof of runtime compatibility.
+
+Legacy migration identity
+-------------------------
+The version-tag 72860 no-screenshot-box-old.zip archive has no bundled license
+and is used only to identify the previous user-local payload, never installed
+as the new licensed payload. legacy-no-screenshot-box.sha256 binds its five
+regular source files plus a schema cache independently compiled from its XML.
+The installed copy was compared with those archive bytes and the generated
+cache; no host settings were used to derive acceptance or the identity.
+
+Acceptance boundary
+-------------------
+Archive, source, metadata, compilation and file-closure checks are separate from
+functional GNOME session acceptance. Clipboard's selected PR and the No
+Screenshot Box metadata port require real runtime checks. Preparation alone
+establishes neither extension behavior nor successful package publication or
+installed-system updates.

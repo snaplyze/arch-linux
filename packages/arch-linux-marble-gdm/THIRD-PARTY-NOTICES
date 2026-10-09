@@ -1,6 +1,6 @@
 Third-party notices for arch-linux-marble-gdm
 
-This package distributes one composed theme payload. Its package metadata records the complete
+This package distributes two separately pinned composed theme payloads. Its package metadata records the complete
 license expression:
 
     GPL-3.0-only AND GPL-2.0-or-later AND LGPL-2.1-only
@@ -45,3 +45,17 @@ checksums those exact GNOME source assets, and its provenance check proves these
 
 Project-owned packaging helpers and policy files are distributed under GNU GPL version 3 only;
 their exact text is installed as LICENSE-project.
+
+GNOME 51 candidate
+------------------
+
+The separately selected GNOME 51 Stock CSS comes from Arch gnome-shell 1:51.0-1 and exact
+GNOME source commit 2177bdf9624b2d285de7c1d34274073d3769d6b8. Its dark entrypoint imports
+39 Sass/widget files, adding widgets/_qr-code.scss under the unchanged project license.
+The exact 45 selected source inputs and their license declarations are pinned by the
+provenance verifier. COPYING, Sass COPYING and README license grants, calendar and workspace
+geometry are unchanged. The updated _common.scss, which retains the same LGPL-2.1-only notice,
+is separately installed as NOTICE-GNOME-Shell-51-common.scss.
+
+The Marble layer remains the exact upstream 50.0.0 release and audited source listed above;
+GNOME 51 compatibility is this project's candidate, not an upstream Marble 51 release.

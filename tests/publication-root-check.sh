@@ -466,8 +466,10 @@ executable_sources=(
     tests/vm/qga-client.py
     tests/vm/https-server.py
     tests/vm/prepare-marble-repository.sh
+    tests/vm/prepare-gnome51-upgrade-inputs.py
     tests/vm/guest/bootstrap.sh
     tests/vm/guest/verify.sh
+    tests/vm/guest/extension-probe.js
 )
 for relative in "${executable_sources[@]}"; do
     /usr/bin/install -D -m0755 -o 0 -g 0 -- "$repo_root/$relative" "$fixture_source/$relative"
@@ -526,6 +528,25 @@ PYTHONDONTWRITEBYTECODE=1 PACKAGE_FIXTURE_OUTPUT_DIR="$fixture_packages" \
 profile_packages=("$fixture_packages/arch-linux-marble-profile-"*.pkg.tar.zst)
 [ "${#profile_packages[@]}" -eq 1 ] && [ -f "${profile_packages[0]}" ] ||
     fail 'profile package fixture closure differs'
+
+# Synthetic-only old-release receipts, bound before the fixture Git identity is sealed.
+/usr/bin/install -D -m0644 -o 0 -g 0 -- "$repo_root/tests/vm/gnome51-upgrade-baseline.json" \
+    "$fixture_source/tests/vm/gnome51-upgrade-baseline.json"
+/usr/bin/install -D -m0644 -o 0 -g 0 -- "$repo_root/tests/gnome51-evidence-fixture.py" \
+    "$fixture_source/tests/gnome51-evidence-fixture.py"
+gnome51_baseline_manifest="$work/gnome51-baseline-repository-manifest.json"
+/usr/bin/python3 -I -B "$repo_root/tests/gnome51-evidence-fixture.py" baseline "$fixture_source" "$gnome51_baseline_manifest"
+signing_gpg "$signing_home" --batch --no-options --pinentry-mode loopback \
+    --passphrase-file "$passphrase_file" --local-user "${signing}!" \
+    --output - --detach-sign -- "$gnome51_baseline_manifest" >"$gnome51_baseline_manifest.sig"
+/usr/bin/chmod 0644 -- "$gnome51_baseline_manifest.sig"
+stop_home_agent "$signing_home"
+for attempt in {1..100}; do
+    [ -z "$(uid_processes "$signing_uid")" ] && break
+    /usr/bin/sleep 0.05
+done
+[ -z "$(uid_processes "$signing_uid")" ] || fail 'GNOME 51 fixture signing left an account process'
+/usr/bin/python3 -I -B "$repo_root/tests/gnome51-evidence-fixture.py" bind "$fixture_source" "$gnome51_baseline_manifest"
 
 /usr/bin/git -c safe.directory="$fixture_source" -C "$fixture_source" init --quiet --initial-branch=main
 /usr/bin/git -c safe.directory="$fixture_source" -C "$fixture_source" add -- .
@@ -1020,7 +1041,7 @@ done
 /usr/bin/python3 -I -B - "$qemu_root" "$fixture_commit" "$fixture_tree" \
     "$build_hash" "$unsigned_hash" "$snapshot_hash" "$release_manifest_hash" \
     "$repository_manifest" "$repository_manifest_signature" "$phase_a" "$fixture_source" \
-    "$legacy_manifest" <<'PY'
+    "$legacy_manifest" "$gnome51_baseline_manifest" <<'PY'
 from __future__ import annotations
 
 import gzip
@@ -1045,6 +1066,10 @@ if spec is None or spec.loader is None:
     raise SystemExit('acceptance manifest fixture module is unavailable')
 am = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(am)
+spec = importlib.util.spec_from_file_location('gnome51_fixture', source / 'tests/gnome51-evidence-fixture.py')
+upgrade_fixture = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(upgrade_fixture)
+upgrade_baseline = Path(sys.argv[13])
 scenarios = (
     ('minimal-ext4-systemdboot', 'minimal', 'M'),
     ('stock-gnome-btrfs-luks2-plymouth-grub', 'luksgrub', 'G'),
@@ -1126,6 +1151,9 @@ for index, (scenario, prefix, serial_code) in enumerate(scenarios, 1):
         f'{marker}_QEMU_INSTALLER_EXIT status=0\n'
         f'{marker}_QEMU_INSTALL_COMPLETE run_id={run_id}\n'
     ).encode()
+    if prefix == 'marble':
+        log += b'GNOME51_UPGRADE_BASELINE_PASS synthetic_unit_fixture=1\nGNOME51_UPGRADE_RECOVERY_PASS synthetic_unit_fixture=1\n'
+        log += upgrade_fixture.functional_log(source, run_id)
     write(evidence / 'scenario.log.gz', gzip.compress(log, mtime=0))
     write(evidence / 'final-qemu-img-check.txt', b'No errors were found on the image.\n')
     write(
@@ -1251,6 +1279,7 @@ for index, (scenario, prefix, serial_code) in enumerate(scenarios, 1):
             ('legacy_profile_version', '0.9.0-1'), ('legacy_gtk3_version', '0.9.0-1'),
         ]
         identity_text += ''.join(f'{key}={value}\n' for key, value in legacy_rows)
+        identity_text += upgrade_fixture.attach(source, evidence, commit, tree, upgrade_baseline)
     write(run / 'identity.txt', identity_text.encode())
     result_raw = encoded(result)
     write(run / 'result.json', result_raw)

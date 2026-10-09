@@ -1,18 +1,21 @@
 # Signed package repository
 
-The optional Marble profile is delivered through a project-owned pacman repository. Stock GNOME is
-not dependent on repository availability.
+The GNOME 51 candidate uses the project-owned signed pacman repository for curated extensions
+in both Stock GNOME and Marble. Stock retains vendor appearance and installs no Colloid/Marble
+theme packages, but its new installer path requires repository availability. Minimal TTY does
+not need the desktop extension bundle. Historical release inputs retain their original behavior.
 
 ## Package set
 
 `repository/package-set` is the exact ordered package allowlist:
 
 1. `arch-linux-keyring`
-2. `arch-linux-marble-shell`
-3. `arch-linux-colloid-gtk`
-4. `arch-linux-colloid-icons`
-5. `arch-linux-marble-profile`
-6. `arch-linux-marble-gdm`
+2. `arch-linux-gnome-extensions`
+3. `arch-linux-marble-shell`
+4. `arch-linux-colloid-gtk`
+5. `arch-linux-colloid-icons`
+6. `arch-linux-marble-profile`
+7. `arch-linux-marble-gdm`
 
 The GDM package remains separate and is never implied by selecting the Marble user profile. Package
 metadata and immutable source bindings are checked with:
@@ -32,6 +35,49 @@ The historical `1.0.1` snapshot and its package-delivery evidence remain records
 inputs; its retired release/tag objects are not a current Pages publication reference. An unsigned
 build or source merge alone is still not a Pages update; changed package bytes need a new
 version/pkgrel.
+
+## GNOME 51 candidate package delivery
+
+The GNOME 51 design adds `arch-linux-gnome-extensions` as a seventh package. This independent
+bundle serves both Stock GNOME and Marble; the Marble profile depends on it. It owns
+five curated system extensions: Dash to Dock 109, Blur my Shell 74, Just Perfection 37,
+Clipboard Indicator from the selected upstream PR 641 commit, and No Screenshot Box 6
+with a project metadata port. The latter two are candidates requiring real functionality
+checks, not newly accepted upstream releases. Source identities, licenses and exact runtime
+file hashes are pinned in the [bundle inputs](../packages/arch-linux-gnome-extensions/extension-sources.json)
+and [notices](../packages/arch-linux-gnome-extensions/THIRD-PARTY-EXTENSIONS).
+
+The extension bundle provides, conflicts with and replaces the four AUR packages
+`gnome-shell-extension-dash-to-dock`, `gnome-shell-extension-blur-my-shell`,
+`gnome-shell-extension-just-perfection-desktop` and
+`gnome-shell-extension-clipboard-indicator`. Their versioned provides are reviewed with
+PKGBUILD and `.SRCINFO`; after signed publication, normal `pacman -Syu` can replace those
+packages with the bundle-owned payload. Distribution-owned extensions stay with Arch.
+No Screenshot Box instead has an installer-created user-local legacy copy. The user
+service retires only its exact known file tree after validating the package-owned replacement;
+it preserves modified, extra, linked or foreign copies and reports their continued shadowing.
+It does not reset extension preferences or settings.
+
+The candidate profile accepts GNOME 50 with GTK 4.22.x/libadwaita 1.9.x and GNOME 51 with
+GTK 4.24.x/libadwaita 1.10.x. Unknown tuples deactivate the managed profile. The separate
+GDM package retains the reviewed GNOME 50 closure and adds an independently pinned GNOME 51
+platform/resource closure; matching the major number alone is insufficient to activate it.
+Vendor resources and ordinary user-session environment remain outside that overlay.
+
+As of 2026-10-09, these changes are not yet published or accepted in a real GNOME/GDM session. Source and
+payload checks do not demonstrate delivery through a signed repository or an installed-system
+upgrade. Require a fresh clean Arch build, strict signatures, real old-to-new `pacman -Syu`,
+password login, extension functionality, reboot and fallback checks described in
+[testing](testing.md#gnome-51-candidate-upgrade-acceptance). Package-only publication remains
+subject to the separate procedure and authority below; the candidate does not widen it.
+
+This closure and installer change require a new full installer release. The immutable 1.0.6
+installer still requests the four AUR packages and cannot serve as the unchanged installer for
+this transition. Package-only mode cannot add the seventh package to an older six-package
+baseline or change installer behavior. Existing installed systems need real signed upgrade
+acceptance; fresh Stock and Marble paths need the newly released installer. Older Stock systems
+without the project repository require reviewed authenticated trust setup before a full pacman
+update can discover the bundle; the old installer does not supply that upgrade setup. Historical six-package release assets and their recorded results remain unchanged.
 
 ## Canonical unsigned build
 
@@ -141,8 +187,9 @@ no signing secret or private key.
 
 For package-only updates, use the `packages` deployment mode described in
 [repository tooling](../repository/README.md#package-only-updates). It accepts a separately tagged,
-signed 14-file package-update bundle for an existing installer version. A Marble profile `pkgrel`
-update therefore does not require a new installer release or replacement of old installer assets.
+signed 14-file package-update bundle for an existing installer version. An update within an
+unchanged accepted package closure can avoid a new installer release or
+replacement of old installer assets. The GNOME 51 seventh-package transition cannot use this route.
 The delivered tooling implements strict package-child provenance and requires version-only
 normalization to exact published installer/bootstrap bytes. Future installer/bootstrap behavior
 changes require a new accepted installer release before package-only delivery. External package delivery remains separately authorized and

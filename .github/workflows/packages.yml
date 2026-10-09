@@ -77,7 +77,7 @@ jobs:
     timeout-minutes: 90
     container:
       image: archlinux:base-devel@sha256:714acd1eef9ae997d95691b1c5220ada0076185b77857c1813f02de0fa83cf7b
-      options: --security-opt apparmor=arch-linux-ci --security-opt seccomp=unconfined --security-opt systempaths=unconfined
+      options: --init --security-opt apparmor=arch-linux-ci --security-opt seccomp=unconfined --security-opt systempaths=unconfined
     steps:
       - name: Install build dependencies
         run: |
@@ -85,6 +85,7 @@ jobs:
           # Disposable pacman trust database, never the project production signing key.
           pacman-key --init
           pacman-key --populate archlinux
+          pacman -Sy --noconfirm --needed archlinux-keyring
           pacman -Syu --noconfirm --needed \
             bash coreutils curl dconf git glib2 glib2-devel gnupg gsettings-desktop-schemas jq libarchive \
             python sassc shellcheck unzip zstd
@@ -365,13 +366,14 @@ jobs:
     timeout-minutes: 30
     container:
       image: archlinux:base-devel@sha256:714acd1eef9ae997d95691b1c5220ada0076185b77857c1813f02de0fa83cf7b
-      options: --security-opt apparmor=arch-linux-ci --security-opt seccomp=unconfined --security-opt systempaths=unconfined
+      options: --init --security-opt apparmor=arch-linux-ci --security-opt seccomp=unconfined --security-opt systempaths=unconfined
     steps:
       - name: Install verifier dependencies
         run: |
           set -euo pipefail
           pacman-key --init
           pacman-key --populate archlinux
+          pacman -Sy --noconfirm --needed archlinux-keyring
           pacman -Syu --noconfirm --needed bash coreutils git gnupg libarchive python
 
       - name: Check out exact verifier source

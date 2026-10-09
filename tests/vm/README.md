@@ -49,10 +49,43 @@ common=(
 bash tests/vm/run.sh minimal-ext4-systemdboot "${common[@]}"
 bash tests/vm/run.sh stock-gnome-btrfs-luks2-plymouth-grub "${common[@]}"
 bash tests/vm/run.sh marble-gnome-btrfs-luks2-plymouth-systemdboot "${common[@]}" \
+  --gnome51-upgrade-inputs "$GNOME51_UPGRADE_INPUTS" \
+  --gnome51-upgrade-manifest-sha256 "$GNOME51_UPGRADE_MANIFEST_SHA256" \
   --legacy-release-assets "$LEGACY_RELEASE_ASSETS" \
   --legacy-release-version "$(jq -r .version tests/vm/legacy-marble-release.json)" \
   --legacy-snapshot-sha256 "$(jq -r .snapshotSha256 tests/vm/legacy-marble-release.json)"
 ```
+
+The main staged Marble case requires both `--gnome51-upgrade-inputs` and
+`--gnome51-upgrade-manifest-sha256`. Capture the digest directly from the trusted preparer execution:
+
+```bash
+GNOME51_UPGRADE_MANIFEST_SHA256="$(python3 tests/vm/prepare-gnome51-upgrade-inputs.py \
+  --source-root "$PWD" --output "$GNOME51_UPGRADE_INPUTS")"
+```
+
+Keep that captured digest as a separate trusted input; do not derive its authority by hashing a
+mutable manifest afterward. The harness verifies it before consuming inputs and revalidates the
+entire copied closure against the same digest before starting the private TLS server.
+That directory binds the authentic signed 1.0.6 six-package
+baseline, four actual pinned AUR packages built by disposable unprivileged builders, and the exact
+installer No Screenshot Box v6 archive. Other scenarios and public mode reject this input.
+
+After the existing GTK3 migration round trip, a separate GNOME51 phase installs this baseline with
+the new bundle absent, authenticates through GDM, and checks the four old extension failures.
+It records explicit non-default preference witnesses, then runs plain `pacman -Syu` against the
+signed candidate repository. A second actual password login must verify replacement of the four
+AUR owners, all eight extensions active, preserved settings, the original v6 file bytes and inodes
+retained outside extension discovery, and the candidate GDM resource isolation. No synthetic
+package database or missing-input shortcut satisfies this gate. The baseline and recovery receipts
+are retained in the compact scenario log. After this login and again after reboot,
+real QMP keyboard/pointer input exercises Clipboard history/paste, a dedicated
+Dash app-launch shortcut and No Screenshot Box capture on release with its
+disabled-setting control. A disposable GTK probe uses synthetic clipboard data;
+all six receipts bind this run, actual session and the probe's harness hash.
+Enabled states cannot substitute for these observations. Blur rendering and
+appearance remain separate checks. This source implementation is not an executed
+VM PASS.
 
 The main staged Marble case additionally requires the ten public legacy assets from the immutable
 release recorded in `legacy-marble-release.json`: build metadata, unsigned manifest, signed
@@ -87,12 +120,19 @@ the installer does not provision those in that OS.
 The main staged Marble case additionally exercises GDM administrator-profile fallback and restore,
 then real pacman removal and reinstallation followed by password logins. The Stock-GDM Marble case
 checks that the optional GDM package is absent and the greeter retains its Stock environment.
+Theme removal keeps the signed keyring and neutral GNOME extension bundle, and the resulting
+Stock session must retain all seven extensions. GDM resource, dconf and vendor-integrity checks
+select the reviewed GNOME 50 or 51 payload; the desktop Shell theme intentionally reuses its
+separately tested GNOME 50 asset.
 
 The staged helper accepts only `arch-linux-repository-$RELEASE_VERSION.tar.zst` from the exact release-asset
 closure. For every staged scenario it invokes the schema-2 release verifier with commit, tree,
 build-metadata and unsigned-manifest hashes, checks the archive SHA-256, safely extracts it and
-verifies the signed repository again. Minimal and Stock retain only its signed manifest and compact
-object-hash map; Marble additionally serves the same public bytes over its disposable TLS transport.
+verifies the signed seven-package repository again. Minimal retains its signed manifest and compact
+object-hash map. Stock and Marble also serve the same public bytes over disposable TLS with a
+test-owned CA: Stock installs only the keyring and neutral extension bundle, while Marble adds
+its theme packages and optional GDM package. The repository payload and CA are part of each
+graphical staged guest's exact manifest closure.
 The helper never creates a key or signs anything.
 
 After the Release and Pages deployment have passed independent readback, run the public-only final
@@ -136,8 +176,8 @@ The public guest independently downloads signed `RELEASE-SHA256SUMS`, the exact 
 and its detached signature from the canonical Release. It requires the signed/archive digest to
 equal `--snapshot-sha256`, extracts only the archive manifest bytes, and requires the Pages manifest
 and signature to be byte-identical. It then verifies schema-2 commit/tree/installer/build identities,
-downloads all 23 signed-manifest objects from the canonical Pages HTTPS URL, checks every size/hash,
-and verifies all six package plus both canonical database signatures with the exact public key.
+downloads all 25 signed-manifest objects from the canonical Pages HTTPS URL, checks every size/hash,
+and verifies all seven package plus both canonical database signatures with the exact public key.
 Pages manifest bytes alone are not treated as proof of the enclosing archive digest.
 
 By default, `run.sh` attaches the target as `virtio-blk-pci` without serial, vendor or product fields.

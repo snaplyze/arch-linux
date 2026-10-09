@@ -10,6 +10,609 @@ VERIFY = ROOT / "tests/vm/guest/verify.sh"
 def function(name):
     return re.search(r"^" + name + r"\(\) \{\n.*?^\}", VERIFY.read_text(), re.M | re.S).group(0)
 class RuntimeChecks(unittest.TestCase):
+    def test_functional_receipt_binds_live_native_probe_and_frozen_source(self):
+        import hashlib, json, os, shutil, time
+        if not shutil.which('gjs'): self.skipTest('native GJS is not installed')
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); state = root / 'state'; state.mkdir(); trusted = root / 'trusted'; trusted.mkdir(mode=0o700)
+            source = "import GLib from 'gi://GLib'; new GLib.MainLoop(null,false).run();\n"
+            frozen = root / 'frozen.js'; frozen.write_text(source); frozen.chmod(0o500)
+            probe = state / 'probe.js'; probe.write_text(source); probe.chmod(0o500)
+            digest = hashlib.sha256(source.encode()).hexdigest()
+            (state / 'probe.sha256').write_text(digest+'\n')
+            identity = 'marble-20261009T010203Z-12345678'
+            process = subprocess.Popen(['/usr/bin/gjs','-m',str(probe),str(state),identity,'upgrade'],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
+            try:
+                time.sleep(.2); self.assertIsNone(process.poll())
+                receipt = {'schema':1,'runId':identity,'round':'upgrade','probeSha256':digest,
+                           'stage':'dash-ready','valueSha256':'-','pid':process.pid}
+                script = ('set -euo pipefail\nprobe_state="$1" username="$2" probe_source="$3" probe_trusted="$4" run_id="$5" probe_round=upgrade\n' +
+                    # Only trust-file owner differs in this unprivileged fixture; live exe/argv/starttime remain production checks.
+                    function('verify_extension_probe_receipt').replace('trusted_uid = 0','trusted_uid = os.getuid()') +
+                    '\nverify_extension_probe_receipt "$6" "$7"\n')
+                path = state / 'dash-ready.json'
+                def check(stage='dash-ready', expected='-'):
+                    return subprocess.run(['bash','-c',script,'fixture',str(state),str(os.getuid()),str(frozen),str(trusted),identity,stage,expected],capture_output=True,text=True)
+                self.assertNotEqual(check().returncode,0)
+                path.write_text(json.dumps(receipt)); path.chmod(0o600)
+                self.assertEqual(check().returncode,0,check().stderr)
+                wrong = receipt | {'pid':os.getpid()}; path.write_text(json.dumps(wrong))
+                self.assertNotEqual(check().returncode,0,'foreign positive pid must be rejected')
+                path.write_text(json.dumps(receipt)); self.assertEqual(check().returncode,0,check().stderr)
+                value = hashlib.sha256(b'A').hexdigest(); copied = receipt | {'stage':'pasted-a','valueSha256':value}
+                path = state / 'pasted-a.json'; path.write_text(json.dumps(copied)); path.chmod(0o600)
+                self.assertEqual(check('pasted-a',value).returncode,0)
+                identity_path = trusted / 'identity.json'; saved = identity_path.read_text()
+                modified = json.loads(saved); modified['starttime'] += 1; identity_path.write_text(json.dumps(modified))
+                self.assertNotEqual(check('pasted-a',value).returncode,0,'reused PID/starttime mismatch')
+                identity_path.write_text(saved)
+                probe.chmod(0o600); probe.write_text(source+'// changed\n')
+                (state / 'probe.sha256').write_text(hashlib.sha256(probe.read_bytes()).hexdigest()+'\n')
+                self.assertNotEqual(check('pasted-a',value).returncode,0,'user-rehashed source must not be authority')
+                probe.write_text(source); probe.chmod(0o500)
+                for key, invalid in [('runId','old'),('round','postreboot'),('probeSha256','b'*64),('stage','copied-a'),('valueSha256','c'*64),('pid',os.getpid())]:
+                    path.write_text(json.dumps(copied | {key:invalid}))
+                    self.assertNotEqual(check('pasted-a',value).returncode,0,key)
+                path.write_text(json.dumps(copied)); process.terminate(); process.wait(timeout=5)
+                self.assertNotEqual(check('pasted-a',value).returncode,0,'dead probe must be rejected')
+            finally:
+                if process.poll() is None: process.terminate(); process.wait(timeout=5)
+                process.stderr.close()
+
+    def test_screenshot_observation_rejects_stale_missing_and_wrong_geometry(self):
+        import binascii, json, os, struct, zlib
+        source = VERIFY.read_text()
+        self.assertTrue(re.search(r'(?m)^verify_extension_screenshot\(\) \{', source),
+                        'capture-on-release needs actual new PNG observation')
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); screenshots = root / 'Screenshots'; screenshots.mkdir()
+            (root / 'screenshot-baseline.json').write_text(json.dumps({'directory': str(screenshots), 'names': [], 'identities': []}))
+            (root / 'display.json').write_text('{"scale":1,"width":1280,"height":800}')
+            script = ('set -euo pipefail\nprobe_state="$1" username="$2"\n' +
+                      function('verify_extension_screenshot') + '\nverify_extension_screenshot "$3"\n')
+            def check(mode):
+                return subprocess.run(['bash', '-c', script, 'fixture', directory, str(os.getuid()), mode],
+                                      capture_output=True, text=True)
+            self.assertEqual(check('absent').returncode, 0)
+            self.assertNotEqual(check('present').returncode, 0)
+            def png(width, height):
+                def chunk(kind, data):
+                    return struct.pack('>I', len(data)) + kind + data + struct.pack('>I', binascii.crc32(kind + data) & 0xffffffff)
+                header = struct.pack('>IIBBBBB', width, height, 8, 2, 0, 0, 0)
+                rows = (b'\0' + b'\0' * (width * 3)) * height
+                return b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', header) + chunk(b'IDAT', zlib.compress(rows)) + chunk(b'IEND', b'')
+            image = screenshots / 'test.png'; image.write_bytes(png(301, 201))
+            self.assertEqual(check('present').returncode, 0)
+            old_image = image.rename(screenshots / 'old.png'); original = old_image.stat()
+            (root / 'screenshot-baseline.json').write_text(json.dumps({'directory':str(screenshots),
+                'names':['old.png'],'identities':[[original.st_dev,original.st_ino]]}))
+            old_image.rename(image)
+            self.assertNotEqual(check('present').returncode,0,'renamed existing PNG must not prove capture')
+            (root / 'screenshot-baseline.json').write_text(json.dumps({'directory':str(screenshots),'names':[],'identities':[]}))
+            self.assertNotEqual(check('absent').returncode, 0)
+            (root / 'screenshot-baseline.json').write_text(json.dumps({'directory': str(screenshots), 'names': ['test.png'], 'identities': []}))
+            self.assertNotEqual(check('present').returncode, 0)
+            (root / 'screenshot-baseline.json').write_text(json.dumps({'directory': str(screenshots), 'names': [], 'identities': []}))
+            image.write_bytes(png(800, 600))
+            self.assertNotEqual(check('present').returncode, 0)
+            image.write_bytes(png(301, 201)[:-12])
+            self.assertNotEqual(check('present').returncode, 0)
+
+    def test_functional_flow_never_asserts_pass_when_any_observation_fails(self):
+        body = self.host_function('run_extension_functional_acceptance')
+        main = 'marble-gnome-btrfs-luks2-plymouth-systemdboot'
+        with tempfile.TemporaryDirectory() as directory:
+            script = ('set -euo pipefail\ninput_mode=staged scenario_id=' + main + '\nevidence="$1" fail="$2"\n' + body + r'''
+qga_verify(){
+  printf 'OBSERVE:%s\n' "$1"
+  [ "$1" != "$fail" ] || return 1
+  if [[ "$1" = *-dash ]]; then printf 'EXTENSION_PROBE_DISPLAY width=1280 height=800 scale=1\n' >"$evidence/$2.stdout"; fi
+}
+qmp_extension_input(){ printf 'INPUT:%s\n' "$1"; }
+sleep(){ :; }
+die(){ return 1; }
+record_assertion(){ printf 'ASSERT:%s\n' "$1"; }
+run_extension_functional_acceptance upgrade
+''')
+            for failure in ['', 'extension-upgrade-dash', 'extension-upgrade-history-a', 'extension-upgrade-pasted-b',
+                            'extension-upgrade-control-no-capture', 'extension-upgrade-control-captured',
+                            'extension-upgrade-positive-captured', 'extension-upgrade-cleanup']:
+                result = subprocess.run(['bash', '-c', script, 'fixture', directory, failure],
+                                        capture_output=True, text=True, timeout=5)
+                self.assertEqual(result.returncode == 0, failure == '', result.stderr)
+                assertions = [line for line in result.stdout.splitlines() if line.startswith('ASSERT:')]
+                self.assertEqual(assertions, [] if failure else [
+                    'ASSERT:clipboard-history-copy-paste', 'ASSERT:dash-extension-app-activation',
+                    'ASSERT:no-screenshot-box-capture-on-release'])
+                if not failure:
+                    self.assertLess(result.stdout.index('INPUT:next'), result.stdout.index('OBSERVE:extension-upgrade-history-a'))
+                    self.assertLess(result.stdout.index('INPUT:previous'), result.stdout.index('OBSERVE:extension-upgrade-history-b'))
+                    self.assertLess(result.stdout.index('OBSERVE:extension-upgrade-control-no-capture'), result.stdout.index('INPUT:capture'))
+                    self.assertEqual(result.stdout.count('INPUT:capture'), 1)
+                    self.assertLess(result.stdout.index('OBSERVE:extension-upgrade-cleanup'), result.stdout.index('ASSERT:'))
+
+    def test_qmp_functional_input_is_bounded_and_preserves_peer_checks(self):
+        import json, os, socket, threading
+        source = self.host_function('qmp_extension_input')
+        code = re.search(r"<<'EXTENSION_INPUT_PY'\n(.*?)\nEXTENSION_INPUT_PY", source, re.S).group(1)
+        for operation, fail, accepted in [('dash', False, True), ('drag', False, True),
+                                           ('dash', True, False), ('unreviewed', False, False)]:
+            with self.subTest(operation=operation, fail=fail), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory); path = root / 'qmp.sock'; server = socket.socket(socket.AF_UNIX)
+                server.bind(str(path)); server.listen(1); server.settimeout(2); frames = []
+                # Real socket credentials/identity, with only unavailable QEMU process identity stubbed.
+                module = root / 'boundary.py'
+                module.write_text('import importlib.util,sys\n'
+                    'spec=importlib.util.spec_from_file_location("real_boundary",' + repr(str(ROOT / 'tests/vm/frame-evidence.py')) + ')\n'
+                    'real=importlib.util.module_from_spec(spec);sys.modules[spec.name]=real;spec.loader.exec_module(real)\n'
+                    'real.exact_qemu=lambda pid,start: pid==' + str(os.getpid()) + ' and start=="fixture"\n'
+                    'QMP=real.QMP;demand=real.demand;exact_qemu=real.exact_qemu\n')
+                def serve():
+                    try:
+                        connection, _ = server.accept()
+                        with connection, connection.makefile('rb') as reader:
+                            connection.sendall(b'{"QMP":{}}\r\n')
+                            while line := reader.readline():
+                                frame = json.loads(line); frames.append(frame)
+                                rejected = fail and frame['execute'] == 'send-key'
+                                connection.sendall((json.dumps({'error': {'class':'fixture'}} if rejected else {'return': {}}) + '\r\n').encode())
+                    except (TimeoutError, OSError): pass
+                thread = threading.Thread(target=serve); thread.start(); info = path.stat()
+                result = subprocess.run(['python3', '-c', code, str(module), str(path),
+                    f'{info.st_dev}:{info.st_ino}', str(os.getpid()), 'fixture', operation, '1280', '800'],
+                    capture_output=True, text=True, timeout=5)
+                thread.join(3); server.close(); self.assertFalse(thread.is_alive())
+                self.assertEqual(result.returncode == 0, accepted, result.stderr)
+                self.assertTrue(all(frame['execute'] in ('qmp_capabilities','send-key','input-send-event') for frame in frames))
+                if operation == 'dash':
+                    key = next(frame for frame in frames if frame['execute'] == 'send-key')
+                    self.assertEqual([value['data'] for value in key['arguments']['keys']], ['meta_l','f6'])
+                elif operation == 'drag':
+                    events = [event for frame in frames if frame['execute']=='input-send-event' for event in frame['arguments']['events']]
+                    self.assertEqual([event['data']['down'] for event in events if event['type']=='btn'], [True, False])
+                    self.assertTrue(all(0 <= event['data']['value'] <= 32767 for event in events if event['type']=='abs'))
+                else: self.assertEqual(frames, [])
+
+    def test_native_probe_accepts_canonical_real_run_identity(self):
+        import os, shutil
+        if not shutil.which('gjs'): self.skipTest('native GJS is not installed')
+        source = (ROOT / 'tests/vm/guest/extension-probe.js').read_text()
+        self.assertIn('app.run([]);', source)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); (root / 'probe.js').write_text(source); (root / 'probe.js').chmod(0o500)
+            # Native imports/constructors and exact identity validation, without activating GTK or a bus.
+            program = source.replace('app.run([]);', 'print("IDENTITY_NATIVE_PASS GUI_NOT_RUN");')
+            (root / 'identity.js').write_text(program); (root / 'identity.js').chmod(0o500)
+            environment = {'PATH':os.environ.get('PATH','/usr/bin'), 'HOME':directory, 'LANG':'C.UTF-8',
+                           'XDG_CONFIG_HOME':directory,'XDG_DATA_HOME':directory,'XDG_CACHE_HOME':directory,
+                           'GDK_BACKEND':'wayland'}
+            for identity, accepted in [('marble-20261009T010203Z-12345678',True),
+                                       ('marble-20261009t010203z-12345678',False), ('fixture',False)]:
+                result = subprocess.run(['gjs','-m',str(root / 'identity.js'),directory,identity,'upgrade'],
+                    capture_output=True,text=True,env=environment,timeout=10)
+                self.assertEqual(result.returncode == 0, accepted, result.stderr)
+                if accepted: self.assertIn('IDENTITY_NATIVE_PASS GUI_NOT_RUN',result.stdout)
+                else: self.assertIn('Invalid probe identity',result.stderr)
+
+    def test_gnome51_inputs_are_mandatory_only_for_main_staged_marble(self):
+        script = ('set -euo pipefail\ninput_mode="$1" scenario_id="$2" gnome51_upgrade_inputs="$3"\n'
+                  'gnome51_upgrade_manifest_sha256="$4" gnome51_upgrade_manifest_supplied="$5"\n'
+                  'die(){ echo "$*" >&2; return 1; }\n' +
+                  self.host_function('validate_gnome51_upgrade_input_scope') +
+                  '\nvalidate_gnome51_upgrade_input_scope\n')
+        main = 'marble-gnome-btrfs-luks2-plymouth-systemdboot'; digest = 'a' * 64
+        with tempfile.TemporaryDirectory() as directory:
+            for mode, scenario, supplied, hash_value, flag, accepted in [
+                    ('staged', main, directory, digest, 'true', True),
+                    ('staged', main, directory, '-', 'false', False),
+                    ('staged', main, directory, 'malformed', 'true', False),
+                    ('staged', main, '', digest, 'true', False),
+                    ('public', main, directory, digest, 'true', False),
+                    ('public', main, '', '-', 'false', True),
+                    ('public', main, '', digest, 'true', False),
+                    ('public', main, '', '-', 'true', False),
+                    ('staged', 'stock-gnome-ext4-systemdboot', directory, digest, 'true', False),
+                    ('staged', main + '-stock-gdm', directory, digest, 'true', False),
+                    ('staged', main, 'relative', digest, 'true', False)]:
+                result = subprocess.run(['bash', '-c', script, 'fixture', mode, scenario, supplied, hash_value, flag],
+                                        capture_output=True, text=True, timeout=5)
+                self.assertEqual(result.returncode == 0, accepted, result.stderr)
+
+    def test_gnome51_loader_passes_external_digest_before_and_after_copy(self):
+        import hashlib, json
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); module_dir = root / 'tests/vm'; module_dir.mkdir(parents=True)
+            (module_dir / 'prepare-gnome51-upgrade-inputs.py').write_text(
+                'import hashlib, pathlib\n'
+                'def verify_inputs(root, directory, expected_manifest_sha256):\n'
+                '    with (root / "calls.txt").open("a") as output: output.write(str(directory) + "\\n")\n'
+                '    raw = (directory / "manifest.json").read_bytes()\n'
+                '    assert hashlib.sha256(raw).hexdigest() == expected_manifest_sha256, "trusted digest mismatch"\n')
+            inputs = root / 'inputs'; inputs.mkdir(); server = root / 'server'; server.mkdir()
+            original = {'files': {'aur/package.pkg.tar.zst': {'sha256': 'a' * 64, 'size': 1}}, 'schema': 1}
+            raw = (json.dumps(original, sort_keys=True, separators=(',', ':')) + '\n').encode()
+            (inputs / 'manifest.json').write_bytes(raw); digest = hashlib.sha256(raw).hexdigest()
+            helper = self.host_function('verify_gnome51_upgrade_inputs')
+            program = ('set -euo pipefail\nrepository_root="$1" gnome51_upgrade_manifest_sha256="$3"\n' +
+                       helper + '\nverify_gnome51_upgrade_inputs "$2"\n')
+            valid = subprocess.run(['bash', '-c', program, 'fixture', directory, str(inputs), digest],
+                                   capture_output=True, text=True)
+            self.assertEqual(valid.returncode, 0, valid.stderr)
+            changed = dict(original); changed['files'] = {'aur/package.pkg.tar.zst': {'sha256': 'b' * 64, 'size': 2}}
+            (inputs / 'manifest.json').write_text(json.dumps(changed, sort_keys=True, separators=(',', ':')) + '\n')
+            altered = subprocess.run(['bash', '-c', program, 'fixture', directory, str(inputs), digest],
+                                     capture_output=True, text=True)
+            self.assertNotEqual(altered.returncode, 0)  # A valid rehashed self-manifest cannot replace external authority.
+            (inputs / 'manifest.json').write_bytes(raw); (root / 'calls.txt').unlink()
+            race = ('set -euo pipefail\nrepository_root="$1" gnome51_upgrade_inputs="$1/inputs" '
+                    'repository_server_root="$1/server" gnome51_upgrade_manifest_sha256="$2"\n' + helper + '\n' +
+                    self.host_function('prepare_gnome51_upgrade_input') + '\n' +
+                    'cp(){ command cp "$@"; python3 - "$gnome51_upgrade_inputs/manifest.json" '
+                    '"$repository_server_root/gnome51-inputs/manifest.json" <<\'MUTATE\'\n'
+                    'import json,pathlib,sys\n'
+                    'for name in sys.argv[1:]:\n'
+                    ' p=pathlib.Path(name); value=json.loads(p.read_text()); value["schema"]=2; '
+                    'p.write_text(json.dumps(value,sort_keys=True,separators=(",",":"))+"\\n")\n'
+                    'MUTATE\n}\nprepare_gnome51_upgrade_input\n')
+            result = subprocess.run(['bash', '-c', race, 'fixture', directory, digest], capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('trusted digest mismatch', result.stderr)
+            self.assertEqual((root / 'calls.txt').read_text().splitlines(),
+                             [str(inputs), str(server / 'gnome51-inputs')])
+            self.assertFalse((root / 'gnome51-extracted').exists())
+
+    def test_gnome51_production_upgrade_requires_real_baseline_and_plain_syu(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory); (state / 'candidate-repository.conf').write_text('signed candidate\n')
+            (state / 'candidate-packages.txt').write_text('arch-linux-gnome-extensions 1.0.0-1\n')
+            script = ('set -euo pipefail\ngnome51_migration_state="$1" legacy_repository_file="$1/active.conf"\n'
+                      'username=vmtest\n' + function('upgrade_gnome51_baseline') + '\n' +
+                      'gnome51_require_platform(){ :; }\n'
+                      'gnome51_verify_baseline_packages(){ echo baseline-verified; }\n'
+                      'pacman(){ printf "pacman"; printf " %s" "$@"; printf "\\n"; }\n'
+                      'marble_project_packages(){ echo arch-linux-gnome-extensions; }\n'
+                      'installed_package_record_exact(){ echo "$1 1.0.0-1"; }\n'
+                      'gnome51_aur_packages(){ echo old-owner; }\n'
+                      'package_installed_exact(){ return 1; }\n'
+                      'verify_marble_packages(){ echo candidate-verified; }\n'
+                      'id(){ echo 1000; }\nrun_in_user_session(){ echo real-session-logout; }\n'
+                      'wait_for_named_user_logout(){ :; }\nsystemctl(){ echo greeter-restart; }\n'
+                      'wait_for_greeter(){ echo greeter; }\nverify_marble_greeter(){ echo scoped-gdm-verified; }\n'
+                      'emit_marble_action_pass(){ echo phase-pass; }\nupgrade_gnome51_baseline\n')
+            absent = subprocess.run(['bash', '-c', script, 'fixture', directory], capture_output=True, text=True)
+            self.assertNotEqual(absent.returncode, 0)
+            self.assertNotIn('pacman', absent.stdout)
+            (state / 'baseline-login-proven').touch()
+            result = subprocess.run(['bash', '-c', script, 'fixture', directory], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual([line for line in result.stdout.splitlines() if line.startswith('pacman')],
+                             ['pacman -Syu --noconfirm --disable-download-timeout'])
+            self.assertTrue((state / 'transaction-proven').is_file())
+            self.assertTrue((state / 'candidate-gdm-scoped-proven').is_file())
+            self.assertLess(result.stdout.index('baseline-verified'), result.stdout.index('pacman'))
+            self.assertLess(result.stdout.index('candidate-verified'), result.stdout.index('phase-pass'))
+
+    def test_gnome51_custody_proof_requires_original_files_and_inodes(self):
+        import hashlib, json, os
+        source = function('verify_gnome51_recovery_login')
+        proof = re.search(r"<<'GNOME51_CUSTODY_PY'\n(.*?)\nGNOME51_CUSTODY_PY", source, re.S).group(1)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); active = root / 'extensions/no-screenshot-box@screenshot'
+            active.mkdir(parents=True); file = active / 'extension.js'; file.write_bytes(b'original')
+            info = file.stat(); receipt = root / 'receipt.json'
+            receipt.write_text(json.dumps({'hashes': {'extension.js': hashlib.sha256(b'original').hexdigest()},
+                                          'identities': {'extension.js': [info.st_dev, info.st_ino]}}))
+            def check():
+                return subprocess.run(['python3', '-c', proof, str(root), str(receipt)], capture_output=True)
+            self.assertNotEqual(check().returncode, 0)  # Still shadows system extension.
+            custody = root / ('.arch-linux-marble-custody-' + 'a' * 32); custody.mkdir()
+            moved = custody / active.name; os.rename(active, moved)
+            self.assertEqual(check().returncode, 0)
+            (moved / 'extension.js').write_bytes(b'changed')
+            self.assertNotEqual(check().returncode, 0)
+            # Allocate while the original is live: ext4 may immediately reuse a freed inode.
+            replacement = moved / '.replacement'; replacement.write_bytes(b'original')
+            replacement_info = replacement.stat()
+            self.assertNotEqual((replacement_info.st_dev, replacement_info.st_ino),
+                                (info.st_dev, info.st_ino))
+            os.replace(replacement, moved / 'extension.js')
+            self.assertNotEqual(check().returncode, 0)  # Matching bytes in replacement inode are insufficient.
+
+    def test_gnome51_baseline_rejects_bundle_and_missing_aur_owner(self):
+        import json
+        projects = {'arch-linux-keyring': '1.0.0-8', 'arch-linux-marble-shell': '50.0.0-7',
+                    'arch-linux-marble-profile': '1.0.0-10', 'arch-linux-marble-gdm': '50.0.0-8',
+                    'arch-linux-colloid-icons': '20260829-6', 'arch-linux-colloid-gtk': '20260808-10'}
+        aur = ['gnome-shell-extension-blur-my-shell', 'gnome-shell-extension-clipboard-indicator',
+               'gnome-shell-extension-dash-to-dock', 'gnome-shell-extension-just-perfection-desktop']
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = Path(directory) / 'manifest.json'
+            manifest.write_text(json.dumps({'baseline': {'packages': projects},
+                'aur': [{'name': name, 'version': '1-1'} for name in aur]}))
+            script = ('set -euo pipefail\ngnome51_migration_manifest="$1" mode="$2"\n' +
+                      function('gnome51_verify_baseline_packages') + '\n' + function('gnome51_aur_packages') + '\n' +
+                      'package_installed_exact(){ [ "$mode" = bundle ]; }\n'
+                      'installed_package_version_exact(){\n'
+                      '  if [ "$mode" = missing ] && [ "$1" = gnome-shell-extension-blur-my-shell ]; then return 1; fi\n'
+                      '  jq -r --arg name "$1" \'(.baseline.packages[$name] // (.aur[] | select(.name == $name) | .version))\' "$gnome51_migration_manifest"; }\n'
+                      'verify_package_qkk_zero(){ :; }\n'
+                      'pacman(){ case "$1" in -Qq) jq -r ".baseline.packages | keys[]" "$gnome51_migration_manifest";; '
+                      '-Qi) echo "Validated By : Signature";; -Ql) echo "/usr/share/gnome-shell/extensions/owned/extension.js";; esac; }\n'
+                      'gnome51_verify_baseline_packages\n')
+            for mode, accepted in [('exact', True), ('bundle', False), ('missing', False)]:
+                result = subprocess.run(['bash', '-c', script, 'fixture', str(manifest), mode],
+                                        capture_output=True, text=True, timeout=5)
+                self.assertEqual(result.returncode == 0, accepted, result.stderr)
+
+    def test_gnome51_qga_contract_transport_binds_bytes_without_new_arguments(self):
+        import base64, hashlib, json
+        body = self.host_function('qga_verify')
+        request_code = body[body.index('request="$(jq'):body.index('    printf \'%s\\n\' "${request}"')]
+        variables = re.findall(r'\$\{([a-z_0-9]+)(?::[^}]*)?\}', request_code)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); (root / 'guest').mkdir(); (root / 'guest/verify.sh').write_text('exit 0\n')
+            contract = b'{"schema":1}\n'; encoded = base64.b64encode(contract).decode()
+            script = ('set -euo pipefail\n' + '\n'.join(name + '=fixture' for name in sorted(set(variables))) +
+                      '\nscript_dir="$1"\nprobe_contract=\nprobe_hash=-\nupgrade_contract=' + encoded + '\ngnome51_upgrade_manifest_sha256=' +
+                      hashlib.sha256(contract).hexdigest() + '\n' + request_code + '\nprintf %s "$request"')
+            result = subprocess.run(['bash', '-c', script, 'fixture', directory], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            request = json.loads(result.stdout); self.assertEqual(len(request['arguments']['arg']), 30)
+            payload = base64.b64decode(request['arguments']['input-data']).decode()
+            destination = root / 'state/manifest.json'
+            payload = payload.replace('/var/lib/arch-linux-marble/gnome51-upgrade-manifest.json', str(destination))
+            for attempt in range(2):
+                execution = subprocess.run(['bash'], input=payload, capture_output=True, text=True)
+                self.assertEqual(execution.returncode, 0, execution.stderr)
+                self.assertEqual(destination.read_bytes(), contract)
+                self.assertEqual(destination.stat().st_mode & 0o777, 0o400)
+            destination.chmod(0o600); destination.write_bytes(b'foreign')
+            execution = subprocess.run(['bash'], input=payload, capture_output=True, text=True)
+            self.assertNotEqual(execution.returncode, 0)
+            self.assertEqual(destination.read_bytes(), b'foreign')
+
+    def test_current_repository_metadata_accepts_exact_seven_package_closure(self):
+        packages = ['arch-linux-keyring', 'arch-linux-gnome-extensions', 'arch-linux-marble-shell',
+                    'arch-linux-colloid-gtk', 'arch-linux-colloid-icons', 'arch-linux-marble-profile',
+                    'arch-linux-marble-gdm']
+        keys = ['PUBLIC_KEY_SHA256', 'PACKAGE_SET_SHA256', 'SNAPSHOT_SHA256',
+                'BUILD_METADATA_SHA256', 'UNSIGNED_MANIFEST_SHA256', 'REPOSITORY_MANIFEST_SHA256',
+                'REPOSITORY_MANIFEST_SIGNATURE_SHA256', 'REPOSITORY_DATABASE_SHA256',
+                'REPOSITORY_DATABASE_SIGNATURE_SHA256', 'REPOSITORY_FILES_SHA256',
+                'REPOSITORY_FILES_SIGNATURE_SHA256']
+        rows = [key + '=' + 'a' * 64 for key in keys]
+        rows += ['PRIMARY_FINGERPRINT=' + 'B' * 40, 'SIGNING_SUBKEY_FINGERPRINT=' + 'C' * 40]
+        rows += ['PACKAGE_SHA256_' + package.upper().replace('-', '_') + '=' + 'd' * 64
+                 for package in packages]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); (root / 'repository').mkdir()
+            (root / 'repository/package-set').write_text('\n'.join(packages) + '\n')
+            metadata = root / 'metadata.env'
+            script = ('set -euo pipefail\nrepository_root="$1"\n'
+                      'snapshot_sha256=' + 'a' * 64 + '\nbuild_metadata_sha256=' + 'a' * 64 +
+                      '\nunsigned_manifest_sha256=' + 'a' * 64 +
+                      '\ndeclare -A repository_package_hashes=()\ndie(){ echo "$*" >&2; exit 1; }\n' +
+                      self.host_function('load_marble_repository_metadata') +
+                      '\nload_marble_repository_metadata "$2"\nprintf "%s" "${#repository_package_hashes[@]}"\n')
+            for label, contents, accepted in [('exact', rows, True), ('missing', rows[:-1], False),
+                    ('duplicate', rows + rows[-1:], False), ('unknown', rows + ['FOREIGN=' + 'a' * 64], False)]:
+                with self.subTest(label=label):
+                    metadata.write_text('\n'.join(contents) + '\n')
+                    result = subprocess.run(['bash', '-c', script, 'fixture', str(root), str(metadata)],
+                                            capture_output=True, text=True, timeout=5)
+                    self.assertEqual(result.returncode == 0, accepted, result.stderr)
+                    if accepted: self.assertEqual(result.stdout, '7')
+
+    def test_staged_repository_server_routes_all_graphical_profiles_only(self):
+        host = (ROOT / 'tests/vm/run.sh').read_text()
+        block = re.search(r'^    if .*?; then\n        start_marble_repository_runtime\n    fi', host, re.M).group(0)
+        helpers = self.host_function('is_marble_scenario')
+        predicate = re.search(r'^scenario_needs_repository\(\) \{\n.*?^\}', host, re.M | re.S)
+        if predicate: helpers += '\n' + predicate.group(0)
+        script = ('set -euo pipefail\nscenario_id="$1" input_mode="$2"\n' + helpers +
+                  '\nstart_marble_repository_runtime(){ printf served; }\n' + block)
+        graphical = ['stock-gnome-ext4-systemdboot', 'stock-gnome-btrfs-systemdboot',
+                     'stock-gnome-btrfs-grub', 'stock-gnome-btrfs-luks2-plymouth-systemdboot',
+                     'stock-gnome-btrfs-luks2-plymouth-grub',
+                     'marble-gnome-btrfs-luks2-plymouth-systemdboot',
+                     'marble-gnome-btrfs-luks2-plymouth-systemdboot-stock-gdm']
+        for scenario in graphical + ['minimal-ext4-systemdboot', 'minimal-dualboot-ext4-systemdboot',
+                                      'stock-gnome-unknown', 'marble-gnome-unknown']:
+            for mode in ('staged', 'public'):
+                with self.subTest(scenario=scenario, mode=mode):
+                    result = subprocess.run(['bash', '-c', script, 'fixture', scenario, mode],
+                                            capture_output=True, text=True, timeout=5)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout, 'served' if mode == 'staged' and scenario in graphical else '')
+
+    def test_marble_package_closure_includes_neutral_extension_bundle(self):
+        script = 'set -euo pipefail\n' + function('marble_gdm_enabled') + '\n' + function('marble_project_packages')
+        for scenario, gdm in [('marble-gnome-btrfs-luks2-plymouth-systemdboot', True),
+                              ('marble-gnome-btrfs-luks2-plymouth-systemdboot-stock-gdm', False)]:
+            result = subprocess.run(['bash', '-c', script + '\nscenario="$1"\nmarble_project_packages',
+                                     'fixture', scenario], capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            expected = ['arch-linux-keyring', 'arch-linux-gnome-extensions', 'arch-linux-marble-shell',
+                        'arch-linux-colloid-gtk', 'arch-linux-colloid-icons', 'arch-linux-marble-profile']
+            if gdm: expected.append('arch-linux-marble-gdm')
+            self.assertEqual(result.stdout.splitlines(), expected)
+
+    def test_theme_removal_keeps_keyring_and_neutral_extensions(self):
+        branch = function('run_marble_phase').split('    remove-marble)\n', 1)[1].split('        ;;', 1)[0]
+        helpers = function('marble_project_packages') + '\n' + function('marble_gdm_enabled')
+        candidate = re.search(r'^marble_theme_packages\(\) \{\n.*?^\}', VERIFY.read_text(), re.M | re.S)
+        if candidate: helpers += '\n' + candidate.group(0)
+        with tempfile.TemporaryDirectory() as temporary:
+            branch = branch.replace('/usr/share/arch-linux-marble', temporary + '/absent-theme')
+            branch = branch.replace('/home/${username}', temporary + '/absent-home')
+            script = ('set -euo pipefail\nscenario=marble-gnome-btrfs-luks2-plymouth-systemdboot\nusername=fixture\n' +
+                      helpers + '\n' + '''
+pacman(){
+ if [ "$1" = -Rns ]; then
+  shift 2
+  for package in "$@"; do
+   case "$package" in arch-linux-keyring | arch-linux-gnome-extensions) return 93 ;; esac
+   printf 'REMOVE:%s\n' "$package"
+  done
+ elif [ "$1" = -Qq ]; then printf '%s\n' arch-linux-keyring arch-linux-gnome-extensions
+ else return 1; fi
+}
+verify_stock_project_packages(){ :; }
+verify_package_qkk_zero(){ :; }
+restart_gdm_after_profile_transition(){ :; }
+emit_marble_action_pass(){ :; }
+''' + branch)
+            result = subprocess.run(['bash', '-c', script], capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.splitlines(), ['REMOVE:arch-linux-marble-shell',
+                'REMOVE:arch-linux-colloid-gtk', 'REMOVE:arch-linux-colloid-icons',
+                'REMOVE:arch-linux-marble-profile', 'REMOVE:arch-linux-marble-gdm'])
+
+    def test_vendor_integrity_chooses_reviewed_gdm_manifest_for_installed_shell(self):
+        helpers = function('verify_vendor_integrity')
+        candidate = re.search(r'^marble_gdm_major\(\) \{\n.*?^\}', VERIFY.read_text(), re.M | re.S)
+        if candidate: helpers += '\n' + candidate.group(0)
+        script = ('set -euo pipefail\nrun_id=fixture phase=fixture\n' + helpers + '\n' + '''
+installed_package_version_exact(){ printf '%s' "$fixture_version"; }
+marble_gdm_enabled(){ return 0; }
+verify_package_qkk_zero(){ :; }
+sha256sum(){ printf 'MANIFEST:%s\n' "$3" >&2; }
+pacman(){ if [[ "$2" = */gnome-shell-theme.gresource ]]; then printf 'fixture is owned by gnome-shell 1'; else printf 'fixture is owned by gdm 1'; fi; }
+verify_vendor_integrity
+''')
+        import os
+        for version, major in (('1:50.5-1', '50'), ('1:51.0-1', '51'), ('51.0-1', '51'),
+                               ('1:52.0-1', '52')):
+            with self.subTest(version=version):
+                result = subprocess.run(['bash', '-c', script], env={**os.environ, 'fixture_version': version},
+                                        capture_output=True, text=True, timeout=5)
+                self.assertEqual(result.returncode == 0, major in ('50', '51'), result.stderr)
+                if major in ('50', '51'):
+                    self.assertIn('MANIFEST:/usr/share/arch-linux-marble-gdm/known-gnome-' + major + '.sha256', result.stderr)
+
+    def test_stock_project_package_guard_accepts_bundle_but_rejects_themes(self):
+        import hashlib, os
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            extensions = root / 'extensions'; extensions.mkdir()
+            (extensions / 'payload').write_bytes(b'reviewed extension fixture')
+            manifest = root / 'extensions.sha256'
+            manifest.write_text(hashlib.sha256(b'reviewed extension fixture').hexdigest() + '  payload\n')
+            helper = function('verify_stock_project_packages').replace('/usr/share/gnome-shell/extensions', str(extensions))
+            helper = helper.replace('/usr/share/arch-linux-gnome-extensions/extensions.sha256', str(manifest))
+            helpers = '\n'.join(function(name) for name in ('installed_package_record_exact', 'package_installed_exact'))
+            script = 'set -euo pipefail\n' + helpers + '\n' + helper + '\n' + '''
+pacman(){
+ if [ "$1" = -Qq ]; then printf '%s\n' "$fixture_packages"
+ elif [ "$1" = -Q ] && [ "$2" = -- ]; then
+  grep -Fxq "$3" <<<"$fixture_packages" || return 1
+  printf '%s 1.0-1\n' "$3"
+ else return 1; fi
+}
+verify_package_qkk_zero(){ [ "$*" = 'arch-linux-keyring arch-linux-gnome-extensions' ]; }
+verify_stock_project_packages
+'''
+            packages = 'arch-linux-keyring\narch-linux-gnome-extensions'
+            for contents, accepted in [(packages, True), (packages + '\narch-linux-marble-shell', False),
+                                      (packages + '\narch-linux-marble-gdm', False), ('arch-linux-keyring', False),
+                                      (packages + '\narch-linux-foreign', False)]:
+                with self.subTest(packages=contents):
+                    result = subprocess.run(['bash', '-c', script],
+                        env={**os.environ, 'fixture_packages': contents}, capture_output=True, text=True, timeout=5)
+                    self.assertEqual(result.returncode == 0, accepted, result.stderr)
+            (extensions / 'payload').write_bytes(b'changed extension bytes')
+            result = subprocess.run(['bash', '-c', script], env={**os.environ, 'fixture_packages': packages},
+                                    capture_output=True, text=True, timeout=5)
+            self.assertNotEqual(result.returncode, 0)
+
+    def test_host_retains_exact_twenty_five_object_seven_package_manifest(self):
+        import json
+        packages = ['arch-linux-keyring', 'arch-linux-gnome-extensions', 'arch-linux-marble-shell',
+                    'arch-linux-colloid-gtk', 'arch-linux-colloid-icons', 'arch-linux-marble-profile',
+                    'arch-linux-marble-gdm']
+        names = ['arch-linux.db', 'arch-linux.db.sig', 'arch-linux.db.tar.gz', 'arch-linux.db.tar.gz.sig',
+                 'arch-linux.files', 'arch-linux.files.sig', 'arch-linux.files.tar.gz', 'arch-linux.files.tar.gz.sig',
+                 'arch-linux.gpg', 'primary-fingerprint', 'signing-subkey-fingerprint']
+        for package in packages:
+            names.extend([package + '-1.0-1-any.pkg.tar.zst', package + '-1.0-1-any.pkg.tar.zst.sig'])
+        metadata = {'schema': 2, 'architecture': 'x86_64', 'repository': 'arch-linux', 'releaseVersion': '1.2.3',
+                    'sourceCommit': 'a' * 40, 'sourceTree': 'b' * 40, 'sourceDateEpoch': 1}
+        for field in ('installerSha256', 'packageSetSha256', 'buildMetadataSha256', 'unsignedManifestSha256'):
+            metadata[field] = 'c' * 64
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); (root / 'repository').mkdir(); (root / 'evidence').mkdir()
+            (root / 'repository/package-set').write_text('\n'.join(packages) + '\n')
+            manifest = root / 'manifest.json'; signature = root / 'signature'; signature.write_text('fixture signature')
+            setup = ('set -euo pipefail\nrepository_root="$1" run_root="$1" evidence="$1/evidence"\n'
+                     'release_version=1.2.3 source_commit=' + 'a' * 40 + ' source_tree=' + 'b' * 40 + '\n')
+            for field in ('installer_sha256', 'repository_package_set_sha256', 'build_metadata_sha256', 'unsigned_manifest_sha256'):
+                setup += field + '=' + 'c' * 64 + '\n'
+            setup += ('repository_manifest_sha256=- repository_database_sha256=-\n'
+                      'declare -A repository_package_hashes=()\ndie(){ echo "$*" >&2; exit 1; }\n'
+                      'verify_retained_manifest_signature(){ :; }\n')
+            script = setup + self.host_function('repository_hash_from_tsv_from') + '\n' + self.host_function('retain_repository_manifest')
+            script += '\nretain_repository_manifest "$1/manifest.json" "$1/signature"\n'
+            metadata['files'] = [{'name': name, 'sha256': 'd' * 64, 'size': 1} for name in sorted(names)]
+            manifest.write_text(json.dumps(metadata))
+            result = subprocess.run(['bash', '-c', script, 'fixture', temporary], capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(len((root / 'evidence/repository-objects.tsv').read_text().splitlines()), 25)
+
+    def test_guest_installer_acceptance_environment_routes_graphical_profiles(self):
+        bootstrap = (ROOT / 'tests/vm/guest/bootstrap.sh').read_text()
+        predicate = re.search(r'^scenario_needs_repository\(\) \{\n.*?^\}', bootstrap, re.M | re.S).group(0)
+        stage = bootstrap.split("# Match the official Arch ISO root shell.", 1)[1]
+        branch = re.search(r'^        if .*?^        fi', stage, re.M | re.S).group(0)
+        script = ('set -euo pipefail\ndeclare -A IDENTITY=([SCENARIO]="$1" [INPUT_MODE]="$2")\n'
+                  'work_root=/fixture\n' + predicate + '\n' +
+                  'bash(){ printf "%s:%s" "${ARCH_LINUX_QEMU_ACCEPTANCE:-false}" "${ARCH_LINUX_QEMU_REPOSITORY_CONTRACT:-none}"; }\n' + branch)
+        for scenario in ('stock-gnome-ext4-systemdboot', 'marble-gnome-btrfs-luks2-plymouth-systemdboot',
+                         'minimal-ext4-systemdboot', 'stock-gnome-unknown'):
+            for mode in ('staged', 'public'):
+                with self.subTest(scenario=scenario, mode=mode):
+                    result = subprocess.run(['bash', '-c', script, 'fixture', scenario, mode],
+                                            capture_output=True, text=True, timeout=5)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    repository = mode == 'staged' and scenario in ('stock-gnome-ext4-systemdboot',
+                                                                  'marble-gnome-btrfs-luks2-plymouth-systemdboot')
+                    self.assertEqual(result.stdout, 'true:/fixture/repository.contract' if repository else 'false:none')
+
+    def test_gdm_process_uses_exact_major_payload_and_rejects_stale_environment(self):
+        import os
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            override = root / 'etc/systemd/user/org.gnome.Shell@gdm.service.d/50-arch-linux-marble-gdm.conf'
+            override.parent.mkdir(parents=True)
+            process = root / 'proc/44'; process.mkdir(parents=True)
+            payload_root = root / 'usr/share/arch-linux-marble-gdm'
+            (payload_root / 'systemd').mkdir(parents=True)
+            helper = root / 'helper'; helper.write_text('#!/bin/sh\nprintf active\n'); helper.chmod(0o755)
+            body = function('verify_marble_gdm_process')
+            body = body.replace('/usr/lib/arch-linux-marble-gdm/update-compatibility', str(helper))
+            for prefix in ('/etc/systemd', '/usr/share/arch-linux-marble-gdm', '/proc/'):
+                body = body.replace(prefix, temporary + prefix)
+            script = 'set -euo pipefail\n' + function('marble_gdm_major') + '\n' + body + '\n' + '''
+installed_package_version_exact(){ printf '1:%s.0-1' "$fixture_major"; }
+gdm_shell_pid(){ printf 44; }
+gsettings(){ [ "$DCONF_PROFILE" = "$fixture_profile" ]; printf "'Colloid-Dark'"; }
+verify_marble_gdm_process active fixture
+'''
+            for major, environment_major, accepted in [('50', '50', True), ('51', '51', True),
+                                                       ('51', '50', False), ('52', '51', False)]:
+                with self.subTest(major=major, environment_major=environment_major):
+                    payload = payload_root / ('systemd/' + major + '-arch-linux-marble-gdm.conf')
+                    payload.write_text('fixture')
+                    if override.is_symlink(): override.unlink()
+                    override.symlink_to(payload)
+                    profile = str(payload_root / (environment_major + '.0.0/dconf/profile'))
+                    environment = ('G_RESOURCE_OVERLAYS=/org/gnome/shell/theme=' + str(payload_root / (environment_major + '.0.0/theme')) +
+                                   '\0DCONF_PROFILE=' + profile + '\0').encode()
+                    (process / 'environ').write_bytes(environment)
+                    result = subprocess.run(['bash', '-c', script],
+                        env={**os.environ, 'fixture_major': major, 'fixture_profile': profile},
+                        capture_output=True, text=True, timeout=5)
+                    self.assertEqual(result.returncode == 0, accepted, result.stderr)
+
     def qga_partial_transport(self, short_sync=False, peer_mismatch=False):
         import base64, io, json, os, runpy, socket, struct
         from unittest.mock import patch
@@ -809,6 +1412,7 @@ record_assertion(){ :; }
 capture_screen(){ :; }
 marble_gdm_login(){ printf 'login:%s\n' "$1"; }
 run_fresh_marble_user_round_trip(){ :; }
+run_extension_functional_acceptance(){ printf 'functional:%s\n' "$1"; }
 hmp_request(){ :; }
 hmp_type_password(){ :; }
 sleep(){ :; }
@@ -821,6 +1425,7 @@ wait_qga(){ :; }
         result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=5)
         self.assertEqual(result.returncode, 0, result.stderr)
         lines = result.stdout.splitlines()
+        self.assertEqual([line for line in lines if line.startswith("functional:")], ["functional:upgrade", "functional:postreboot"])
         expected = ["verify:helper-failure", "verify:helper-restored-prelogin", "login:helper-restored-login", "verify:deactivate-gdm", "verify:deactivated-prelogin", "login:deactivated-login"]
         self.assertEqual([line for line in lines if line in expected], expected)
     def snapshot_entry(self, rootflags="subvol=@snapshots/qa-fixture", root="UUID=fixture", image="/initramfs-linux.img", inner=False):
@@ -1485,7 +2090,7 @@ die(){ return 1; }
                 response = json.dumps({"return": {"exited": True, "exitcode": exit_code, "out-data": base64.b64encode(marker.encode()).decode(), "err-data": "", "out-truncated": False}})
                 program = "set -euo pipefail\n" + body + "\n" + "\n".join(name + "=fixture" for name in globals_used)
                 program += r"""
-script_dir="$1" evidence="$1" response="$2" input_mode=staged marker_prefix=MINIMAL media_qualification=false
+script_dir="$1" evidence="$1" response="$2" input_mode=staged marker_prefix=MINIMAL media_qualification=false gnome51_upgrade_manifest_sha256=-
 die(){ exit 2; }
 qga_call(){ if [[ "$1" = *guest-exec-status* ]]; then printf '%s
 ' "$response"; else printf '%s

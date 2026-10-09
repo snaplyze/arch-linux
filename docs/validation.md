@@ -3,6 +3,130 @@
 Validation is layered and tree-bound. No old report or status document is evidence for the current
 source candidate.
 
+## GNOME 51 candidate — 2026-10-09
+
+The [active plan](PLAN.md#gnome-51-update-recovery--2026-10-09) records the installed
+GNOME 51 regression and the seven-package recovery candidate. No new release,
+signed package update, real GDM/upgrade VM or public pacman delivery has been
+accepted for it. Historical release 1.0.6 evidence below remains unchanged.
+
+Scoped native checks used installed Shell/Mutter/GDM 51.0, GTK 4.24.1 and libadwaita
+1.10.0. The existing Shell/GTK stylesheets parsed. An isolated DynamicUser,
+headless Wayland session loaded eight Marble extensions with enabled state 1 and
+empty extension errors. Shell's diagnostic Eval interface rejected functional
+exercises: menu/clipboard/screenshot behavior, visual appearance, password login,
+lock/unlock and real package migration are NOT_TESTED by that smoke check.
+All owned transient units, processes and headless input fixtures were removed.
+
+Native disposable package builds for the final extension bundle, profile and dual
+GDM payload passed the production archive verifier. A separate private installed
+package database copy resolved the proposed profile/bundle upgrade with
+`pacman --print -Su`; it did not install packages. The exact scoped receipts and
+source checks are in the plan. The legacy GTK3 VM scenario does not create the old
+four AUR extension owners or the user-local No Screenshot Box tree, so that
+existing scenario cannot establish the new upgrade's acceptance.
+
+The candidate now adds a separate mandatory staged 1.0.6-to-GNOME-51 migration
+with actual AUR build inputs, an independent manifest digest, password logins,
+preference/custody checks and exact package replacement through `pacman -Syu`.
+Its source regressions are separate from execution: no real VM result is recorded
+yet. Its eight-extension enabled-state check also leaves behavioral extension
+acceptance open.
+
+The full clean Arch build subsequently passed `repository/build-packages.sh` and
+`repository/verify-unsigned-build.sh` for all seven packages. A separate host-side
+unsigned-build verification passed and matched the clean committed inputs. The
+disposable container used the pinned Arch image
+`sha256:714acd1eef9ae997d95691b1c5220ada0076185b77857c1813f02de0fa83cf7b`,
+a non-root builder and read-only source; it was removed after completion.
+
+| Unsigned candidate binding | Exact value |
+| --- | --- |
+| Source commit | `6b13bbd993faca85fcdd20e40d8ae3993443182d` |
+| Source tree | `275464258dd8d4663c5d1265a91b991b18b7aa53` |
+| Build metadata SHA-256 | `8ba8ccf2619870623798263568304815513b11b1fa71688bb75484b3d7a13ac0` |
+| Unsigned manifest SHA-256 | `28f66a4bf871c29379354190ce37849fa9274a27129b556fcc12ac940f925f0b` |
+| Build and verification log SHA-256 | `416c5b2e37e9c7871afd006baef522090340b5da59ceb253343b9c0b28facb7f` |
+
+This receipt covers raw-source package revisions only. It does not establish
+the future release child's upgrade revisions, production signing, real package
+migration, GDM acceptance or public delivery. Later documentation edits preserve
+this original source identity.
+
+Additional source/test-boundary receipts bind commit
+`d81f0a07a5962e47317251745789ddc3b727e75d`, tree
+`f3d7f15e26f80ddcc2a590224fccf011d8b37540`:
+
+| Executed check | Result and log SHA-256 |
+| --- | --- |
+| `PYTHONDONTWRITEBYTECODE=1 bash tests/source-tests.sh` | PASS; `296434ddd3e019d9594bcfd1843f58bb07fbf803feed35de2a01f74bd07bfcae` |
+| Exact empty-environment root publication check from AGENTS.md | PASS, exact 14/18 closures, four namespaces, supervisor-death cleanup and no deferrals; `07dba168db2f1564cb18cc4e014d1b18d8215cf876b5a2e37a49a3a8ef86f644` |
+| Ordinary `bash tests/keyring-rotation-checks.sh` | PASS; `fe74de28be8117dfe6234912abb3b070041be1080d16e6aad4f41d3618fe4d45` |
+| `env ARCH_LINUX_PRIVILEGED_ACCEPTANCE=true bash tests/keyring-rotation-checks.sh` | PASS, full namespace fixtures, ten scenarios, signer passed, no deferrals; `4129134eac1c23c902481e0788166ee76242817b9fc4534f1355754e48821281` |
+
+The root checks used disposable fixture keys and a pinned Arch container with
+private tmpfs test directories. Earlier overlayfs attempts rejected directory
+link counts before private signing access; no production check was weakened to
+accommodate the container. Privileged fixtures used an independently verified
+private Docker cgroup subtree and an owned disposable loop-backed disk. All
+containers, loops, mapper and child cgroups were removed; host device metadata
+was unchanged. These checks do not establish production signing.
+Subsequent functional-harness changes require fresh affected
+checks and do not inherit these receipts.
+
+The full source suite subsequently passed functional candidate commit
+`a1a3d2683de1f21fa3fcd3f926b901b087bae908`, tree
+`ecbf5bd73e547338f4639c37ec9d1ef0e27a6983`; log SHA-256
+`7f1c29d8bc24346e1ac969a5812e8dda8470ca6a25f2092effbb22586370ca1c`.
+This includes 126 runtime fixtures, seven functional-evidence checks, the exact
+33-assertion Marble contract and full repository namespaces with no deferrals.
+The separate native GTK probe startup is not GNOME behavior or VM acceptance.
+The exact root publication command also passed on that same `a1a3d26` identity,
+including the six behavior-receipt requirements and full 14/18 fixture closures;
+log SHA-256 `1561bc69968f00829813e9c1d6253cb264c4535717d57ce36aac5ccc51cb61ea`.
+Its disposable container and immutable source bundle were removed. Later
+upgrade-input helper fixes do not inherit this tree-bound receipt.
+
+Authentic legacy upgrade-input preparation subsequently passed on clean commit
+`7a61c40fd42087928e1a2611d02f3ed059dbbfc1`, tree
+`ea4367c55601b3c4c920759e5ecf90468e519613`. Execution used
+`python3 tests/vm/prepare-gnome51-upgrade-inputs.py --source-root "$PWD" --output "$INPUT_DIR"`
+with an absent output directory and the pinned disposable Arch builder. The
+preparer returned the manifest digest through stdout; independent worker and
+root calls to `verify_inputs(source_root, input_dir, expected_manifest_sha256)`
+both passed with that trusted digest supplied separately.
+
+| Legacy-input binding | SHA-256 |
+| --- | --- |
+| Canonical manifest, exact 15 payloads | `4df9dfb4bb0089d4dca0db10c75173e414d417f38d6d6ad013a0b3f1320a4972` |
+| Blur my Shell 72-1 archive | `1ed802469128a4b5c88c60c6a4c4109fc30499d2f3814abb6eeb338da5f4e164` |
+| Clipboard Indicator 71-1 archive | `ccefdda5329aee53fa73d441adef92be5539e61b87f6c950265d9d2499a493c2` |
+| Dash to Dock 1:106-1 archive | `8c0a05c958ec098ecc40a9e43876d89bb9df21a084a2f9e9b421417189e6523e` |
+| Just Perfection 37-1 archive | `8bc46a4d26fe068adaa9dd046331d92269d5787267e9ad32434f12473d9dbc6d` |
+| Original local No Screenshot Box archive | `6b1c5184579ca03dc9bf0ad6ded39d99e618c8baf4577ff5391cfa185eb0736e` |
+| Preparation log | `28f34f07f25f22bf3c16c3fd543933ab5b113c1f9fed1b2a864fd1086bccd048` |
+
+The closure also contains the ten pinned release 1.0.6 assets. Production archive
+and metadata checks verify all four packages, including the Dash epoch and the
+sole Clipboard conflict declared by its original hash-bound `.SRCINFO`. Public
+inputs and compact logs are retained at
+`/tmp/arch-linux-g51-upgrade-inputs.k7RaB53Q`; the owned container and temporary
+recipes were removed. This is input preparation, not an installed upgrade or a
+GNOME behavior PASS, and it does not transfer to the future release child's
+different source identity.
+
+The complete source suite then passed clean commit
+`c5a2b8f77947b6a146eebef6808141971e363283`, tree
+`4b644f379744507178d2f8dc85c947dc64a84533`, with the final legacy-input fixes and
+their documented preparation receipt. Command:
+`PYTHONDONTWRITEBYTECODE=1 bash tests/source-tests.sh`; exit 0, log SHA-256
+`3d4822005934279fe6e625c23554633663bd7743cce851ed5ac8f6978e90614a`.
+This includes all 17 upgrade-input regressions, 126 runtime fixtures, 29-page
+documentation/link checks, ShellCheck and the full repository result:
+`schema=1 namespace_fixtures=full scenarios=10 signer=passed release_closures=14+18 deferred=none`.
+The checkout remained clean. This is source acceptance, not the outstanding
+production-signed upgrade, GDM/functionality/appearance or public-delivery gates.
+
 ## Verified release 1.0.6 — 2026-10-04
 
 [Configured run37214392242](https://github.com/snaplyze/arch-linux/actions/runs/37214392242)

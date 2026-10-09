@@ -411,7 +411,7 @@ mkdir -p -- "$fixture_project/repository/lib" "$fixture_project/repository/trust
     "$fixture_project/maintenance" "$fixture_packages"
 PACKAGE_FIXTURE_OUTPUT_DIR="$fixture_packages" bash "$repo_root/tests/package-checks.sh" >/dev/null
 cp -- "$repo_root/repository/lib/common.sh" "$fixture_project/repository/lib/common.sh"
-printf '%s\n' arch-linux-keyring arch-linux-marble-profile >"$fixture_project/repository/package-set"
+printf '%s\n' arch-linux-keyring arch-linux-gnome-extensions arch-linux-marble-profile >"$fixture_project/repository/package-set"
 cp -- "$repo_root/repository/source-date-epoch" "$fixture_project/repository/source-date-epoch"
 cp -- "$repo_root/repository/safe-extract-snapshot.py" "$fixture_project/repository/safe-extract-snapshot.py"
 cp -- "$repo_root/repository/acceptance-manifest.py" "$fixture_project/repository/acceptance-manifest.py"
@@ -424,24 +424,34 @@ cp -- "$repo_root/maintenance/accepted-arch-iso.json" \
     "$fixture_project/maintenance/accepted-arch-iso.json"
 for harness_file in \
     tests/vm/run.sh tests/vm/frame-evidence.py tests/vm/qga-client.py tests/vm/https-server.py \
-    tests/vm/prepare-marble-repository.sh tests/vm/guest/bootstrap.sh tests/vm/guest/verify.sh; do
+    tests/vm/prepare-marble-repository.sh tests/vm/prepare-gnome51-upgrade-inputs.py \
+    tests/vm/gnome51-upgrade-baseline.json tests/vm/guest/bootstrap.sh tests/vm/guest/verify.sh \
+    tests/vm/guest/extension-probe.js; do
     cp -- "$repo_root/$harness_file" "$fixture_project/$harness_file"
 done
-for package in arch-linux-keyring arch-linux-marble-profile; do
+for package in arch-linux-keyring arch-linux-gnome-extensions arch-linux-marble-profile; do
     cp -a -- "$repo_root/packages/$package" "$fixture_project/packages/$package"
 done
 python3 - "$fixture_project/repository/verify-package-metadata.py" \
-    "$repo_root/repository/verify-package-metadata.py" <<'PY'
-import pathlib, sys
-destination=pathlib.Path(sys.argv[1])
-verifier=sys.argv[2]
+    "$repo_root/repository/verify-package-metadata.py" \
+    "$fixture_packages/extensions-fixture-hashes.json" <<'PYFIXTURE'
+import json, pathlib, sys
+destination = pathlib.Path(sys.argv[1])
+verifier = sys.argv[2]
+synthetic = json.loads(pathlib.Path(sys.argv[3]).read_text())
+# Only this disposable test wrapper substitutes synthetic extension bytes.
+# The production verifier must still reject the synthetic archive directly.
 destination.write_text(
-    '#!/usr/bin/env python3\nimport os,sys,runpy\n'
-    f'if __name__ == \"__main__\": os.execv(sys.executable,[sys.executable,{verifier!r},*sys.argv[1:]])\n'
-    f'globals().update(runpy.run_path({verifier!r}))\n',
-    encoding='utf-8',
-)
-PY
+    '#!/usr/bin/env python3\nimport sys\nfrom pathlib import Path\n'
+    f'p=Path({verifier!r}); n=dict(__file__=str(p),__name__="fixture_verifier")\n'
+    'exec(compile(p.read_bytes(),str(p),"exec"),n)\n'
+    f'synthetic={synthetic!r}\n'
+    'real=n["expected_payload_hashes"]\n'
+    'if set(synthetic)!=set(real("arch-linux-gnome-extensions")): raise SystemExit("fixture hash closure differs")\n'
+    'n["expected_payload_hashes"]=lambda package: synthetic if package=="arch-linux-gnome-extensions" else real(package)\n'
+    'if __name__=="__main__": n["main"]()\n'
+    'else: globals().update(n)\n', encoding='utf-8')
+PYFIXTURE
 chmod 0755 -- "$fixture_project/repository/lib/common.sh" \
     "$fixture_project/repository/safe-extract-snapshot.py" \
     "$fixture_project/repository/acceptance-manifest.py" \
@@ -545,6 +555,13 @@ GNUPGHOME="$key_home" gpg --batch --no-options --export "$primary" >"$fixture_pr
 printf '%s\n' "$primary" >"$fixture_project/repository/trust/primary-fingerprint"
 printf '%s\n' "$signing" >"$fixture_project/repository/trust/signing-subkey-fingerprint"
 chmod 0644 -- "$fixture_project/repository/trust/"*
+
+# Synthetic old-release receipt: sign and bind temporary pins before sealing the harness.
+gnome51_baseline_manifest="$work/gnome51-baseline-repository-manifest.json"
+cp -- "$repo_root/tests/gnome51-evidence-fixture.py" "$fixture_project/tests/gnome51-evidence-fixture.py"
+python3 -B "$repo_root/tests/gnome51-evidence-fixture.py" baseline "$fixture_project" "$gnome51_baseline_manifest"
+sign_file "$key_home" "$signing" "$gnome51_baseline_manifest" "$gnome51_baseline_manifest.sig"
+python3 -B "$repo_root/tests/gnome51-evidence-fixture.py" bind "$fixture_project" "$gnome51_baseline_manifest"
 
 git -C "$fixture_project" init --quiet --initial-branch=main
 git -C "$fixture_project" add -- .
@@ -997,7 +1014,7 @@ python3 -B - "$evidence_root" "$source_commit" "$source_tree" "$build_metadata_h
     "$unsigned_manifest_hash" "$(sha256sum --binary -- "$assets/$archive" | awk '{print $1}')" \
     "$(sha256sum --binary -- "$assets/RELEASE-SHA256SUMS" | awk '{print $1}')" \
     "$snapshot/repository-manifest.json" "$snapshot/repository-manifest.json.sig" \
-    "$assets" "$fixture_project" "$legacy_manifest" <<'PY'
+    "$assets" "$fixture_project" "$legacy_manifest" "$gnome51_baseline_manifest" <<'PY'
 from __future__ import annotations
 import gzip, hashlib, importlib.util, json, os, pathlib, sys
 
@@ -1011,6 +1028,9 @@ legacy_manifest=pathlib.Path(sys.argv[12]).read_bytes()
 legacy_signature=pathlib.Path(sys.argv[12] + '.sig').read_bytes()
 spec=importlib.util.spec_from_file_location('acceptance_manifest_fixture',source/'repository/acceptance-manifest.py')
 am=importlib.util.module_from_spec(spec); spec.loader.exec_module(am)
+spec=importlib.util.spec_from_file_location('gnome51_fixture',source/'tests/gnome51-evidence-fixture.py')
+upgrade_fixture=importlib.util.module_from_spec(spec); spec.loader.exec_module(upgrade_fixture)
+upgrade_baseline=pathlib.Path(sys.argv[13])
 scenarios=(
     ('minimal-ext4-systemdboot','minimal','M'),
     ('stock-gnome-btrfs-luks2-plymouth-grub','luksgrub','G'),
@@ -1068,6 +1088,9 @@ for index,(scenario,prefix,serial_code) in enumerate(scenarios,1):
     write(evidence/'repository-manifest.json.sig',repository_signature)
     marker={'minimal':'MINIMAL','luksgrub':'LUKSGRUB','marble':'MARBLE'}[prefix]
     log=f'{marker}_QEMU_INSTALLER_EXIT status=0\n{marker}_QEMU_INSTALL_COMPLETE run_id={run_id}\n'.encode()
+    if prefix=='marble':
+        log+=b'GNOME51_UPGRADE_BASELINE_PASS synthetic_unit_fixture=1\nGNOME51_UPGRADE_RECOVERY_PASS synthetic_unit_fixture=1\n'
+        log+=upgrade_fixture.functional_log(source, run_id)
     write(evidence/'scenario.log.gz',gzip.compress(log,mtime=0))
     write(evidence/'final-qemu-img-check.txt',b'No errors were found on the image.\n')
     write(evidence/'no-qemu-process.txt',f'no matching QEMU process remains for {run_id}\n'.encode())
@@ -1151,6 +1174,7 @@ for index,(scenario,prefix,serial_code) in enumerate(scenarios,1):
                        ('legacy_manifest_sha256',digest(legacy_manifest)),
                        ('legacy_profile_version','0.9.0-1'),('legacy_gtk3_version','0.9.0-1')]
         identity_text+=''.join(f'{key}={value}\n' for key,value in legacy_rows)
+        identity_text+=upgrade_fixture.attach(source,evidence,commit,tree,upgrade_baseline)
     write(run/'identity.txt',identity_text.encode())
     result_raw=encoded(result)
     write(run/'result.json',result_raw)
@@ -1206,6 +1230,45 @@ for scenario, _, _ in scenarios:
             changed = '\n'.join(key + '=' + value if line.startswith(key + '=') else line
                                 for line in lines) + '\n'
             negatives.append(('legacy identity ' + key, payloads | {'identity.txt': changed.encode()}))
+        upgrade_name = 'evidence/gnome51-upgrade-manifest.json'
+        upgrade = json.loads(payloads[upgrade_name])
+        for field, value in (('sourceCommit', 'f'*40), ('sourceTree', 'f'*40),
+                             ('baseline', upgrade['baseline'] | {'version': '1.0.5'}),
+                             ('aur', [upgrade['aur'][0] | {'version': 'wrong'}, *upgrade['aur'][1:]])):
+            negatives.append(('upgrade ' + field, payloads | {upgrade_name: encoded(upgrade | {field: value})}))
+        files = dict(upgrade['files'])
+        files.pop(next(iter(files)))
+        negatives.append(('upgrade missing input', payloads | {upgrade_name: encoded(upgrade | {'files': files})}))
+        files = dict(upgrade['files'])
+        local_name = upgrade['local']['filename']
+        files[local_name] = files[local_name] | {'sha256': 'f'*64}
+        negatives.append(('upgrade local hash', payloads | {upgrade_name: encoded(upgrade | {'files': files})}))
+        for name in (upgrade_name, 'evidence/gnome51-upgrade-baseline-repository-manifest.json',
+                     'evidence/gnome51-upgrade-baseline-repository-manifest.json.sig'):
+            negatives.append(('upgrade missing evidence ' + name, {key:value for key,value in payloads.items() if key != name}))
+        negatives.append(('upgrade signature bytes', payloads |
+                          {'evidence/gnome51-upgrade-baseline-repository-manifest.json.sig': repository_signature}))
+        negatives.append(('upgrade identity hash', payloads | {'identity.txt': payloads['identity.txt'].replace(
+            b'gnome51_upgrade_manifest_sha256=', b'gnome51_upgrade_manifest_sha256=f', 1)}))
+        for marker in (b'GNOME51_UPGRADE_BASELINE_PASS', b'GNOME51_UPGRADE_RECOVERY_PASS'):
+            log = gzip.decompress(payloads['evidence/scenario.log.gz'])
+            negatives.append(('upgrade missing marker ' + marker.decode(), payloads |
+                              {'evidence/scenario.log.gz': gzip.compress(log.replace(marker, b'MISSING'), mtime=0)}))
+            negatives.append(('upgrade duplicate marker ' + marker.decode(), payloads |
+                              {'evidence/scenario.log.gz': gzip.compress(log + marker + b'\n', mtime=0)}))
+        log = gzip.decompress(payloads['evidence/scenario.log.gz'])
+        for phase in ('upgrade', 'postreboot'):
+            for feature in ('clipboard', 'dash', 'screenshot'):
+                marker = f'EXTENSION_FUNCTIONAL_PASS phase={phase} feature={feature} '.encode()
+                negatives.append(('missing functional receipt ' + phase + '/' + feature, payloads |
+                    {'evidence/scenario.log.gz': gzip.compress(log.replace(marker, b'MISSING '), mtime=0)}))
+        for label, changed in (
+                ('stale run', log.replace(b'feature=clipboard run_id=', b'feature=clipboard run_id=stale-')),
+                ('stale probe', log.replace(b'probe_sha256=', b'probe_sha256=f')),
+                ('mixed session', log.replace(b'feature=dash run_id=' + run_id.encode() + b' session=c2',
+                                             b'feature=dash run_id=' + run_id.encode() + b' session=c3'))):
+            negatives.append(('functional ' + label, payloads |
+                {'evidence/scenario.log.gz': gzip.compress(changed, mtime=0)}))
         negatives += [
             ('legacy signature', payloads | {'evidence/legacy-repository-manifest.json.sig': repository_signature}),
             ('missing legacy manifest', {name:value for name,value in payloads.items()

@@ -272,6 +272,14 @@
       "acceptedCommit": "dd8bec9326c2416e7b65b8bc9db4e62126a4fe8b",
       "acceptedArchiveSha256": "098c2123bb18ba8970c84a9b21908070cc534e5cd646412dd448f4eb3c0da543",
       "impact": "Stock + Marble real-QEMU before accepting an update."
+    },
+    {
+      "id": "upstream:gnome-shell-51.0",
+      "git": "https://github.com/GNOME/gnome-shell.git",
+      "acceptedTag": "51.0",
+      "acceptedCommit": "2177bdf9624b2d285de7c1d34274073d3769d6b8",
+      "acceptedArchiveSha256": "15cf285c26c2d0088d86e06f9ef72f6836342090e52ec4d709c310d5661f82e6",
+      "impact": "GNOME 51 project candidate: require real upgrade, Shell extension and optional GDM acceptance before publication."
     }
   ],
   "packageSources": [
@@ -284,6 +292,36 @@
       "package": "arch-linux-colloid-icons",
       "source": "arch-linux-colloid-icons-ceac6608ecd0e40025cbc2ebbd32bf0e0f4ebc6a.tar.gz::https://github.com/vinceliuice/Colloid-icon-theme/archive/ceac6608ecd0e40025cbc2ebbd32bf0e0f4ebc6a.tar.gz",
       "sha256": "3f731f9f13b1c1403893561ff92adec7b3ab07c5495f55c78c111b07a10a296e"
+    },
+    {
+      "package": "arch-linux-gnome-extensions",
+      "source": "dash-to-dock.zip::https://extensions.gnome.org/download-extension/dash-to-dock@micxgx.gmail.com.shell-extension.zip?version_tag=75334",
+      "sha256": "eb7647c03cad6dd1ac608da75ffdd2a2b9f8356b65bb468dc523d7ed3d26e5fc"
+    },
+    {
+      "package": "arch-linux-gnome-extensions",
+      "source": "blur-my-shell.zip::https://extensions.gnome.org/download-extension/blur-my-shell@aunetx.shell-extension.zip?version_tag=75939",
+      "sha256": "9ad74044e7ece1e9a2025ddab107240fcc9b5e33ed2b2b651ea97ae7b8a29df4"
+    },
+    {
+      "package": "arch-linux-gnome-extensions",
+      "source": "just-perfection.zip::https://extensions.gnome.org/download-extension/just-perfection-desktop@just-perfection.shell-extension.zip?version_tag=74466",
+      "sha256": "c54ccd627540d86e6baf06c699f624ba7d5229aedfc8b00b0dc7182c6538eda8"
+    },
+    {
+      "package": "arch-linux-gnome-extensions",
+      "source": "clipboard-indicator.tar.gz::https://codeload.github.com/Tudmotu/gnome-shell-extension-clipboard-indicator/tar.gz/39a0f9077daca21a62adaa975eb6a03bda499f27",
+      "sha256": "7020643353f07b843f699585e510b846144540ad67a83d5df8306392b8eb5fc3"
+    },
+    {
+      "package": "arch-linux-gnome-extensions",
+      "source": "no-screenshot-box.tar.gz::https://codeload.github.com/abdallah-alkanani/no-screenshot-box/tar.gz/049690c3a003afd005fad5459f783ba3f46cdb81",
+      "sha256": "2c3c121b6634deeaeb693c42bdd8b413fb4894ec2c19c966fbce7b031f856f9f"
+    },
+    {
+      "package": "arch-linux-gnome-extensions",
+      "source": "no-screenshot-box-old.zip::https://extensions.gnome.org/download-extension/no-screenshot-box@screenshot.shell-extension.zip?version_tag=72860",
+      "sha256": "6b1c5184579ca03dc9bf0ad6ded39d99e618c8baf4577ff5391cfa185eb0736e"
     },
     {
       "package": "arch-linux-marble-gdm",
@@ -309,6 +347,16 @@
       "package": "arch-linux-marble-gdm",
       "source": "SPDX-LGPL-2.1-only-c4a7237ec8f4654e867546f9f409749300f1bf4c.txt::https://raw.githubusercontent.com/spdx/license-list-data/c4a7237ec8f4654e867546f9f409749300f1bf4c/text/LGPL-2.1-only.txt",
       "sha256": "5749785c8bdefafcb5d798270ed0a967036fe2ca63dcedade1627565dfef81d2"
+    },
+    {
+      "package": "arch-linux-marble-gdm",
+      "source": "gnome-shell-1_51.0-1-x86_64.pkg.tar.zst::https://archive.archlinux.org/packages/g/gnome-shell/gnome-shell-1:51.0-1-x86_64.pkg.tar.zst",
+      "sha256": "ee96e1b0c256ef4f4fbeb3d9e094687a7c98782da0918f1888a11e8705811f4f"
+    },
+    {
+      "package": "arch-linux-marble-gdm",
+      "source": "GNOME-Shell-source-2177bdf9624b2d285de7c1d34274073d3769d6b8.tar.gz::https://github.com/GNOME/gnome-shell/archive/2177bdf9624b2d285de7c1d34274073d3769d6b8.tar.gz",
+      "sha256": "15cf285c26c2d0088d86e06f9ef72f6836342090e52ec4d709c310d5661f82e6"
     },
     {
       "package": "arch-linux-marble-shell",

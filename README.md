@@ -14,8 +14,12 @@ the selected physical disk.
 
 ## Release-pinned bootstrap
 
-The commands below pin the published immutable release **1.0.6** (2026-10-04). Run its immutable
-bootstrap from the Arch ISO:
+Historical release 1.0.6 was published on 2026-10-04; its acceptance is recorded in the
+[release evidence](docs/validation.md).
+
+<!-- BEGIN release-bootstrap -->
+The commands below pin immutable release **1.0.6**. Use them from the Arch ISO only after
+confirming publication and acceptance in the [release evidence](docs/validation.md):
 
 ```bash
 curl -fsS https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.6/install.sh | bash
@@ -24,7 +28,6 @@ curl -fsS https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.6/install.sh
 For a newer version, use the release-pinned command in the
 [latest published immutable GitHub Release](https://github.com/snaplyze/arch-linux/releases).
 These examples pin 1.0.6; they do not track `main` or a moving latest-download URL.
-See the [release evidence](docs/validation.md).
 
 The bootstrap is release-pinned. It downloads the installer, its SHA-256 file, detached signature
 and `arch-linux.gpg`; validates the exact public-certificate digest and fingerprints; rejects secret
@@ -34,12 +37,22 @@ For a verification-only run:
 ```bash
 curl -fsS https://raw.githubusercontent.com/snaplyze/arch-linux/1.0.6/install.sh | bash -s -- --verify-only
 ```
+<!-- END release-bootstrap -->
 
 The certificate fingerprints must also be compared through an independently trusted channel. HTTPS,
 a checksum and a signature fetched from the same account do not by themselves establish identity.
 See the [trust model](docs/trust-model.md).
 
-## Current audit status
+## Release overview
+
+<!-- BEGIN release-overview -->
+As of 2026-10-09, the GNOME 51 recovery changes currently in this checkout are an unpublished
+candidate. They add a shared signed extension package, reviewed desktop/GDM
+compatibility and safe migration of the old local extension. They are not yet
+available through `pacman -Syu`; see the [current gates](docs/PLAN.md#gnome-51-update-recovery--2026-10-09).
+<!-- END release-overview -->
+
+## Historical release acceptance
 
 Release 1.0.6 delivers the installer guard, idle-probe, shared-ESP, account and recovery
 corrections recorded in the [registry](docs/PLAN.md#review-findings), together with package and
@@ -80,8 +93,11 @@ session; helper failures or foreign state require the [lifecycle checks](docs/ma
 The unified `arch-linux-colloid-gtk` package replaces `arch-linux-colloid-gtk3` during normal
 updates. GTK4/libadwaita styling activates automatically on the next GNOME login, replacing existing
 user CSS without backups; see the [Marble lifecycle](docs/marble.md#gtk4libadwaita-and-existing-installations).
-Stock GNOME installs no Colloid theme packages or project user CSS and remains usable when the
-project package repository is unavailable.
+Stock GNOME installs no Colloid theme packages or project user CSS. The new installer
+uses the signed project repository for `arch-linux-gnome-extensions` in both graphical
+profiles. Minimal TTY remains independent of it. The new package layout and installer
+routing require a full release; they cannot be delivered as a package-only update
+against the unchanged 1.0.6 installer.
 
 ## Versioning and maintenance policy
 

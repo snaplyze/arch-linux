@@ -1,0 +1,125 @@
+# shellcheck shell=bash disable=SC2034,SC2100,SC2154
+# Maintainer: snaplyze <snaplyze@users.noreply.github.com>
+
+pkgname=arch-linux-gnome-extensions
+pkgver=1.0.0
+pkgrel=1
+pkgdesc='Reviewed GNOME extension collection with safe legacy user-copy migration'
+arch=('any')
+url='https://github.com/snaplyze/arch-linux'
+license=('GPL-3.0-only AND GPL-2.0-or-later AND BSD-1-Clause AND MIT AND GPL-3.0-or-later')
+depends=(
+    'arch-linux-keyring>=1.0.0'
+    'gnome-shell'
+    'gnome-shell-extension-appindicator'
+    'gnome-shell-extension-caffeine'
+    'python'
+    'systemd'
+)
+makedepends=('glib2' 'gettext')
+provides=(
+    'gnome-shell-extension-dash-to-dock=1:109'
+    'gnome-shell-extension-blur-my-shell=74'
+    'gnome-shell-extension-just-perfection-desktop=37'
+    'gnome-shell-extension-clipboard-indicator=71'
+)
+conflicts=(
+    'gnome-shell-extension-dash-to-dock'
+    'gnome-shell-extension-blur-my-shell'
+    'gnome-shell-extension-just-perfection-desktop'
+    'gnome-shell-extension-clipboard-indicator'
+)
+replaces=(
+    'gnome-shell-extension-dash-to-dock'
+    'gnome-shell-extension-blur-my-shell'
+    'gnome-shell-extension-just-perfection-desktop'
+    'gnome-shell-extension-clipboard-indicator'
+)
+options=('!strip' '!debug')
+
+source=(
+    'LICENSE-project'
+    'prepare-extensions.py'
+    'extension-sources.json'
+    'extensions.sha256'
+    'legacy-no-screenshot-box.sha256'
+    'THIRD-PARTY-EXTENSIONS'
+    'extension-session'
+    'arch-linux-gnome-extensions.service'
+    'dash-to-dock.zip::https://extensions.gnome.org/download-extension/dash-to-dock@micxgx.gmail.com.shell-extension.zip?version_tag=75334'
+    'blur-my-shell.zip::https://extensions.gnome.org/download-extension/blur-my-shell@aunetx.shell-extension.zip?version_tag=75939'
+    'just-perfection.zip::https://extensions.gnome.org/download-extension/just-perfection-desktop@just-perfection.shell-extension.zip?version_tag=74466'
+    'clipboard-indicator.tar.gz::https://codeload.github.com/Tudmotu/gnome-shell-extension-clipboard-indicator/tar.gz/39a0f9077daca21a62adaa975eb6a03bda499f27'
+    'no-screenshot-box.tar.gz::https://codeload.github.com/abdallah-alkanani/no-screenshot-box/tar.gz/049690c3a003afd005fad5459f783ba3f46cdb81'
+    'no-screenshot-box-old.zip::https://extensions.gnome.org/download-extension/no-screenshot-box@screenshot.shell-extension.zip?version_tag=72860'
+)
+noextract=(
+    'dash-to-dock.zip'
+    'blur-my-shell.zip'
+    'just-perfection.zip'
+    'clipboard-indicator.tar.gz'
+    'no-screenshot-box.tar.gz'
+    'no-screenshot-box-old.zip'
+)
+sha256sums=(
+    '3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986'
+    'a9c849bef92000fad18cbf4b99d741bfa972cb524494d42c1957705e2591415b'
+    '27330054d80392502935ecfea06b5428548c9740be620df5a6eb5514affbc5b9'
+    '4735cdb9d79da813829988970c067c7316b461d57f7b252d89659829c33b489b'
+    '50662cdd05b0af09dd3f52dac4e5516a9ad38d660539352a9538859c543ba046'
+    '57907fb6502d39fe8d40e34ea8f0925dd7d860a9c524cb63845425506935371f'
+    'a5e10b80347a237250816105d7499e70a82158010ef00d7a370367b366936519'
+    'df0cfaeda3bd8cbe6ede62ce3a73abeebe530e62e7d3e766d6e84928452b7d12'
+    'eb7647c03cad6dd1ac608da75ffdd2a2b9f8356b65bb468dc523d7ed3d26e5fc'
+    '9ad74044e7ece1e9a2025ddab107240fcc9b5e33ed2b2b651ea97ae7b8a29df4'
+    'c54ccd627540d86e6baf06c699f624ba7d5229aedfc8b00b0dc7182c6538eda8'
+    '7020643353f07b843f699585e510b846144540ad67a83d5df8306392b8eb5fc3'
+    '2c3c121b6634deeaeb693c42bdd8b413fb4894ec2c19c966fbce7b031f856f9f'
+    '6b1c5184579ca03dc9bf0ad6ded39d99e618c8baf4577ff5391cfa185eb0736e'
+)
+
+prepare() {
+    # makepkg exposes noextract inputs through symlinks. Materialize its verified
+    # archives in the disposable build tree; the bounded reader still rejects links.
+    local archive
+    install -d "${srcdir}/extension-inputs"
+    for archive in "${noextract[@]}"; do
+        install -m0644 "${srcdir}/${archive}" "${srcdir}/extension-inputs/${archive}"
+    done
+    python "${srcdir}/prepare-extensions.py" --input-dir "${srcdir}/extension-inputs" \
+        --output-dir "${srcdir}/extensions"
+}
+
+check() {
+    (cd "${srcdir}/extensions" && sha256sum --check --strict "${srcdir}/extensions.sha256")
+}
+
+package() {
+    install -d "${pkgdir}/usr/lib/systemd/user/gnome-session-pre.target.wants"
+    install -Dm0755 "${srcdir}/extension-session" \
+        "${pkgdir}/usr/lib/arch-linux-gnome-extensions/extension-session"
+    install -Dm0644 "${srcdir}/arch-linux-gnome-extensions.service" \
+        "${pkgdir}/usr/lib/systemd/user/arch-linux-gnome-extensions.service"
+    ln -s ../arch-linux-gnome-extensions.service \
+        "${pkgdir}/usr/lib/systemd/user/gnome-session-pre.target.wants/arch-linux-gnome-extensions.service"
+    local manifest
+    for manifest in extensions.sha256 legacy-no-screenshot-box.sha256; do
+        install -Dm0644 "${srcdir}/${manifest}" \
+            "${pkgdir}/usr/share/arch-linux-gnome-extensions/${manifest}"
+    done
+    install -d "${pkgdir}/usr/share/gnome-shell/extensions"
+    cp -a -- "${srcdir}/extensions/." "${pkgdir}/usr/share/gnome-shell/extensions/"
+    install -Dm0644 "${srcdir}/THIRD-PARTY-EXTENSIONS" \
+        "${pkgdir}/usr/share/licenses/${pkgname}/THIRD-PARTY-EXTENSIONS"
+    install -Dm0644 "${srcdir}/extensions/dash-to-dock@micxgx.gmail.com/COPYING" \
+        "${pkgdir}/usr/share/licenses/${pkgname}/dash-to-dock@micxgx.gmail.com.license"
+    install -Dm0644 "${srcdir}/extensions/blur-my-shell@aunetx/LICENSE" \
+        "${pkgdir}/usr/share/licenses/${pkgname}/blur-my-shell@aunetx.license"
+    install -Dm0644 "${srcdir}/extensions/just-perfection-desktop@just-perfection/LICENSE" \
+        "${pkgdir}/usr/share/licenses/${pkgname}/just-perfection-desktop@just-perfection.license"
+    install -Dm0644 "${srcdir}/extensions/clipboard-indicator@tudmotu.com/LICENSE.rst" \
+        "${pkgdir}/usr/share/licenses/${pkgname}/clipboard-indicator@tudmotu.com.license"
+    install -Dm0644 "${srcdir}/extensions/no-screenshot-box@screenshot/LICENSE" \
+        "${pkgdir}/usr/share/licenses/${pkgname}/no-screenshot-box@screenshot.license"
+    install -Dm0644 "${srcdir}/LICENSE-project"         "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE-project"
+}

@@ -2,6 +2,35 @@
 
 Maintenance detects drift; it does not change source, accepted hashes, pins, keys or releases.
 
+## Preparing a GNOME update
+
+Start with the current Arch Shell, Mutter, GDM, GTK and libadwaita package versions
+and the relevant [GNOME Shell porting guide](https://gjs.guide/extensions/upgrading/).
+Review every enabled extension's source and compatibility metadata. AUR snapshots
+and user-local extension archives do not gain a pacman update path by appearing
+in the installer. Keep source identity, licenses, package ownership and migration
+for those inputs in the same review as the profile.
+The GNOME 51 candidate uses the theme-independent `arch-linux-gnome-extensions`
+bundle for both graphical profiles. Verify new-install routing and the previous
+installer's behavior before selecting package-only delivery; a changed package
+set or installer requires a full release.
+
+Qualify the full transition from the last signed installation: upgrade through
+pacman, log in through GDM, exercise all expected extensions, confirm the chosen
+theme and optional greeter, lock/unlock, update and boot again. Preserve user
+preferences and modified local extension copies. Test fallback and recovery as
+different transitions. A parser test, catalog support declaration, advisory check
+or new package revision does not replace that acceptance.
+
+Ship the verified signed repository before promising that `pacman -Syu` restores
+existing machines. Keep unqualified inputs and unpublished candidates explicit in
+the [plan](PLAN.md#gnome-51-update-recovery--2026-10-09). Do not disable version
+checks, freeze individual Arch packages or relabel old VM results to avoid Stock
+fallback. For the GNOME 51 transition, upstream Marble remains 50.0.0; the project
+candidate retains its provenance and composes a separately pinned GNOME 51 GDM
+base. The unmerged Clipboard Indicator port and the No Screenshot Box metadata
+port require their own functional acceptance.
+
 The [dated audit snapshot and registry](PLAN.md#current-arch-context) distinguish observed drift
 from accepted inputs and reviewed no-update decisions. Reports record UTC observation time,
 manifest path/SHA-256, and each queried source's identity and

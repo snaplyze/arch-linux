@@ -48,7 +48,8 @@ repository/build-packages.sh "$ARTIFACT_DIR/unsigned"
 repository/verify-unsigned-build.sh "$ARTIFACT_DIR/unsigned"
 ```
 
-The build output contains six package files, `metadata/*.SRCINFO`, `UNSIGNED-SHA256SUMS` and
+The GNOME 51 candidate build output contains seven package files, `metadata/*.SRCINFO`,
+`UNSIGNED-SHA256SUMS` and
 schema-2 `BUILD-METADATA.json`. The two manifests bind the exact source commit/tree, installer,
 package set, source epoch, metadata and package bytes. Every real package archive is checked for its
 exact payload, ownership, modes, dependencies, hooks, licenses and safe internal links. The output
@@ -59,6 +60,14 @@ The advisory comparison is:
 ```bash
 repository/compare-package-builds.sh "$ARTIFACT_DIR/build-a" "$ARTIFACT_DIR/build-b"
 ```
+
+## GNOME extension package transition
+
+`arch-linux-gnome-extensions` separates curated extensions and exact legacy local migration from
+Marble theme activation. Stock and Marble consume this bundle; only Marble depends on the theme
+profile and Colloid packages. Stock's new installer path requires repository availability while
+retaining vendor appearance. The candidate has no signed delivery or real session/VM acceptance;
+see [required upgrade checks](../docs/testing.md#gnome-51-candidate-upgrade-acceptance).
 
 ## Authorized signing and host recovery
 
@@ -327,6 +336,12 @@ the Pages artifact. The Pages job receives no signing secret or private material
 
 ### Package-only updates
 
+The GNOME 51 candidate adds `arch-linux-gnome-extensions` and changes both GNOME installer
+paths to consume the strict signed project repository. This requires a full new installer release.
+The existing package-only route cannot add a seventh name to the historical six-package baseline,
+or change the old installer's unconditional AUR requests. Historical bundles and acceptance stay
+unchanged. The procedure below remains applicable only within its accepted baseline contract.
+
 The delivered tooling provides an explicit package child; external package signing/publication is
 separately authorized and remains NOT_TESTED. Normal installer intent stays the default. A reviewed
 `repository/delivery-intent.json` with package intent suppresses the automatic installer release
@@ -339,8 +354,9 @@ and the active signed `repositoryManifestSha256` plus `repositorySnapshotSha256`
 `{"schema":1,"kind":"installer"}` retains the existing installer route. Bind these identities from
 independently verified published inputs, not a proposed replacement repository.
 
-The initial package mode keeps all six names, architectures, epochs and pkgvers and requires each
-pkgrel to increase above the active repository baseline. Review PKGBUILD/SRCINFO/provides together;
+Package mode accepts an existing six- or seven-package baseline and keeps all of its names,
+architectures, epochs and pkgvers unchanged; each pkgrel must increase above that active baseline.
+It rejects adding or removing names, including the six-to-seven transition. Review PKGBUILD/SRCINFO/provides together;
 missing revisions are rejected rather than generated. The reviewed clean main commit must normalize
 only its existing installer/bootstrap version literals to the exact bytes and modes of the existing
 annotated installer release. Any behavior change rejects package mode and needs a normal installer

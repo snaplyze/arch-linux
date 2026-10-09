@@ -9,6 +9,10 @@ marker_prefix=''
 guest_error() {
     local status=$? line="$1" command="$2"
     trap - ERR
+    if declare -F restore_extension_probe_settings >/dev/null &&
+        [ -n "${probe_state:-}" ] && [ -f "${probe_state}/settings.json" ]; then
+        restore_extension_probe_settings >/dev/null 2>&1 || true
+    fi
     printf '%s_QEMU_GUEST_FAIL phase=%s line=%s status=%s command=%q\n' \
         "${marker_prefix:-UNKNOWN}" "${phase:-preflight}" "${line}" "${status}" "${command}" >&2
     exit "${status}"
@@ -80,7 +84,9 @@ marble-gnome-btrfs-luks2-plymouth-systemdboot)
     marker_prefix='MARBLE'
     case "${phase}" in
     gdm-activation-baseline | gdm-activation-check | prelogin | firstlogin | lock | unlock | update | postreboot-prelogin | secondlogin | \
+        extension-upgrade-* | extension-postreboot-* | \
         legacy-install | legacy-login | migration-update | migrated-login | \
+        gnome51-baseline-install | gnome51-baseline-login | gnome51-upgrade | gnome51-upgraded-login | \
         gtk4-app-smoke-light | gtk4-app-smoke-dark | fresh-user-prepare | \
         fresh-user-login | fresh-user-logout | return-user-login | \
         helper-failure | helper-restored-prelogin | helper-restored-login | \
@@ -1158,7 +1164,7 @@ verify_kernel_initramfs_pair() {
     # A full upgrade can replace disk modules while the old kernel still runs.
     # Require runtime pairing again after the following real reboot.
     case "${phase}" in
-    update | migration-update) ;;
+    update | migration-update | gnome51-upgrade) ;;
     *) [ "$(uname -r)" = "${kernel_release}" ] || return 1 ;;
     esac
     printf 'QEMU_KERNEL_PAIR run_id=%s phase=%s installed_release=%s running_release=%s package=linux systemd=%s mkinitcpio=%s\n' \
@@ -2973,7 +2979,8 @@ verify_stock_profile() {
     systemctl is-enabled --quiet gdm.service
     systemctl is-active --quiet gdm.service
     systemctl is-active --quiet graphical.target
-    [ -z "$(pacman -Qq | grep '^arch-linux-' || true)" ]
+    verify_stock_project_packages
+    verify_public_repository_contract
     [ ! -e /etc/dconf/profile/gdm ] && [ ! -L /etc/dconf/profile/gdm ]
     [ ! -e /etc/systemd/system/gdm.service.d/50-arch-linux-marble.conf ] &&
         [ ! -L /etc/systemd/system/gdm.service.d/50-arch-linux-marble.conf ]
@@ -3118,6 +3125,7 @@ marble_gdm_enabled() {
 marble_project_packages() {
     printf '%s\n' \
         arch-linux-keyring \
+        arch-linux-gnome-extensions \
         arch-linux-marble-shell \
         arch-linux-colloid-gtk \
         arch-linux-colloid-icons \
@@ -3125,6 +3133,32 @@ marble_project_packages() {
     if marble_gdm_enabled; then
         printf '%s\n' arch-linux-marble-gdm
     fi
+}
+
+marble_theme_packages() {
+    printf '%s\n' arch-linux-marble-shell arch-linux-colloid-gtk arch-linux-colloid-icons arch-linux-marble-profile
+    if marble_gdm_enabled; then
+        printf '%s\n' arch-linux-marble-gdm
+    fi
+}
+
+graphical_project_packages() {
+    case "${scenario}" in
+    stock-gnome-*) printf '%s\n' arch-linux-keyring arch-linux-gnome-extensions ;;
+    marble-gnome-*) marble_project_packages ;;
+    *) return 1 ;;
+    esac
+}
+
+verify_stock_project_packages() {
+    local expected
+    expected="$(printf '%s\n' arch-linux-keyring arch-linux-gnome-extensions | LC_ALL=C sort)"
+    [ "$(pacman -Qq | grep '^arch-linux-' | LC_ALL=C sort)" = "${expected}" ]
+    package_installed_exact arch-linux-keyring
+    package_installed_exact arch-linux-gnome-extensions
+    verify_package_qkk_zero arch-linux-keyring arch-linux-gnome-extensions >/dev/null
+    (cd /usr/share/gnome-shell/extensions && sha256sum --check --status \
+        /usr/share/arch-linux-gnome-extensions/extensions.sha256)
 }
 
 installed_package_record_exact() {
@@ -3193,7 +3227,7 @@ verify_public_repository_contract() {
         info="$(pacman -Qi -- "${package}")"
         grep -Eq "^Name[[:space:]]*:[[:space:]]*${package}$" <<<"${info}"
         grep -Eq '^Validated By[[:space:]]*:[[:space:]]*Signature([[:space:]]|$)' <<<"${info}"
-    done < <(marble_project_packages)
+    done < <(graphical_project_packages)
     printf 'MARBLE_PUBLIC_REPOSITORY_POLICY_PASS run_id=%s phase=%s server=pages package_signatures=required database_signatures=required private_key=absent\n' \
         "${run_id}" "${phase}"
 }
@@ -3364,7 +3398,7 @@ verify_public_release_pages_binding() (
         .buildMetadataSha256 == $build_metadata_sha256 and
         .unsignedManifestSha256 == $unsigned_manifest_sha256 and
         (.sourceDateEpoch | type == "number" and . > 0 and floor == .) and
-        (.files | type == "array" and length == 23 and all(.[];
+        (.files | type == "array" and length == 25 and all(.[];
           type == "object" and keys == ["name","sha256","size"] and
           (.name | type == "string" and test("^[A-Za-z0-9][A-Za-z0-9+._-]*$")) and
           (.sha256 | type == "string" and test("^[a-f0-9]{64}$")) and
@@ -3426,9 +3460,9 @@ verify_public_release_pages_binding() (
     [ "${database_filenames}" = "${expected_package_files}" ]
     files_desc_count="$(bsdtar -tf "${pages_dir}/arch-linux.files.tar.gz" | grep -c '/desc$')"
     files_list_count="$(bsdtar -tf "${pages_dir}/arch-linux.files.tar.gz" | grep -c '/files$')"
-    [ "${files_desc_count}" -eq 6 ] && [ "${files_list_count}" -eq 6 ]
+    [ "${files_desc_count}" -eq 7 ] && [ "${files_list_count}" -eq 7 ]
 
-    printf 'MARBLE_PUBLIC_SNAPSHOT_BINDING_PASS run_id=%s snapshot_sha256=%s release_sums_sha256=%s repository_manifest_sha256=%s repository_manifest_signature_sha256=%s pages_objects=23 package_signatures=6 database_signatures=2\n' \
+    printf 'MARBLE_PUBLIC_SNAPSHOT_BINDING_PASS run_id=%s snapshot_sha256=%s release_sums_sha256=%s repository_manifest_sha256=%s repository_manifest_signature_sha256=%s pages_objects=25 package_signatures=7 database_signatures=2\n' \
         "${run_id}" "${snapshot_sha256}" "${release_sums_hash}" "${repository_manifest_hash}" \
         "${repository_manifest_signature_hash}"
     printf 'PUBLIC_REPOSITORY_MANIFEST_BASE64 run_id=%s value=%s\n' \
@@ -3480,12 +3514,21 @@ verify_marble_packages() {
     printf 'MARBLE_QEMU_PROJECT_QKK run_id=%s phase=%s\n%s\n' "${run_id}" "${phase}" "${qkk}"
 }
 
+marble_gdm_major() {
+    local version major
+    version="$(installed_package_version_exact gnome-shell)" || return 1
+    version="${version#*:}"
+    major="${version%%.*}"
+    case "${major}" in 50 | 51) printf '%s\n' "${major}" ;; *) return 1 ;; esac
+}
+
 verify_vendor_integrity() {
-    local qkk
+    local qkk major
     qkk="$(verify_package_qkk_zero gnome-shell gdm)"
     if marble_gdm_enabled; then
+        major="$(marble_gdm_major)" || return 1
         sha256sum --check --strict \
-            /usr/share/arch-linux-marble-gdm/known-gnome-50.sha256 >/dev/null
+            "/usr/share/arch-linux-marble-gdm/known-gnome-${major}.sha256" >/dev/null
     fi
     [ "$(pacman -Qo /usr/share/gnome-shell/gnome-shell-theme.gresource | awk '{ print $5 }')" = gnome-shell ]
     [ "$(pacman -Qo /usr/share/dconf/profile/gdm | awk '{ print $5 }')" = gdm ]
@@ -3494,7 +3537,7 @@ verify_vendor_integrity() {
 
 gdm_shell_pid() {
     local greeter_session="$1" greeter_uid candidate
-    # GDM 50 uses the logind gdm-greeter identity without requiring a passwd entry named gdm.
+    # GDM uses the logind gdm-greeter identity without requiring a passwd entry named gdm.
     # Bind the process check to the already validated greeter session instead of a legacy account.
     greeter_uid="$(session_property "${greeter_session}" User)" || return 1
     [[ "${greeter_uid}" =~ ^[1-9][0-9]*$ ]] || return 1
@@ -3516,20 +3559,22 @@ stock_gdm_process_environment_is_valid() {
 }
 
 verify_marble_gdm_process() {
-    local expected="$1" greeter_session="$2" shell_pid environment helper_status
+    local expected="$1" greeter_session="$2" shell_pid environment helper_status major version_root
     helper_status="$(/usr/lib/arch-linux-marble-gdm/update-compatibility --status)"
     shell_pid="$(gdm_shell_pid "${greeter_session}")"
     environment="$(tr '\0' '\n' <"/proc/${shell_pid}/environ")"
     if [ "${expected}" = active ]; then
+        major="$(marble_gdm_major)" || return 1
+        version_root="/usr/share/arch-linux-marble-gdm/${major}.0.0"
         [ "${helper_status}" = active ]
         [ -L /etc/systemd/user/org.gnome.Shell@gdm.service.d/50-arch-linux-marble-gdm.conf ]
         [ "$(readlink -- /etc/systemd/user/org.gnome.Shell@gdm.service.d/50-arch-linux-marble-gdm.conf)" = \
-            /usr/share/arch-linux-marble-gdm/systemd/50-arch-linux-marble-gdm.conf ]
-        grep -qx 'G_RESOURCE_OVERLAYS=/org/gnome/shell/theme=/usr/share/arch-linux-marble-gdm/50.0.0/theme' \
+            "/usr/share/arch-linux-marble-gdm/systemd/${major}-arch-linux-marble-gdm.conf" ]
+        grep -qx "G_RESOURCE_OVERLAYS=/org/gnome/shell/theme=${version_root}/theme" \
             <<<"${environment}"
-        grep -qx 'DCONF_PROFILE=/usr/share/arch-linux-marble-gdm/50.0.0/dconf/profile' \
+        grep -qx "DCONF_PROFILE=${version_root}/dconf/profile" \
             <<<"${environment}"
-        [ "$(DCONF_PROFILE=/usr/share/arch-linux-marble-gdm/50.0.0/dconf/profile \
+        [ "$(DCONF_PROFILE="${version_root}/dconf/profile" \
             XDG_CONFIG_HOME=/dev/null gsettings get org.gnome.desktop.interface icon-theme)" = \
             "'Colloid-Dark'" ]
     else
@@ -3604,7 +3649,7 @@ verify_marble_greeter() {
         verify_marble_gdm_process stock "${greeter_session}"
         ;;
     removed)
-        [ -z "$(pacman -Qq | grep '^arch-linux-' || true)" ]
+        verify_stock_project_packages
         [ ! -e /usr/share/arch-linux-marble ] && [ ! -e /usr/share/arch-linux-marble-gdm ]
         [ ! -e "/home/${username}/.config/gtk-4.0/gtk.css" ]
         [ ! -e "/home/${username}/.config/gtk-4.0/gtk-dark.css" ]
@@ -3677,7 +3722,7 @@ verify_marble_user_session() {
         [ "${enabled_extensions}" = "${expected_extensions}" ]
         [ "${gtk_theme}" = "'Adwaita'" ]
         [ "${icon_theme}" = "'Adwaita'" ]
-        [ -z "$(pacman -Qq | grep '^arch-linux-' || true)" ]
+        verify_stock_project_packages
         [ ! -e /usr/share/arch-linux-marble ] && [ ! -e /usr/share/arch-linux-marble-gdm ]
         [ ! -e "/home/${username}/.config/gtk-4.0/gtk.css" ]
         [ ! -e "/home/${username}/.config/gtk-4.0/gtk-dark.css" ]
@@ -3829,6 +3874,572 @@ update_legacy_session_to_candidate() {
     emit_marble_action_pass legacy-to-candidate-syu-and-logout
 }
 
+gnome51_migration_state='/var/lib/arch-linux-marble/gnome51-migration'
+gnome51_migration_manifest='/var/lib/arch-linux-marble/gnome51-upgrade-manifest.json'
+
+gnome51_require_platform() {
+    local package version
+    [ "${input_mode}:${scenario}" = staged:marble-gnome-btrfs-luks2-plymouth-systemdboot ]
+    for package in gnome-shell mutter gdm; do
+        version="$(installed_package_version_exact "${package}")"
+        [[ "${version#*:}" = 51.* ]] || return 1
+    done
+    [ -f "${gnome51_migration_manifest}" ] && [ ! -L "${gnome51_migration_manifest}" ]
+    [ "$(stat -c '%u:%a' "${gnome51_migration_manifest}")" = 0:400 ]
+}
+
+gnome51_aur_packages() {
+    printf '%s\n' gnome-shell-extension-blur-my-shell gnome-shell-extension-clipboard-indicator \
+        gnome-shell-extension-dash-to-dock gnome-shell-extension-just-perfection-desktop
+}
+
+gnome51_preferences() {
+    local uid="$1"
+    run_in_user_session "${uid}" gsettings get org.gnome.desktop.interface clock-show-weekday
+    run_in_user_session "${uid}" gsettings get org.gnome.desktop.wm.preferences num-workspaces
+    run_in_user_session "${uid}" gsettings get org.gnome.shell enabled-extensions
+    run_in_user_session "${uid}" gsettings get org.gnome.shell disable-user-extensions
+}
+
+gnome51_download_inputs() {
+    local server="$1" name hash size destination
+    while IFS=$'\t' read -r name hash size; do
+        case "${name}" in aur/* | local/no-screenshot-box.zip) ;;
+        *) continue ;;
+        esac
+        [[ "${name}" =~ ^(aur|local)/[A-Za-z0-9+._-]+$ ]] || return 1
+        [[ "${hash}" =~ ^[a-f0-9]{64}$ && "${size}" =~ ^[1-9][0-9]*$ ]] || return 1
+        destination="${gnome51_migration_state}/inputs/${name}"
+        install -d -m0700 -- "${destination%/*}"
+        curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
+            --max-time 300 "${server}/gnome51-inputs/${name}" -o "${destination}"
+        [ "$(stat -c '%s' "${destination}")" = "${size}" ]
+        [ "$(sha256sum --binary -- "${destination}" | awk '{print $1}')" = "${hash}" ]
+        chmod 0400 -- "${destination}"
+    done < <(jq -r '.files | to_entries | sort_by(.key)[] | [.key,.value.sha256,(.value.size|tostring)] | @tsv' \
+        "${gnome51_migration_manifest}")
+}
+
+gnome51_verify_baseline_packages() {
+    local package version info actual expected
+    if package_installed_exact arch-linux-gnome-extensions; then return 1; fi
+    expected="$(jq -r '.baseline.packages | keys[]' "${gnome51_migration_manifest}" | LC_ALL=C sort)"
+    actual="$(pacman -Qq | sed -n '/^arch-linux-/p' | LC_ALL=C sort)"
+    [ "${actual}" = "${expected}" ]
+    while IFS=$'\t' read -r package version; do
+        [ "$(installed_package_version_exact "${package}")" = "${version}" ]
+        info="$(pacman -Qi -- "${package}")"
+        grep -Eq '^Validated By[[:space:]]*:[[:space:]]*Signature([[:space:]]|$)' <<<"${info}"
+        verify_package_qkk_zero "${package}" >/dev/null
+    done < <(jq -r '.baseline.packages | to_entries[] | [.key,.value] | @tsv' "${gnome51_migration_manifest}")
+    [ "$(jq '.aur | length' "${gnome51_migration_manifest}")" -eq 4 ]
+    [ "$(jq -r '.aur[].name' "${gnome51_migration_manifest}" | LC_ALL=C sort)" = "$(gnome51_aur_packages | LC_ALL=C sort)" ]
+    while IFS=$'\t' read -r package version; do
+        [ "$(installed_package_version_exact "${package}")" = "${version}" ]
+        verify_package_qkk_zero "${package}" >/dev/null
+        pacman -Ql -- "${package}" | grep -q '/usr/share/gnome-shell/extensions/'
+    done < <(jq -r '.aur[] | [.name,.version] | @tsv' "${gnome51_migration_manifest}")
+}
+
+gnome51_record_local_tree() {
+    python3 - "/home/${username}/.local/share/gnome-shell/extensions/no-screenshot-box@screenshot" \
+        "${gnome51_migration_state}/legacy.sha256" "${gnome51_migration_state}/local-tree.json" <<'GNOME51_TREE_PY'
+import hashlib, json, os, pathlib, stat, sys
+root, manifest, receipt = map(pathlib.Path, sys.argv[1:])
+expected = {}
+for line in manifest.read_text().splitlines():
+    digest, name = line.split('  ')
+    expected[name] = digest
+actual = {}; identities = {}
+assert root.is_dir() and not root.is_symlink()
+for directory, dirs, files in os.walk(root, followlinks=False):
+    for name in dirs + files:
+        path = pathlib.Path(directory) / name; info = path.lstat()
+        assert not stat.S_ISLNK(info.st_mode)
+        assert stat.S_ISDIR(info.st_mode) or stat.S_ISREG(info.st_mode)
+        if stat.S_ISREG(info.st_mode):
+            relative = path.relative_to(root).as_posix()
+            actual[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
+            identities[relative] = [info.st_dev, info.st_ino]
+assert actual == expected, 'installer-created local tree differs from known installed v6'
+receipt.write_text(json.dumps({'hashes': actual, 'identities': identities}, sort_keys=True) + '\n')
+GNOME51_TREE_PY
+}
+
+install_gnome51_baseline() {
+    local uid candidate_server server baseline_server package filename zip local_tree
+    local -a baseline_packages=() remove_packages=()
+    gnome51_require_platform
+    [ ! -e "${gnome51_migration_state}" ]
+    install -d -m0700 -- "${gnome51_migration_state}"
+    install -m0600 -- "${legacy_repository_file}" "${gnome51_migration_state}/candidate-repository.conf"
+    install -m0600 -- /usr/share/arch-linux-gnome-extensions/legacy-no-screenshot-box.sha256 \
+        "${gnome51_migration_state}/legacy.sha256"
+    while IFS= read -r package; do installed_package_record_exact "${package}"; done < <(marble_project_packages) |
+        LC_ALL=C sort >"${gnome51_migration_state}/candidate-packages.txt"
+    uid="$(id -u "${username}")"
+    wait_for_user_session >/dev/null
+    # Explicit non-default witnesses belong only to this disposable acceptance user.
+    run_in_user_session "${uid}" gsettings set org.gnome.desktop.interface clock-show-weekday true
+    run_in_user_session "${uid}" gsettings set org.gnome.desktop.wm.preferences num-workspaces 7
+    run_in_user_session "${uid}" gsettings set org.gnome.shell enabled-extensions \
+        "$(run_in_user_session "${uid}" gsettings get org.gnome.shell enabled-extensions)"
+    gnome51_preferences "${uid}" >"${gnome51_migration_state}/preferences.txt"
+    run_in_user_session "${uid}" gnome-session-quit --logout --no-prompt
+    wait_for_named_user_logout "${username}"
+    candidate_server="$(awk '$1 == "Server" && $2 == "=" {print $3; count++} END {if(count != 1) exit 1}' "${legacy_repository_file}")"
+    server="${candidate_server%/repo/\$arch}"
+    [ "${server}" != "${candidate_server}" ]
+    gnome51_download_inputs "${server}"
+    baseline_server="${server}/gnome51-baseline/\$arch"
+    printf '[arch-linux]\nSigLevel = PackageRequired DatabaseRequired TrustedOnly\nServer = %s\n' \
+        "${baseline_server}" >"${legacy_repository_file}"
+    mapfile -t baseline_packages < <(jq -r '.baseline.packages | keys[]' "${gnome51_migration_manifest}")
+    [ "${#baseline_packages[@]}" -eq 6 ]
+    mapfile -t remove_packages < <(marble_theme_packages)
+    pacman -Rdd --noconfirm arch-linux-gnome-extensions "${remove_packages[@]}"
+    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt pacman -Syy --noconfirm --disable-download-timeout "${baseline_packages[@]}"
+    local -a aur_files=()
+    while IFS= read -r filename; do
+        [[ "${filename}" =~ ^aur/[A-Za-z0-9+._-]+\.pkg\.tar\.(zst|xz|gz)$ ]] || return 1
+        aur_files+=("${gnome51_migration_state}/inputs/${filename}")
+    done < <(jq -r '.aur[].filename' "${gnome51_migration_manifest}")
+    [ "${#aur_files[@]}" -eq 4 ]
+    pacman -U --noconfirm -- "${aur_files[@]}"
+    local_tree="/home/${username}/.local/share/gnome-shell/extensions/no-screenshot-box@screenshot"
+    [ ! -e "${local_tree}" ] && [ ! -L "${local_tree}" ]
+    zip="$(mktemp "/home/${username}/.local/share/gnome-shell/gnome51-v6.XXXXXXXX.zip")"
+    install -o "${uid}" -g "$(id -g "${username}")" -m0400 -- \
+        "${gnome51_migration_state}/inputs/local/no-screenshot-box.zip" "${zip}"
+    runuser -u "${username}" -- env -u DBUS_SESSION_BUS_ADDRESS -u XDG_RUNTIME_DIR \
+        HOME="/home/${username}" XDG_DATA_HOME="/home/${username}/.local/share" \
+        gnome-extensions install --print-uuid "${zip}"
+    rm -f -- "${zip}"
+    runuser -u "${username}" -- glib-compile-schemas --strict "${local_tree}/schemas"
+    gnome51_verify_baseline_packages
+    gnome51_record_local_tree
+    systemctl restart gdm.service
+    wait_for_greeter >/dev/null
+    verify_marble_gdm_process stock "$(wait_for_greeter)"
+    touch "${gnome51_migration_state}/baseline-gdm-stock-proven"
+    emit_marble_action_pass gnome51-authenticated-baseline-and-actual-aur-installed
+}
+
+verify_gnome51_baseline_login() {
+    local uid session uuid info state failures=0 shell_pid
+    gnome51_require_platform
+    gnome51_verify_baseline_packages
+    [ -f "${gnome51_migration_state}/baseline-gdm-stock-proven" ]
+    session="$(wait_for_user_session)"; uid="$(id -u "${username}")"
+    [ "$(session_property "${session}" User)" = "${uid}" ]
+    [ "$(session_property "${session}" Service)" = gdm-password ]
+    [ "$(session_property "${session}" Type)" = wayland ]
+    shell_pid="$(wait_for_gnome_shell "${uid}")"
+    [ -n "${shell_pid}" ]
+    gnome51_preferences "${uid}" | cmp -s -- - "${gnome51_migration_state}/preferences.txt"
+    gnome51_record_local_tree
+    for uuid in blur-my-shell@aunetx clipboard-indicator@tudmotu.com no-screenshot-box@screenshot dash-to-dock@micxgx.gmail.com; do
+        info="$(run_in_user_session "${uid}" gnome-extensions info "${uuid}")"
+        state="$(sed -n 's/^[[:space:]]*State:[[:space:]]*//p' <<<"${info}")"
+        case "${state}" in 'OUT OF DATE' | OUT_OF_DATE | OUT-OF-DATE | ERROR) failures=$((failures + 1)) ;; *) return 1 ;; esac
+        printf 'GNOME_EXTENSION_DIAGNOSTIC run_id=%s phase=%s known_extension=%s expected=old-incompatible state=%s\n' \
+            "${run_id}" "${phase}" "${uuid}" "${state}"
+    done
+    [ "${failures}" -eq 4 ]
+    [ "$(/usr/lib/arch-linux-marble-gdm/update-compatibility --status)" = stock ]
+    printf 'GNOME51_UPGRADE_BASELINE_PASS run_id=%s project_packages=6 aur_owners=4 local_v6=exact login=gdm-password shell_major=51 old_incompatible=4 preferences=preserved\n' "${run_id}"
+    touch "${gnome51_migration_state}/baseline-login-proven"
+    emit_marble_action_pass gnome51-real-baseline-login-old-failures-proven
+}
+
+upgrade_gnome51_baseline() {
+    local uid
+    gnome51_require_platform
+    [ -f "${gnome51_migration_state}/baseline-login-proven" ]
+    gnome51_verify_baseline_packages
+    install -m0644 -- "${gnome51_migration_state}/candidate-repository.conf" "${legacy_repository_file}"
+    # This is the promised production update: no explicitly named new package or AUR helper.
+    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt pacman -Syu --noconfirm --disable-download-timeout
+    while IFS= read -r package; do installed_package_record_exact "${package}"; done < <(marble_project_packages) |
+        LC_ALL=C sort | cmp -s -- - "${gnome51_migration_state}/candidate-packages.txt"
+    while IFS= read -r package; do
+        if package_installed_exact "${package}"; then return 1; fi
+    done < <(gnome51_aur_packages)
+    verify_marble_packages
+    touch "${gnome51_migration_state}/transaction-proven"
+    uid="$(id -u "${username}")"
+    run_in_user_session "${uid}" gnome-session-quit --logout --no-prompt
+    wait_for_named_user_logout "${username}"
+    # Restart the actual greeter so its environment uses the just-upgraded scoped resource.
+    systemctl restart gdm.service
+    wait_for_greeter >/dev/null
+    verify_marble_greeter active
+    touch "${gnome51_migration_state}/candidate-gdm-scoped-proven"
+    emit_marble_action_pass gnome51-plain-syu-replaced-four-owners
+}
+
+verify_gnome51_recovery_login() {
+    local uid uuid info state
+    gnome51_require_platform
+    [ -f "${gnome51_migration_state}/baseline-login-proven" ]
+    [ -f "${gnome51_migration_state}/transaction-proven" ]
+    verify_marble_user_session marble
+    [ "$(session_property "$(wait_for_user_session)" Service)" = gdm-password ]
+    [ -f "${gnome51_migration_state}/candidate-gdm-scoped-proven" ]
+    [ "$(/usr/lib/arch-linux-marble-gdm/update-compatibility --status)" = active ]
+    uid="$(id -u "${username}")"
+    gnome51_preferences "${uid}" | cmp -s -- - "${gnome51_migration_state}/preferences.txt"
+    while IFS= read -r uuid; do
+        info="$(run_in_user_session "${uid}" gnome-extensions info "${uuid}")"
+        state="$(sed -n 's/^[[:space:]]*State:[[:space:]]*//p' <<<"${info}")"
+        case "${state}" in ENABLED | ACTIVE) ;; *) return 1 ;; esac
+    done < <(printf '%s\n' appindicatorsupport@rgcjonas.gmail.com blur-my-shell@aunetx caffeine@patapon.info \
+        clipboard-indicator@tudmotu.com dash-to-dock@micxgx.gmail.com just-perfection-desktop@just-perfection \
+        no-screenshot-box@screenshot user-theme@gnome-shell-extensions.gcampax.github.com)
+    python3 - "/home/${username}/.local/share/gnome-shell" "${gnome51_migration_state}/local-tree.json" <<'GNOME51_CUSTODY_PY'
+import hashlib, json, pathlib, re, sys
+root, receipt = map(pathlib.Path, sys.argv[1:]); expected = json.loads(receipt.read_text())
+assert not (root / 'extensions/no-screenshot-box@screenshot').exists()
+found = []
+for parent in root.iterdir():
+    if re.fullmatch(r'\.arch-linux-marble-custody-[0-9a-f]{32}', parent.name):
+        assert not parent.is_symlink()
+        tree = parent / 'no-screenshot-box@screenshot'
+        if not tree.is_dir() or tree.is_symlink(): continue
+        hashes = {}; identities = {}
+        for path in tree.rglob('*'):
+            assert not path.is_symlink()
+            if path.is_file():
+                name = path.relative_to(tree).as_posix(); info = path.stat()
+                hashes[name] = hashlib.sha256(path.read_bytes()).hexdigest()
+                identities[name] = [info.st_dev, info.st_ino]
+        if hashes == expected['hashes'] and identities == expected['identities']: found.append(tree)
+assert len(found) == 1, 'exact original directory/inodes must be retained outside extension discovery'
+GNOME51_CUSTODY_PY
+    printf 'GNOME51_UPGRADE_RECOVERY_PASS run_id=%s transaction=plain-pacman-Syu aur_owners=0 bundle=installed login=gdm-password extensions=8-active custody=original-inodes preferences=preserved gdm=scoped user_overlay=absent\n' "${run_id}"
+    emit_marble_action_pass gnome51-real-recovery-login-custody-settings-eight-active
+}
+
+verify_extension_probe_receipt() {
+    local stage="$1" expected="${2:--}" uid
+    uid="$(id -u "${username}")"
+    python3 - "${probe_state}" "${stage}" "${expected}" "${run_id}" "${probe_round}" "${uid}" "${probe_source}" "${probe_trusted}" <<'EXTENSION_RECEIPT_PY'
+import hashlib, json, os, pathlib, stat, sys
+root = pathlib.Path(sys.argv[1]); stage, expected, run_id, round_name = sys.argv[2:6]; uid = int(sys.argv[6])
+source, trusted = map(pathlib.Path, sys.argv[7:9])
+trusted_uid = 0
+assert stat.S_ISDIR(trusted.lstat().st_mode) and trusted.stat().st_uid == trusted_uid and stat.S_IMODE(trusted.stat().st_mode) == 0o700
+assert stat.S_ISREG(source.lstat().st_mode) and source.stat().st_uid == trusted_uid and stat.S_IMODE(source.stat().st_mode) == 0o500
+probe = root / 'probe.js'; assert stat.S_ISREG(probe.lstat().st_mode) and probe.stat().st_uid == uid
+digest = hashlib.sha256(source.read_bytes()).hexdigest()
+assert hashlib.sha256(probe.read_bytes()).hexdigest() == digest
+path = root / (stage + '.json'); info = path.lstat()
+assert stat.S_ISREG(info.st_mode) and info.st_uid == uid and stat.S_IMODE(info.st_mode) == 0o600
+raw = path.read_bytes(); assert len(raw) <= 2048
+value = json.loads(raw)
+assert set(value) == {'schema','runId','round','probeSha256','stage','valueSha256','pid'}
+assert value['schema'] == 1 and value['runId'] == run_id and value['round'] == round_name
+assert value['stage'] == stage and value['probeSha256'] == digest
+assert value['valueSha256'] == expected and type(value['pid']) is int and value['pid'] > 1
+process = pathlib.Path('/proc') / str(value['pid'])
+def identity():
+    fields = (process / 'stat').read_text().rsplit(')',1)[1].split()
+    assert fields[0] != 'Z' and process.stat().st_uid == uid
+    executable = os.readlink(process / 'exe'); assert executable == str(pathlib.Path('/usr/bin/gjs').resolve())
+    argv = (process / 'cmdline').read_bytes().rstrip(b'\0').decode().split('\0')
+    assert pathlib.Path(argv[0]).resolve() == pathlib.Path('/usr/bin/gjs').resolve()
+    assert argv[1:] == ['-m',str(probe),str(root),run_id,round_name]
+    return {'pid':value['pid'],'starttime':int(fields[19]),'executable':executable,'argv':argv,'probeSha256':digest}
+actual = identity(); identity_path = trusted / 'identity.json'
+if not identity_path.exists():
+    assert stage == 'dash-ready'
+    with identity_path.open('x') as output: output.write(json.dumps(actual)+'\n')
+    identity_path.chmod(0o600)
+info = identity_path.lstat()
+assert stat.S_ISREG(info.st_mode) and info.st_uid == trusted_uid and stat.S_IMODE(info.st_mode) == 0o600
+assert json.loads(identity_path.read_text()) == actual and identity() == actual
+EXTENSION_RECEIPT_PY
+}
+
+probe_state=''
+probe_round=''
+probe_source='/run/arch-linux-qemu-extension-probe.js'
+probe_trusted=''
+
+load_extension_probe_state() {
+    [ "${input_mode}:${scenario}" = staged:marble-gnome-btrfs-luks2-plymouth-systemdboot ]
+    [[ "${phase}" =~ ^extension-(upgrade|postreboot)-([a-z-]+)$ ]]
+    probe_round="${BASH_REMATCH[1]}"
+    probe_state="/run/user/$(id -u "${username}")/arch-linux-qemu-extension-${run_id}-${probe_round}"
+    probe_trusted="${gnome51_migration_state}/extension-${probe_round}"
+}
+
+extension_settings_schema() {
+    case "$1" in
+    dash) printf '%s\n' /usr/share/gnome-shell/extensions/dash-to-dock@micxgx.gmail.com/schemas org.gnome.shell.extensions.dash-to-dock ;;
+    clipboard) printf '%s\n' /usr/share/gnome-shell/extensions/clipboard-indicator@tudmotu.com/schemas org.gnome.shell.extensions.clipboard-indicator ;;
+    screenshot) printf '%s\n' /usr/share/gnome-shell/extensions/no-screenshot-box@screenshot/schemas org.gnome.shell.extensions.no-screenshot-box ;;
+    *) return 1 ;;
+    esac
+}
+
+set_extension_setting() {
+    local uid="$1" kind="$2" key="$3" value="$4"
+    local -a schema=()
+    mapfile -t schema < <(extension_settings_schema "${kind}")
+    [ "${#schema[@]}" -eq 2 ]
+    run_in_user_session "${uid}" gsettings --schemadir "${schema[0]}" set "${schema[1]}" "${key}" "${value}"
+}
+
+prepare_extension_probe() {
+    local uid favorites desktop application path value encoded
+    uid="$(id -u "${username}")"
+    gnome51_require_platform
+    [ -f "${gnome51_migration_state}/transaction-proven" ]
+    [ ! -e "${probe_state}" ] && [ ! -L "${probe_state}" ]
+    verify_marble_user_session marble
+    [ ! -e "${probe_trusted}" ] && [ ! -L "${probe_trusted}" ]
+    install -d -o0 -g0 -m0700 -- "${probe_trusted}"
+    run_in_user_session "${uid}" mkdir -m0700 -- "${probe_state}"
+    install -o "${uid}" -g "$(id -g "${username}")" -m0500 -- /run/arch-linux-qemu-extension-probe.js "${probe_state}/probe.js"
+    sha256sum --binary -- "${probe_state}/probe.js" | awk '{print $1}' >"${probe_state}/probe.sha256"
+    printf '[]\n' >"${probe_state}/settings.json"
+    # Save only scoped, ephemeral test values; restore unset keys with dconf reset.
+    for path in /org/gnome/shell/favorite-apps \
+        /org/gnome/shell/extensions/dash-to-dock/hot-keys /org/gnome/shell/extensions/dash-to-dock/app-hotkey-1 \
+        /org/gnome/shell/extensions/clipboard-indicator/enable-keybindings \
+        /org/gnome/shell/extensions/clipboard-indicator/prev-entry /org/gnome/shell/extensions/clipboard-indicator/next-entry \
+        /org/gnome/shell/extensions/clipboard-indicator/paste-on-select /org/gnome/shell/extensions/clipboard-indicator/move-item-first \
+        /org/gnome/shell/extensions/no-screenshot-box/remove-preselected-box \
+        /org/gnome/shell/extensions/no-screenshot-box/screenshot-on-release; do
+        value="$(run_in_user_session "${uid}" dconf read "${path}")"
+        jq --arg path "${path}" --arg value "${value}" '. + [{path:$path,value:$value}]' \
+            "${probe_state}/settings.json" >"${probe_state}/settings.next"
+        mv -- "${probe_state}/settings.next" "${probe_state}/settings.json"
+    done
+    application="org.archlinux.QemuExtensionProbe.${probe_round}"
+    desktop="/home/${username}/.local/share/applications/${application}.desktop"
+    [ ! -e "${desktop}" ] && [ ! -L "${desktop}" ]
+    run_in_user_session "${uid}" mkdir -p -- "${desktop%/*}"
+    printf '[Desktop Entry]\nType=Application\nName=Arch Linux extension acceptance\nExec=/usr/bin/gjs -m %s/probe.js %s %s %s\nTerminal=false\n' \
+        "${probe_state}" "${probe_state}" "${run_id}" "${probe_round}" >"${probe_state}/probe.desktop"
+    install -o "${uid}" -g "$(id -g "${username}")" -m0600 -- "${probe_state}/probe.desktop" "${desktop}"
+    favorites="$(run_in_user_session "${uid}" gsettings get org.gnome.shell favorite-apps)"
+    favorites="$(python3 - "${favorites}" "${application}.desktop" <<'EXTENSION_FAVORITES_PY'
+import ast, sys
+raw = sys.argv[1]
+if raw.startswith('@as '): raw = raw[4:]
+values = ast.literal_eval(raw); assert isinstance(values, list) and all(isinstance(x, str) for x in values)
+assert sys.argv[2] not in values
+print(repr([sys.argv[2]] + values))
+EXTENSION_FAVORITES_PY
+)"
+    run_in_user_session "${uid}" gsettings set org.gnome.shell favorite-apps "${favorites}"
+    set_extension_setting "${uid}" dash hot-keys true
+    set_extension_setting "${uid}" dash app-hotkey-1 "['<Super>F6']"
+    set_extension_setting "${uid}" clipboard enable-keybindings true
+    set_extension_setting "${uid}" clipboard prev-entry "['<Control>F11']"
+    set_extension_setting "${uid}" clipboard next-entry "['<Control>F12']"
+    set_extension_setting "${uid}" clipboard paste-on-select false
+    set_extension_setting "${uid}" clipboard move-item-first false
+    sleep 2
+    [ ! -e "${probe_state}/dash-ready.json" ]
+    emit_marble_action_pass extension-probe-prepared-not-launched
+}
+
+wait_extension_probe_receipt() {
+    local stage="$1" expected="${2:--}" deadline=$((SECONDS + 30))
+    while [ "${SECONDS}" -lt "${deadline}" ]; do
+        if [ -f "${probe_state}/${stage}.json" ]; then
+            verify_extension_probe_receipt "${stage}" "${expected}"
+            return
+        fi
+        sleep 0.2
+    done
+    printf 'EXTENSION_FUNCTIONAL_FAIL phase=%s feature=observation stage=%s reason=missing-receipt\n' \
+        "${probe_round}" "${stage}" >&2
+    return 1
+}
+
+emit_extension_functional_pass() {
+    local feature="$1" facts="$2" session hash
+    session="$(wait_for_user_session)"
+    [ "$(session_property "${session}" Service)" = gdm-password ]
+    hash="$(sha256sum --binary -- "${probe_source}" | awk '{print $1}')"
+    printf 'EXTENSION_FUNCTIONAL_PASS phase=%s feature=%s run_id=%s session=%s probe_sha256=%s %s\n' \
+        "${probe_round}" "${feature}" "${run_id}" "${session}" "${hash}" "${facts}"
+}
+
+record_extension_screenshot_baseline() {
+    local uid
+    uid="$(id -u "${username}")"
+    run_in_user_session "${uid}" gjs -c \
+        'const GLib=imports.gi.GLib; print(GLib.build_filenamev([GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_PICTURES)||GLib.get_home_dir(),"Screenshots"]));' \
+        >"${probe_state}/screenshot-directory.txt"
+    python3 - "${probe_state}" "${uid}" "${username}" <<'EXTENSION_SCREEN_BASELINE_PY'
+import json, os, pathlib, stat, sys
+root = pathlib.Path(sys.argv[1]); uid = int(sys.argv[2]); directory = pathlib.Path((root / 'screenshot-directory.txt').read_text().strip())
+assert directory.is_absolute() and directory.is_relative_to(pathlib.Path('/home') / sys.argv[3])
+assert directory.resolve() == directory
+names = []; identities = []
+if directory.exists():
+    assert stat.S_ISDIR(directory.lstat().st_mode) and directory.stat().st_uid == uid
+    for path in directory.iterdir():
+        info = path.lstat(); names.append(path.name)
+        if stat.S_ISREG(info.st_mode): identities.append([info.st_dev,info.st_ino])
+(root / 'screenshot-baseline.json').write_text(json.dumps({'directory':str(directory),'names':sorted(names),'identities':identities})+'\n')
+EXTENSION_SCREEN_BASELINE_PY
+}
+
+verify_extension_screenshot() {
+    local expected="$1" uid
+    uid="$(id -u "${username}")"
+    python3 - "${probe_state}" "${expected}" "${uid}" <<'EXTENSION_SCREENSHOT_PY'
+import binascii, hashlib, json, pathlib, stat, struct, sys, zlib
+root = pathlib.Path(sys.argv[1]); expected = sys.argv[2]; uid = int(sys.argv[3])
+baseline = json.loads((root / 'screenshot-baseline.json').read_text()); directory = pathlib.Path(baseline['directory'])
+assert not directory.is_symlink() and directory.resolve() == directory
+new = sorted(path for path in directory.iterdir() if path.name not in baseline['names']) if directory.exists() else []
+if expected == 'absent':
+    assert not new, 'disabled capture-on-release unexpectedly produced a file'
+else:
+    assert expected == 'present' and len(new) == 1, 'capture must produce exactly one new file'
+    path = new[0]; before = path.lstat()
+    assert [before.st_dev,before.st_ino] not in baseline['identities'], 'renamed pre-existing file is not a new capture'
+    assert stat.S_ISREG(before.st_mode) and before.st_uid == uid and before.st_nlink == 1
+    assert 24 <= before.st_size <= 32 * 1024 * 1024
+    data = path.read_bytes(); after = path.stat()
+    assert (before.st_ino,before.st_size,before.st_mtime_ns) == (after.st_ino,after.st_size,after.st_mtime_ns)
+    assert data[:8] == b'\x89PNG\r\n\x1a\n' and data[12:16] == b'IHDR'
+    width, height = struct.unpack('>II',data[16:24]); scale = json.loads((root / 'display.json').read_text())['scale']
+    assert type(scale) is int and 1 <= scale <= 4 and (width,height) == (301*scale,201*scale), 'capture geometry differs from real drag'
+    offset = 8; compressed = bytearray(); ended = False; channels = None
+    while offset < len(data):
+        size = struct.unpack('>I',data[offset:offset+4])[0]; kind = data[offset+4:offset+8]; chunk = data[offset+8:offset+8+size]
+        assert len(chunk) == size and offset+12+size <= len(data)
+        crc = struct.unpack('>I',data[offset+8+size:offset+12+size])[0]
+        assert binascii.crc32(kind+chunk)&0xffffffff == crc
+        if kind == b'IHDR':
+            assert size == 13 and chunk[8] == 8 and chunk[9] in (2,6) and chunk[10:13] == b'\0\0\0'
+            channels = 3 if chunk[9] == 2 else 4
+        elif kind == b'IDAT': compressed.extend(chunk)
+        elif kind == b'IEND': ended = True; assert size == 0 and offset+12 == len(data)
+        offset += 12+size
+    assert ended and channels is not None
+    limit = (width*channels+1)*height
+    decoded = zlib.decompressobj().decompress(compressed,limit+1)
+    assert len(decoded) == limit
+    output = {'name':path.name,'directory':str(directory),'sha256':hashlib.sha256(data).hexdigest(),
+              'device':after.st_dev,'inode':after.st_ino,'width':width,'height':height}
+    (root / 'last-screenshot.json').write_text(json.dumps(output)+'\n')
+EXTENSION_SCREENSHOT_PY
+}
+
+wait_extension_screenshot() {
+    local deadline=$((SECONDS + 30))
+    while [ "${SECONDS}" -lt "${deadline}" ]; do
+        if verify_extension_screenshot present 2>/dev/null; then return; fi
+        sleep 0.2
+    done
+    verify_extension_screenshot present
+}
+
+restore_extension_probe_settings() {
+    local uid path encoded value
+    uid="$(id -u "${username}")"
+    while IFS=$'\t' read -r path encoded; do
+        value="$(printf '%s' "${encoded}" | base64 --decode)"
+        if [ -n "${value}" ]; then run_in_user_session "${uid}" dconf write "${path}" "${value}"
+        else run_in_user_session "${uid}" dconf reset "${path}"
+        fi
+        [ "$(run_in_user_session "${uid}" dconf read "${path}")" = "${value}" ]
+    done < <(jq -r '.[] | [.path,(.value|@base64)] | @tsv' "${probe_state}/settings.json")
+}
+
+cleanup_extension_probe() {
+    local uid pid path encoded value desktop
+    uid="$(id -u "${username}")"
+    verify_extension_probe_receipt dash-ready
+    pid="$(jq -er '.pid' "${probe_trusted}/identity.json")"
+    [ "$(stat -c '%u' "/proc/${pid}")" = "${uid}" ]
+    tr '\0' '\n' <"/proc/${pid}/cmdline" | grep -Fxq "${probe_state}/probe.js"
+    kill -TERM -- "${pid}"
+    for _ in {1..30}; do [ ! -d "/proc/${pid}" ] && break; sleep 0.1; done
+    [ ! -d "/proc/${pid}" ]
+    restore_extension_probe_settings
+    desktop="/home/${username}/.local/share/applications/org.archlinux.QemuExtensionProbe.${probe_round}.desktop"
+    cmp -s -- "${desktop}" "${probe_state}/probe.desktop"
+    [ "$(stat -c '%u' "${desktop}")" = "${uid}" ] && [ ! -L "${desktop}" ]
+    rm -f -- "${desktop}"
+    python3 - "${probe_state}" "${uid}" <<'EXTENSION_CLEANUP_PY'
+import hashlib, json, pathlib, stat, sys
+root = pathlib.Path(sys.argv[1]); uid = int(sys.argv[2])
+assert root.is_dir() and not root.is_symlink() and root.stat().st_uid == uid and root.stat().st_mode&0o777 == 0o700
+for name in ['control-screenshot.json','positive-screenshot.json']:
+    value = json.loads((root / name).read_text()); path = pathlib.Path(value['directory']) / value['name']; info=path.lstat()
+    assert stat.S_ISREG(info.st_mode) and info.st_uid == uid and info.st_nlink == 1
+    assert (info.st_dev,info.st_ino) == (value['device'],value['inode'])
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == value['sha256']; path.unlink()
+for path in root.iterdir():
+    assert path.is_file() and not path.is_symlink() and path.stat().st_uid in (0,uid)
+    path.unlink()
+root.rmdir()
+EXTENSION_CLEANUP_PY
+    rm -- "${probe_trusted}/identity.json"
+    rmdir -- "${probe_trusted}"
+    verify_marble_user_session marble
+    emit_marble_action_pass extension-probe-settings-restored-owned-files-removed
+}
+
+run_extension_probe_phase() {
+    local operation uid hash pid marker
+    load_extension_probe_state
+    operation="${phase#extension-"${probe_round}"-}"
+    uid="$(id -u "${username}")"
+    case "${operation}" in
+    prepare) prepare_extension_probe ;;
+    dash)
+        wait_extension_probe_receipt dash-ready
+        pid="$(jq -er '.pid' "${probe_state}/dash-ready.json")"
+        [ "$(stat -c '%u' "/proc/${pid}")" = "${uid}" ]
+        tr '\0' '\n' <"/proc/${pid}/cmdline" | grep -Fxq "${probe_state}/probe.js"
+        jq -er 'select(.width>=640 and .width<=8192 and .height>=480 and .height<=8192 and .scale>=1 and .scale<=4) | "EXTENSION_PROBE_DISPLAY width=\(.width) height=\(.height) scale=\(.scale)"' "${probe_state}/display.json"
+        emit_extension_functional_pass dash launch=unique-extension-binding
+        ;;
+    copied-a | copied-b | history-a | history-b | pasted-a | pasted-b)
+        marker="archlinux-${run_id}-${probe_round}-${operation##*-}"
+        hash="$(printf '%s' "${marker}" | sha256sum | awk '{print $1}')"
+        wait_extension_probe_receipt "${operation}" "${hash}"
+        if [ "${operation}" = pasted-b ]; then
+            emit_extension_functional_pass clipboard history=two-values-real-copy-and-paste
+        fi
+        ;;
+    control-prepare)
+        set_extension_setting "${uid}" screenshot remove-preselected-box true
+        set_extension_setting "${uid}" screenshot screenshot-on-release false
+        record_extension_screenshot_baseline
+        ;;
+    control-no-capture) sleep 3; verify_extension_screenshot absent ;;
+    control-captured)
+        wait_extension_screenshot
+        cp -- "${probe_state}/last-screenshot.json" "${probe_state}/control-screenshot.json"
+        ;;
+    positive-prepare)
+        set_extension_setting "${uid}" screenshot screenshot-on-release true
+        record_extension_screenshot_baseline
+        ;;
+    positive-captured)
+        [ -f "${probe_state}/control-screenshot.json" ]
+        wait_extension_screenshot
+        cp -- "${probe_state}/last-screenshot.json" "${probe_state}/positive-screenshot.json"
+        emit_extension_functional_pass screenshot control=manual-capture-positive=release-capture
+        ;;
+    cleanup) cleanup_extension_probe; return ;;
+    *) return 2 ;;
+    esac
+    emit_marble_action_pass "extension-observed-${operation}"
+}
+
 user_executable_running() {
     local uid="$1" expected="$2" process owner executable
     for process in /proc/[0-9]*; do
@@ -3942,11 +4553,12 @@ run_gtk4_app_smoke() {
 
 prepare_fresh_marble_user() {
     local account=marblefresh
-    local uid password_hash greeter_session shell_pid environment
+    local uid password_hash greeter_session shell_pid environment major
     local profile='/run/arch-linux-qemu-gdm-profile'
     local database='/run/arch-linux-qemu-gdm-db'
     local keyfiles='/run/arch-linux-qemu-gdm-db.d'
     local dropin='/run/systemd/user/org.gnome.Shell@gdm.service.d/99-arch-linux-qemu-login.conf'
+    major="$(marble_gdm_major)" || return 1
     [ ! -e "/home/${account}" ]
     [ ! -e "${profile}" ] && [ ! -e "${database}" ] && [ ! -e "${keyfiles}" ] && [ ! -e "${dropin}" ]
     useradd --create-home --user-group --shell /bin/bash marblefresh
@@ -3962,7 +4574,7 @@ prepare_fresh_marble_user() {
     printf '%s\n' \
         'user-db:user' \
         "file-db:${database}" \
-        'file-db:/usr/share/arch-linux-marble-gdm/50.0.0/dconf/colloid-gdm-defaults' \
+        "file-db:/usr/share/arch-linux-marble-gdm/${major}.0.0/dconf/colloid-gdm-defaults" \
         'file-db:/usr/share/gdm/greeter-dconf-defaults' >"${profile}"
     chmod 0644 -- "${profile}"
     printf '%s\n%s\n' '[Service]' "Environment=DCONF_PROFILE=${profile}" >"${dropin}"
@@ -4117,8 +4729,11 @@ exercise_gdm_helper_failure() {
 }
 
 run_marble_phase() {
-    local expected_profile
+    local expected_profile gdm_major
     case "${phase}" in
+    extension-upgrade-* | extension-postreboot-*)
+        run_extension_probe_phase
+        ;;
     prelogin)
         verify_marble_greeter active
         verify_public_release_pages_binding
@@ -4146,6 +4761,18 @@ run_marble_phase() {
         ;;
     migration-update)
         update_legacy_session_to_candidate
+        ;;
+    gnome51-baseline-install)
+        install_gnome51_baseline
+        ;;
+    gnome51-baseline-login)
+        verify_gnome51_baseline_login
+        ;;
+    gnome51-upgrade)
+        upgrade_gnome51_baseline
+        ;;
+    gnome51-upgraded-login)
+        verify_gnome51_recovery_login
         ;;
     gtk4-app-smoke-light)
         run_gtk4_app_smoke default
@@ -4192,9 +4819,10 @@ run_marble_phase() {
         emit_marble_action_pass pacman-syu-hooks-active-qkk-clean
         ;;
     helper-failure)
+        gdm_major="$(marble_gdm_major)" || return 1
         exercise_gdm_helper_failure /etc/systemd/user/org.gnome.Shell@gdm.service.d \
             /usr/lib/arch-linux-marble-gdm/update-compatibility \
-            /usr/share/arch-linux-marble-gdm/systemd/50-arch-linux-marble-gdm.conf
+            "/usr/share/arch-linux-marble-gdm/systemd/${gdm_major}-arch-linux-marble-gdm.conf"
         # Failure retained activation; inspect the actual existing authenticated
         # session as Marble instead of inferring a successful Stock transition.
         verify_marble_user_session marble
@@ -4229,9 +4857,9 @@ run_marble_phase() {
         emit_marble_action_pass marble-reactivated-after-fixture
         ;;
     remove-marble)
-        mapfile -t expected_profile < <(marble_project_packages)
+        mapfile -t expected_profile < <(marble_theme_packages)
         pacman -Rns --noconfirm "${expected_profile[@]}"
-        [ -z "$(pacman -Qq | grep '^arch-linux-' || true)" ]
+        verify_stock_project_packages
         [ ! -e /usr/share/arch-linux-marble ] && [ ! -e /usr/share/arch-linux-marble-gdm ]
         [ ! -e "/home/${username}/.config/gtk-4.0/gtk.css" ]
         [ ! -e "/home/${username}/.config/gtk-4.0/gtk-dark.css" ]

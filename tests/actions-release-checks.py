@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import importlib.util
 from contextlib import redirect_stderr, redirect_stdout
 import io
@@ -34,6 +35,98 @@ class ActionsReleaseChecks(unittest.TestCase):
         assert spec is not None and spec.loader is not None
         self.module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.module)
+
+    def arch_bootstraps(self):
+        for filename, job, step_name in (
+            ("packages.yml", "build", "Install build dependencies"),
+            ("packages.yml", "readback", "Install verifier dependencies"),
+            ("maintenance.yml", "reproducibility", "Install build dependencies"),
+            ("release.yml", "snapshot", "Install isolated signing dependencies"),
+            ("release.yml", "finalize", "Install isolated signing dependencies"),
+        ):
+            workflow = (ROOT / ".github/workflows" / filename).read_text()
+            match = re.search(rf"(?ms)^  {job}:\n(.*?)(?=^  [a-z][a-z_-]*:|\Z)", workflow)
+            self.assertIsNotNone(match, f"missing {filename} {job}")
+            block = match.group(1)
+            step = block.split(f"      - name: {step_name}\n", 1)[1].split("\n      - name:", 1)[0]
+            yield filename, job, block, textwrap.dedent(step.split("        run: |\n", 1)[1])
+
+    def test_arch_containers_reap_package_helpers(self) -> None:
+        for filename, job, block, _ in self.arch_bootstraps():
+            with self.subTest(workflow=filename, job=job):
+                options = re.search(r"(?m)^      options: (.+)$", block)
+                self.assertIsNotNone(options)
+                self.assertIn("--init", shlex.split(options.group(1)))
+
+    def test_arch_keyring_refresh_failure_stops_full_transaction(self) -> None:
+        for filename, job, _, script in self.arch_bootstraps():
+            for refresh_status in (0, 43):
+                with self.subTest(workflow=filename, job=job, refresh_status=refresh_status), \
+                        tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary)
+                    bins = root / "bin"; bins.mkdir()
+                    (bins / "pacman-key").write_text(
+                        '#!/bin/bash\nprintf "pacman-key %s\\n" "$*" >>"$BOOTSTRAP_TRACE"\n')
+                    (bins / "pacman").write_text(
+                        '#!/bin/bash\nprintf "pacman %s\\n" "$*" >>"$BOOTSTRAP_TRACE"\n'
+                        'if [[ $1 == -Sy ]]; then exit "$REFRESH_STATUS"; fi\n')
+                    for path in bins.iterdir(): path.chmod(0o755)
+                    trace = root / "trace"
+                    environment = dict(os.environ, PATH=str(bins) + ":" + os.environ["PATH"],
+                                       BOOTSTRAP_TRACE=str(trace), REFRESH_STATUS=str(refresh_status))
+                    result = subprocess.run(["/bin/bash", "--noprofile", "--norc", "-c", script],
+                                            env=environment, cwd=root, capture_output=True, text=True, timeout=10)
+                    self.assertEqual(result.returncode, refresh_status, result.stderr)
+                    calls = trace.read_text().splitlines()
+                    self.assertEqual(calls[:3], ["pacman-key --init", "pacman-key --populate archlinux",
+                                                "pacman -Sy --noconfirm --needed archlinux-keyring"])
+                    self.assertEqual(len(calls), 3 if refresh_status else 4)
+                    if not refresh_status:
+                        self.assertTrue(calls[3].startswith("pacman -Syu --noconfirm --needed "))
+
+    def test_staged_migration_input_failure_blocks_the_actual_vm_dispatch(self) -> None:
+        workflow = (ROOT / ".github/workflows/release.yml").read_text()
+        step = workflow.split("      - name: Download accepted ISO and execute real staged scenario\n", 1)[1].split("\n      - name:", 1)[0]
+        script = textwrap.dedent(step.split("        run: |\n", 1)[1])
+        core = "marble-gnome-btrfs-luks2-plymouth-systemdboot"
+        for scenario, preparation_status in ((core, 0), (core, 43), ("minimal-ext4-systemdboot", 43)):
+            with self.subTest(scenario=scenario, preparation_status=preparation_status), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                bins = root / "bin"; bins.mkdir()
+                (bins / "jq").write_text("#!/bin/bash\ncase $2 in\n.isoName) echo fixture.iso;;\n.sha256) echo \"$FIXTURE_ISO_SHA\";;\n.isoUrl) echo https://example.invalid/fixture.iso;;\n.version) echo 1.0.3;;\n.snapshotSha256) echo \"$FIXTURE_ISO_SHA\";;\nesac\n")
+                (bins / "curl").write_text("#!/bin/bash\nwhile (($#)); do if [[ $1 == --output ]]; then printf fixture-iso >\"$2\"; exit; fi; shift; done\nexit 90\n")
+                (bins / "python3").write_text("#!/bin/bash\nprintf '%s\\n' \"$@\" >\"$PREPARATION_ARGS\"\nprintf '%s\\n' \"$FIXTURE_UPGRADE_SHA\"\nexit \"$PREPARATION_STATUS\"\n")
+                (bins / "bash").write_text("#!/bin/bash\ncase $1 in\ntests/vm/preflight.sh) exit 0;;\ntests/vm/run.sh) printf '%s\\n' \"$@\" >\"$VM_ARGS\";;\n*) exit 91;;\nesac\n")
+                for path in bins.iterdir(): path.chmod(0o755)
+                environment = dict(os.environ, PATH=str(bins) + ":" + os.environ["PATH"],
+                    RUNNER_TEMP=str(root), GITHUB_WORKSPACE=str(ROOT), SCENARIO=scenario,
+                    RELEASE_VERSION="1.0.7", SNAPSHOT_SHA256="a" * 64,
+                    BUILD_METADATA_SHA256="b" * 64, UNSIGNED_MANIFEST_SHA256="c" * 64,
+                    FIXTURE_ISO_SHA=hashlib.sha256(b"fixture-iso").hexdigest(),
+                    FIXTURE_UPGRADE_SHA="e" * 64,
+                    PREPARATION_ARGS=str(root / "preparation"), VM_ARGS=str(root / "vm"),
+                    PREPARATION_STATUS=str(preparation_status))
+                result = subprocess.run(["/bin/bash", "--noprofile", "--norc", "-c", script],
+                                        cwd=ROOT, env=environment, capture_output=True, text=True, timeout=10)
+                if scenario == core:
+                    self.assertTrue((root / "preparation").is_file(), "core migration preparation was skipped")
+                    arguments = (root / "preparation").read_text().splitlines()
+                    self.assertEqual(arguments[0], "tests/vm/prepare-gnome51-upgrade-inputs.py")
+                    if preparation_status:
+                        self.assertEqual(result.returncode, preparation_status, result.stderr)
+                        self.assertFalse((root / "vm").exists(), "failed preparation still dispatched a VM")
+                        continue
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    vm_arguments = (root / "vm").read_text().splitlines()
+                    self.assertIn("--gnome51-upgrade-inputs", vm_arguments)
+                    self.assertEqual(vm_arguments[vm_arguments.index("--gnome51-upgrade-inputs") + 1],
+                                     arguments[arguments.index("--output") + 1])
+                    self.assertEqual(vm_arguments[vm_arguments.index("--gnome51-upgrade-manifest-sha256") + 1],
+                                     environment["FIXTURE_UPGRADE_SHA"])
+                else:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertFalse((root / "preparation").exists())
+                    self.assertNotIn("--gnome51-upgrade-inputs", (root / "vm").read_text().splitlines())
 
     def test_package_intent_stops_automatic_release_before_selection(self):
         workflow = (ROOT / ".github/workflows/release.yml").read_text()
@@ -171,14 +264,22 @@ build_result "$2" "$3" "$4"
         def outer_assertion(identifier: str) -> str:
             return re.search(r'^\s*record_assertion ' + re.escape(identifier) +
                              r" \\\n\s*'[^']*'", source, re.M).group(0)
-        program = "set -euo pipefail\n" + function("record_assertion") + "\n" + function("run_marble_acceptance") + r'''
+        program = ("set -euo pipefail\n" + function("record_assertion") + "\n" +
+                   function("run_extension_functional_acceptance") + "\n" + function("run_marble_acceptance")) + r'''
 assertions_file="$1/assertions.tsv"
+evidence="$1"
 scenario_id=marble-gnome-btrfs-luks2-plymouth-systemdboot
 input_mode=staged
 last_boot_id=first
 current_phase=firstboot
 die(){ return 1; }
-qga_verify(){ if [ "$1" = postreboot-prelogin ]; then last_boot_id=second; fi; }
+qga_verify(){
+    if [ "$1" = postreboot-prelogin ]; then last_boot_id=second; fi
+    case "$1" in extension-*-dash)
+        printf 'EXTENSION_PROBE_DISPLAY width=1280 height=800 scale=1\n' >"${evidence}/$2.stdout" ;;
+    esac
+}
+qmp_extension_input(){ :; }
 capture_screen(){ :; }
 marble_gdm_login(){ :; }
 run_fresh_marble_user_round_trip(){ :; }
@@ -200,7 +301,7 @@ wait_qga(){ :; }
             rows = (Path(tmp) / "assertions.tsv").read_bytes()
         assertions = [dict(zip(("id", "status", "detail"), line.split("\t"), strict=True))
                       for line in rows.decode().splitlines()]
-        self.assertEqual(len(assertions), 26)
+        self.assertEqual(len(assertions), 33)
         # Run the actual run_record assertion-validation statements, avoiding fake
         # repository signatures/VM evidence and retaining the exact ordered closure.
         path = ROOT / "repository/acceptance-manifest.py"
@@ -223,16 +324,57 @@ wait_qga(){ :; }
         identifiers = [item["id"] for item in assertions]
         first = identifiers.index("gdm-helper-failure-honest")
         second = identifiers.index("gdm-explicit-deactivation")
+        migration = identifiers.index("gnome51-signed-extension-owner-migration")
         variants = [assertions[:first] + assertions[first + 1:],
                     assertions[:second] + assertions[second + 1:],
                     [item for item in assertions if item["id"] not in
                      ("gdm-helper-failure-honest", "gdm-explicit-deactivation")],
                     assertions[:first] + [assertions[second], assertions[first]] + assertions[second + 1:],
+                    assertions[:migration] + assertions[migration + 1:],
+                    [dict(item, status="FAIL") if i == migration else item for i, item in enumerate(assertions)],
                     assertions + [{"id": "unknown-extra", "status": "PASS", "detail": "fixture"}],
                     [dict(item, status="FAIL") if i == first else item for i, item in enumerate(assertions)]]
         for index, variant in enumerate(variants):
             with self.subTest(rejected=index), self.assertRaises(consumer["ManifestError"]):
                 validate(variant)
+
+    def test_gnome51_input_receipt_rejects_changed_baseline_source_and_closure(self) -> None:
+        consumer = runpy.run_path(str(ROOT / "repository/acceptance-manifest.py"))
+        pins = json.loads((ROOT / "tests/vm/gnome51-upgrade-baseline.json").read_bytes())
+        aur = [dict(row, filename="aur/" + row["name"] + "-" + row["version"].split(":", 1)[-1] +
+                    "-any.pkg.tar.zst") for row in pins["aur"]]
+        files = {"release/" + name: value for name, value in pins["release"].items()}
+        for row in aur:
+            files[row["filename"]] = {"sha256": hashlib.sha256(row["filename"].encode()).hexdigest(), "size": 100}
+        local = {key: pins["local"][key] for key in ("filename", "sha256")}
+        files[local["filename"]] = {"sha256": local["sha256"], "size": 100}
+        value = {"schema": 1, "baseline": pins["baseline"], "sourceCommit": "a" * 40,
+                 "sourceTree": "b" * 40, "files": files, "aur": aur, "local": local}
+        def encoded(item):
+            return (json.dumps(item, sort_keys=True, separators=(",", ":")) + "\n").encode()
+        validate = consumer["validate_gnome51_upgrade_metadata"]
+        self.assertEqual(validate(encoded(value), "a" * 40, "b" * 40), value)
+        changes = (
+            lambda data: data.update(schema=True),
+            lambda data: data.update(sourceCommit="c" * 40),
+            lambda data: data.update(sourceTree="c" * 40),
+            lambda data: data["baseline"].update(snapshotSha256="c" * 64),
+            lambda data: data["aur"][0].update(recipeCommit="c" * 40),
+            lambda data: data["aur"][0].update(version="99-1"),
+            lambda data: data["files"].pop(aur[0]["filename"]),
+            lambda data: data["files"].update({"aur/extra.pkg.tar.zst": {"sha256": "c" * 64, "size": 100}}),
+            lambda data: data["files"]["release/BUILD-METADATA.json"].update(sha256="c" * 64),
+            lambda data: data["files"][local["filename"]].update(sha256="c" * 64),
+            lambda data: data["files"][aur[0]["filename"]].update(size=True),
+            lambda data: data["files"][aur[0]["filename"]].update(size=consumer["MAX_FILE"] + 1),
+        )
+        for index, change in enumerate(changes):
+            with self.subTest(mutation=index), self.assertRaises(consumer["ManifestError"]):
+                changed = json.loads(encoded(value))
+                change(changed)
+                validate(encoded(changed), "a" * 40, "b" * 40)
+        with self.assertRaises(consumer["ManifestError"]):
+            validate(json.dumps(value, indent=2).encode(), "a" * 40, "b" * 40)
 
     def test_complementary_qemu_gates_are_mandatory_and_separate_from_signed_evidence(self) -> None:
         workflow = (ROOT / ".github/workflows/release.yml").read_text()

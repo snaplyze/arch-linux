@@ -18,16 +18,16 @@ else
 fi
 readonly trusted_directory_uid
 readonly package_root="${root_prefix}/usr/share/arch-linux-marble-gdm"
-readonly version_root="${package_root}/50.0.0"
-readonly reviewed_root="${version_root}/reviewed"
-readonly theme_root="${version_root}/theme"
-readonly dconf_root="${version_root}/dconf"
-readonly dconf_source_root="${dconf_root}/source"
+version_root="${package_root}/50.0.0"
+reviewed_root="${version_root}/reviewed"
+theme_root="${version_root}/theme"
+dconf_root="${version_root}/dconf"
+dconf_source_root="${dconf_root}/source"
 readonly systemd_payload_root="${package_root}/systemd"
-readonly assets_manifest="${package_root}/assets.sha256"
-readonly platform_manifest="${package_root}/known-gnome-50.sha256"
+assets_manifest="${package_root}/assets.sha256"
+platform_manifest="${package_root}/known-gnome-50.sha256"
 readonly icon_manifest="${package_root}/known-colloid-icons.sha256"
-readonly dropin_payload="${systemd_payload_root}/50-arch-linux-marble-gdm.conf"
+dropin_payload="${systemd_payload_root}/50-arch-linux-marble-gdm.conf"
 readonly desktop_css="${root_prefix}/usr/share/arch-linux-marble/shell/50.0.0/Marble-blue-dark/gnome-shell/gnome-shell.css"
 readonly icon_root="${root_prefix}/usr/share/icons/Colloid-Dark"
 readonly administrator_gdm_profile="${root_prefix}/etc/dconf/profile/gdm"
@@ -35,10 +35,45 @@ readonly stock_resource="${root_prefix}/usr/share/gnome-shell/gnome-shell-theme.
 readonly override_dir="${root_prefix}/etc/systemd/user/org.gnome.Shell@gdm.service.d"
 readonly active_override="${override_dir}/50-arch-linux-marble-gdm.conf"
 readonly reviewed_css_sha256='eba48c15d2f9bd578f691df052fa543f4f2d9801b73dd4af37c005282712a67c'
-readonly combined_css_sha256='8086687542b02f7d6c7d36890339dab2f23aad985264ccb2624d9457287a29c2'
-readonly assets_manifest_sha256='971a495d64b206d4aeda00b7e00c16338f349316f47f375a3db97a6fdf7ed489'
-readonly platform_manifest_sha256='50ff6831061dbbb167133163134bc16e6131bc4619504d4387628f58d0a1644f'
+combined_css_sha256='8086687542b02f7d6c7d36890339dab2f23aad985264ccb2624d9457287a29c2'
+assets_manifest_sha256='971a495d64b206d4aeda00b7e00c16338f349316f47f375a3db97a6fdf7ed489'
+platform_manifest_sha256='50ff6831061dbbb167133163134bc16e6131bc4619504d4387628f58d0a1644f'
 readonly icon_manifest_sha256='475e63c2475257271c1e8aa2ccf7b72c269af6ee33f8a652a55d8ca05e7732e7'
+
+select_platform() {
+    case "$1" in
+        50)
+            version_root="${package_root}/50.0.0"
+            assets_manifest="${package_root}/assets.sha256"
+            platform_manifest="${package_root}/known-gnome-50.sha256"
+            dropin_payload="${systemd_payload_root}/50-arch-linux-marble-gdm.conf"
+            combined_css_sha256='8086687542b02f7d6c7d36890339dab2f23aad985264ccb2624d9457287a29c2'
+            assets_manifest_sha256='971a495d64b206d4aeda00b7e00c16338f349316f47f375a3db97a6fdf7ed489'
+            platform_manifest_sha256='50ff6831061dbbb167133163134bc16e6131bc4619504d4387628f58d0a1644f'
+            ;;
+        51)
+            version_root="${package_root}/51.0.0"
+            assets_manifest="${package_root}/assets-51.sha256"
+            platform_manifest="${package_root}/known-gnome-51.sha256"
+            dropin_payload="${systemd_payload_root}/51-arch-linux-marble-gdm.conf"
+            combined_css_sha256='2a2ec74d3844696b99cd23aec4bbdc0b55245bbd7e8bb994ab6b7160e2357c9f'
+            assets_manifest_sha256='d655197f68cfc13ef127a4b5740ae7952cfd0d597001e15542d615e9500f440c'
+            platform_manifest_sha256='da44e3edbb1ee1e2572b0ea7e23472187f7190ea99ac147ee589b63cabbd41f2'
+            ;;
+        *) return 1 ;;
+    esac
+    reviewed_root="${version_root}/reviewed"
+    theme_root="${version_root}/theme"
+    dconf_root="${version_root}/dconf"
+    dconf_source_root="${dconf_root}/source"
+}
+
+is_owned_dropin_target() {
+    case "$1" in
+        "${systemd_payload_root}/50-arch-linux-marble-gdm.conf"|"${systemd_payload_root}/51-arch-linux-marble-gdm.conf") return 0 ;;
+        *) return 1 ;;
+    esac
+}
 
 validation_error='an input is unsupported or invalid'
 
@@ -286,7 +321,7 @@ validate_desktop_css() {
 validate_compatibility() {
     local gnome_major
 
-    if ! gnome_major="$(installed_gnome_major)" || [ "${gnome_major}" != '50' ]; then
+    if ! gnome_major="$(installed_gnome_major)" || ! select_platform "${gnome_major}"; then
         validation_error='installed GNOME major is unsupported or unknown'
         return 1
     fi
@@ -375,7 +410,7 @@ disable_managed_override() {
     fi
     if [ -L "${active_override}" ]; then
         current_target="$(/usr/bin/readlink -- "${active_override}")" || return 1
-        if [ "${current_target}" = "${dropin_payload}" ]; then
+        if is_owned_dropin_target "${current_target}"; then
             /usr/bin/rm -f -- "${active_override}" || return 1
             if [ -e "${active_override}" ] || [ -L "${active_override}" ]; then
                 printf 'Marble GDM could not prove that its managed override was removed: %s\n' "${active_override}" >&2
@@ -413,8 +448,13 @@ enable_managed_override() {
     fi
     if [ -L "${active_override}" ]; then
         current_target="$(/usr/bin/readlink -- "${active_override}")" || return 1
-        if [ "${current_target}" = "${dropin_payload}" ]; then
-            return 0
+        if is_owned_dropin_target "${current_target}"; then
+            if [ "${current_target}" = "${dropin_payload}" ]; then
+                return 0
+            fi
+            /usr/bin/rm -f -- "${active_override}" || return 1
+            /usr/bin/ln -s -- "${dropin_payload}" "${active_override}"
+            return
         fi
         printf 'Marble GDM left a foreign override symlink untouched: %s\n' "${active_override}" >&2
         return 0
@@ -439,7 +479,7 @@ status_override() {
             printf 'Marble GDM status failed: the override symlink could not be read.\n' >&2
             return 1
         }
-        if [ "${current_target}" = "${dropin_payload}" ]; then
+        if is_owned_dropin_target "${current_target}"; then
             printf 'active\n'
             return 0
         fi

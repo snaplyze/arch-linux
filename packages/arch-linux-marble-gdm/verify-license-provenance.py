@@ -390,8 +390,8 @@ def main(argv: list[str]) -> int:
         for path in sass_root.rglob("*.scss")
         if path.name != "_high-contrast-colors.scss"
     }
-    if sass_closure != expected_sass_closure or len(sass_closure) != 38:
-        die("GNOME dark CSS Sass/widget import closure differs from the reviewed 38 files")
+    if sass_closure != expected_sass_closure:
+        die("GNOME dark CSS Sass/widget import closure differs from the reviewed files")
     explicit_notices = {
         path
         for path in sass_closure
@@ -412,10 +412,13 @@ def main(argv: list[str]) -> int:
             gnome_workspace,
         }
     )
-    if len(gnome_selected_inputs) != 44 or canonical_digest(
-        gnome_source_root, gnome_selected_inputs
-    ) != GNOME_SELECTED_INPUT_DIGEST:
-        die("GNOME audited theme source differs from the reviewed 44-file closure")
+    reviewed_closures = {
+        GNOME_SELECTED_INPUT_DIGEST: (38, 44),
+        "32adb183e18cac2f9f1c80c89ed9e414f8f5639b04c4ce6a3b1cfa74a860d0d8": (39, 45),
+    }
+    digest = canonical_digest(gnome_source_root, gnome_selected_inputs)
+    if reviewed_closures.get(digest) != (len(sass_closure), len(gnome_selected_inputs)):
+        die("GNOME audited theme source differs from the reviewed exact closure")
 
     marble_source_workspace = marble_source_theme / "workspace-placeholder.svg"
     expected_source_workspace = regular_bytes(gnome_workspace).replace(

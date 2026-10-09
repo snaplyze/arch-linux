@@ -1,0 +1,73 @@
+{
+  "extensions": [
+    {
+      "archive": "dash-to-dock.zip",
+      "format": "zip",
+      "license": "GPL-2.0-or-later AND BSD-1-Clause",
+      "license_file": "COPYING",
+      "prefix": "",
+      "project_port": false,
+      "sha256": "eb7647c03cad6dd1ac608da75ffdd2a2b9f8356b65bb468dc523d7ed3d26e5fc",
+      "source": "https://extensions.gnome.org/download-extension/dash-to-dock@micxgx.gmail.com.shell-extension.zip?version_tag=75334",
+      "uuid": "dash-to-dock@micxgx.gmail.com",
+      "version": 109
+    },
+    {
+      "archive": "blur-my-shell.zip",
+      "format": "zip",
+      "license": "GPL-3.0-only",
+      "license_file": "LICENSE",
+      "prefix": "",
+      "project_port": false,
+      "sha256": "9ad74044e7ece1e9a2025ddab107240fcc9b5e33ed2b2b651ea97ae7b8a29df4",
+      "source": "https://extensions.gnome.org/download-extension/blur-my-shell@aunetx.shell-extension.zip?version_tag=75939",
+      "uuid": "blur-my-shell@aunetx",
+      "version": 74
+    },
+    {
+      "archive": "just-perfection.zip",
+      "format": "zip",
+      "license": "GPL-3.0-only",
+      "license_file": "LICENSE",
+      "prefix": "",
+      "project_port": false,
+      "sha256": "c54ccd627540d86e6baf06c699f624ba7d5229aedfc8b00b0dc7182c6538eda8",
+      "source": "https://extensions.gnome.org/download-extension/just-perfection-desktop@just-perfection.shell-extension.zip?version_tag=74466",
+      "uuid": "just-perfection-desktop@just-perfection",
+      "version": 37
+    },
+    {
+      "archive": "clipboard-indicator.tar.gz",
+      "format": "tar.gz",
+      "license": "MIT",
+      "license_file": "LICENSE.rst",
+      "prefix": "gnome-shell-extension-clipboard-indicator-39a0f9077daca21a62adaa975eb6a03bda499f27",
+      "project_port": false,
+      "sha256": "7020643353f07b843f699585e510b846144540ad67a83d5df8306392b8eb5fc3",
+      "source": "https://codeload.github.com/Tudmotu/gnome-shell-extension-clipboard-indicator/tar.gz/39a0f9077daca21a62adaa975eb6a03bda499f27",
+      "uuid": "clipboard-indicator@tudmotu.com",
+      "version": null
+    },
+    {
+      "archive": "no-screenshot-box.tar.gz",
+      "format": "tar.gz",
+      "license": "GPL-3.0-or-later",
+      "license_file": "LICENSE",
+      "prefix": "no-screenshot-box-049690c3a003afd005fad5459f783ba3f46cdb81",
+      "project_port": true,
+      "sha256": "2c3c121b6634deeaeb693c42bdd8b413fb4894ec2c19c966fbce7b031f856f9f",
+      "source": "https://codeload.github.com/abdallah-alkanani/no-screenshot-box/tar.gz/049690c3a003afd005fad5459f783ba3f46cdb81",
+      "uuid": "no-screenshot-box@screenshot",
+      "version": 6
+    }
+  ],
+  "legacy": {
+    "archive": "no-screenshot-box-old.zip",
+    "format": "zip",
+    "prefix": "",
+    "sha256": "6b1c5184579ca03dc9bf0ad6ded39d99e618c8baf4577ff5391cfa185eb0736e",
+    "source": "https://extensions.gnome.org/download-extension/no-screenshot-box@screenshot.shell-extension.zip?version_tag=72860",
+    "uuid": "no-screenshot-box@screenshot"
+  },
+  "schema": 1
+}
