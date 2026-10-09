@@ -51,6 +51,91 @@ class InputChecks(unittest.TestCase):
                 with self.assertRaises(ValueError): M.verify_release(ROOT, root, M.load_pins(ROOT))
                 signature.assert_not_called()
 
+    def test_archive_guard_never_runs_on_host(self):
+        row=M.load_pins(ROOT)['aur'][0]
+        info={'pkgname':[row['name']],'pkgver':[row['version']],'arch':['any'],'depend':['gnome-shell']}
+        with mock.patch.object(M,'installer_call',side_effect=AssertionError('Arch oracle must not run on Ubuntu host')), mock.patch.object(M,'pkginfo',return_value=info):
+            M.verify_aur_package(ROOT,pathlib.Path('/tmp/public.pkg.tar.zst'),row)
+
+    def test_dedicated_verifier_setup_isolation_and_cleanup_fail_closed(self):
+        import subprocess
+        self.assertTrue(hasattr(M,'verify_aur_archives'),'all archive guards need the dedicated Arch verifier')
+        for failure in ('none','start','setup','disconnect','network','guard','changed-input'):
+            with self.subTest(failure=failure),tempfile.TemporaryDirectory() as t:
+                directory=pathlib.Path(t); archives=[]
+                for row in M.load_pins(ROOT)['aur']:
+                    path=directory/M.package_filename(row);path.write_bytes(b'public package fixture');archives.append((path,row))
+                calls=[]
+                def execute(args,**kwargs):
+                    calls.append((args,kwargs))
+                    text=kwargs.get('input',b'');text=text.decode() if isinstance(text,bytes) else text
+                    stage=('start' if args[:2]==['docker','run'] else
+                           'disconnect' if args[:3]==['docker','network','disconnect'] else
+                           'setup' if 'pacman-key --init' in text else
+                           'guard' if 'aur_package_archive_is_safe' in text else None)
+                    if failure==stage: raise subprocess.CalledProcessError(43,args)
+                    if stage=='guard' and failure=='changed-input': archives[0][0].write_bytes(b'changed')
+                    output='{"bridge":{}}' if failure=='network' else '{}'
+                    return subprocess.CompletedProcess(args,0,stdout=output,stderr='')
+                with mock.patch.object(M,'run',side_effect=execute),mock.patch.object(M,'cleanup_container') as cleanup:
+                    if failure=='none': M.verify_aur_archives(ROOT,archives)
+                    else:
+                        with self.assertRaises((ValueError,subprocess.SubprocessError)): M.verify_aur_archives(ROOT,archives)
+                    cleanup.assert_called_once();self.assertTrue(cleanup.call_args.args[0].startswith('arch-linux-g51-verifier-'))
+                command=calls[0][0]
+                self.assertIn('--cpus=2',command);self.assertIn('--memory=4g',command);self.assertIn('--pids-limit=256',command)
+                self.assertIn('--network=bridge',command);self.assertIn('no-new-privileges',command)
+                mounts=[command[i+1] for i,arg in enumerate(command) if arg=='--mount']
+                self.assertEqual(len(mounts),1);self.assertTrue(mounts[0].endswith('target=/inputs,readonly'))
+                scripts=[kwargs.get('input',b'').decode() for _,kwargs in calls if kwargs.get('input')]
+                guard=[text for text in scripts if 'aur_package_archive_is_safe' in text]
+                if failure in ('start','setup','disconnect','network'): self.assertFalse(guard)
+                if failure=='none':
+                    self.assertEqual(len(guard),1);self.assertEqual(guard[0].count('aur_package_archive_is_safe'),4)
+                    self.assertIn('socket.if_nameindex()',guard[0]);self.assertIn('source /inputs/arch-linux-installer.sh',guard[0])
+                    self.assertNotIn('makepkg',guard[0]);self.assertNotIn('recipes',guard[0])
+                    self.assertLess(next(i for i,(args,_) in enumerate(calls) if args[:3]==['docker','network','disconnect']),
+                                    next(i for i,(_,kwargs) in enumerate(calls) if 'aur_package_archive_is_safe' in str(kwargs.get('input'))))
+
+    def test_builder_is_removed_before_one_batched_archive_verifier(self):
+        import subprocess
+        pins=M.load_pins(ROOT); events=[]
+        with tempfile.TemporaryDirectory() as t:
+            root=pathlib.Path(t);recipes=root/'recipes';recipes.mkdir();output=root/'out';output.mkdir()
+            def execute(args,**kwargs):
+                if 'cat' in args: return subprocess.CompletedProcess(args,0,stdout=b'public source metadata')
+                if 'stat' in args: return subprocess.CompletedProcess(args,0,stdout='7')
+                if 'head' in args: kwargs['stdout'].write(b'package')
+                return subprocess.CompletedProcess(args,0,stdout=b'container')
+            def verify(source,archives):
+                self.assertEqual(events,['cleanup']);self.assertEqual(len(archives),4)
+                self.assertTrue(all(path.read_bytes()==b'package' for path,_ in archives));events.append('guard')
+            with mock.patch.object(M,'run',side_effect=execute),mock.patch.object(M,'installer_call'), \
+                    mock.patch.object(M,'cleanup_container',side_effect=lambda name: events.append('cleanup')), \
+                    mock.patch.object(M,'verify_aur_archives',side_effect=verify), \
+                    mock.patch.object(M,'verify_aur_package',side_effect=lambda *args: events.append('metadata')):
+                M.build_aur(ROOT,recipes,output,pins)
+            self.assertEqual(events,['cleanup','guard']+['metadata']*4)
+
+    def test_verifier_bootstrap_executes_authenticated_sequence(self):
+        import subprocess
+        self.assertTrue(hasattr(M,'verifier_setup_script'))
+        with tempfile.TemporaryDirectory() as t:
+            directory=pathlib.Path(t);bins=directory/'bin';bins.mkdir();trace=directory/'trace'
+            stub='#!/bin/sh\nprintf "%s %s\n" "${0##*/}" "$*" >>"$TRACE"\n[ "${0##*/}:$*" != "$FAIL_AT" ] || exit 43\n'
+            for name in ('pacman-key','pacman','gpgconf'):
+                path=bins/name;path.write_text(stub);path.chmod(0o755)
+            script=M.verifier_setup_script()
+            for fail_at in ('none','pacman-key:--init','pacman-key:--populate archlinux','pacman:-Sy --noconfirm --needed archlinux-keyring','pacman:-Syu --noconfirm --needed bash coreutils libarchive python'):
+                if trace.exists(): trace.unlink()
+                result=subprocess.run(['/usr/bin/bash','-c',script],env={'PATH':str(bins),'TRACE':str(trace),'FAIL_AT':fail_at},capture_output=True,text=True)
+                self.assertEqual(result.returncode,0 if fail_at=='none' else 43,result.stderr)
+                calls=trace.read_text().splitlines()
+                if fail_at=='none':
+                    self.assertEqual(calls[:4],['pacman-key --init','pacman-key --populate archlinux','pacman -Sy --noconfirm --needed archlinux-keyring','pacman -Syu --noconfirm --needed bash coreutils libarchive python'])
+                    self.assertEqual(calls[4],'gpgconf --homedir /etc/pacman.d/gnupg --kill all')
+                else: self.assertEqual(calls[-1],fail_at.replace(':',' ',1))
+
     def test_builder_boundary(self):
         cmd = M.container_command(ROOT, pathlib.Path('/tmp/recipes'), 'arch-linux-g51-test')
         self.assertIn('--cpus=2', cmd); self.assertIn('--memory=4g', cmd)
@@ -200,9 +285,11 @@ class InputChecks(unittest.TestCase):
             (d/pins['local']['filename']).write_bytes(b'zip')
             value={'schema':1,'baseline':pins['baseline'],'sourceCommit':'a'*40,'sourceTree':'b'*40,'files':M.file_map(d),'aur':aur,'local':{'filename':pins['local']['filename'],'sha256':pins['local']['sha256']}}
             (d/'manifest.json').write_bytes(M.canonical(value))
-            with mock.patch.object(M,'source_identity',return_value=('a'*40,'b'*40)), mock.patch.object(M,'verify_release'), mock.patch.object(M,'verify_aur_package'), mock.patch.object(M,'check_local'):
+            with mock.patch.object(M,'source_identity',return_value=('a'*40,'b'*40)), mock.patch.object(M,'verify_release'), mock.patch.object(M,'verify_aur_package'), mock.patch.object(M,'verify_aur_archives') as archive_guard, mock.patch.object(M,'check_local'):
                 original_receipt=M.digest(M.canonical(value))
                 self.assertEqual(M.verify_inputs(ROOT,d,original_receipt),value)
+                archive_guard.assert_called_once()
+                self.assertEqual(len(archive_guard.call_args.args[1]),4)
                 (d/aur[0]['filename']).write_bytes(b'changed package bytes')
                 value['files']=M.file_map(d)
                 (d/'manifest.json').write_bytes(M.canonical(value))

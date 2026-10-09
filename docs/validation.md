@@ -512,6 +512,148 @@ An independent read-only runner check after cancellation found no QEMU process
 referencing the exact project evidence prefix and confirmed that the evidence
 base was absent; no QEMU process entry was unreadable.
 
+## Prepared release 1.0.7 — pre-freeze documentation correction
+
+[Release 37893328836](https://github.com/snaplyze/arch-linux/actions/runs/37893328836)
+was triggered by successful main CI after the protected PR #70 merge.
+
+| Input | Exact value |
+| --- | --- |
+| Reviewed main | `85e12ab388683d3e03fa01507f7c20fe923a2e23` |
+| Main tree | `a52be050556749c7ebf72101bf1c864b73cba9c1` |
+| Deterministic release child | `c5d655394527f0dda61ceb80e33a2968ac6a14df` |
+| Child tree | `53ccd5ee9dc4594d31258f900aad7cc9ab54aca1` |
+| Canonical child mode-and-byte SHA-256 | `eb0ae3b50117e2ef4ecf99c11450abc262dcbfd11d4fa7bf2945da2236cf57b9` |
+| Source bundle SHA-256 | `26d60740d03c2b56896e5717e05d8b18743c0ac1a2e8428e05247da0a6c25376` |
+| Source artifact | `11599232660` |
+| Source transport SHA-256 | `57b8cbc6e61a8d56993b9fe7ce021c1e097d633d683d2a519e2bba9984dab2c2` |
+
+Independent exact ZIP closure/digest, bundle verification and deterministic child
+reconstruction passed without changing refs, checkout or pending documentation.
+Direct inspection of the generated child confirmed consistent 1.0.7 installation
+guidance and a release-neutral documentation index. Package/signing, staged VM
+and public results must be recorded for this child; earlier children do not qualify them.
+
+The child's source suite, seven-package clean build and protected artifact
+readback passed. Independent transport checks passed all fourteen unsigned
+manifest hashes, the exact sixteen-file closure and schema-2 metadata bound to
+this child, the pinned source epoch, installer and package set. Package bytes
+reproduce the previously reviewed set; provenance belongs to this new child.
+
+| Unsigned object | SHA-256 / identity |
+| --- | --- |
+| Canonical artifact | `11599163430` |
+| Artifact ZIP | `06c67acae7a7d3fe65e1ce19c8022dbe04c82fa2b8cc306490377fab8f863ea0` |
+| BUILD-METADATA.json | `34cfa0b74d1b9fe65b9acc32e121a021394d6a1407ec9c3ec7a44df71dc963dc` |
+| UNSIGNED-SHA256SUMS | `cec8557a6db3f58e6a1beaaa0f4c6f5e94471a02b66bbbef7bd492303ed4dc37` |
+
+Snapshot job `113700394739` passed both full repository namespace modes, the
+sealed root publication boundary and ordinary/privileged keyring modes, then
+signed this child's Phase-A snapshot. Independent transport and public-key
+readback passed the exact fourteen-file closure, twelve signed-manifest member
+hashes, unchanged trust bytes, build provenance and all three signatures.
+
+| Signed Phase-A object | SHA-256 / identity |
+| --- | --- |
+| Artifact | `11599438552` |
+| Artifact ZIP | `df56323f8b12e9975e3116faf6792cd1d8cb26e2fb3ffb4dfe90f09b9b04b67f` |
+| Repository snapshot | `2ca04153f61e5e895ae4a81636cbe393d4bfe4b2eeef86069ff22a8a93d047a9` |
+| RELEASE-SHA256SUMS | `e60ee6df0e8699373684ba65dedba18663f1bc939933abdf8e0aea4523f33b59` |
+| Snapshot job log | `d9e2535b985809bd34ebf3a4b0deeff1c706f023cecbeb6f70621ace698d50a3` |
+
+Actual Minimal run `minimal-20261009T063441Z-24431663` passed all fourteen
+assertions, including installed boot/network, no failed units, plain `pacman -Syu`,
+reboot, clean shutdown and image/process cleanup. Independent archive readback
+and the production strict `directory_run` consumer passed for this exact child.
+
+| Minimal evidence | SHA-256 / identity |
+| --- | --- |
+| Artifact | `11598854844` |
+| Artifact ZIP | `3d9b151c8a7cbe217f493618efd612f44cddb5bfc6ccdca22459b6b07a329109` |
+| Evidence archive | `94867fd2de4265c4ac15891e2c36ab8d40391e65f8981bfe8ddae0a93a9794c7` |
+| result.json | `2ff4b06eb9a48dd1f3875c3480185989ac6bc136954a56a9d5ae37004d571065` |
+
+Core Stock GNOME with Btrfs/LUKS2/Plymouth/GRUB failed before installer execution:
+`luksgrub-20261009T064815Z-f3539f2c`, phase `install-archiso`, exit 1, no assertions.
+The host reported `Arch ISO bootstrap did not reach the installer` after its
+300-second marker deadline. The final observed serial bytes contained OVMF/ISO
+menu output; console handoff means this does not establish a boot-menu hang.
+No runtime password was delivered, and no GNOME installation result is implied.
+The compact artifact retains no screenshot. Its generated image/process cleanup
+receipts remain distinct from the failed bootstrap.
+
+| Failed Stock evidence | SHA-256 / identity |
+| --- | --- |
+| Artifact | `11599694216` |
+| Artifact ZIP | `aa7bc1f4195c8f309580df38c06a6e645d30d5ac92a0f7d5b6e356be6bef55c0` |
+| Evidence archive | `cd013150b955de415b02e67a0b741df59dce9f6989961620f0e4ed19f723c84e` |
+| result.json | `b14c53d9be8df9681feb516bf6ef2deeb1da752207828658fdf76e613f987d77` |
+| Job log | `e4d79f48f80c83d9fd0f029cf6d2b68950948eed7d55afa05bb130bc678195dd` |
+
+Transport, safe unpacking and exact source/snapshot identity checks passed;
+the result remains FAIL. Core Marble job `113701361591` then failed before VM
+launch while preparing authentic legacy AUR inputs. The installer archive guard
+used `/usr/bin/python`, which is absent on the Ubuntu runner; the runner provides
+`/usr/bin/python3`. The call returned 127, so no Marble VM result or archive was
+produced. Its job log SHA-256 is
+`6cb769393abd70bc47c0034a8107e16b97242eb43b58bcd893b5d8476e39256a`.
+Read-only runner inspection also found Arch's `/usr/lib/libarchive.so` absent;
+Ubuntu provides `/usr/lib/x86_64-linux-gnu/libarchive.so.13`. Changing only the
+interpreter would not repair the entire guard. The correction uses a separate
+pinned Arch verifier and preserves the production installer guard unchanged.
+This host-tool failure establishes no GNOME/profile verdict.
+
+Supplemental Stock/ext4 run `stock-20261009T070018Z-1ca6689d` independently failed
+in `install-archiso`, exit 1, with no assertions. Safe artifact unpacking and exact
+source/snapshot binding passed; the result remains FAIL. A passive QMP frame,
+bound to its actual process/socket, showed the fully booted Arch ISO tty1 root
+prompt at 95.84 seconds without visible bootstrap output. It supports a missing
+console-readiness gate; it does not prove a boot-menu hang or memory-pressure
+cause. The frame is diagnostic only, not installation acceptance.
+
+| Supplemental Stock evidence | SHA-256 / identity |
+| --- | --- |
+| Artifact | `11600199867` |
+| Artifact ZIP | `51e1f69d77fb82d5afb461129ce681bd94a0ea10bfbd384e6acc6631a8b0e419` |
+| Evidence archive | `ebf9ac39e259b41bb34f67a6332ae6ec58b1ca54579a1a95c651bae9b071c90b` |
+| result.json | `307ccefddc56a34fa53148be38d6c8850c0af379297fd55f3c91f5aa75837ff2` |
+| Passive PPM frame | `2783698be4369684fe78f0ed258ed8d4c22261c52dabc16b555722bf428e2471` |
+
+The workflow is cancelled. Final read-only cleanup found no QEMU referring to
+its project evidence prefix, no unreadable QEMU process and no evidence root.
+The owned external screenshot temporary directory was removed. Remaining staged
+scenarios, Marble migration and public acceptance are pending; latest immutable
+publication is still 1.0.6. This matrix cannot finalize or publish, and none of
+its results transfer to a corrected source candidate.
+
+The subsequent native Ubuntu adapter check passed four synthetic valid archive
+guards and rejected an archive with forbidden extended attributes. Both batches
+used separate pinned Arch verifiers, authenticated provisioning, disconnected
+network and the unchanged full installer guard. All owned containers and remote
+fixtures were removed. This is adapter acceptance, not an actual legacy AUR
+build, installed-system result or production signing result.
+
+| Native verifier binding | SHA-256 |
+| --- | --- |
+| Preparer source | `34ba80de23663c389f90673cabe05a9de435795bcd45ce7adcef4a9f3624c0d8` |
+| Unchanged installer | `3d2301282ab1bcf70a55a1c70697342b514cd573c75d8acdcabace79582b1c1f` |
+| Unchanged baseline | `d354a97e4348bd75fa51e06a993b1dd6f1ec695d4412c3e5736f93a899fa1e62` |
+| Retained native log | `13f85abb95fb32f6d0d836d3d04e2c7bd3df0646a05d61375a221b7ba468f176` |
+
+Boot-only run `bootnonce-20261009T072151Z-626fede9` passed using the exact frozen
+readiness/HMP helpers from `run.sh` SHA-256
+`1d85c21d81040b066a2148d4b68c01550cebdd8e81bb34507a06ab1786f43644` and the accepted
+ISO `684ded26c63240ff4a41e8c25ee84ea6da233f557364821f13d12c2b0a9059a5`.
+The first public nonce executed after the 60-second quiet period but shared a
+line with OVMF ANSI output; the exact-line parser correctly rejected it. The
+second completed nonce was accepted at boot +84.757 seconds. This experiment
+demonstrated no lost input and does not establish the cause of earlier failures.
+No installer, bootstrap or credentials were executed. QEMU exit and image check
+returned zero; owned processes, sockets, disk, firmware variables, ISO and runner
+directory were removed. Independent receipt/file-hash and frozen-function
+readback passed. Receipt SHA-256:
+`87d2b5466a47c3566b09ec8c1562cf313e257fb545cb18b211e18abbb8d6009a`.
+
 ## Verified release 1.0.6 — 2026-10-04
 
 [Configured run37214392242](https://github.com/snaplyze/arch-linux/actions/runs/37214392242)

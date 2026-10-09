@@ -2118,6 +2118,95 @@ printf 'VERIFY_CONTINUED
     def host_function(self, name):
         return re.search(r"^" + name + r"\(\) \{\n.*?^\}", (ROOT / "tests/vm/run.sh").read_text(), re.M | re.S).group(0)
 
+    def test_archiso_probe_requires_exact_complete_unique_current_nonce(self):
+        body = self.host_function("serial_archiso_ready")
+        marker = "ARCHISO-READY-stock-20261009T070018Z-1ca6689d-2"
+        cases = [(marker + "\r\n", 0), (marker, 1), ("echo " + marker + "\n", 1),
+                 (marker[:-1] + "1\n", 1), (marker + "extra\n", 1),
+                 (marker + "\n" + marker + "\n", 2), ("", 1)]
+        for content, expected in cases:
+            with self.subTest(content=content), tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "serial"; path.write_bytes(content.encode())
+                result = subprocess.run(["bash", "-c", body + '\nserial_archiso_ready "$1" "$2"',
+                                         "fixture", str(path), marker], capture_output=True, timeout=5)
+                self.assertEqual(result.returncode, expected, result.stderr)
+
+    def test_archiso_wait_retries_only_public_probe_and_rejects_stale_reply(self):
+        body = self.host_function("serial_archiso_ready") + "\n" + self.host_function("wait_for_archiso_shell")
+        program = 'set -euo pipefail\n' + body + r'''
+evidence="$1" mode="$2" run_id=stock-20261009T070018Z-1ca6689d
+qemu_pid=$$ qemu_start_time=fixture serial_bridge_pid=$$
+sleep(){ SECONDS=$((SECONDS + $1)); }
+process_is_exact_qemu(){ [ "$mode" != dead ]; }
+hmp_request(){
+    printf 'TYPE:%s\n' "$2"
+    [ "$mode" != transport ] || return 1
+    token="${2#echo }"; token="${token%% *}"
+    case "$mode" in
+      fresh) printf '%s\n' "$token" >>"$evidence/install-serial.log" ;;
+      delayed) if [[ "$token" = *-2 ]]; then printf '%s\n' "$token" >>"$evidence/install-serial.log"; fi ;;
+      stale) printf '%s\n' "${token%-*}-0" >>"$evidence/install-serial.log" ;;
+    esac
+}
+wait_for_archiso_shell 25
+printf 'READY\n'
+'''
+        for mode, expected_probes, succeeds in [('fresh', 1, True), ('delayed', 2, True),
+                                               ('stale', 3, False), ('dead', 1, False), ('transport', 1, False)]:
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as tmp:
+                result = subprocess.run(['bash', '-c', program, 'fixture', tmp, mode],
+                                        capture_output=True, text=True, timeout=5)
+                self.assertEqual(result.returncode == 0, succeeds, result.stderr)
+                self.assertEqual(result.stdout.count('TYPE:'), expected_probes, result.stdout)
+                self.assertEqual('READY\n' in result.stdout, succeeds)
+                self.assertNotIn('LABEL=ALIPAY', result.stdout)
+
+    def test_archiso_bootstrap_and_credentials_follow_readiness_once(self):
+        source = (ROOT / 'tests/vm/run.sh').read_text()
+        fragment = source.split("    current_phase='install-archiso'\n", 1)[1].split('    set +e\n', 1)[0]
+        program = 'set -euo pipefail\n' + r'''
+mode="$1" bootstrap_command=INSTALLER scenario_id=minimal-ext4-systemdboot
+launch_qemu(){ printf 'LAUNCH\n'; }
+sleep(){ :; }
+wait_for_archiso_shell(){ printf 'PROBE\n'; [ "$mode" = ready ]; }
+hmp_request(){ printf 'BOOTSTRAP:%s\n' "$2"; }
+deliver_installer_credentials(){ printf 'CREDENTIAL_GATE\n'; }
+die(){ exit 1; }
+''' + fragment
+        for mode in ('ready', 'timeout'):
+            result = subprocess.run(['bash', '-c', program, 'fixture', mode], capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode == 0, mode == 'ready', result.stderr)
+            self.assertEqual(result.stdout.splitlines(), ['LAUNCH', 'PROBE', 'BOOTSTRAP:INSTALLER', 'CREDENTIAL_GATE']
+                             if mode == 'ready' else ['LAUNCH', 'PROBE'])
+
+    def test_hmp_public_probe_redirection_uses_complete_released_keys(self):
+        import os, socket, threading
+        commands = []
+        with tempfile.TemporaryDirectory() as tmp:
+            path = str(Path(tmp) / 'hmp')
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
+                server.bind(path); server.listen(1); server.settimeout(5)
+                def serve():
+                    connection, _ = server.accept()
+                    with connection:
+                        connection.sendall(b'(qemu) ')
+                        pending = b''
+                        while chunk := connection.recv(1024):
+                            pending += chunk
+                            while b'\n' in pending:
+                                line, pending = pending.split(b'\n', 1)
+                                commands.append(line)
+                                connection.sendall(b'(qemu) ')
+                thread = threading.Thread(target=serve); thread.start()
+                script = 'hmp_socket="$1" qemu_pid="$2"\n' + self.host_function('hmp_request') + '\nhmp_request type "A >/"\n'
+                result = subprocess.run(['bash', '-c', script, 'fixture', path, str(os.getpid())],
+                                        capture_output=True, text=True, timeout=5)
+                thread.join(timeout=5)
+                self.assertFalse(thread.is_alive())
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(commands, [b'sendkey shift-a 50', b'sendkey spc 50',
+                                            b'sendkey shift-dot 50', b'sendkey slash 50', b'sendkey ret 50'])
+
     def test_stage_password_prompt_rejects_stale_and_duplicate_marker(self):
         body = self.host_function("serial_stage_password_ready")
         marker = "MINIMAL_QEMU_COLLISION_PROBE_READY run_id=fixture scenario=minimal-dualboot-ext4-systemdboot"

@@ -564,6 +564,76 @@ repository namespaces, ten scenarios and no deferrals (log SHA-256
 Documentation/link and whitespace checks cover this final checkpoint update;
 exact-commit CI and protected delivery remain pending.
 
+The correction was delivered through
+[PR #70](https://github.com/snaplyze/arch-linux/pull/70). Accepted head
+`e91bbc84d2980623668ea37ff441f863e745a2e1`, tree
+`a52be050556749c7ebf72101bf1c864b73cba9c1`, passed
+[CI 37892722326](https://github.com/snaplyze/arch-linux/actions/runs/37892722326)
+(log SHA-256 `c6b90b4d8802ef37984407ef24f63237d8ae433dd2e6446dab5dafeeb3361b3e`).
+Exact head/base, checks and resolved-discussion checks preceded the protected
+squash merge to main `85e12ab388683d3e03fa01507f7c20fe923a2e23`, with the same tree
+and canonical SHA-256 `c8bc72f09d1214026992bc27e2f7ca5e0bf8bc5fba39de1844762fdae3f4bed3`.
+The sole checkout returned to main by fast-forward; branch
+`fix/gnome51-release-docs-20261009` retains the reviewed history.
+[Main CI 37893057576](https://github.com/snaplyze/arch-linux/actions/runs/37893057576)
+passed (log SHA-256 `95e3725a04c99bad7d2a94348d82d82757b89b96aa34cc4737dfdf32180a580b`),
+triggering [Release 37893328836](https://github.com/snaplyze/arch-linux/actions/runs/37893328836).
+Independent transport/bundle and deterministic reconstruction checks passed for
+child `c5d655394527f0dda61ceb80e33a2968ac6a14df`; its actual generated README and
+installation instructions consistently select 1.0.7, and the documentation index
+does not assert an older current release. Refs, checkout and dirty checkpoint
+bytes were preserved. The child source suite, clean seven-package build and
+protected readback passed. Independent verification confirmed every unsigned
+manifest member and the exact child/pinned-source-epoch metadata. Both repository
+namespace modes, the root publication boundary and both keyring modes passed;
+the new Phase-A snapshot was signed. Independent fourteen-file/digest/signature
+readback passed for snapshot
+`2ca04153f61e5e895ae4a81636cbe393d4bfe4b2eeef86069ff22a8a93d047a9`.
+Fresh Minimal QEMU acceptance passed all fourteen assertions and independent
+strict finalizer-consumer readback for this exact child. Core Stock GNOME with
+Btrfs/LUKS2/Plymouth/GRUB then failed before installer execution: the ISO bootstrap
+marker did not arrive within 300 seconds after the fixed-delay keyboard launch.
+No password was delivered and no assertions passed. The compact archive has no
+frame; static OVMF serial output alone does not diagnose the displayed state.
+Supplemental Stock/ext4 reproduced this failure. A passive frame at 95.84 seconds
+showed the fully booted Arch ISO root prompt without bootstrap command output;
+it did not establish why earlier keyboard input was lost. The run was cancelled
+after these actionable failures; all owned QEMU processes and the runner evidence
+root were confirmed absent. Remaining staged VM, Marble upgrade and public
+acceptance remain pending. This failed matrix cannot finalize or publish.
+Exact identities are in `docs/validation.md`.
+
+Core Marble then failed before VM launch while preparing authentic legacy AUR
+inputs. The unchanged production archive guard invoked `/usr/bin/python`, absent
+on the Ubuntu runner, which provides `/usr/bin/python3`. The guard also requires
+Arch's `/usr/lib/libarchive.so`; Ubuntu has the versioned multiarch library.
+This is a host-tool portability defect, not a GNOME session verdict. The adapter
+now runs the unchanged guard in a separate pinned Arch verifier after builder
+cleanup, authenticated provisioning and verified network disconnection. All 21
+input fixtures and independent review passed. Native Ubuntu-runner replay passed
+four valid synthetic archive checks and rejected forbidden extended attributes;
+all owned containers and input fixtures were removed. This proves the adapter,
+not a new actual AUR build or Marble installation.
+The installer, host interpreter/library paths and signature requirements remain
+unchanged. A bounded public serial nonce handshake before the sole bootstrap
+command is under boot-only investigation; runtime credentials still require the
+complete source-bound READY record and password prompt. Four new regressions
+cover exact/latest nonce, delayed/stale responses, bootstrap/credential ordering
+and actual HMP redirection keys. The complete 130-test runtime suite, harness,
+ShellCheck, documentation checks and independent readiness review passed.
+`bash tests/source-tests.sh` passed with full namespace fixtures, ten scenarios,
+signer PASS, exact 14/18 release closures and no deferrals; log SHA-256
+`2b7b49c0c8654fed784c210c8c5aa7e266c7d89dae2ded7c2b9049230e0179de`.
+This receipt precedes the final checkpoint text; documentation/link and diff
+checks passed after that update, and exact-head source CI remains mandatory.
+Native boot-only observation passed on the accepted ISO: after the 60-second
+quiet period, the first nonce executed but shared its line with OVMF escape
+output and was correctly rejected; the second exact complete nonce was accepted
+at 84.757 seconds. This proves the handshake, not the cause of every prior lost
+bootstrap or an installed-system result. No installer or credentials were sent;
+owned VM exit and image checks passed. The next protected-main candidate still
+requires fresh full release acceptance; no earlier VM PASS is transferred.
+
 ## Local runner migration — 2026-10-08
 
 Owner request: move all five GitHub Actions workflows for `snaplyze/arch-linux`
