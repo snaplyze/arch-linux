@@ -36,6 +36,52 @@ class ActionsReleaseChecks(unittest.TestCase):
         self.module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.module)
 
+    def arch_bootstraps(self):
+        for filename, job, step_name in (
+            ("packages.yml", "build", "Install build dependencies"),
+            ("release.yml", "snapshot", "Install isolated signing dependencies"),
+            ("release.yml", "finalize", "Install isolated signing dependencies"),
+        ):
+            workflow = (ROOT / ".github/workflows" / filename).read_text()
+            match = re.search(rf"(?ms)^  {job}:\n(.*?)(?=^  [a-z][a-z_-]*:|\Z)", workflow)
+            self.assertIsNotNone(match, f"missing {filename} {job}")
+            block = match.group(1)
+            step = block.split(f"      - name: {step_name}\n", 1)[1].split("\n      - name:", 1)[0]
+            yield filename, job, block, textwrap.dedent(step.split("        run: |\n", 1)[1])
+
+    def test_arch_containers_reap_package_helpers(self) -> None:
+        for filename, job, block, _ in self.arch_bootstraps():
+            with self.subTest(workflow=filename, job=job):
+                options = re.search(r"(?m)^      options: (.+)$", block)
+                self.assertIsNotNone(options)
+                self.assertIn("--init", shlex.split(options.group(1)))
+
+    def test_arch_keyring_refresh_failure_stops_full_transaction(self) -> None:
+        for filename, job, _, script in self.arch_bootstraps():
+            for refresh_status in (0, 43):
+                with self.subTest(workflow=filename, job=job, refresh_status=refresh_status), \
+                        tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary)
+                    bins = root / "bin"; bins.mkdir()
+                    (bins / "pacman-key").write_text(
+                        '#!/bin/bash\nprintf "pacman-key %s\\n" "$*" >>"$BOOTSTRAP_TRACE"\n')
+                    (bins / "pacman").write_text(
+                        '#!/bin/bash\nprintf "pacman %s\\n" "$*" >>"$BOOTSTRAP_TRACE"\n'
+                        'if [[ $1 == -Sy ]]; then exit "$REFRESH_STATUS"; fi\n')
+                    for path in bins.iterdir(): path.chmod(0o755)
+                    trace = root / "trace"
+                    environment = dict(os.environ, PATH=str(bins) + ":" + os.environ["PATH"],
+                                       BOOTSTRAP_TRACE=str(trace), REFRESH_STATUS=str(refresh_status))
+                    result = subprocess.run(["/bin/bash", "--noprofile", "--norc", "-c", script],
+                                            env=environment, cwd=root, capture_output=True, text=True, timeout=10)
+                    self.assertEqual(result.returncode, refresh_status, result.stderr)
+                    calls = trace.read_text().splitlines()
+                    self.assertEqual(calls[:3], ["pacman-key --init", "pacman-key --populate archlinux",
+                                                "pacman -Sy --noconfirm --needed archlinux-keyring"])
+                    self.assertEqual(len(calls), 3 if refresh_status else 4)
+                    if not refresh_status:
+                        self.assertTrue(calls[3].startswith("pacman -Syu --noconfirm --needed "))
+
     def test_staged_migration_input_failure_blocks_the_actual_vm_dispatch(self) -> None:
         workflow = (ROOT / ".github/workflows/release.yml").read_text()
         step = workflow.split("      - name: Download accepted ISO and execute real staged scenario\n", 1)[1].split("\n      - name:", 1)[0]

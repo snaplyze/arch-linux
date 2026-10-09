@@ -138,6 +138,7 @@ jobs:
           set -euo pipefail
           pacman-key --init
           pacman-key --populate archlinux
+          pacman -Sy --noconfirm --needed archlinux-keyring
           pacman -Syu --noconfirm --needed \
             acl bash binutils coreutils cryptsetup curl diffutils dosfstools e2fsprogs file gcc \
             git gnupg gptfdisk grep jq libarchive libcap make pacman parted python shadow \
@@ -425,6 +426,7 @@ jobs:
           set -euo pipefail
           pacman-key --init
           pacman-key --populate archlinux
+          pacman -Sy --noconfirm --needed archlinux-keyring
           pacman -Syu --noconfirm --needed \
             acl bash binutils coreutils cryptsetup curl diffutils dosfstools e2fsprogs file gcc \
             git gnupg gptfdisk grep jq libarchive libcap make pacman parted python shadow \
