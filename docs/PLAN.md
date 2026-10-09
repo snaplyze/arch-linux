@@ -718,6 +718,66 @@ Independent review found no material defect in either the fallback or typed TLS
 diagnostics. Final checkpoint documentation is checked separately; exact protected
 PR CI and all new release-child acceptance remain pending.
 
+[PR #72](https://github.com/snaplyze/arch-linux/pull/72) passed exact-head
+[CI 37908363960](https://github.com/snaplyze/arch-linux/actions/runs/37908363960)
+and merged through the protected squash path. Accepted head
+`30e623d54696536cc19954ae6be35c8592a40588` and main
+`168f3eb41beff0e0b7de8c6bf1a41dabb576d60c` share tree
+`5b6af7369af8370e9415811c4872499fda06cba3` and canonical source hash
+`07cfbf9fe946835ff6c1c53edcff7027a9f95ea72724f7e8f579f7993e9f38e8`.
+The canonical checkout returned to main by fast-forward.
+[Main CI 37908778844](https://github.com/snaplyze/arch-linux/actions/runs/37908778844)
+passed and triggered [Release 37909100627](https://github.com/snaplyze/arch-linux/actions/runs/37909100627).
+Independent source transport and deterministic transformation checks passed for
+1.0.7 child `8ad8ef1ca1cada7398fbb825f856661503912bd8`; generated README /
+installation instructions pin 1.0.7, and local refs/index/dirty docs were preserved.
+The clean seven-package build passed. Independent unsigned readback verified
+transport/closure/schema-2 source bindings, actual package metadata and all seven
+unchanged production package validators using a verified read-only exact-child
+snapshot. The snapshot was removed afterward. Protected unsigned readback and
+Phase-A signing passed. Independent readback verified the exact fourteen-file
+closure, twelve signed manifest rows, three detached signatures and the production
+snapshot contract's twenty-five repository objects against this child. The fresh
+nine-scenario staged matrix has started. The new Minimal TTY run passed all fourteen
+assertions and independent strict evidence consumption; GNOME scenarios remain open.
+Stock LUKS/GRUB subsequently failed during the Plymouth AUR step after five
+attempts; retained diagnostics identify download errors and installer line 4895.
+The initial passive observer confirmed primary TLS errors without identifying
+the later rejecting gate. The subsequent Marble run's bounded passive readback
+found the exact warning that no validated Plymouth package was accepted.
+No earlier VM PASS transfers. Finalization,
+immutable publication, Pages/public readback and the public Marble VM remain open.
+Exact identities are in validation. The read-only inventory of all 29 tracked
+Markdown files identified fourteen pages for evidence-dependent reconciliation
+after those gates; release-neutral pages and historical identities are preserved.
+
+Private resolution against a copy of this workstation's actual local pacman
+database and the new signed snapshot passed. Print-only libalpm debug evidence
+selects all seven candidate versions and puts all four installed AUR extension
+owners on the removal list without manual uninstall. Strict project trust was
+preserved; seven package signatures and the database signature were checked with
+the actual copied public keyring. Host database hashes were unchanged; no host
+sync, transaction, download or session change occurred, and owned fixtures were
+removed. This is resolution evidence only, not public delivery or runtime recovery.
+
+The follow-up diagnosis reproduced a downstream interface defect: the new mirror
+directory `src-${repo}-${i}-mirror` violates the unchanged package-output path
+predicate, so a successful mirror build is discarded before archive verification.
+The local one-line correction uses `src-${repo}-mirror-${i}` within the existing
+path contract. No safety predicate, pin, archive check or containment boundary is
+relaxed. The transport regression now feeds its actually selected directory into
+the production output predicate, with six additional malformed-path negatives.
+The regression failed on the old implementation and passed after the correction;
+independent review found no material issue. `PYTHONDONTWRITEBYTECODE=1 bash
+tests/source-tests.sh` passed, including full repository namespaces, ten scenarios,
+signer PASS, exact 14/18 closures and no deferrals; log SHA-256
+`7e5f7d66e8918d6fcc6f32808bcbecbd9e72760a36c4f00a148a4a3ca1c7ea79`.
+Release run 37909100627 is cancelled; interrupted or unrun scenarios establish no
+acceptance. After cleanup, the runner had zero project QEMU processes, zero current
+evidence runs and zero active private-Docker containers. The exact owned observer
+was stopped after verifying its command identity. The corrected source needs a
+new protected candidate and fresh build/signature/VM/publication evidence.
+
 ## Local runner migration — 2026-10-08
 
 Owner request: move all five GitHub Actions workflows for `snaplyze/arch-linux`

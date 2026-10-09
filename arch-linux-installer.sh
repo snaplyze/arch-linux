@@ -6690,7 +6690,7 @@ chroot_aur_install() {
             # Arch documents this read-only mirror for AUR outages. A failed primary clone may
             # leave partial data, so never reuse its directory. The immutable checks below apply
             # equally to mirror bytes; a branch name alone never authorizes a recipe.
-            repo_tmp_dir="${aur_builder_home}/src-${repo}-${i}-mirror"
+            repo_tmp_dir="${aur_builder_home}/src-${repo}-mirror-${i}"
             if ! aur_builder_scope_run "$aur_capture_file" \
                 arch-chroot /mnt /usr/bin/runuser -u "$aur_builder_user" -- \
                 "${clean_user_env[@]}" timeout --signal=TERM --kill-after=10 300 \

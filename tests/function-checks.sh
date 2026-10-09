@@ -138,6 +138,12 @@ trap 'command rm -rf -- "$function_runtime_dir"' EXIT
                 [ "$accepted" = false ] && [ "$primary_calls:$mirror_calls" = 5:5 ]
                 if [ "$transport_case" = unavailable ]; then [ "$identity_calls" -eq 0 ]; else [ "$identity_calls" -eq 5 ]; fi
             fi
+            if [ "$accepted" = true ]; then
+                # The real post-build path gate must accept the directory selected by transport.
+                # The fixture's temporary home is mapped to the canonical builder prefix only.
+                aur_package_output_path_is_safe \
+                    "/var/lib/arch-linux-aur-builder/${repo_tmp_dir##*/}/${repo}-2.0.7-1-any.pkg.tar.zst"
+            fi
         )
     done
 )
@@ -234,6 +240,12 @@ aur_package_output_path_is_safe \
 aur_package_output_path_is_safe \
     '/var/lib/arch-linux-aur-builder/src-yay-5/yay-12.5.0-1-x86_64.pkg.tar.zst'
 for unsafe_package_output in \
+    '/var/lib/arch-linux-aur-builder/src-yay-mirror-0/yay-12.5.0-1-x86_64.pkg.tar.zst' \
+    '/var/lib/arch-linux-aur-builder/src-yay-mirror-6/yay-12.5.0-1-x86_64.pkg.tar.zst' \
+    '/var/lib/arch-linux-aur-builder/src-yay-1-mirror/yay-12.5.0-1-x86_64.pkg.tar.zst' \
+    '/var/lib/arch-linux-aur-builder/src-yay-mirror-1/nested/yay-12.5.0-1-x86_64.pkg.tar.zst' \
+    '/var/lib/arch-linux-aur-builder/src-yay-mirror-1/../yay-12.5.0-1-x86_64.pkg.tar.zst' \
+    '/var/lib/arch-linux-aur-builder/src-yay-mirror-1/yay-12.5.0-1-x86_64.pkg.tar.gz' \
     '/var/lib/arch-linux-aur-builder/src-yay-6/yay-12.5.0-1-x86_64.pkg.tar.zst' \
     '/var/lib/arch-linux-aur-builder/src-yay-1/../yay-12.5.0-1-x86_64.pkg.tar.zst' \
     '/var/lib/arch-linux-aur-builder/src-yay-1/yay;touch-unsafe.pkg.tar.zst'; do

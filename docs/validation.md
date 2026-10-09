@@ -852,6 +852,155 @@ Independent fallback and diagnostic reviews reported no material findings. These
 local source/transport results do not establish a successful installation or
 publication. Exact protected PR CI and the fresh release child remain pending.
 
+[PR #72](https://github.com/snaplyze/arch-linux/pull/72) subsequently passed
+[CI 37908363960](https://github.com/snaplyze/arch-linux/actions/runs/37908363960)
+for exact head `30e623d54696536cc19954ae6be35c8592a40588`; CI log SHA-256
+`58d433b501f3cd4cf3b0702d67aa4adb71250906c4fbf65d996fd83b4a3f593f`.
+Protected squash merge produced main `168f3eb41beff0e0b7de8c6bf1a41dabb576d60c`.
+Both commits share tree `5b6af7369af8370e9415811c4872499fda06cba3` and canonical
+source SHA-256 `07cfbf9fe946835ff6c1c53edcff7027a9f95ea72724f7e8f579f7993e9f38e8`.
+The sole canonical checkout returned to main by fast-forward and these identities
+were independently verified.
+[Main CI 37908778844](https://github.com/snaplyze/arch-linux/actions/runs/37908778844)
+passed; log SHA-256:
+`1936ae3c601990ef663e893b4ab1c14e92cad34769001921f1a5c244a32f514a`.
+It triggered [Release 37909100627](https://github.com/snaplyze/arch-linux/actions/runs/37909100627).
+Independent source transport, bundle and deterministic transformation verification
+passed. Actual generated README / installation instructions pin 1.0.7; local refs,
+index and dirty documents were preserved. No previous child result applies.
+
+| New candidate binding | Exact identity / SHA-256 |
+| --- | --- |
+| Origin main | `168f3eb41beff0e0b7de8c6bf1a41dabb576d60c` |
+| Origin tree | `5b6af7369af8370e9415811c4872499fda06cba3` |
+| Deterministic release child | `8ad8ef1ca1cada7398fbb825f856661503912bd8` |
+| Release tree | `eda0102dd1a65f60e37d581e04988d199e67f59b` |
+| Canonical release source | `2e53fa77f70848a2e7be78435251b858d5f71a3435ec0863d13af3d3eb7f8213` |
+| Source artifact | `11604824811` |
+| Source transport ZIP | `8cabfac7e8b321d117c8524d2bd290e7c78c61452b887dd4813cc3312d6d3b43` |
+| Source bundle | `2ee96e66b904c52073f32d950525288f40714c56d043c167d96f28739681838e` |
+
+The clean seven-package build passed. Independent unsigned readback verified the
+API transport digest, exact sixteen-file closure, fourteen manifest rows, schema-2
+metadata and pinned epoch `1787529600`. Actual PKGINFO/BUILDINFO/MTREE were compared
+with the exact child SRCINFO. A temporary source export was first checked against
+the child's complete Git file/mode/byte closure, made read-only, and used to run
+the unchanged production package validator for all seven packages; all passed.
+That export was removed afterward. The unsigned shell verifier was not claimed
+for this independent export because it has no Git identity; its source/manifest
+bindings were checked separately. Equal package bytes to an earlier build do not
+replace the newly verified BUILD metadata binding.
+
+| Unsigned build evidence | SHA-256 / identity |
+| --- | --- |
+| Artifact | `11605768729` |
+| Transport ZIP | `e49bdd371e336a85fd5ddb9590f13e4b410f870beb47a319658db14de2c516f9` |
+| BUILD-METADATA.json | `25e9768bb91a514ec7fa9be81a658b357c46b6b4d17d82dd7480143702d542c0` |
+| UNSIGNED-SHA256SUMS | `cec8557a6db3f58e6a1beaaa0f4c6f5e94471a02b66bbbef7bd492303ed4dc37` |
+| Package set | `6654c025c4b2203597122117a04be4c36df45936fa99764788d5e68c200e4a5a` |
+| Child installer | `389598dabc68c4f3d3fca1cf220fa7a60ee54ea20284e8e63b275cb24c2027e2` |
+
+Protected unsigned readback and Phase-A signing passed for this child. Independent
+root readback verified the API transport digest, exact fourteen-file closure,
+twelve signed manifest rows, three detached signatures and byte identity of the
+source/bootstrap/trust/build inputs. The production snapshot contract verified
+twenty-five repository objects. Signing used the existing authorized subkey and
+did not publish a release.
+
+| Signed Phase-A evidence | SHA-256 / identity |
+| --- | --- |
+| Artifact | `11606073320` |
+| Transport ZIP | `edc61e7ca61ea08180ebd0dcb5dfb15f166d7399e27343fa38df80aaff094b7f` |
+| Repository snapshot | `2a06fb9a979c04d0bcd8cffb6c5fc530dfd32287d7defe963898d76f7e6abd25` |
+| RELEASE-SHA256SUMS | `0d38dc8f4020fc7bc2552b6bc3f6af3661a0c4981e8c82ae42b403a3ce36f246` |
+
+The signing job's complete log independently confirms unflagged/full repository
+checks with ten scenarios, signer PASS, exact 14/18 closures and no deferrals;
+the root publication boundary with four namespaces; ordinary keyring mode and
+the full privileged keyring mode. Log SHA-256:
+`2321cb7c24f93666623718403c64244ddc51e5b39f662a6449552f3110dfde82`.
+
+The fresh staged Minimal TTY run `minimal-20261009T091559Z-d577c657` passed
+fourteen assertions, including actual installation, plain `pacman -Syu`, another
+boot, no failed units, clean shutdown and disk integrity. Independent readback
+matched this child's exact source/build/snapshot bindings and the unchanged
+production `directory_run` consumer passed. Artifact `11606695634` has transport
+SHA-256 `e4b2ad9d8b7b476a4d9e66bdaa55cbd7516f609b9d55c333b3226ae8e84d4bb2`,
+archive `9cd12c2167b312c491baf5786bb326fe0eda2789ac1d67c51518cae788a00f22`
+and result JSON `3707cd1f5246a81cb9a23be256540df478e06ba61f7e5b96f45b94bb3a5a077e`.
+
+The fresh Stock LUKS/GRUB run `luksgrub-20261009T092345Z-8196defb` failed
+during `install-archiso`, with installer exit 1 and no accepted assertions. The
+retained compact diagnostic reports `download` and `script-error line=4895
+status=1`. A bounded passive final-log observer identifies the stack
+`exec_install_bootsplash main main`, the Plymouth AUR call and five exhausted
+attempts; TLS errors are present. This does not identify whether the mirror
+transport, a later builder boundary or the package build failed. Subsequent
+bounded passive observation of Marble run `marble-20261009T093657Z-c35c70ab`
+found the source-defined warning at line 6885 specifically naming
+`plymouth-theme-archlinux`: no validated package was accepted. That observation
+was made before the final installer log and is not a completed VM result.
+Artifact `11606907459` has transport SHA-256
+`8d1a94e572fc06a8a39cb40934602fea669288f7f63a1948b9a538bfb3e108ac`,
+archive `b74aa6da037f4e849a500dd2346ea3297ed92832b8ca56dd3f010ab76c9342b7`
+and result JSON `9673fc4929f94352b4d45558bdf19bc5addb7778541beb59181c3db967e1556d`.
+The readback helper deliberately rejected its non-PASS result after independently
+checking source/build/snapshot bindings; that rejection is not a second failure.
+
+The workflow was cancelled after the rejecting path boundary was reproduced.
+Cancellation readback SHA-256:
+`effc84e622a257d23dc6d2c5b2f2ab6cdf88da3460667454848a787ad48af4d3`.
+The interrupted Marble run and six queued scenarios establish no
+acceptance. Finalization, immutable publication, Pages/public readback and the
+public Marble VM remain pending; no old VM result transfers. Public latest
+remains 1.0.6.
+
+Private workstation resolution against this exact signed snapshot passed with
+the current local package database and existing official sync databases. The
+print-only command used private config, database, cache, hook, public-keyring and
+log paths with `--debug --noconfirm -Sup --print-format '%r/%n %v'`; it performed
+no sync or transaction. Strict project policy remained `PackageRequired
+DatabaseRequired TrustedOnly`; detached signatures for all seven packages and
+the repository database were verified against the actual copied public keyring.
+Pacman selected Colloid GTK `20260808-11`, icons `20260829-7`, extensions
+`1.0.0-7`, keyring `1.0.0-9`, GDM `50.0.0-10`, profile `1.0.0-12` and Shell
+`50.0.0-8`. Libalpm debug confirmed all four installed AUR extension owners
+(Dash, Blur, Clipboard and Just Perfection) on the remove list without manual
+uninstall. Host local-database hashes stayed unchanged and both owned fixture
+trees were removed. Compact receipt SHA-256:
+`ddf9361df3d1f6c92eb9d5ed9e31c592ad3cc681a8d9817f74a76c25254ad43c`.
+This establishes dependency/replacement resolution only, not package delivery,
+signature checking by an executed transaction, installation or session behavior.
+
+### Mirror build output correction
+
+The actual production `aur_package_output_path_is_safe` rejects
+`src-plymouth-theme-archlinux-1-mirror/...pkg.tar.zst` and accepts
+`src-plymouth-theme-archlinux-mirror-1/...pkg.tar.zst`. The newly introduced mirror
+directory therefore prevented successful builds from reaching archive validation.
+The original transport fixture stopped after immutable source identity and missed
+this downstream path contract. The focused one-line correction preserves that
+predicate and the exact canonical containment check while placing `mirror` before
+the bounded attempt number.
+
+The transport fixture now passes its actual selected directory through the
+production package-output predicate for primary and mirror success. Six negative
+cases retain rejection of attempts 0/6, the old suffix, nesting, traversal and the
+wrong archive extension. `bash tests/function-checks.sh` failed on the unchanged
+installer at the path predicate and passed after the correction. Red log SHA-256:
+`148a4ff9cc898274e5a7ce56ac489a941bc8960135dcae09c1ce68a3b50981b5`;
+green log SHA-256:
+`4adf519549d53685d755e06cc1179b90ad94039bd4871ee2699df12ef6d55640`.
+Independent review found no material issue. `PYTHONDONTWRITEBYTECODE=1 bash
+tests/source-tests.sh` passed, including full repository namespaces, ten scenarios,
+signer PASS, exact 14/18 closures and no deferrals. Source log SHA-256:
+`7e5f7d66e8918d6fcc6f32808bcbecbd9e72760a36c4f00a148a4a3ca1c7ea79`.
+Documentation/agent-contract checks and `git diff --check` passed separately.
+After workflow cleanup the runner had zero project QEMU processes, zero current
+evidence runs and zero active private-Docker containers. The exact owned observer
+was stopped only after command-identity verification. The new protected
+candidate/build/signature/VM/publication gates remain pending.
+
 ## Verified release 1.0.6 — 2026-10-04
 
 [Configured run37214392242](https://github.com/snaplyze/arch-linux/actions/runs/37214392242)
