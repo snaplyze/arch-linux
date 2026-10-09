@@ -256,7 +256,7 @@ The final pre-authorization candidate `bb62952`, tree
 log SHA-256 `94b73f0fdee0f508886d09c8412485401863d4a18ff126221e97ba2b004670c9`.
 
 Authorized delivery preflight found the same missing init process in the
-canonical package-build container. It now uses `--init`; all three Arch dependency
+canonical package-build container. It now uses `--init`; all five Arch dependency
 bootstraps authenticate an `archlinux-keyring` refresh immediately before the full
 system/dependency upgrade. Signing containers already had init. The previously
 reproduced large-transaction failure and successful 422-package control justify
@@ -264,10 +264,20 @@ this focused alignment; signing-job failure is not claimed as reproduced.
 Real workflow-step regression execution rejects missing ordering and a failed
 keyring refresh before any full transaction (seven failing subcases before the
 fix; all 21 Actions release checks now pass). Independent review found no remaining
-issue in this three-file change. Pins, signature policy and signing authority are
+issue in the initial three-file change. The full suite then exposed an older
+static check that required init/populate to be immediately adjacent to the full
+upgrade. That check now requires the authenticated refresh too and rejects its
+removal. The identical readback and advisory build bootstraps were aligned after
+six additional failing subcases reproduced their omission. Pins, signature policy and signing authority are
 unchanged. The preceding full source run on `1424dfc` passed with log SHA-256
 `0d7bcd9247303efb95933c44be89636f407b881be4b461fe1a953a63d5a6d71d`;
 the corrected delivery head requires fresh source/CI checks.
+Read-only delivery-runner checks confirmed runner 21 online/idle, exact pinned
+Arch Docker image, runner-account Docker access and KVM API 12, four vCPUs,
+12 GiB total memory with more than 8 GiB available, and over 32 GiB free workspace
+storage. The QGA channel belongs to the documented `ubuntu-actions` VM under
+`qemu:///session`. No shared setting, service or workload was changed; these
+readiness checks do not substitute for the release's actual nested-QEMU run.
 
 ## Local runner migration — 2026-10-08
 

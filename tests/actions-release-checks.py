@@ -39,6 +39,8 @@ class ActionsReleaseChecks(unittest.TestCase):
     def arch_bootstraps(self):
         for filename, job, step_name in (
             ("packages.yml", "build", "Install build dependencies"),
+            ("packages.yml", "readback", "Install verifier dependencies"),
+            ("maintenance.yml", "reproducibility", "Install build dependencies"),
             ("release.yml", "snapshot", "Install isolated signing dependencies"),
             ("release.yml", "finalize", "Install isolated signing dependencies"),
         ):

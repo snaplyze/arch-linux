@@ -124,8 +124,9 @@ def keyring_setup_valid(lines, expected_count):
     upgrades = [index for index, line in enumerate(lines)
                 if line.startswith('          pacman -Syu ')]
     return len(upgrades) == expected_count and all(
-        lines[index - 2:index] == ['          pacman-key --init',
-                                  '          pacman-key --populate archlinux']
+        lines[index - 3:index] == ['          pacman-key --init',
+                                  '          pacman-key --populate archlinux',
+                                  '          pacman -Sy --noconfirm --needed archlinux-keyring']
         for index in upgrades
     )
 
@@ -141,6 +142,9 @@ for raw_path in sys.argv[1:]:
     reordered[first_init:first_init + 2] = reversed(reordered[first_init:first_init + 2])
     assert not keyring_setup_valid(missing_init, expected_setup_count)
     assert not keyring_setup_valid(reordered, expected_setup_count)
+    first_refresh = lines.index('          pacman -Sy --noconfirm --needed archlinux-keyring')
+    missing_refresh = lines[:first_refresh] + lines[first_refresh + 1:]
+    assert not keyring_setup_valid(missing_refresh, expected_setup_count)
     step_indexes = [index for index, line in enumerate(lines) if line == step_marker]
     if len(step_indexes) != 1:
         raise SystemExit(
