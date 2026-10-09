@@ -84,6 +84,64 @@ class ActionsReleaseChecks(unittest.TestCase):
                     if not refresh_status:
                         self.assertTrue(calls[3].startswith("pacman -Syu --noconfirm --needed "))
 
+    def keyring_cleanup_function(self) -> str:
+        source = (ROOT / 'tests/keyring-rotation-checks.sh').read_text()
+        return re.search(r'(?ms)^cleanup_test_root\(\) \{\n.*?^\}',source).group(0).replace("'0:700'",f"'{os.getuid()}:700'")
+
+    def test_keyring_cleanup_tolerates_only_true_socket_disappearance(self) -> None:
+        import socket
+        cleanup = self.keyring_cleanup_function()
+        for failure in ('disappearance','shutdown','persistent','retained-root','unsafe-mode','foreign-owner','symlink-home','unsafe-root'):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory(prefix='arch-linux-keyring.') as directory, tempfile.TemporaryDirectory(prefix='arch-linux-keyring-tools.') as tooling:
+                root = Path(directory); root.chmod(0o700); home = root / 'signing-home'; home.mkdir(mode=0o700)
+                marker = root / 'persistent'; marker.write_text('owned fixture')
+                endpoint = home / 'S.gpg-agent.ssh'; server = socket.socket(socket.AF_UNIX); server.bind(str(endpoint)); server.close()
+                bins = Path(tooling) / 'bin'; bins.mkdir(); trace = Path(tooling) / 'shutdown-trace'
+                (bins / 'gpgconf').write_text('#!/bin/bash\nprintf "%s\n" "$*" >>"$SHUTDOWN_TRACE"\n[[ $* == "--homedir $TEST_ROOT/"*" --kill all" ]] || exit 92\n[[ $FIXTURE_FAILURE != shutdown ]] || exit 43\n')
+                racer = Path(tooling) / 'race.py'; racer.write_text('import pathlib,sys\np=pathlib.Path(sys.argv[1])\nif p.name == "S.gpg-agent.ssh": p.unlink()\n')
+                # Real GNU find enumerates a socket, then an exec removes it immediately before real -delete.
+                (bins / 'find').write_text('#!/usr/bin/python3\nimport os,sys\na=sys.argv[1:]\nif os.environ["FIXTURE_FAILURE"] == "persistent": sys.exit(44)\nif os.environ["FIXTURE_FAILURE"] == "retained-root": sys.exit(0)\nif "-delete" in a: a.remove("-delete"); a += ["-exec","/usr/bin/python3",os.environ["RACER"],"{}",";","-delete"]\nos.execv("/usr/bin/find",["find",*a])\n')
+                (bins / 'stat').write_text('#!/bin/bash\nif [[ $FIXTURE_FAILURE == foreign-owner && ${!#} == \"$TEST_ROOT/signing-home\" ]]; then printf \"59999:700\\n\"; else exec /usr/bin/stat \"$@\"; fi\n')
+                for path in bins.iterdir(): path.chmod(0o755)
+                if failure == 'unsafe-mode': home.chmod(0o755)
+                elif failure == 'symlink-home':
+                    endpoint.unlink(); home.rmdir(); home.symlink_to(bins,target_is_directory=True)
+                elif failure == 'unsafe-root': root.chmod(0o755)
+                environment = dict(os.environ,PATH=str(bins)+':'+os.environ['PATH'],TEST_ROOT=str(root),
+                    SHUTDOWN_TRACE=str(trace),FIXTURE_FAILURE=failure,RACER=str(racer))
+                script = 'set -euo pipefail\ntest_root="$1"\n'+cleanup+'\ncleanup_test_root\n'
+                result = subprocess.run(['bash','-c',script,'fixture',str(root)],env=environment,capture_output=True,text=True,timeout=10)
+                if failure == 'disappearance':
+                    self.assertEqual(result.returncode,0,result.stderr); self.assertFalse(root.exists())
+                else:
+                    self.assertNotEqual(result.returncode,0,failure); self.assertTrue(marker.is_file(),'failed cleanup must retain the fixture')
+                if failure in ('unsafe-root','unsafe-mode','foreign-owner','symlink-home'):
+                    self.assertFalse(trace.exists(),'unsafe homes must not contact GPG daemons')
+
+    def test_keyring_cleanup_stops_only_its_real_private_agent(self) -> None:
+        import shutil
+        if not shutil.which('gpgconf'): self.skipTest('GPG is not installed')
+        cleanup = self.keyring_cleanup_function()
+        with tempfile.TemporaryDirectory(prefix='arch-linux-keyring.') as directory, tempfile.TemporaryDirectory(prefix='arch-linux-keyring-control.') as control:
+            root = Path(directory); root.chmod(0o700); home = root / 'signing-home'; home.mkdir(mode=0o700)
+            Path(control).chmod(0o700)
+            try:
+                for owned in (home,Path(control)):
+                    subprocess.run(['gpgconf','--homedir',str(owned),'--launch','gpg-agent'],check=True,capture_output=True,timeout=10)
+                def control_pid():
+                    response = subprocess.check_output(['gpg-connect-agent','--homedir',control,
+                        '--no-autostart','GETINFO pid','/bye'],text=True,timeout=10)
+                    match = re.fullmatch(r'D ([1-9][0-9]*)\nOK\n',response)
+                    self.assertIsNotNone(match,'control agent must answer without automatic restart')
+                    return match.group(1)
+                original_pid = control_pid()
+                result = subprocess.run(['bash','-c','set -euo pipefail\ntest_root="$1"\n'+cleanup+'\ncleanup_test_root','fixture',str(root)],capture_output=True,text=True,timeout=10)
+                self.assertEqual(result.returncode,0,result.stderr); self.assertFalse(root.exists())
+                self.assertEqual(control_pid(),original_pid,'the original unrelated agent must remain alive')
+            finally:
+                for owned in (home,Path(control)):
+                    subprocess.run(['gpgconf','--homedir',str(owned),'--kill','all'],capture_output=True,timeout=10)
+
     def test_release_checker_clone_sets_its_own_umask(self) -> None:
         workflow = (ROOT / '.github/workflows/release.yml').read_text()
         step = workflow.split('      - name: Execute full namespace and publication regression gates\n',1)[1].split('\n      - name:',1)[0]

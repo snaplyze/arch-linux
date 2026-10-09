@@ -376,6 +376,48 @@ signing-boundary failure. No host setting or signing authority changed.
 Exact child and failed-run identities are retained in validation. Signed VM
 acceptance and public recovery remain pending.
 
+Input-mode correction delivered through [PR #67](https://github.com/snaplyze/arch-linux/pull/67).
+Exact head `d60f41b00456082596ea0727a9ac493dc6442182`, tree
+`22a4787d05341263e4d796b84578b10fa53ae98f`, passed the full source suite (log SHA-256
+`5669fc92ba84158870c8f3030cc4af43d9c65b354725fa28688e60334b4681f8`)
+and [CI 37881982047](https://github.com/snaplyze/arch-linux/actions/runs/37881982047)
+(log SHA-256 `df317ee72ff728cc0aff25839ae472742f09feaa059e0eb28739f96d07e56f7d`).
+Protected exact-head squash merge produced main
+`3e0a57f5bdcd3abf648048a4fad9b28d72ddf383`, with the same tree and canonical hash
+`02cca1f852caa2c89b5d9ceb404dc540593f78db40422421ed819a478b159415`.
+This checkout returned to main by fast-forward; accepted candidate history remains
+on `fix/gnome51-artifact-modes-20261009`.
+[Main CI 37882323462](https://github.com/snaplyze/arch-linux/actions/runs/37882323462)
+passed and triggered [Release 37882590902](https://github.com/snaplyze/arch-linux/actions/runs/37882590902).
+Fresh release preparation, canonical seven-package build and independent artifact
+readback passed. Separate root transport verification matched all fourteen
+manifest members and this child's metadata. The snapshot job passed namespace
+preflight, source sealing, both full repository modes and the publication-root
+fixture (exact 14/18 closures, no deferrals). It then failed ordinary keyring
+cleanup after the body printed its result: a GPG socket disappeared during
+`find -delete`. The ordinary command is FAIL despite its earlier result line;
+privileged keyring acceptance and production signing did not run. Run 37882590902
+is terminal FAIL before any VM/publication stage. The focused correction must
+stop only fixture-owned GPG processes and handle disappearance without hiding
+persistent cleanup errors. The local test-only correction validates all three
+exact fixture homes before scoped GPG shutdown, propagates shutdown/delete
+errors, and requires final root absence. A deterministic real-GNU-find regression
+reproduces the socket disappearance; negative owner/mode/link/root/shutdown,
+persistent-delete and retained-root cases remain failures. All 25 Actions
+regressions and an actual private-agent/control fixture pass. Full source and
+real ordinary/privileged checks subsequently passed on frozen `b819ab9`, tree
+`e7786d4fdad1810cd90af9c773f04f4ec87f99b5`. The source log SHA-256 is
+`0bb9cbf92d04b027d77e7aa9e8c8499c017b93c927bcff81bc6fdda3832e457e`.
+Both keyring commands exited zero, with privileged full namespaces, ten scenarios
+and no deferrals. Ordinary / privileged log SHA-256 values are
+`fe74de28be8117dfe6234912abb3b070041be1080d16e6aad4f41d3618fe4d45` /
+`ed3726a10b67301b391a7b5a61ebf297b53e478d7cd5d9580fbf38ae2a6ad08f`.
+Owned container, loop/mapper and cgroup resources were removed; host device
+metadata stayed unchanged. These are disposable test keys, not release signatures.
+Independent review found no cleanup implementation issue. Its test observation
+was tightened from socket existence to the same responding control-agent PID
+before and after cleanup, with `--no-autostart`; all 25 regressions pass.
+
 ## Local runner migration — 2026-10-08
 
 Owner request: move all five GitHub Actions workflows for `snaplyze/arch-linux`

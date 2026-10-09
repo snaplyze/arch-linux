@@ -235,6 +235,70 @@ verification. Native log SHA-256:
 This validates the correction in a disposable two-CPU / 4-GiB container, not a
 new configured release run. Containers and large fixtures were removed.
 
+## Prepared release 1.0.7 — third failed pre-signing attempt
+
+[PR #67](https://github.com/snaplyze/arch-linux/pull/67) delivered protected
+artifact normalization and the snapshot checker clone's step-local umask.
+The full local source suite, exact-head
+[CI 37881982047](https://github.com/snaplyze/arch-linux/actions/runs/37881982047)
+and [main CI 37882323462](https://github.com/snaplyze/arch-linux/actions/runs/37882323462)
+passed. Configured [Release 37882590902](https://github.com/snaplyze/arch-linux/actions/runs/37882590902)
+prepared a new child; canonical seven-package build and the separate readback
+job passed. Snapshot namespace preflight, source sealing, both full repository
+modes and the publication-root fixture passed. Ordinary keyring checks printed
+their result but exited nonzero during cleanup: a test GPG socket disappeared
+between directory enumeration and deletion. That command is FAIL; privileged
+keyring checks and production signing were skipped. The run is terminal FAIL,
+with all VM, tag/draft and publication stages skipped.
+
+| Prepared source binding | Exact value |
+| --- | --- |
+| Accepted PR candidate | `d60f41b00456082596ea0727a9ac493dc6442182` |
+| Accepted main | `3e0a57f5bdcd3abf648048a4fad9b28d72ddf383` |
+| Candidate/main tree | `22a4787d05341263e4d796b84578b10fa53ae98f` |
+| Candidate/main canonical SHA-256 | `02cca1f852caa2c89b5d9ceb404dc540593f78db40422421ed819a478b159415` |
+| Prepared release child | `dc01f6e2b3b96cf124c249b8b733069de9cb19c0` |
+| Prepared child tree | `5f09b51634bc8399fa003aaa553f2108f76f03ee` |
+| Prepared child canonical SHA-256 | `144a9df5197738e46f986ecc3d2f9d73da62347c10fe14e252981b2773459442` |
+| Source transport bundle SHA-256 | `f64e74d8cdf9fb4912ef2710628cc847fcca2502ab47b6e2a42614cd93372ad7` |
+| Unsigned artifact ZIP SHA-256 | `6caafcbe7d568229a3cce16cb0610cb042de2265f3b21edb18fb5a213f861929` |
+| Build metadata SHA-256 | `358e2e1ce9676985daadd213259ce02bf916241b12bbb6923383b1a750f653b8` |
+| Unsigned manifest SHA-256 | `cec8557a6db3f58e6a1beaaa0f4c6f5e94471a02b66bbbef7bd492303ed4dc37` |
+| Local full source-suite log SHA-256 | `5669fc92ba84158870c8f3030cc4af43d9c65b354725fa28688e60334b4681f8` |
+| PR CI log SHA-256 | `df317ee72ff728cc0aff25839ae472742f09feaa059e0eb28739f96d07e56f7d` |
+| Failed snapshot-gate log SHA-256 | `e988768854c207227e650df9fb29db74891e802f4254e955188481b06f6b6415` |
+
+Independent reconstruction matched the downloaded source bundle's exact child,
+tree and canonical mode-and-byte hash without altering refs or current edits.
+Independent unsigned-artifact transport verification also matched all fourteen
+manifest members, exact source binding and metadata digests. The configured
+readback PASS belongs to this child only. Publication-root's signing messages
+belong to ephemeral fixture keys, not production signatures. Its result was
+`PUBLICATION_ROOT_CHECK_RESULT schema=1 closure=sealed snapshot_assets=14 final_assets=18 fifo=passed memfd=passed namespaces=4 pid1=passed agent=passed supervisor_death=passed signer=passed deferred=none`.
+No production signing, VM or publication PASS is implied.
+
+The local follow-up changes only test cleanup and its regressions. It validates
+the three fixture GPG homes before scoped shutdown, tolerates only disappeared
+directory entries, propagates other cleanup errors and requires the fixture root
+to be absent. The exact socket race was reproduced with real GNU find; 25
+regressions pass, including unsafe roots/homes, shutdown/delete errors and a
+retained root. Actual private-agent/control isolation also passed, requiring
+the same responding control-agent PID before/after with automatic restart
+disabled. Independent review found no cleanup implementation issue. The full
+source suite and both actual keyring commands then passed on frozen candidate
+`b819ab95354828825cd23d2b5c924ab9c1ea45c3`, tree
+`e7786d4fdad1810cd90af9c773f04f4ec87f99b5`, canonical SHA-256
+`85f40ed226901100c03a1b72424dfef5a244df3511bd0b7b7ccf943aa25af83c`.
+Source log SHA-256: `0bb9cbf92d04b027d77e7aa9e8c8499c017b93c927bcff81bc6fdda3832e457e`.
+Ordinary / privileged logs:
+`fe74de28be8117dfe6234912abb3b070041be1080d16e6aad4f41d3618fe4d45` /
+`ed3726a10b67301b391a7b5a61ebf297b53e478d7cd5d9580fbf38ae2a6ad08f`.
+Both commands exited zero; privileged acceptance reported full namespaces, ten
+scenarios, signer PASS and `deferred=none`. The isolated container used two CPUs /
+4 GiB, private cgroup namespace and immutable source. Its loop/mapper/cgroup
+resources and container were removed; host device metadata was unchanged. These
+results bind that test candidate and ephemeral keys, not a future release child.
+
 ## Verified release 1.0.6 — 2026-10-04
 
 [Configured run37214392242](https://github.com/snaplyze/arch-linux/actions/runs/37214392242)
