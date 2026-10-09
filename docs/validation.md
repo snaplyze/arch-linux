@@ -2411,8 +2411,9 @@ failure receipt `fb82502a44409ed400f59c882485869394eb5743fbe29ae305e45bac346c76c
 complete job log `8ce799e7a760b31ac9ac66a73d2919eb9a3a84c43d65a434140b997de8e2fb14`.
 API transport/safe unpack/source/tree/Phase-A/installer/ISO/frozen ten-file
 harness bindings passed. The frozen PASS consumer correctly rejected FAIL;
-full successful-core validation is not applicable. Five supplemental scenarios
-continue independently; finalization/publication remains blocked by this result.
+full successful-core validation is not applicable. The remaining scenarios were
+subsequently cancelled as recorded below; finalization/publication was blocked by
+this result.
 
 The filtered lifecycle observer now supplies actual chronology. Original Shell
 start 110859663 us, before-logout checkpoint 149965885 us (39.106 s), extensions
@@ -2507,8 +2508,16 @@ archive checks, documentation/portability/secret/agent checks, ShellCheck and
 `REPOSITORY_CHECKS_RESULT schema=1 namespace_fixtures=full scenarios=10
 signer=passed release_closures=14+18 deferred=none`. Log SHA-256
 `7149587b4ec1111340cf9a930a28ce1ae098d4d0d585c5e1672388542746f209`.
-Protected delivery/build/VM/public acceptance remains required. Cancellation of
-obsolete failed run 37993529797 was requested; terminal/cleanup proof is pending.
+Protected delivery/build/VM/public acceptance remains required. Obsolete failed
+run 37993529797 is terminal CANCELLED: three PASS results (Minimal 14, Core
+Stock 22, supplemental Stock ext4 21), Core Marble FAIL after eight assertions,
+and five cancelled scenarios. Stock Btrfs systemd-boot reached seven installer
+phases but no installed-runtime verdict/artifact; the other four cancelled
+scenarios were queued/unrun. Its cancelled job 114037244680 reports job cleanup
+complete at 22:54:09 UTC; log SHA-256
+`4e0dab9d59a0bd8882dd1fb4f02647199750b921313159fc43766ee1925b50e9`.
+The exact-source runtime observer returned no eligible record; that is not a
+global host-resource inventory. No publication or workstation update occurred.
 
 The selected version is 1.0.7, UNPUBLISHED. Generated README and installation
 bootstrap pins and reviewed Unreleased notes were verified before freezing.

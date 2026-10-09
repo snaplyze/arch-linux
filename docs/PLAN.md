@@ -105,13 +105,13 @@ diagnostic receipts never create functional custody. The added bounded Shell
 stack observer exports only allowlisted module names and typed timing, with no
 causal claim. Fresh full source suite passed (160 runtime checks, seventeen
 archive checks, full namespace/signer/14+18/no deferral); protected PR delivery
-is next. Cancellation of the obsolete failed release was requested; terminal/
-cleanup proof remains pending. No Dash product-fix claim. Filtered lifecycle
+is next. The obsolete failed release is terminal CANCELLED (three PASS, one
+FAIL, five cancelled); job cleanup completed. No Dash product-fix claim. Filtered lifecycle
 evidence records Shell SIGSEGV at original-user logout (core-dump, signal 11);
 return login kept extensions enabled in this run. The old-owner baseline uses
 already-upgraded GNOME 51, not a binary GNOME-50-to-51 transition; prior progress
-wording overstated that distinction. Supplemental Stock ext4 also passed twenty-one assertions; five scenarios
-continue. Final
+wording overstated that distinction. Supplemental Stock ext4 also passed twenty-one assertions; five scenarios were
+subsequently cancelled. Final
 functional/reboot/public gates remain open; no publication.
 No runner restart or host update. New
 child/build/VM/public gates are required; actual Marble recovery cause remains open.
