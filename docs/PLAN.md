@@ -61,6 +61,29 @@ commands/results keep their identities; old tags and assets are never rewritten.
 
 ### Current checkpoint and remaining gates
 
+[PR79](https://github.com/snaplyze/arch-linux/pull/79) delivered filtered lifecycle
+event diagnostics, finite rejection reasons, post-logout/early-return observations
+and atomic VM HTTPS readiness. Local source suite, independent review and exact-
+head CI 37988082025 passed. Protected squash merge completed at 20:42:55 UTC;
+main is `69377c37a47c03c5f2d091d7cdea25a25d3cf5da`. The sole checkout returned by
+fast-forward with the index and root-owned evidence updates preserved. Fresh main
+CI 37988828109 remains in progress. A source-bound read-only process observation
+found `tests/package-archive-limits.py` waiting in `futex_do_wait` with a zombie
+child; the source wrapper waits for that test. Deterministic real-signal RED
+reproduced the wait-lock race in integrity and decode, each bounded by an outer
+five-second timeout. That hung CI was cancelled; container cleanup completed
+and the source-bound observer found no remaining wrapper. A focused wait/cleanup
+correction passed sixteen archive tests and the full source suite. Independent
+review then found a mask-acquisition exception could leave the alarm blocked;
+pre-mutation snapshot and mandatory cleanup now passed both exceptional-return
+regressions and all seventeen archive tests. Independent re-review found no
+material issues and reran both focused tests. The fresh full source suite passed
+(all seventeen archive tests, 152 runtime checks, full namespace/signer/14+18/no
+deferral). The corrected candidate is ready for protected PR delivery; exact-head
+CI and fresh main/build/VM/public gates remain required. No runner restart or
+host update. New
+child/build/VM/public gates are required; actual Marble recovery cause remains open.
+
 [PR78](https://github.com/snaplyze/arch-linux/pull/78) delivered the extension
 inventory/readiness ordering correction and the reviewed pre-evidence retry
 procedure. Local initial/documented source suites and independent review passed;
@@ -88,8 +111,11 @@ and all 152 runtime tests passed. Independent review found no material issues;
 `bash tests/source-tests.sh` passed, including full namespace repository acceptance
 (ten scenarios, signer, 14+18, no deferral). Candidate is ready for protected source
 delivery after final documentation/diff checks; no product/settings/deadline
-change is justified yet. Six supplementary scenarios
-continue independently. VM/public gates remain open; no earlier PASS transfers. The concrete firstboot transient-versus-crash cause and
+change is justified yet. Stock ext4 also passed twenty-one assertions. The failed old release was cancelled:
+three PASS, one FAIL, five cancelled, no publication. Bounded runtime observation
+found no remaining runs for that source. [PR79](https://github.com/snaplyze/arch-linux/pull/79)
+delivered candidate `d802ed29a991403af89816e6ab1cb442f114f1ea`; exact-head CI
+37988082025 passed. Fresh main/build/VM/public gates remain open; no earlier PASS transfers. The concrete firstboot transient-versus-crash cause and
 the older logout/recovery cause remain unproved; only harness observation/readiness
 was corrected. Public latest remains 1.0.6, and the workstation is unchanged.
 
