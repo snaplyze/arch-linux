@@ -2,840 +2,165 @@
 
 ## GNOME 51 update recovery — 2026-10-09
 
-Owner requests compatible Marble updates through `pacman -Syu`, review of current
-upstream documentation, agent instructions for future desktop upgrades, and correct
-documentation in newly generated release tags. Work remains in this checkout on
-`main`; pre-existing README/testing/runner-checkpoint edits and the empty index are
-preserved. Existing immutable releases and their evidence must not be rewritten.
+Owner requests restoration of Marble through ordinary `pacman -Syu`, current
+upstream review, repeatable agent instructions for desktop updates, and correct
+documentation inside new immutable releases. The sole canonical checkout remains
+on `main`; preserve the index, unrelated work and existing immutable tags/assets.
+Do not update or restart the workstation: the owner will perform the update after
+publication. Exact historical attempts and evidence belong in
+[validation](validation.md#gnome-51-candidate--2026-10-09), not in duplicate plans.
 
 | ID | Work and acceptance | Status |
 | --- | --- | --- |
 | G51-01 | Diagnose installed package/session state and upstream compatibility; bind findings to versions and authoritative sources. | DONE |
-| G51-02 | Prepare reviewed package/extension upgrade paths, preserve user overrides and safe unsupported-version handling; reproduce failures before fixes and test recovery. | Source delivered; upstream source availability restored, signed upgrade acceptance pending |
-| G51-03 | Correct deterministic release documentation rendering; test independently differing source/document/release versions and preserve historical evidence. | DONE: deterministic overview/bootstrap/changelog rendering; 52 regressions PASS |
-| G51-04 | Update agent, update/release and user documentation with package delivery and real upgrade acceptance requirements. | DONE for local candidate; publication reconciliation remains conditional |
-| G51-05 | Independent diff review, affected checks and full source suite; record package, real session/VM and publication results separately. | Source/review, clean seven-package build and authentic legacy upgrade inputs PASS on their recorded trees; real signed upgrade, GDM/VM and publication NOT_TESTED |
+| G51-02 | Prepare reviewed package/extension upgrade paths, preserve user overrides and safe unsupported-version handling; reproduce failures before fixes and test recovery. | Source delivered; current signed build PASS; real GNOME upgrade acceptance pending |
+| G51-03 | Correct deterministic release documentation rendering; test independently differing source/document/release versions and preserve historical evidence. | DONE: overview/bootstrap/changelog rendering and 52 regressions PASS |
+| G51-04 | Update agent, update/release and user documentation with package delivery and real upgrade acceptance requirements. | Candidate instructions delivered; final publication reconciliation pending |
+| G51-05 | Independent diff review, affected checks and full source suite; record package, real session/VM and publication results separately. | Accepted child has build/signing/eight VMs PASS; retry failure reproduced and focused harness correction/source suite/review PASS; protected delivery and fresh acceptance pending |
 
-Confirmed host evidence: GNOME Shell/Mutter/GDM 51.0; GTK 4.24.1 and libadwaita
-1.10.0. Installed Marble Shell/GDM remain 50.0.0-7/-8, profile 1.0.0-10.
-The published profile supports GNOME 50 + GTK 4.22 + libadwaita 1.9 only; GDM reports
-`stock`, GTK4 helper reports `inactive`. Blur my Shell 72, Clipboard Indicator 71
-and user-local No Screenshot Box 6 report `OUT OF DATE`; Dash to Dock 106 reports
-`ERROR`, with a missing `resource:///org/gnome/shell/ui/pointerWatcher.js` import.
-The [GNOME 51 porting guide](https://gjs.guide/extensions/upgrading/gnome-shell-51.html)
-confirms this API removal. Enabled-extension preferences remain present. Shell,
-GTK and icon user overrides are absent, so compatible defaults can recover without
-resetting user preferences. A new login is necessary to load updated extensions.
+### Confirmed cause and delivery design
 
-Release documentation finding: `repository/release-source.py` formerly substituted
-only bootstrap URLs matching the installer's source version (1.0.2), while README
-and installation commands pinned 1.0.6. The candidate now renders bounded canonical
-bootstrap blocks for the selected child version and promotes exactly one nonempty
-Unreleased changelog section. Historical acceptance remains bound to its original
-release. Existing immutable tag 1.0.6 and its bytes are not modified.
-Live readback of that tag confirmed its README still directs readers to 1.0.5
-and describes old audit status; correcting main after publication did not change
-the frozen tag. The new pre-freeze renderer addresses future release commands and
-overview text rather than rewriting that historical release.
+The workstation has Shell/Mutter/GDM 51.0, GTK 4.24.1 and libadwaita 1.10.0.
+Installed Marble Shell/GDM are still 50.0.0-7/-8 and profile 1.0.0-10. The published
+profile supports 50/4.22/1.9 only: GDM reports `stock` and the GTK4 helper reports
+`inactive`. Blur my Shell 72, Clipboard Indicator 71 and local No Screenshot Box 6
+report `OUT OF DATE`; Dash to Dock 106 reports `ERROR` for the removed
+`resource:///org/gnome/shell/ui/pointerWatcher.js` import, documented in the
+[GNOME 51 porting guide](https://gjs.guide/extensions/upgrading/gnome-shell-51.html).
+Enabled-extension preferences remain present; Shell/GTK/icon user overrides are
+absent. Compatible defaults can recover without resetting preferences, but the
+updated extensions require a fresh login. Host diagnosis is not runtime acceptance
+of the candidate, and the host has not been upgraded during this task.
 
-Current implementation: the seventh package `arch-linux-gnome-extensions` owns
-five reviewed non-distribution extensions and four versioned AUR replacements.
-Stock and Marble use it through the strict signed repository; Marble profile
-depends on it, while theme removal preserves it. The new installer removes both
-profiles' obsolete AUR/local-extension installation paths. Minimal TTY remains
-repository-independent. Exact package/build/signature closure checks expand to
-seven; the outer 14/18 release asset closures and historical six-package evidence
-remain unchanged. A full installer release is required: package-only delivery
-cannot change the old package set, and the unmodified 1.0.6 installer would install
-conflicting AUR owners after the new profile. Old Stock installations have no
-project repository; their migration is a separate authenticated bootstrap gate.
+The seventh package, `arch-linux-gnome-extensions`, owns five reviewed extensions
+and replaces all four old AUR package owners, including epoch-bearing versions.
+Both new graphical profiles use the strict signed repository; Minimal remains
+independent. Only the exact installer-created local No Screenshot Box tree moves
+outside extension discovery. Its original directory/inodes and later held-FD
+writes survive; modified/unknown copies and preferences remain untouched. This
+host's exact tree passed the eligibility predicate, but migration has not run here.
 
-The user service moves only the exact known installer-created local No Screenshot
-Box tree into private custody outside GNOME extension discovery. It retains the
-original directory and inodes, including later writes through held descriptors;
-modified/unknown copies stay active and are reported. User preferences remain
-untouched. Independent review reproduced a check-to-unlink data-loss race in the
-initial candidate; recursive deletion was removed and 27 migration regressions
-now pass. Custody is a move, not an extra settings copy, and package removal does
-not erase or reactivate it.
+The candidate retains GNOME 50 and adds the exact 51/4.24/1.10 platform plus a
+separately pinned GNOME 51 GDM composition. Dash 109, Blur 74 and Just Perfection 37
+have reviewed support; Clipboard Indicator uses the still-unmerged upstream port,
+and No Screenshot Box has a project metadata port. Upstream Marble remains 50.0.0.
+Unknown future versions/resources still fall back safely; each major update needs
+fresh compatibility review, real acceptance and signed delivery.
 
-A read-only execution of the candidate's exact snapshot predicate against this
-machine's local No Screenshot Box passed: all six file hashes, both directories,
-ownership and safe modes match the supported legacy tree. This establishes its
-eligibility for migration, not execution of that migration.
+A full installer release is required because unchanged 1.0.6 would install the old
+conflicting AUR owners. Future package-only publication remains a separately
+authorized, NOT_TESTED external route. Existing Marble systems consume the signed
+update through `pacman -Syu`; old Stock installations without this repository need
+a separate authenticated bootstrap. No unsigned fallback or trust change is used.
 
-Upstream review: Dash to Dock 109 and Blur my Shell 74 have GNOME 51 catalog
-releases; Just Perfection 37 already supports 51. Clipboard Indicator uses the
-reviewed candidate from [upstream PR 641](https://github.com/Tudmotu/gnome-shell-extension-clipboard-indicator/pull/641)
-(still unmerged when checked). No Screenshot Box uses pinned GPL source with a
-project metadata port. Upstream Marble remains 50.0.0. The candidate retains
-GNOME 50 and adds a separately pinned GNOME 51 GDM composition/platform closure;
-profile GTK tuples are exactly 50/4.22/1.9 and 51/4.24/1.10. Unknown versions and
-unverified resource changes remain fail-closed.
+The release renderer previously matched only installer source version 1.0.2,
+while the documentation pinned 1.0.6; the immutable 1.0.6 README itself still
+pointed to 1.0.5. New children now render bounded overview/bootstrap sections and
+promote one nonempty Unreleased changelog entry before freezing the tag. Historical
+commands/results keep their identities; old tags and assets are never rewritten.
 
-Scoped evidence: Marble lifecycle regressions, exact seven-package metadata and
-archive fixtures, 13 desktop routing checks, 27 migration checks and all six
-pinned-input preparation checks pass. Native Shell 51 / GTK 4.24 parsers accepted
-the CSS. An isolated DynamicUser headless GNOME 51 session loaded all eight
-Marble extensions with state 1 and no extension errors; it did not establish
-actual menu/clipboard/screenshot behavior, visual appearance or GDM login. The
-final standalone extension bundle and profile built with actual makepkg in an
-isolated, network-disabled DynamicUser unit and both passed the production archive
-verifier. Bundle archive SHA-256 is
-`dc5b328e7f3c73aa5b23b0c4f6c9c13612407a0c1923a76fb361dd6626ab10cb`, profile
-`817445a1860b21d196c76efb933a4272630c8bd6eb431f0f0e39df2a1bd5d063`.
-These are raw-source package revisions, not installable upgrade recommendations.
-A private copy of the actual installed package database resolved the proposed
-profile revision 12 and bundle revision 7 with `pacman --print -Su`; no transaction
-or signature-delivery PASS is implied. Both units and owned temporary copies were
-removed. Repository checks passed with full namespaces, ten scenarios, signer
-PASS, exact 14/18 closures and no deferrals. The final VM harness covers seven packages, Stock repository routing and GNOME
-50/51 GDM selection; 115 executable fixture checks pass. Independent review found
-that the initial selector retained Arch's `1:` epoch; real epoch-bearing regressions
-reproduced the failure and passed after stripping the epoch. The historical
-six-package GTK3 verifier remains unchanged. Actual GDM package build and production
-archive verification passed (26 assets/eight licenses), archive SHA-256
-`fb6864f33f5e3848a7ecad120242d0e5f3bf589aa703382556b2192e70712038`.
-`bash tests/source-tests.sh` passed for committed candidate `6b13bbd`, including
-full repository namespaces with no deferrals; source log SHA-256
-`020ee4630814f771412a97b2788aa034eef15aef66c94833a7d7e673831546a0`.
-`git diff --check` passed.
-The 29-page Markdown inventory retains historical identities and separates current
-candidate instructions. Generated release overviews/commands/changelog are tested
-against differing source, documentation and child versions.
+### Current checkpoint and remaining gates
 
-The complete canonical seven-package build and separate unsigned-build verification
-also passed for `6b13bbd`, in a disposable pinned Arch container with a non-root
-builder, read-only source and limits of two CPUs / 4 GiB. An independent host-side
-verifier passed and matched the clean source commit/tree, installer, package-set
-and unsigned-manifest hashes. The container was removed; public build artifacts
-and compact receipts remain under `/tmp/arch-linux-g51-canonical.t7zpjgm5` for the
-remaining bounded checks. Exact identities are in
-[validation](validation.md#gnome-51-candidate--2026-10-09). These are raw-source
-package revisions, not the future release child's upgrade revisions, production
-signatures or installed-system acceptance.
+[PR74](https://github.com/snaplyze/arch-linux/pull/74) passed exact-head CI and the
+protected merge. Main is `b10e1158824d8191640f22b4a9f8e591aa59be92`;
+[Release 37921973159](https://github.com/snaplyze/arch-linux/actions/runs/37921973159)
+tested child `a35fa3e7f238e4c3f3d675eed7c346e1d536c2d6` for version 1.0.7.
+Public latest is still 1.0.6. The new child has passed source transformation,
+the clean seven-package build, protected unsigned readback, all five release-host
+checks and Phase-A signing. Independent transport/closure/metadata/signature
+readback passed. Its README and installation examples correctly pin 1.0.7.
+Exact identities are in the
+[current validation record](validation.md#mirror-build-output-correction).
 
-Checkpoint: concurrent runner documentation and atime-only recovery fixes are
-preserved on main `bc135f0` (following PR #62). This task has made no host upgrade,
-live session restart, production signing or publication. The advisory detected
-GNOME/GTK drift; unavailable AUR queries are errors, not evidence of no update.
-Real signed upgrade/GDM/functionality, release and public pacman delivery remain
-open. The existing GTK3 migration scenario leaves the extension bundle installed;
-it does not construct the old four AUR owners or local No Screenshot Box copy.
-Its PASS must not close the new migration gate. Source is reviewable locally.
-GitHub rules for main currently require a pull request and successful `Source checks`;
-the checkout contract requires an owner exception before a PR branch is created.
-The owner subsequently granted the branch/delivery exception recorded below. The canonical unsigned
-build receipt binds `6b13bbd`; subsequent documentation edits do not relabel that
-receipt. The eventual release child still requires its own build, signatures,
-actual old-AUR/local-extension migration and runtime acceptance.
+The new Minimal ext4/systemd-boot VM passed all fourteen assertions; Stock
+Btrfs/LUKS2/GRUB passed all twenty-two. Both frozen strict consumers also passed,
+including the corrected Stock signed-repository evidence contract. Core Marble
+run `marble-20261009T115401Z-7138c8f4` failed before credential delivery: the host
+did not observe the expected installer readiness marker. No installer phase or
+runtime assertion completed. The exact cause is not yet established; retained
+compact evidence reports `install-archiso`, while the active diagnostic log had
+already appeared; file size alone does not prove that bootstrap invoked it.
+Read-only review found no justified code correction from the retained data.
+After the matrix finished, GitHub accepted one retry with unchanged source, ISO
+and signed snapshot. Attempt 2/job 113841142300 completed with a separate failure; the original failure
+remains retained. An earlier request was rejected while the matrix was running.
+Fresh run `marble-20261009T133129Z-36d5e155` passed the bound readiness gate and
+completed installation; the earlier bootstrap failure did not reproduce. Seven
+assertions passed, including real legacy GTK3 migration, light/dark application
+smoke and fresh-user/return-user GDM login. The next baseline preparation failed
+because the staged guest lacked `jq`. A bounded reproduction confirmed that its
+process-substitution failure was not propagated; the following six-package count
+guard correctly rejected the empty result. The focused test-only prerequisite and
+input-producer correction passed five focused tests, all 138 guest-runtime tests,
+independent review and `bash tests/source-tests.sh`. A related large-listing
+SIGPIPE failure was reproduced and corrected without weakening the file-ownership
+check. Protected delivery and acceptance of the resulting new child are pending.
+GNOME 51 recovery/functionality and
+publication remain unexecuted; no failed run is relabelled as PASS.
+Supplemental Stock ext4/systemd-boot and Btrfs/systemd-boot
+also passed twenty-one assertions each; Btrfs/GRUB passed twenty-three, including
+snapshot boot and return. Stock Btrfs/LUKS2/systemd-boot passed twenty-one.
+Marble with Stock GDM passed seventeen, including active blue-dark Shell, Colloid,
+Bibata, all eight extensions, update and repeat login without a greeter overlay.
+Dual boot passed seventeen, including collision refusal, neighbor preservation
+and real neighbor boot. All eight independent artifact readbacks passed, with
+strict consumers also passing for Minimal and core Stock. The monitor completed
+its bounded assignment; no supplemental scenario is pending.
+A passive readiness observer was checked against the
+successful Stock run; it reports only bound marker counts and fixed booleans.
+The old GTK3-to-unified-theme migration does not qualify the separate required
+transition from actual 1.0.6 plus four AUR owners and the local v6 extension.
+No earlier child PASS transfers to this candidate.
 
-Additional migration gate implemented locally: the original GTK3 test remains
-unchanged, with a separate mandatory staged transition from authenticated release 1.0.6, all four
-actual pinned AUR packages and the exact local extension to the signed candidate.
-The preparer builds AUR packages as a disposable unprivileged builder; the
-guest must prove that the bundle was absent, record user settings, perform actual
-GDM password logins before/after plain `pacman -Syu`, and verify replacement,
-custody, settings and active profile. The finalizer must require the new assertion
-and compact input/session evidence. Source/runtime fixtures and the strict
-repository consumer pass, including rejection of changed receipts, missing
-evidence and missing or repeated session markers. Independent review found that
-an input manifest could be rewritten with its AUR payload; consumption now
-requires the digest returned directly by trusted preparation, verified again
-after the input copy. Docker cleanup also handles timeout after daemon-side
-creation using the exact per-run ownership label. These checks do not establish
-actual migration or extension behavior: eight enabled states leave the separate
-Clipboard/Dash/Blur/No Screenshot Box functional checks open.
-The candidate now additionally drives three behaviors through real QMP keys and
-pointer input after migration and after reboot: Clipboard history/copy/paste,
-Dash-specific app launch and No Screenshot Box capture on release with a disabled
-control. A small ordinary GTK probe observes synthetic values only. Six distinct
-assertions and run/session/probe-bound receipts are mandatory in the finalizer.
-Independent review fixed canonical run-ID handling, live process/start identity,
-root-frozen probe hash binding and rejection of renamed old screenshot inodes.
-All 126 runtime fixtures, seven evidence-consumer tests and native isolated GTK
-startup passed. These are source/native-probe results, not execution of the six
-GNOME behavior assertions. Actual signed VM migration and Blur/appearance checks
-remain open. The full source run caught an outdated assertion-producer fixture;
-it now invokes the real new helper with only VM/input observations stubbed and
-checks the complete 33-assertion Marble closure.
-Official AUR Git TLS failed; the official
-Arch AUR mirror reproduced all four existing archive, `.SRCINFO` and hardened
-PKGBUILD hashes without changing the trusted pins. Upstream source builds remain
-part of the actual input-preparation gate.
+Remaining sequence:
 
-The expanded source candidate `79623c4` passed the full source suite, including
-121 VM fixture checks, 15 upgrade-input checks and full repository namespaces
-with no deferrals. Its source log SHA-256 is
-`57d5b5f32f4b4240e14b0e01de55803b36fe3bd9ec0dc42f3866bec318da3a8a`.
-Real input preparation found an outdated Arch keyring in the pinned container
-before any AUR build. Authenticated `archlinux-keyring` upgrade from
-20260727 to 20260909 passed in a disposable diagnostic container; preparation now
-requires it before the full system upgrade, following the
-[Arch package-signing guidance](https://wiki.archlinux.org/title/Pacman/Package_signing#Upgrade_system_regularly).
-That change alone did not fix the large transaction's GPGME failure. A controlled
-repeat with Docker `--init` passed all 422 signed packages with unchanged trust and
-resource limits; peak task count was 16/256 with no limit hits. The preparer now
-requires an init process to reap orphaned children. Sequencing/failure fixtures
-pass. This did not relax package signature checks; the subsequent complete
-four-package preparation is recorded below. Owned preparation/diagnostic
-containers were removed.
+1. Deliver the reviewed, regression-tested `jq` prerequisite, checked input
+   producers and listing correction through a protected PR. Preserve
+   both failed attempts and distinguish their inputs from any changed-source
+   candidate. The early readiness failure did not recur and its exact cause remains
+   unproven. Finish all nine staged scenarios on the
+   accepted child/snapshot. Core Marble must
+   reproduce the old GNOME 51 failures, use plain `pacman -Syu`, prove original-inode
+   custody and preserved preferences, perform actual GDM password login, load all
+   eight extensions, and exercise clipboard history, Dash launch and screenshot
+   capture after update and reboot. Confirm profile/optional GDM, lock/unlock and
+   clean shutdown. A parser/headless state check does not replace these gates.
+2. Verify final signed eighteen-asset closure, immutable tag/release, Pages and
+   independent public byte/signature readback; finish the public-only Marble VM.
+3. Reconcile all affected pages from the 29-file Markdown inventory with actual
+   release inputs/results. Preserve historical failures and the future package-only
+   limitation. Deliberately refresh only advisory Arch comparison values established
+   by the completed acceptance; preserve source pins and historical migration inputs.
+   Run documentation/link checks, diff checks and the required source
+   suite for the final tree, then use protected documentation delivery without
+   triggering an unsolicited next installer release.
+4. Report the published update and fresh-login/reboot requirement only after these
+   gates pass. Keep unknown future platform versions explicitly unqualified.
 
-Release-host diagnostic attempt for `6b13bbd`: ordinary and required-full-namespace
-repository modes passed in the disposable Arch container. The publication-root
-test then rejected the fixture because its dedicated signing account had not
-been provisioned; the two root keyring modes did not run. This is an incomplete
-test-environment attempt, not a five-command or production-signing PASS. The
-container was removed; the next integrated attempt must provision the same locked
-account as the configured release setup before running those checks.
-The `79623c4` attempt provisioned that account and again passed both repository
-modes, but the sealed launcher's snapshot mode rejected the container boundary.
-The cause was Docker overlayfs directories reporting one link, violating the
-existing strict directory identity check. A private tmpfs fixture, without a
-source or safety-policy change, passed the complete publication-root test for
-`d81f0a0`, including supervisor death and exact 14/18 closures. Ordinary and full
-privileged keyring checks also passed. The latter used only its own verified
-Docker cgroup subtree and disposable loop-backed disk; all owned resources were
-removed and host device metadata stayed unchanged. These
-disposable test keys do not establish production signing. Exact receipts are in
-[validation](validation.md#gnome-51-candidate--2026-10-09).
-The full source suite also passed `d81f0a0`, log SHA-256
-`296434ddd3e019d9594bcfd1843f58bb07fbf803feed35de2a01f74bd07bfcae`.
-The expanded functional candidate `a1a3d26` then passed the complete source suite,
-including the 33-assertion producer/consumer contract and full repository
-namespaces without deferrals; log SHA-256
-`7f1c29d8bc24346e1ac969a5812e8dda8470ca6a25f2092effbb22586370ca1c`.
-Real input preparation built the old Blur, Clipboard and Dash packages, then
-rejected the Dash handoff because makepkg retains its `1:` epoch in the archive
-filename. The focused fix copies those unchanged bytes to the already agreed
-epoch-free VM input filename while retaining exact epoch-bearing `.PKGINFO`
-validation. Sixteen input checks passed, including byte-preserving copy and wrong
-version rejection. That incomplete output and its owned container were removed.
-The subsequent `4f3b120` attempt built all four actual packages, then rejected the
-Clipboard archive's existing `clipboard-history` conflict. Exact, hash-bound
-original `.SRCINFO` records confirmed that this is the only declared conflict
-among the four recipes. The verifier now requires precisely that conflict for
-Clipboard and none for the others, while still rejecting provides, replaces and
-install authority. Seventeen input regressions pass, including unexpected,
-duplicate and missing conflict cases. No unsigned package was installed on the host.
-The independent publication-root rerun also passed for `a1a3d26`, with the new
-functional-evidence consumer and fixture; its original tree binding is retained
-in validation rather than transferred to later helper changes.
+The fresh advisory after the owner's AUR recovery notice (2026-10-09 11:43 UTC)
+queried all 40 sources successfully: 23 unchanged and 17 drift findings, with no
+errors. All twelve direct AUR Git queries now succeed; the earlier 11:21 errors
+remain historical evidence. Current Arch desktop versions match the candidate.
+The official AUR stays primary; its official Arch GitHub mirror remains a fallback
+only after primary clone failure, with the same immutable commit/archive/metadata
+checks. The mirror path was exercised for Plymouth and Bibata in preceding real
+installations. The remaining seventeen drift findings were classified against
+current consumers: eight rolling Arch observations, four superseded extension
+inputs, three optional/UI inputs and two appearance/license inputs. No additional
+GNOME 51 blocker was found; retained Gum/Colloid decisions remain applicable.
+No advisory changed pins automatically.
 
-Complete legacy-input preparation and two independent verification executions
-passed on clean commit `7a61c40`, tree
-`ea4367c55601b3c4c920759e5ecf90468e519613`. All four real AUR packages pass the
-production archive/metadata guards; ten original release assets and the local
-extension match their authenticated pins. The exact 15-file payload closure is
-bound to independently captured manifest SHA-256
-`4df9dfb4bb0089d4dca0db10c75173e414d417f38d6d6ad013a0b3f1320a4972`.
-The root verifier used that literal trusted receipt rather than accepting a hash
-derived from the mutable manifest. Compact logs and public inputs remain in
-`/tmp/arch-linux-g51-upgrade-inputs.k7RaB53Q`; its container and temporary recipes
-were removed. Full identities are in validation. This closes preparation only;
-the clean release child must prepare its own tree-bound inputs and execute the
-actual migration, the baseline and both recovery GDM logins, and six functional
-assertions before acceptance.
-
-Final local source checkpoint: `PYTHONDONTWRITEBYTECODE=1 bash tests/source-tests.sh`
-passed on clean candidate `c5a2b8f`, including all 17 upgrade-input regressions,
-126 runtime fixtures, documentation/link checks for 29 Markdown files,
-ShellCheck and full repository namespaces with ten scenarios, exact 14/18
-closures and no deferrals. Exact commit/tree/log identities are in validation.
-All delegated work has returned; no owned build/diagnostic container remains.
-Remote main remains `bc135f0` and the latest public release remains 1.0.6.
-The delivery candidate was merged through [PR #65](https://github.com/snaplyze/arch-linux/pull/65).
-On 2026-10-09 the owner explicitly granted full permission
-for `fix/gnome51-upgrade-20261009` in this same checkout, protected PR/merge and
-the configured release process. Preserve the candidate commits on that branch
-and return the canonical checkout to main by fast-forward after the accepted
-squash merge. No additional checkout, trust change or historical asset replacement
-is needed. Actual signed upgrade/GDM/functional and
-appearance acceptance, publication and public pacman recovery remain open.
-The final pre-authorization candidate `bb62952`, tree
-`dbf40c5f12331ba6e45ceaa2b9aed55788b10a2b`, also passed the complete source suite;
-log SHA-256 `94b73f0fdee0f508886d09c8412485401863d4a18ff126221e97ba2b004670c9`.
-
-Authorized delivery preflight found the same missing init process in the
-canonical package-build container. It now uses `--init`; all five Arch dependency
-bootstraps authenticate an `archlinux-keyring` refresh immediately before the full
-system/dependency upgrade. Signing containers already had init. The previously
-reproduced large-transaction failure and successful 422-package control justify
-this focused alignment; signing-job failure is not claimed as reproduced.
-Real workflow-step regression execution rejects missing ordering and a failed
-keyring refresh before any full transaction (seven failing subcases before the
-fix; all 21 Actions release checks now pass). Independent review found no remaining
-issue in the initial three-file change. The full suite then exposed an older
-static check that required init/populate to be immediately adjacent to the full
-upgrade. That check now requires the authenticated refresh too and rejects its
-removal. The identical readback and advisory build bootstraps were aligned after
-six additional failing subcases reproduced their omission. Pins, signature policy and signing authority are
-unchanged. The preceding full source run on `1424dfc` passed with log SHA-256
-`0d7bcd9247303efb95933c44be89636f407b881be4b461fe1a953a63d5a6d71d`;
-the corrected delivery head requires fresh source/CI checks.
-Read-only delivery-runner checks confirmed runner 21 online/idle, exact pinned
-Arch Docker image, runner-account Docker access and KVM API 12, four vCPUs,
-12 GiB total memory with more than 8 GiB available, and over 32 GiB free workspace
-storage. The QGA channel belongs to the documented `ubuntu-actions` VM under
-`qemu:///session`. No shared setting, service or workload was changed; these
-readiness checks do not substitute for the release's actual nested-QEMU run.
-
-PR candidate `7a632ea` passed the full local source suite (log SHA-256
-`d186c9d19131a0213d58f964c60de2739815c83683068781b18ffa5510a2be72`).
-[CI 37878221431](https://github.com/snaplyze/arch-linux/actions/runs/37878221431)
-then failed the custody fixture: ext4 reused the just-freed inode when the test
-unlinked and recreated identical bytes. An independent runner-account experiment
-reproduced reuse three times out of three. The corrected fixture allocates its
-replacement while the original is live, asserts distinct device/inode identity,
-then replaces the pathname; the unchanged production verifier must reject it.
-The focused test and independent review pass. Its one tiny runner fixture was
-removed. No failed CI result is treated as acceptance.
-
-Protected delivery accepted candidate `34da98bb34ed57a795e498104c6cf5321b1467d2`,
-tree `4209061d00423d88e62acfcb1bba1761e1fb417c`, canonical source SHA-256
-`0f363c1ac3e3dc9d754791e5bbe664f0e00d514de46267f95e8a627a9a38cf76`.
-The full local source suite passed (log SHA-256
-`15b415ead68e0e5ec8262b04e7add1b23efdefb1fadf5c97a9b282fc01c36a24`), and
-[PR CI 37878611896](https://github.com/snaplyze/arch-linux/actions/runs/37878611896)
-passed with full namespaces, ten scenarios, signer and exact 14/18 closures,
-no deferrals (CI log SHA-256
-`ae3ac0bfecb2496cc6fba017ec978541c182125d26fc06ebcf312c451cb37f7f`).
-PR head/base, mergeability, required checks and empty review-comment state were
-rechecked before exact-head squash merge. Accepted main is
-`63c9e6c9e80321112405e32f8c6cef0b4ed59ef4`, with the same tree and canonical hash.
-This checkout returned to main by fast-forward; all candidate commits remain on
-the task branch. [Main CI 37878934364](https://github.com/snaplyze/arch-linux/actions/runs/37878934364)
-passed and triggered configured [Release 37879163690](https://github.com/snaplyze/arch-linux/actions/runs/37879163690)
-for that exact accepted main. Release-child preparation and canonical unsigned
-build passed, but the separate artifact readback failed before signing: the
-checked-out public `repository/trust/arch-linux.gpg` was group/other writable.
-The strict verifier rejected that source mode after both metadata digests passed.
-The run is terminal FAIL; signing, all QEMU stages, draft/tag creation, Pages and
-publication were skipped. The prepared child is `5ee1439` for 1.0.7; independent deterministic
-reconstruction and source-bundle verification passed. Exact identities and seven
-generated package versions are in validation. Independent download checks match
-the artifact digest, both metadata hashes and every member of the fourteen-file
-unsigned manifest, but do not close the failed production readback. The focused
-correction gives readback a root-owned independent clone of the exact child,
-with safe ancestor, ownership, mode, Git identity and artifact digest checks
-before and after verification. The shared checkout is not chmodded; the
-source-mode guard and pinned input bytes remain intact. Eighteen readback-specific
-negative mutations and independent review passed. A bounded native replay against
-the failed run's actual seven-package artifact passed: the original verifier
-rejected mode 0666, the corrected workflow accepted the protected exact clone,
-and making that clone writable was rejected. Original unsafe checkout modes and
-verifier bytes stayed unchanged. Native log SHA-256 is
-`b875a3cb1b2bafd5a03ae198b2a33276cbb4c12436b94868314140d92046f421`.
-The disposable container and large test inputs were removed. Post-job cleanup removed the runner checkout's
-Git directory, so the original file mode cannot be measured again and its
-checkout umask remains an inference, not a separately observed fact.
-Signing, real VM migration/functionality, publication and public recovery remain
-open. This progress record is local until the final documentation reconciliation
-is published.
-
-Readback correction delivered through [PR #66](https://github.com/snaplyze/arch-linux/pull/66).
-Exact head `6647443346414c1c225ad7649f7e67e4c6d639d6`, tree
-`40003be954e025d0c82aad905c2d4c1cee704f6d`, passed the full local source suite
-(log SHA-256 `9d2d593f59f79191abcc24c4b78ca02947c81f6e81f0f882184af7736eb25143`)
-and [CI 37880505032](https://github.com/snaplyze/arch-linux/actions/runs/37880505032)
-(log SHA-256 `a18ff65ce180015602949a7ec96e5b6eefca9adf425ee6fd04d0a72bce8a4e36`).
-After exact-head/base/check/review-thread verification, protected squash merge
-produced main `aa462e1bdfafa5df29b994d0795a9066a2e2cfe9` with the same tree and
-canonical SHA-256 `6f7fc682f32df4c627f5270f208adde604fed3d3c6d198a522f1efda3eab6a3d`.
-This checkout returned to main by fast-forward; candidate history remains on
-`fix/gnome51-release-readback-20261009`.
-[Main CI 37880765176](https://github.com/snaplyze/arch-linux/actions/runs/37880765176)
-passed and triggered [Release 37880984567](https://github.com/snaplyze/arch-linux/actions/runs/37880984567).
-Child preparation and canonical seven-package build passed. The protected source
-check now passed in the actual readback job, which then rejected a downloaded
-package's mode (`unsigned package mode differs`). This second run is terminal
-FAIL before signing; VM and publication stages were skipped. The first native
-replay reproduced source checkout modes but did not reproduce action-extracted
-artifact modes. Correction now covers the downloaded-input boundary explicitly,
-with deterministic public-file modes in an owned protected directory and an
-expanded native replay. Symlinks, special objects and hardlinks are rejected
-before normalization. Executed workflow regressions reject the original package
-mode failure and pass after byte-preserving normalization; 23 Actions tests and
-26 readback mutation checks pass. Lookahead review also reproduced a new-shell
-umask failure in the snapshot regression clone: a controlled ambient mask 000
-produced mode 0666 and failed; step-local mask 022 fixed it. This is a fixture
-reproduction, not a previously executed snapshot failure. Independent review
-found no remaining material issue in the four-file correction. Production
-package mode/byte guards remain unchanged.
-The expanded native replay passed against this attempt's actual seven-package
-artifact, including controlled mode-0666 failure before normalization, unchanged
-bytes afterward, protected-archive tamper rejection, and the real release clone
-prefix under ambient mask 000. Native log SHA-256:
-`5c676e29a3e41656e3a9d3554b20d8ee6bc5ff54019c005d5b5149854ed4e750`.
-The full source suite passed before this evidence prose (log SHA-256
-`74018840ade4c96650db680758e8268cca5de2e8c27232264d3e574de5724a71`).
-Owned containers and large replay fixtures were removed. A tiny no-network probe
-on the idle actual runner confirmed directory link counts of two under both
-`/var/lib` and `/run`; the local Docker count of one does not establish a runner
-signing-boundary failure. No host setting or signing authority changed.
-Exact child and failed-run identities are retained in validation. Signed VM
-acceptance and public recovery remain pending.
-
-Input-mode correction delivered through [PR #67](https://github.com/snaplyze/arch-linux/pull/67).
-Exact head `d60f41b00456082596ea0727a9ac493dc6442182`, tree
-`22a4787d05341263e4d796b84578b10fa53ae98f`, passed the full source suite (log SHA-256
-`5669fc92ba84158870c8f3030cc4af43d9c65b354725fa28688e60334b4681f8`)
-and [CI 37881982047](https://github.com/snaplyze/arch-linux/actions/runs/37881982047)
-(log SHA-256 `df317ee72ff728cc0aff25839ae472742f09feaa059e0eb28739f96d07e56f7d`).
-Protected exact-head squash merge produced main
-`3e0a57f5bdcd3abf648048a4fad9b28d72ddf383`, with the same tree and canonical hash
-`02cca1f852caa2c89b5d9ceb404dc540593f78db40422421ed819a478b159415`.
-This checkout returned to main by fast-forward; accepted candidate history remains
-on `fix/gnome51-artifact-modes-20261009`.
-[Main CI 37882323462](https://github.com/snaplyze/arch-linux/actions/runs/37882323462)
-passed and triggered [Release 37882590902](https://github.com/snaplyze/arch-linux/actions/runs/37882590902).
-Fresh release preparation, canonical seven-package build and independent artifact
-readback passed. Separate root transport verification matched all fourteen
-manifest members and this child's metadata. The snapshot job passed namespace
-preflight, source sealing, both full repository modes and the publication-root
-fixture (exact 14/18 closures, no deferrals). It then failed ordinary keyring
-cleanup after the body printed its result: a GPG socket disappeared during
-`find -delete`. The ordinary command is FAIL despite its earlier result line;
-privileged keyring acceptance and production signing did not run. Run 37882590902
-is terminal FAIL before any VM/publication stage. The focused correction must
-stop only fixture-owned GPG processes and handle disappearance without hiding
-persistent cleanup errors. The local test-only correction validates all three
-exact fixture homes before scoped GPG shutdown, propagates shutdown/delete
-errors, and requires final root absence. A deterministic real-GNU-find regression
-reproduces the socket disappearance; negative owner/mode/link/root/shutdown,
-persistent-delete and retained-root cases remain failures. All 25 Actions
-regressions and an actual private-agent/control fixture pass. Full source and
-real ordinary/privileged checks subsequently passed on frozen `b819ab9`, tree
-`e7786d4fdad1810cd90af9c773f04f4ec87f99b5`. The source log SHA-256 is
-`0bb9cbf92d04b027d77e7aa9e8c8499c017b93c927bcff81bc6fdda3832e457e`.
-Both keyring commands exited zero, with privileged full namespaces, ten scenarios
-and no deferrals. Ordinary / privileged log SHA-256 values are
-`fe74de28be8117dfe6234912abb3b070041be1080d16e6aad4f41d3618fe4d45` /
-`ed3726a10b67301b391a7b5a61ebf297b53e478d7cd5d9580fbf38ae2a6ad08f`.
-Owned container, loop/mapper and cgroup resources were removed; host device
-metadata stayed unchanged. These are disposable test keys, not release signatures.
-Independent review found no cleanup implementation issue. Its test observation
-was tightened from socket existence to the same responding control-agent PID
-before and after cleanup, with `--no-autostart`; all 25 regressions pass.
-
-Cleanup correction and its native receipts delivered through
-[PR #68](https://github.com/snaplyze/arch-linux/pull/68). Final head
-`090ff71764bf9c9056a1696c815dcde86e06b7eb`, tree
-`74d877af34047cbdf38e67494f5f6f87407b8cb8`, passed the full local source suite
-(log SHA-256 `96b70c6c65a381773448a8bec0f59afd3f5b694e5b717d01b262e3750ebd7f95`)
-and [CI 37883993011](https://github.com/snaplyze/arch-linux/actions/runs/37883993011)
-(log SHA-256 `6559fcfb03762972236595605a62822e019cadd0d62a6277b7b3b5fb14413aff`).
-Exact-head protected squash merge produced main
-`7203ec6d2650add1477325e60670629702246495`, same tree and canonical SHA-256
-`a97dd984671814e065e3b69ad580994239038872f6d75a93f1836a87d7b4d32d`.
-The checkout returned by fast-forward; candidate history remains on
-`fix/gnome51-keyring-cleanup-20261009`. A bounded idle-runner probe with the exact
-snapshot container options confirmed private writable cgroup2 and matching
-container/host-owned subtree identity; its container and cgroup were removed.
-[Main CI 37884397403](https://github.com/snaplyze/arch-linux/actions/runs/37884397403)
-passed (log SHA-256 `811f94d89fc178fefadca2b5a7c6376d205d4705f47ac777d6fbb07e0984506b`)
-and triggered [Release 37884673557](https://github.com/snaplyze/arch-linux/actions/runs/37884673557).
-Independent source transport and deterministic reconstruction passed for fresh
-1.0.7 child `9143b7726a21f7f3e1629f850379b671b3b9ee53`; Git refs, checkout and
-pending documentation remained unchanged. Exact identities are in validation.
-The release child's source suite passed, but run 37884673557 failed in the build:
-Dash to Dock's pinned GNOME Extensions URL returned curl TLS error 35 (unexpected
-EOF). No complete package artifact, signing or VM/publication stage was produced.
-Failed log SHA-256 is `f8d06c37bee466b0a3d4fdc985882f92ae22ab1012a78dfe98822536c59756b0`.
-A bounded same-runner, same pinned Arch-image probe subsequently downloaded the
-exact URL and matched SHA-256 `eb7647c03cad6dd1ac608da75ffdd2a2b9f8356b65bb468dc523d7ed3d26e5fc`.
-The disposable probe container was removed. One same-input retry was requested
-through rerunning main CI 37884397403, with main still `7203ec6`. No pin, checksum,
-TLS guard or source change is involved; the prior failed attempt remains FAIL.
-Main CI attempt 2 passed (log SHA-256
-`294667dd6b0821a16dd77fc6c13e2cca949fc26f17d59c885e3ebd9ad013609b`), triggering
-[Release 37885316974](https://github.com/snaplyze/arch-linux/actions/runs/37885316974).
-Independent source-artifact verification confirmed byte-identical identity JSON
-and bundle, hence the same `9143b77` child. This retry also failed during the Dash
-download, now with HTTP 503 through all three built-in retries. No complete build,
-signing or VM/publication stage was reached. Failed log SHA-256:
-`0c5d5b6165ae6b3ed930e4f7f433703730a45be682849f7278b03684bf5da622`.
-The root stopped full-pipeline retries and is diagnosing the exact public URL and
-makepkg transport separately. A workstation probe also received HTTP/1.0 503
-through the local network's synthetic DNS address; the response's origin is not
-established, so it is not attributed conclusively to GNOME's application.
-An independent bounded runner probe reproduced HTTP/1.0 503 with both makepkg
-flags and plain curl, three responses total and no redirects. No archive was
-accepted; the exact owned container was removed. The initial proxy/network question was superseded by the endpoint's explicit
-OpenShift “Application is not available” page, reproduced with normal DNS and
-public-DNS resolution while retaining HTTPS hostname/certificate verification.
-This points to application/ingress unavailability, not a makepkg flag defect.
-After three consecutive goal turns confirmed the same outage, the goal was marked
-blocked. It was subsequently resumed explicitly by the owner after the exact Dash
-archive returned HTTP 200 and its pinned hash. An independent actual-runner probe
-then fetched all four exact GNOME Extensions URLs with HTTP 200 and matching pins,
-each in under 1.3 seconds without retries. Its owned container/files were removed.
-Main CI 37884397403 attempt 3 passed for unchanged main `7203ec6`, log SHA-256
-`77e42385425cba8da9efccec4c6ef63c03a3be497404847db8eb158e1c12bdbb`.
-[Release 37888302371](https://github.com/snaplyze/arch-linux/actions/runs/37888302371)
-is running. Independent artifact digest/closure checks confirmed byte-identical
-identity JSON and source bundle: the same `9143b77` child and unchanged source pins.
-The release child's source suite and canonical seven-package build passed. Root
-transport readback matched the artifact digest, child identity and all fourteen
-unsigned-manifest members; package bytes reproduce the earlier reviewed set.
-The protected artifact-consumer and snapshot jobs passed. Both full repository
-modes, publication-root and ordinary/privileged keyring commands completed;
-privileged acceptance has no deferrals. Production Phase-A signing then completed.
-Root independently verified the exact 14-file artifact, all 12 signed-manifest
-members and the manifest/installer/repository archive signatures against the
-project's pinned certificate and signer. Snapshot SHA-256:
-`032449b92ae8c922fd5b6afe2e5be2f8298e73e4b2aa696fb9a9a3152e8f495a`.
-Actual Minimal TTY run `minimal-20261009T053309Z-44dd08b9` passed all fourteen
-assertions, including plain `pacman -Syu`, reboot, zero failed units, clean shutdown
-and image/process cleanup. Its downloaded artifact digest/closure and exact
-source/snapshot bindings were inspected. However, root replay through the real
-acceptance consumer rejected it with `QEMU harness manifest row differs`: the
-producer places the two GNOME 51 preparation files before guest bootstrap/verify,
-while the consumer expects them afterward. This is a reproduced producer/consumer
-contract defect; it does not invalidate the observed installation but prevents
-final release acceptance. Workflow 37888302371 is terminal CANCELLED. Stock GNOME was interrupted; queued
-variants have no PASS. Its cancellation produced no complete scenario artifact,
-but the runner cleanup hook completed, its evidence root was removed and no
-project QEMU process remained. The focused consumer tuple now matches the
-unchanged producer. A regression executes the actual Bash declaration and real
-sha256sum, then the real consumer; missing/extra/duplicate/reordered/changed
-hash/readback/digest inputs still reject. Nine evidence tests and 25 Actions tests
-pass; independent review found no issue. Root's complete consumer replay now
-accepts the original Minimal evidence unchanged, using consumer file SHA-256
-`7aca0ba1f89c8a0a193ceb8cc4bc19d8172d257f05f3b22e164f0ac2bd5b505c`.
-This is diagnostic validation of the correction, not acceptance of a new child.
-Fresh corrected-child source/build/VM acceptance, finalization and public delivery
-remain pending.
-The prior local checkpoint's full source suite passed (canonical working-tree
-SHA-256 `11b9d8fa0adda7e2edb228cdff90714769187d1fbacf371e2a3babc4a03130d4`,
-log SHA-256 `9108aefd462cb09b2323766166730a1671726b4b37bee1d747393d0729f7a414`);
-that receipt precedes this status update. Latest published release remains 1.0.6;
-this machine has not been upgraded. Post-release Markdown reconciliation remains
-pending actual publication, and this progress checkpoint is local.
-Read-only lookahead review found no concrete QEMU/finalize/public interface defect;
-actual execution remains required.
-
-Harness-order correction delivered through
-[PR #69](https://github.com/snaplyze/arch-linux/pull/69). Exact head
-`15f8595713997831eab58c131b0dcce9e07f42b8`, tree
-`b984e46f50503242845602d6c0752c0df4b4504d`, passed the full source suite including
-full repository namespaces/no deferrals (log SHA-256
-`42e706dd928241dc62eff07c19eeed233b02af8e1c99c3472adf8feb475bf814`) and
-[CI 37890243118](https://github.com/snaplyze/arch-linux/actions/runs/37890243118)
-(log SHA-256 `274bf82c800a54a6905f4206ddfa869995ddc6716839b40b262dde8984b26e1e`).
-After exact head/base/check/thread verification, protected squash merge produced
-main `4924cb8676ed76b6e4e3475c9287a6fd40bc96c7` with the same tree and canonical
-mode-and-byte SHA-256 `9e749f5a02bedc9bd79a85d232977e16ab4fde831c0efef9ff4bd9a88b79dc3a`.
-The sole checkout returned to main by fast-forward; candidate history remains on
-`fix/gnome51-harness-order-20261009`.
-[Main CI 37890581985](https://github.com/snaplyze/arch-linux/actions/runs/37890581985)
-passed (log SHA-256 `2cad7ba86c128d54fc179c94b5b67076d3d13e9de336dfdc2922ae14c1bb9253`),
-triggering [Release 37890827364](https://github.com/snaplyze/arch-linux/actions/runs/37890827364).
-Fresh deterministic child `5d291a967970c4aba6712af66ebc7dc0ddbb94a3` and its
-source bundle passed independent reconstruction/digest/closure checks without
-changing refs, checkout or pending Markdown. Its source suite, canonical
-seven-package build and protected artifact readback passed. Independent transport
-verification matched the exact child and all fourteen unsigned-manifest members;
-package bytes still reproduce the reviewed set. Snapshot job `113692422714`
-passed both full repository modes, the root publication boundary and both keyring
-modes, then signed this exact child. Independent Phase-A transport, exact
-fourteen-file closure, twelve manifest members, unchanged trust bytes and three
-public-key signatures passed. Snapshot SHA-256 is
-`938304fae3c866ac4abba1bd8dc950ada61319f979af10aa0bec7e52c6ffa7c6`;
-full identities are in `docs/validation.md`. Actual Minimal completed fourteen
-assertions, including update/reboot/clean shutdown; its uploaded archive passed
-the strict finalizer consumer on this child's actual evidence, confirming the
-ordered-harness correction. Independent documentation inventory found an imperative
-"Use release 1.0.6" outside the generated 1.0.7 block. The workflow was cancelled
-before publication; eight queued VM scenarios did not execute. Its Minimal PASS
-and signed snapshot remain historical evidence for child `5d291a96` only.
-
-Pre-freeze documentation correction inventories all 29 tracked Markdown files.
-The generated-document regression reproduced the stale recommendation before
-the fix; all 52 release-source tests then passed. Installation guidance now refers
-to the generated pin; the documentation index and mutable status prose refer to
-exact evidence instead of freezing contradictory current-version or untested
-claims. Historical release records, upstream patch provenance and package-only
-limits remain unchanged. Agent instructions now require the Markdown inventory
-before freezing as well as reconciliation after publication. Independent review
-found no blocking issue. `bash tests/source-tests.sh` passed, including full
-repository namespaces, ten scenarios and no deferrals (log SHA-256
-`bc0d6012eaa6540a8b054a535aa6e49c85b4db18cc746c23c344e704d359992a`).
-Documentation/link and whitespace checks cover this final checkpoint update;
-exact-commit CI and protected delivery remain pending.
-
-The correction was delivered through
-[PR #70](https://github.com/snaplyze/arch-linux/pull/70). Accepted head
-`e91bbc84d2980623668ea37ff441f863e745a2e1`, tree
-`a52be050556749c7ebf72101bf1c864b73cba9c1`, passed
-[CI 37892722326](https://github.com/snaplyze/arch-linux/actions/runs/37892722326)
-(log SHA-256 `c6b90b4d8802ef37984407ef24f63237d8ae433dd2e6446dab5dafeeb3361b3e`).
-Exact head/base, checks and resolved-discussion checks preceded the protected
-squash merge to main `85e12ab388683d3e03fa01507f7c20fe923a2e23`, with the same tree
-and canonical SHA-256 `c8bc72f09d1214026992bc27e2f7ca5e0bf8bc5fba39de1844762fdae3f4bed3`.
-The sole checkout returned to main by fast-forward; branch
-`fix/gnome51-release-docs-20261009` retains the reviewed history.
-[Main CI 37893057576](https://github.com/snaplyze/arch-linux/actions/runs/37893057576)
-passed (log SHA-256 `95e3725a04c99bad7d2a94348d82d82757b89b96aa34cc4737dfdf32180a580b`),
-triggering [Release 37893328836](https://github.com/snaplyze/arch-linux/actions/runs/37893328836).
-Independent transport/bundle and deterministic reconstruction checks passed for
-child `c5d655394527f0dda61ceb80e33a2968ac6a14df`; its actual generated README and
-installation instructions consistently select 1.0.7, and the documentation index
-does not assert an older current release. Refs, checkout and dirty checkpoint
-bytes were preserved. The child source suite, clean seven-package build and
-protected readback passed. Independent verification confirmed every unsigned
-manifest member and the exact child/pinned-source-epoch metadata. Both repository
-namespace modes, the root publication boundary and both keyring modes passed;
-the new Phase-A snapshot was signed. Independent fourteen-file/digest/signature
-readback passed for snapshot
-`2ca04153f61e5e895ae4a81636cbe393d4bfe4b2eeef86069ff22a8a93d047a9`.
-Fresh Minimal QEMU acceptance passed all fourteen assertions and independent
-strict finalizer-consumer readback for this exact child. Core Stock GNOME with
-Btrfs/LUKS2/Plymouth/GRUB then failed before installer execution: the ISO bootstrap
-marker did not arrive within 300 seconds after the fixed-delay keyboard launch.
-No password was delivered and no assertions passed. The compact archive has no
-frame; static OVMF serial output alone does not diagnose the displayed state.
-Supplemental Stock/ext4 reproduced this failure. A passive frame at 95.84 seconds
-showed the fully booted Arch ISO root prompt without bootstrap command output;
-it did not establish why earlier keyboard input was lost. The run was cancelled
-after these actionable failures; all owned QEMU processes and the runner evidence
-root were confirmed absent. Remaining staged VM, Marble upgrade and public
-acceptance remain pending. This failed matrix cannot finalize or publish.
-Exact identities are in `docs/validation.md`.
-
-Core Marble then failed before VM launch while preparing authentic legacy AUR
-inputs. The unchanged production archive guard invoked `/usr/bin/python`, absent
-on the Ubuntu runner, which provides `/usr/bin/python3`. The guard also requires
-Arch's `/usr/lib/libarchive.so`; Ubuntu has the versioned multiarch library.
-This is a host-tool portability defect, not a GNOME session verdict. The adapter
-now runs the unchanged guard in a separate pinned Arch verifier after builder
-cleanup, authenticated provisioning and verified network disconnection. All 21
-input fixtures and independent review passed. Native Ubuntu-runner replay passed
-four valid synthetic archive checks and rejected forbidden extended attributes;
-all owned containers and input fixtures were removed. This proves the adapter,
-not a new actual AUR build or Marble installation.
-The installer, host interpreter/library paths and signature requirements remain
-unchanged. A bounded public serial nonce handshake before the sole bootstrap
-command is under boot-only investigation; runtime credentials still require the
-complete source-bound READY record and password prompt. Four new regressions
-cover exact/latest nonce, delayed/stale responses, bootstrap/credential ordering
-and actual HMP redirection keys. The complete 130-test runtime suite, harness,
-ShellCheck, documentation checks and independent readiness review passed.
-`bash tests/source-tests.sh` passed with full namespace fixtures, ten scenarios,
-signer PASS, exact 14/18 release closures and no deferrals; log SHA-256
-`2b7b49c0c8654fed784c210c8c5aa7e266c7d89dae2ded7c2b9049230e0179de`.
-This receipt precedes the final checkpoint text; documentation/link and diff
-checks passed after that update, and exact-head source CI remains mandatory.
-Native boot-only observation passed on the accepted ISO: after the 60-second
-quiet period, the first nonce executed but shared its line with OVMF escape
-output and was correctly rejected; the second exact complete nonce was accepted
-at 84.757 seconds. This proves the handshake, not the cause of every prior lost
-bootstrap or an installed-system result. No installer or credentials were sent;
-owned VM exit and image checks passed. The next protected-main candidate still
-requires fresh full release acceptance; no earlier VM PASS is transferred.
-
-Protected-main [PR #71](https://github.com/snaplyze/arch-linux/pull/71) merged after
-exact-head [CI 37899088629](https://github.com/snaplyze/arch-linux/actions/runs/37899088629)
-passed. Accepted head `102a1807ebc5a9b6388d66b571e2b496df22b464` and merged main
-`4c50728344ac07f61b90e274855eeecc38a683fe` share tree
-`74080fe468a541fddea3edd801af98195d3dba67` and canonical source SHA-256
-`c3c0975f869f795c8db5110ca525cabe95a107763a66c0b87819a84c5d1579d0`.
-The sole checkout returned to main by fast-forward. Main CI
-[37899499406](https://github.com/snaplyze/arch-linux/actions/runs/37899499406)
-passed and started [Release 37899808850](https://github.com/snaplyze/arch-linux/actions/runs/37899808850).
-Its deterministic 1.0.7 child is `018ef177b164c15263afc4904b99c5b826774bdd`.
-Independent transport/deterministic-source verification and generated README /
-installation pins passed without changing local refs, index or dirty documents.
-The exact child's source suite, clean seven-package build and protected artifact
-readback passed. Independent unsigned transport/metadata/package readback also
-passed against exact child blobs and the pinned source epoch. Both full repository
-modes, root publication boundary, ordinary/privileged keyrings and production
-snapshot signing passed. Independent exact-14 closure, twelve manifest rows,
-three signatures and 25 snapshot objects passed for snapshot
-`1034d8bc558f5226a5dcc3b15b131ff20d6af97c108fe928132b71b6346dc42c`.
-Staged VM acceptance failed as detailed below; the run is now cancelled. Public
-gates remain pending and latest publication is still immutable 1.0.6. Exact
-identities follow in `docs/validation.md`.
-Minimal run `minimal-20261009T074530Z-b1c03967` passed all fourteen assertions,
-including installed boot/network, plain update, another boot and clean shutdown.
-Independent retained-artifact and strict production-consumer readback passed for
-this exact child. Graphical installation, Marble upgrade, remaining staged variants
-and public acceptance are not established by that Minimal result.
-Stock run `luksgrub-20261009T075431Z-677a4ce8` acknowledged nonce 2 and emitted
-the complete bound installer READY record; its former bootstrap failure was not
-reproduced. The actual installer then exited 1, so Stock is FAIL with no assertions.
-The host's two-hour message was misleading on early guest shutdown. Retained
-diagnostics classified the failure as unknown; a separate nested ERR-trap fixture
-reproduced a function name in the line-number argument because the stack was
-unquoted. Quoting the arguments now preserves the real line/stack/status; focused
-function checks passed. The harness now distinguishes a reported installer failure,
-QEMU shutdown, serial-bridge loss and an actual deadline, with executed regressions.
-The full `bash tests/source-tests.sh` passed, including full namespace repository
-acceptance (10 scenarios, signer passed, 14+18 closures, no deferrals); log SHA-256
-`3e26145cc2213005272da6f90a604d4c1361c05b339ad9a94fdda5ca5a77c1b9`.
-This verifies diagnostic changes only; subsequent source changes require fresh checks.
-Core Marble run `marble-20261009T080614Z-c46c195d` also reached the full bound
-READY record and then exited 1 during installation, with no assertions. Its legacy
-package preparation passed the previously failing Ubuntu/Arch verification boundary.
-Supplemental Stock/ext4 run `stock-20261009T081505Z-214caad6` reproduced installer
-exit 1; a separately executed, read-only observer captured `exec_install_desktop`
-as the failing function and `main` as the malformed line argument. This narrows
-the failure to the common desktop path rather than Btrfs/LUKS alone; the failing
-command remains under investigation. Only allowlisted function/status data were
-retained. This failed matrix cannot finalize or publish; a diagnostic fix is not
-an installation PASS.
-Stock/Btrfs/systemd-boot reproduced the same failure. A subsequent plain Btrfs/GRUB
-observer identified the error command as `return 1` with a curl diagnostic; its
-specific transport and package are still under investigation. Separate clean Git
-probes reproduced AUR TLS failure on both workstation and runner. The
-[official Arch outage guidance](https://archlinux.org/news/recent-services-outages/)
-recommends the read-only `archlinux/aur` mirror. Read-only retrieval of the existing
-Bibata commit from that mirror passed the unchanged archive, SRCINFO and hardened
-PKGBUILD hashes. A bounded fallback implementation now permits selection of the official package
-branch only after a failed primary recipe clone, in the existing
-unprivileged builder; exact commit and all content/output checks remain mandatory.
-Executed transport/identity regressions passed and independent review found no
-material defect. No pin changed. A final-log observer then confirmed a fresh
-failure in `exec_install_bootsplash`: AUR clone TLS EOF, four retries (duplicated
-by the final log replay), no pacman/signed-repository retries. The earlier desktop
-failures remain less specifically classified. Diagnostic compaction now records
-these Git/TLS failures as downloads, with redaction regressions.
-Workflow 37899808850 is terminal CANCELLED; the superseding source needs fresh
-build, VM and public acceptance. Exact failed evidence remains in validation.
-After cancellation no project QEMU process, evidence run directory or retained
-GNOME-input builder/verifier container remained. No current-run socket directory
-remained; two directories from earlier 05:40/07:08 runs were preserved.
-Native isolated Git transport checks fetched both Bibata and Plymouth from the
-official mirror and verified the exact commits, Git archive, SRCINFO and actual
-installer hardening output against unchanged pins. Owned recipe inputs were
-removed; no PKGBUILD or VM ran in that check. Receipt SHA-256:
-`b06fee0370385cca151eb44a1a275f534470cd15145e321f146ee8147cf37c0a`.
-The corrected installer/harness source suite passed (`bash tests/source-tests.sh`),
-including full namespace repository acceptance, signer PASS, exact 14+18 closures
-and no deferrals. Source log SHA-256:
-`dd8054d820d2561f8c4b66c6b24ab48f86c41cd88fbff31d07c915c27cf69e9c`.
-Independent review found no material defect in either the fallback or typed TLS
-diagnostics. Final checkpoint documentation is checked separately; exact protected
-PR CI and all new release-child acceptance remain pending.
-
-[PR #72](https://github.com/snaplyze/arch-linux/pull/72) passed exact-head
-[CI 37908363960](https://github.com/snaplyze/arch-linux/actions/runs/37908363960)
-and merged through the protected squash path. Accepted head
-`30e623d54696536cc19954ae6be35c8592a40588` and main
-`168f3eb41beff0e0b7de8c6bf1a41dabb576d60c` share tree
-`5b6af7369af8370e9415811c4872499fda06cba3` and canonical source hash
-`07cfbf9fe946835ff6c1c53edcff7027a9f95ea72724f7e8f579f7993e9f38e8`.
-The canonical checkout returned to main by fast-forward.
-[Main CI 37908778844](https://github.com/snaplyze/arch-linux/actions/runs/37908778844)
-passed and triggered [Release 37909100627](https://github.com/snaplyze/arch-linux/actions/runs/37909100627).
-Independent source transport and deterministic transformation checks passed for
-1.0.7 child `8ad8ef1ca1cada7398fbb825f856661503912bd8`; generated README /
-installation instructions pin 1.0.7, and local refs/index/dirty docs were preserved.
-The clean seven-package build passed. Independent unsigned readback verified
-transport/closure/schema-2 source bindings, actual package metadata and all seven
-unchanged production package validators using a verified read-only exact-child
-snapshot. The snapshot was removed afterward. Protected unsigned readback and
-Phase-A signing passed. Independent readback verified the exact fourteen-file
-closure, twelve signed manifest rows, three detached signatures and the production
-snapshot contract's twenty-five repository objects against this child. The fresh
-nine-scenario staged matrix has started. The new Minimal TTY run passed all fourteen
-assertions and independent strict evidence consumption; GNOME scenarios remain open.
-Stock LUKS/GRUB subsequently failed during the Plymouth AUR step after five
-attempts; retained diagnostics identify download errors and installer line 4895.
-The initial passive observer confirmed primary TLS errors without identifying
-the later rejecting gate. The subsequent Marble run's bounded passive readback
-found the exact warning that no validated Plymouth package was accepted.
-No earlier VM PASS transfers. Finalization,
-immutable publication, Pages/public readback and the public Marble VM remain open.
-Exact identities are in validation. The read-only inventory of all 29 tracked
-Markdown files identified fourteen pages for evidence-dependent reconciliation
-after those gates; release-neutral pages and historical identities are preserved.
-
-Private resolution against a copy of this workstation's actual local pacman
-database and the new signed snapshot passed. Print-only libalpm debug evidence
-selects all seven candidate versions and puts all four installed AUR extension
-owners on the removal list without manual uninstall. Strict project trust was
-preserved; seven package signatures and the database signature were checked with
-the actual copied public keyring. Host database hashes were unchanged; no host
-sync, transaction, download or session change occurred, and owned fixtures were
-removed. This is resolution evidence only, not public delivery or runtime recovery.
-
-The follow-up diagnosis reproduced a downstream interface defect: the new mirror
-directory `src-${repo}-${i}-mirror` violates the unchanged package-output path
-predicate, so a successful mirror build is discarded before archive verification.
-The local one-line correction uses `src-${repo}-mirror-${i}` within the existing
-path contract. No safety predicate, pin, archive check or containment boundary is
-relaxed. The transport regression now feeds its actually selected directory into
-the production output predicate, with six additional malformed-path negatives.
-The regression failed on the old implementation and passed after the correction;
-independent review found no material issue. `PYTHONDONTWRITEBYTECODE=1 bash
-tests/source-tests.sh` passed, including full repository namespaces, ten scenarios,
-signer PASS, exact 14/18 closures and no deferrals; log SHA-256
-`7e5f7d66e8918d6fcc6f32808bcbecbd9e72760a36c4f00a148a4a3ca1c7ea79`.
-Release run 37909100627 is cancelled; interrupted or unrun scenarios establish no
-acceptance. After cleanup, the runner had zero project QEMU processes, zero current
-evidence runs and zero active private-Docker containers. The exact owned observer
-was stopped after verifying its command identity. The corrected source needs a
-new protected candidate and fresh build/signature/VM/publication evidence.
-
-[PR #73](https://github.com/snaplyze/arch-linux/pull/73) passed exact-head
-[CI 37913814911](https://github.com/snaplyze/arch-linux/actions/runs/37913814911)
-and merged through the protected squash path. Accepted head
-`5ea2c38078a447fd56866bcb4e536c9e29f338fd` and main
-`cadd63d6b9191e928182f70d3cd2aa1cffffcb36` share tree
-`ef4b7a2376a5c7600a515715eb1c0b9a7b8fe127` and canonical source SHA-256
-`ed99ddbc6de359d8b27ff8b079989f2f5863d41def6a2d80b7a3c6845af46f1b`.
-The sole checkout returned to main by fast-forward.
-[Main CI 37914195356](https://github.com/snaplyze/arch-linux/actions/runs/37914195356)
-passed and triggered [Release 37914520768](https://github.com/snaplyze/arch-linux/actions/runs/37914520768).
-Independent source transport and deterministic transformation checks passed for
-new child `35ff8df8951a4e0a7d9f2e8a70c68027573ee62a`; generated README /
-installation instructions pin 1.0.7, and refs/index/dirty documents were preserved.
-The fresh seven-package build and independent unsigned transport/closure/schema-2
-source binding and production package validators passed. The verified read-only
-exact-child source export was removed afterward. Protected unsigned readback and
-Phase-A signing also passed. Independent readback verified all fourteen assets,
-twelve signed manifest rows, three detached signatures and twenty-five repository
-objects against this child. Fresh Minimal TTY passed fourteen assertions and
-independent strict evidence consumption. Stock LUKS/GRUB subsequently passed all
-22 runtime assertions, including password login, lock/unlock, update and reboot.
-Passive readback also observed both corrected Plymouth/Bibata mirror paths.
-However, independent strict evidence consumption rejected its newly emitted
-`repository-runtime.sha256`; direct identity verification separately rejected the
-Stock `repository_server_port` row. Those boundaries still assume only Marble
-uses the signed repository, while the current Stock producer also does. A focused
-consumer/fixture correction now requires the exact runtime file, port and four
-ordered nonzero hash rows for both graphical profiles. Marble-only migration
-evidence stays separate; Minimal still rejects repository-runtime extras.
-Three focused regressions failed before the production correction and passed
-after it. All 28 Actions release checks, static checks and the complete source
-suite passed, including full repository namespaces, ten scenarios, signer PASS,
-exact 14/18 closures and no deferrals. Independent review found no material issue.
-The actual retained Stock artifact now passes the corrected full consumer as a
-debug replay; this does not change the old candidate's rejection or transfer VM
-acceptance to a new source child. The affected root publication fixture was also
-updated; its fresh privileged execution remains a required downstream gate.
-Marble subsequently passed installation, encrypted unlock and the initial GDM
-prelogin checks, then failed during `legacy-login` after installing the signed
-legacy profile/GTK3 packages. Runtime line 3861/status 1 maps through the ten-line
-QGA prefix to the old unconditional Colloid GTK-theme assertion. The exact signed
-1.0.3 profile supports only GNOME 50 and deactivates its alias/defaults on 51;
-the actual returned GTK value was not retained. The corrected baseline requires
-Colloid on 50, or Adwaita plus absent project alias/defaults on 51, and rejects
-unknown majors. Real GDM/Wayland, UID, package and GTK4 absence checks remain.
-Three executed regressions reproduced five failing old-code cases; a subsequent
-negative caught an errexit exemption for existing activation files, corrected
-with an explicit return. All three focused regressions, all 134 guest runtime
-tests and the full source suite now pass. Independent review found no material
-issue. Protected candidate delivery and fresh downstream acceptance remain
-required before publication of a new release child.
-None of the later migration/extension VM checks passed.
-Release 37914520768 is cancelled before finalization/publication. Cleanup readback
-found zero project QEMU processes, current evidence runs and active private-Docker
-containers; the exact owned observer was stopped after command-identity checking.
-Finalization/publication/public VM gates remain open. Runtime PASS is not
-strict-consumer or publication PASS.
-No previous child PASS transfers. Exact identities are in validation.
+Failed preparations, cancelled children and focused corrections remain under their
+original identities in validation: the
+[initial pre-signing attempt](validation.md#prepared-release-107--failed-pre-signing-attempt)
+and subsequent preparation records, the
+[harness-order correction](validation.md#unpublished-release-107--harness-order-correction),
+[pre-freeze documentation correction](validation.md#prepared-release-107--pre-freeze-documentation-correction),
+and [mirror/consumer/legacy-baseline corrections](validation.md#mirror-build-output-correction).
+The most recent fixes align Stock's strict evidence consumer with its signed
+repository and require the real legacy 1.0.3 GTK fallback on GNOME 51. They retain
+all session, package, signature and migration checks. Final source/review and
+guest-runtime source regressions passed; real VM acceptance above remains separate.
 
 ## Local runner migration — 2026-10-08
 

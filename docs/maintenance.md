@@ -2,6 +2,14 @@
 
 Maintenance detects drift; it does not change source, accepted hashes, pins, keys or releases.
 
+For installer AUR recipes, keep `aur.archlinux.org` as the primary Git source.
+After a clone failure, the installer may use the
+[official Arch GitHub mirror](https://archlinux.org/news/recent-services-outages/)
+in a separate unprivileged attempt directory. Both transports must pass the same
+pinned commit, archive and `.SRCINFO` hash checks before a recipe runs. Mirror
+availability never authorizes newer or different bytes. When AUR recovers, normal
+primary-first attempts resume automatically; no source-pin change is required.
+
 ## Preparing a GNOME update
 
 Start with the current Arch Shell, Mutter, GDM, GTK and libadwaita package versions
@@ -33,6 +41,14 @@ port require their own functional acceptance. Future GNOME/GTK/libadwaita versio
 need fresh qualification and signed delivery; a normal full update alone does not
 establish compatibility for unknown inputs. Current exact acceptance and delivery
 results belong in [validation](validation.md) and the signed release acceptance.
+
+After the applicable real-session and delivery checks pass, deliberately reconcile
+the advisory `acceptedVersion`/`acceptedMajor` observations with those results.
+These comparison values are separate from the profile's supported-platform list
+and immutable source pins. Do not advance an untested variant or refresh old AUR
+inputs used to reproduce the previous installation. Record the reviewed baseline
+change and run the source checks and advisory again; the monitor never makes it
+automatically.
 
 The [dated audit snapshot and registry](PLAN.md#current-arch-context) distinguish observed drift
 from accepted inputs and reviewed no-update decisions. Reports record UTC observation time,
