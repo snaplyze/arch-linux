@@ -196,6 +196,7 @@ jobs:
         working-directory: /opt/arch-linux-canonical
         run: |
           set -euo pipefail
+          umask 022
           useradd --create-home --shell /bin/bash release-checker
           checker_home="$(getent passwd release-checker | cut -d: -f6)"
           test -n "${checker_home}"
