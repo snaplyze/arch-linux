@@ -623,8 +623,9 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 
-UNITS = ("org.gnome.Shell@wayland.service", "org.gnome.Shell-disable-extensions.service")
+UNITS = ("org.gnome.Shell@user.service", "org.gnome.Shell-disable-extensions.service")
 RESULTS = {"success", "exit-code", "signal", "core-dump", "timeout", "watchdog", "oom-kill",
            "start-limit-hit", "resources", "protocol", "exec-condition", "skipped"}
 EVENTS = {"39f53479d3a045ac8e11786248231fbf": "started",
@@ -667,6 +668,11 @@ def diagnose(uid, gid, run_id, phase, checkpoint, account="vmtest"):
             or checkpoint not in {"migrated-login", "before-original-user-logout", "extension-timeout"}):
         return
     prefix = f"GNOME_SHELL_DIAGNOSTIC run_id={run_id} phase={phase} checkpoint={checkpoint}"
+    checkpoint_time = "unknown"
+    try:
+        checkpoint_time = number(str(time.monotonic_ns() // 1000))
+    except Exception:
+        pass
     user = ["/usr/bin/setpriv", f"--reuid={uid}", f"--regid={gid}", "--init-groups", "/usr/bin/env",
             f"HOME=/home/{account}", f"USER={account}", f"LOGNAME={account}",
             f"XDG_RUNTIME_DIR=/run/user/{uid}", f"DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{uid}/bus"]
@@ -705,7 +711,7 @@ def diagnose(uid, gid, run_id, phase, checkpoint, account="vmtest"):
             os.close(fd)
     except OSError:
         pass
-    print(f"{prefix} disabled_user_extensions={disabled} early_sentinel={sentinel} recovery_unit_sha256={digest}", file=sys.stderr)
+    print(f"{prefix} disabled_user_extensions={disabled} early_sentinel={sentinel} recovery_unit_sha256={digest} checkpoint_monotonic_us={checkpoint_time}", file=sys.stderr)
     for unit in UNITS:
         raw = query(user + ["/usr/bin/systemctl", "--user", "show", unit,
                            "--property=LoadState,Result,ExecMainCode,ExecMainStatus,ExecMainStartTimestampMonotonic,InvocationID"], 4096)
@@ -736,7 +742,7 @@ def diagnose(uid, gid, run_id, phase, checkpoint, account="vmtest"):
     # Current boot includes the migration and original-user logout. Query only these public
     # units for this UID; retain no messages, paths, command lines or unknown identifiers.
     args = ["/usr/bin/journalctl", "--boot=0", "--no-pager", "--lines=129", "--output=json",
-            "--output-fields=USER_UNIT,_SYSTEMD_USER_UNIT,MESSAGE_ID,UNIT_RESULT,EXIT_CODE,EXIT_STATUS"]
+            "--output-fields=USER_UNIT,_SYSTEMD_USER_UNIT,MESSAGE_ID,UNIT_RESULT,EXIT_CODE,EXIT_STATUS,__MONOTONIC_TIMESTAMP"]
     for unit in UNITS:
         for field in ("USER_UNIT", "_SYSTEMD_USER_UNIT"):
             if args[-1].startswith(("USER_UNIT=", "_SYSTEMD_USER_UNIT=")):
@@ -746,6 +752,7 @@ def diagnose(uid, gid, run_id, phase, checkpoint, account="vmtest"):
     query_state = "unknown"
     counts = dict.fromkeys(("records", "stop_events", "failure_events", "killed_events", "timeout_events", "unclassified_events"), "unknown")
     recovery = "unknown"
+    timeline = []
     try:
         if raw is None:
             raise ValueError("query unavailable")
@@ -765,12 +772,21 @@ def diagnose(uid, gid, run_id, phase, checkpoint, account="vmtest"):
                 raise ValueError("invalid exit code")
             if record.get("EXIT_STATUS") and number(record["EXIT_STATUS"], 255) == "unknown":
                 raise ValueError("invalid exit status")
-            typed.append((unit, EVENTS.get(record.get("MESSAGE_ID")), record))
+            timestamp = number(record.get("__MONOTONIC_TIMESTAMP"))
+            if timestamp == "unknown":
+                raise ValueError("invalid monotonic timestamp")
+            typed.append((unit, EVENTS.get(record.get("MESSAGE_ID")), record, timestamp))
         counts = dict.fromkeys(counts, 0)
         counts["records"] = len(typed)
         recovery = "no"
-        for unit, event, record in typed:
+        for unit, event, record, timestamp in sorted(typed, key=lambda item: int(item[3])):
             counts["unclassified_events"] += event is None
+            if event is not None:
+                # Emit only typed fields after the entire bounded window validates.
+                result = record.get("UNIT_RESULT") or "unknown"
+                code = record.get("EXIT_CODE") or "unknown"
+                status = number(record.get("EXIT_STATUS"), 255)
+                timeline.append(f"{prefix} unit={unit} journal_event={event} result={result} exit_code={code} exit_status={status} event_monotonic_us={timestamp}")
             if unit == UNITS[1] and event == "started":
                 recovery = "yes"
             if unit == UNITS[0]:
@@ -783,6 +799,9 @@ def diagnose(uid, gid, run_id, phase, checkpoint, account="vmtest"):
         pass
     values = " ".join(f"{key}={value}" for key, value in counts.items())
     print(f"{prefix} journal_scope=current-boot journal_query={query_state} {values} recovery_started={recovery}", file=sys.stderr)
+    if query_state == "ok":
+        for event in timeline:
+            print(event, file=sys.stderr)
 
 if __name__ == "__main__":
     try:

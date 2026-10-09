@@ -16,7 +16,7 @@ publication. Exact historical attempts and evidence belong in
 | G51-02 | Prepare reviewed package/extension upgrade paths, preserve user overrides and safe unsupported-version handling; reproduce failures before fixes and test recovery. | Source delivered; current signed build PASS; real GNOME upgrade acceptance pending |
 | G51-03 | Correct deterministic release documentation rendering; test independently differing source/document/release versions and preserve historical evidence. | DONE: overview/bootstrap/changelog rendering and 52 regressions PASS |
 | G51-04 | Update agent, update/release and user documentation with package delivery and real upgrade acceptance requirements. | Candidate instructions delivered; final publication reconciliation pending |
-| G51-05 | Independent diff review, affected checks and full source suite; record package, real session/VM and publication results separately. | Current child build/signing PASS; Stock unlock and Marble upgrade FAIL retained; focused HTTP correction/regressions/native ALPM/source suite/review PASS; protected delivery and fresh acceptance pending |
+| G51-05 | Independent diff review, affected checks and full source suite; record package, real session/VM and publication results separately. | HTTP correction/regressions/native ALPM/source suite/review and protected delivery PASS; fresh child/build/VM/publication acceptance pending; previous failed/cancelled results retained |
 
 ### Confirmed cause and delivery design
 
@@ -61,11 +61,31 @@ commands/results keep their identities; old tags and assets are never rewritten.
 
 ### Current checkpoint and remaining gates
 
-[PR75](https://github.com/snaplyze/arch-linux/pull/75) passed exact-head CI and the
-protected squash merge. Main is `322e3318768db8634083b9684d5ac4c212e58572`;
-main CI 37942859021 passed, and
+[PR76](https://github.com/snaplyze/arch-linux/pull/76) passed exact-head CI and the
+protected squash merge at 15:50 UTC. Main is
+`0d6b246cd5e6fb3cde8818be33d70bc6d32e8392`; main CI 37954693122 passed.
+[Release 37955123850](https://github.com/snaplyze/arch-linux/actions/runs/37955123850)
+prepared child `00d97e3ee254cee318b8bce7c51ebbf3e64c2c95`. Independent source
+transport and deterministic transformation verification passed; immutable README
+and bootstrap examples pin 1.0.7. The clean seven-package build and protected
+unsigned readback passed; independent metadata/payload/MTREE verification also
+passed. All five release-host gates, Phase-A signing and independent signed-closure
+readback passed. Fresh staged Minimal passed all fourteen assertions and core
+Stock passed all twenty-two; both frozen strict consumers passed. Core Marble
+failed at the return-user login after the fresh-user round trip: all eight
+extensions were initialized but globally disabled, and upstream recovery started.
+The observer wrongly queried `org.gnome.Shell@wayland.service`; both reviewed
+GNOME 50 and 51 run `org.gnome.Shell@user.service`. Its zero failure counts do not
+exclude a real Shell failure. The focused observer/timestamp correction passed
+145 runtime checks, seventeen lifecycle fixtures, independent review and both
+initial/documented full source runs. Protected delivery and fresh VM diagnosis
+remain pending; the exact product cause is not established. Supplemental Stock
+ext4 also passed all twenty-one assertions. The unpublished run was cancelled:
+three PASS, one FAIL and five cancelled scenarios. Finalization/publication did
+not run. No result transfers to the changed diagnostic candidate.
+The preceding
 [Release 37943281539](https://github.com/snaplyze/arch-linux/actions/runs/37943281539)
-tested child `cd436147e2d4ce7b9886c62004fcfd9a520af915` for 1.0.7.
+tested child `cd436147e2d4ce7b9886c62004fcfd9a520af915` for 1.0.7 after PR75.
 Its source transport/deterministic transformation, clean build and protected
 unsigned readback passed. Independent seven-package metadata/payload/MTREE
 verification also passed. All five release-host gates and Phase-A signing passed;
@@ -85,7 +105,7 @@ returned HTTP 304 across the fixture repository switch. The focused test-only
 HTTP correction ignores conditional dates and omits Last-Modified while retaining
 plain `-Syu`, TLS and strict trust. Two real `curl -z` regressions, all 140 runtime
 checks, independent native ALPM over TLS, review and the full source suite passed.
-Deliver through protected main and bind fresh acceptance to the corrected child.
+Protected delivery is complete; bind fresh acceptance to the corrected child.
 The superseded unpublished run was cancelled after verification. Minimal and
 supplemental Stock ext4 passed; core Stock and core Marble failed as recorded
 above. Five unfinished supplemental scenarios were cancelled. No result transfers
@@ -112,8 +132,8 @@ and none of the preceding child's VM results transfers to the corrected child.
 
 Remaining sequence:
 
-1. Deliver the reviewed conditional-HTTP correction and complete fresh staged
-   acceptance, retaining the earlier prerequisite and input-producer fixes. Preserve
+1. Complete fresh staged acceptance of the delivered conditional-HTTP correction,
+   retaining the earlier prerequisite and input-producer fixes. Preserve
    all failed attempts and distinguish their inputs from any changed-source
    candidate. The early readiness failure did not recur and its exact cause remains
    unproven. Finish all nine staged scenarios on the
