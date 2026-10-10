@@ -78,6 +78,10 @@ serial_bridge_pid=''
 serial_bridge_input_fd=''
 serial_credential_deliveries=0
 current_phase='preflight'
+# Guest verification phase in flight; cleared on success so a later host failure is not attributed to it.
+guest_failure_phase=''
+guest_failure_stem=''
+guest_failure_status=''
 last_boot_id=''
 runtime_password=''
 repository_primary_fingerprint='-'
@@ -368,17 +372,27 @@ BOOT_DIAGNOSTIC_PY
 }
 
 capture_failure_diagnostic() {
-    # Classify privately before raw evidence is scrubbed; never retain commands or paths.
-    python3 - "${evidence}" "${run_id}" "${current_phase}" <<'FAILURE_DIAGNOSTIC_PY'
+    # Classify privately before raw evidence is scrubbed; never retain commands or paths. The
+    # failing guest phase is read from its own stderr; the credential reaches only the child
+    # environment so that no emitted row can carry it.
+    QEMU_RUNTIME_PASSWORD="${runtime_password:-}" python3 - "${evidence}" "${run_id}" "${current_phase}" \
+        "${guest_failure_phase:-}" "${guest_failure_stem:-}" "${guest_failure_status:-}" <<'FAILURE_DIAGNOSTIC_PY'
 import os
 from pathlib import Path
 import re
 import stat
 import sys
 
-root=Path(sys.argv[1]); run_id, phase=sys.argv[2:]
+root=Path(sys.argv[1]); run_id, phase, guest_phase, guest_stem, guest_status=sys.argv[2:]
+secret=os.environ.get("QEMU_RUNTIME_PASSWORD","")
 if not re.fullmatch(r"[A-Za-z0-9-]{1,80}",run_id) or not re.fullmatch(r"[a-z0-9-]{1,64}",phase):
     raise SystemExit(1)
+guest=guest_phase if phase!="install-archiso" and re.fullmatch(r"[a-z0-9-]{1,64}",guest_phase) else ""
+guest_status=guest_status if re.fullmatch(r"[0-9]{1,3}",guest_status) and int(guest_status)<=255 else "unknown"
+suffix=f" guest_phase={guest}" if guest else ""
+token=r"([a-z0-9-]{1,64})"; flag=r"(yes|no|unknown)"
+extension_fail=re.compile(f"EXTENSION_FUNCTIONAL_FAIL phase={token} feature={token} stage={token} reason={token}")
+extension_probe=re.compile("EXTENSION_PROBE_DIAGNOSTIC phase={t} process={f} activated={f} mapped={f} focused={f} desktop_gio={f} desktop_exec={f} favorite_first={f} reason={t}".format(t=token,f=flag))
 classes=(
     ("package-missing", r"error: target not found:|could not find all required packages|could not resolve all dependencies"),
     ("download", r"failed retrieving file|failed to download|Could not resolve host|Connection timed out|The requested URL returned error|fatal: unable to access|TLS connect error|GnuTLS, handshake failed|unexpected eof while reading|TLS connection was non-properly terminated"),
@@ -390,10 +404,21 @@ classes=(
 records=[]
 def identity(info):
     return tuple(getattr(info,name) for name in ("st_dev","st_ino","st_mode","st_uid","st_gid","st_nlink","st_size","st_mtime_ns","st_ctime_ns"))
-def add(script,reason,line="unknown",status="unknown"):
-    row=f"QEMU_FAILURE_DIAGNOSTIC run_id={run_id} phase={phase} script={script} reason={reason} line={line} status={status}"
+def emit(row):
+    if secret and secret in row:return
     if row not in records and len(records)<32 and sum(len(x)+1 for x in records)+len(row)+1<=4096:records.append(row)
-paths=[root/"install-installer.log",root/"install-serial.log"] if phase=="install-archiso" else sorted(root.glob("*.stderr"))[-32:]
+def add(script,reason,line="unknown",status="unknown"):
+    emit(f"QEMU_FAILURE_DIAGNOSTIC run_id={run_id} phase={phase} script={script} reason={reason} line={line} status={status}{suffix}")
+def event(name,fields):
+    emit(f"QEMU_FAILURE_DIAGNOSTIC run_id={run_id} phase={phase} script=guest event={name} "+" ".join(f"{key}={value}" for key,value in fields)+suffix)
+if phase=="install-archiso":
+    paths=[root/"install-installer.log",root/"install-serial.log"]
+elif guest:
+    add("guest","guest-phase-failed",status=guest_status)
+    paths=[root/(guest_stem+".stderr")] if re.fullmatch(r"[a-z0-9-]{1,128}",guest_stem) else []
+else:
+    paths=sorted(root.glob("*.stderr"))[-32:]
+base=len(records)
 for path in paths:
     try:
         fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
@@ -422,10 +447,14 @@ for path in paths:
         else:
             match=re.fullmatch(r"(?:MINIMAL|STOCK|BTRFS|GRUB|LUKS|LUKSGRUB|MARBLE|MARBLESTOCK)_QEMU_GUEST_FAIL phase=[a-z0-9-]{1,64} line=([1-9][0-9]{0,6}) status=([1-9][0-9]{0,2}) command=.*",line)
             if match and int(match[2])<=255:add("guest","script-error",match[1],match[2])
+            match=extension_fail.fullmatch(line)
+            if match:event("EXTENSION_FUNCTIONAL_FAIL",zip(("round","feature","stage","reason"),match.groups()))
+            match=extension_probe.fullmatch(line)
+            if match:event("EXTENSION_PROBE_DIAGNOSTIC",zip(("round","process","activated","mapped","focused","desktop_gio","desktop_exec","favorite_first","reason"),match.groups()))
             if "syntax error" in line:
                 match=re.search(r"line ([1-9][0-9]{0,6}):",line)
                 add("guest","shell-syntax",match[1] if match else "unknown")
-if not records:add("installer" if phase=="install-archiso" else "guest","unclassified")
+if len(records)==base:add("installer" if phase=="install-archiso" else "guest","unclassified")
 text="\n".join(records)+"\n"
 assert len(text.encode())<=4096
 with (root/"failure-diagnostic.txt").open("x",encoding="ascii") as target:target.write(text)
@@ -2027,6 +2056,7 @@ qga_verify() {
     local request start guest_pid status_request status_response=''
     local stdout_file stderr_file attempts=900 upgrade_contract='' probe_contract='' probe_hash='-' desktop_contract='' source_name source_bytes source_hash
     emit_phase_progress "${phase}" begin
+    guest_failure_phase="${phase}" guest_failure_stem="${stem}" guest_failure_status=unknown
     if [ "${gnome51_upgrade_manifest_sha256}" != - ]; then
         upgrade_contract="$(base64 -w0 -- "${evidence}/gnome51-upgrade-manifest.json")" || return 1
     fi
@@ -2110,10 +2140,13 @@ qga_verify() {
     stderr_file="${evidence}/${stem}.stderr"
     jq -r '.return["out-data"] // ""' <<<"${status_response}" | base64 --decode >"${stdout_file}" || return 1
     jq -r '.return["err-data"] // ""' <<<"${status_response}" | base64 --decode >"${stderr_file}" || return 1
+    guest_failure_status="$(jq -r 'if .return.exited == true and (.return.exitcode | type) == "number" and
+        .return.exitcode >= 0 and .return.exitcode <= 255 then .return.exitcode | floor else "unknown" end' \
+        <<<"${status_response}")" || guest_failure_status=unknown
     jq -e '.return.exited == true and .return.exitcode == 0 and
         (.return["out-truncated"] // false) == false and
         (.return["err-truncated"] // false) == false' <<<"${status_response}" >/dev/null ||
-        { die "guest verification failed: ${phase}"; return 1; }
+        { die "guest verification failed: ${phase} exit=${guest_failure_status}"; return 1; }
     if [ -s "${stderr_file}" ]; then
         printf 'QEMU_DIAGNOSTIC_WARNING: successful guest check wrote stderr: %s\n' "${phase}" >&2
     fi
@@ -2127,6 +2160,7 @@ qga_verify() {
     if [ "${input_mode}" = public ] && { [ "${phase}" = prelogin ] || [ "${phase}" = firstboot ]; }; then
         capture_public_repository_evidence "${stdout_file}" || return 1
     fi
+    guest_failure_phase='' guest_failure_stem='' guest_failure_status=''
     emit_phase_progress "${phase}" end
 }
 

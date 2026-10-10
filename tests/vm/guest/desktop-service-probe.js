@@ -15,6 +15,14 @@ function validConnection(connection) {
     return connection instanceof Gio.DBusConnection && !connection.is_closed() &&
         /^:\d+\.\d+$/.test(connection.get_unique_name() ?? '');
 }
+// Optional test-only shortening of the call and observation limits. Callers that omit the
+// fields keep the defaults; a value above its default or a non-integer is malformed input.
+function timing(options) {
+    const {callMs = CALL_MS, waitMs = WAIT_MS} = options;
+    if (!Number.isInteger(callMs) || callMs < 1 || callMs > CALL_MS ||
+        !Number.isInteger(waitMs) || waitMs < 1 || waitMs > WAIT_MS) return null;
+    return {callMs, waitMs};
+}
 function deadline(milliseconds) {
     const cancellable = new Gio.Cancellable();
     const timer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, milliseconds, () => {
@@ -23,20 +31,20 @@ function deadline(milliseconds) {
     });
     return {cancellable, clear() { GLib.source_remove(timer); }};
 }
-function call(connection, destination, path, iface, method, params, type, cancellable) {
+function call(connection, destination, path, iface, method, params, type, cancellable, callMs = CALL_MS) {
     return new Promise((resolve, reject) => connection.call(destination, path, iface, method,
-        params, new GLib.VariantType(type), Gio.DBusCallFlags.NO_AUTO_START, CALL_MS,
+        params, new GLib.VariantType(type), Gio.DBusCallFlags.NO_AUTO_START, callMs,
         cancellable, (c, result) => {
             try { resolve(c.call_finish(result)); } catch (error) { reject(error); }
         }));
 }
-async function busCall(connection, method, params, type, cancellable) {
+async function busCall(connection, method, params, type, cancellable, callMs) {
     return call(connection, 'org.freedesktop.DBus', '/org/freedesktop/DBus',
-        'org.freedesktop.DBus', method, params, type, cancellable);
+        'org.freedesktop.DBus', method, params, type, cancellable, callMs);
 }
-async function owner(connection, name, cancellable) {
+async function owner(connection, name, cancellable, callMs) {
     const [value] = (await busCall(connection, 'GetNameOwner',
-        new GLib.Variant('(s)', [name]), '(s)', cancellable)).deep_unpack();
+        new GLib.Variant('(s)', [name]), '(s)', cancellable, callMs)).deep_unpack();
     if (!/^:\d+\.\d+$/.test(value)) throw new Error('Invalid owner');
     return value;
 }
@@ -54,24 +62,26 @@ export async function observeCaffeineInhibitor(connection, options = {}) {
     const failure = {status: 'failure', count: 0, matchingCount: 0};
     if (!options || typeof options !== 'object' || Array.isArray(options)) return failure;
     const {expectedFlags} = options;
-    if (!validConnection(connection) || ![4, 8].includes(expectedFlags)) return failure;
+    const limits = timing(options);
+    if (!limits || !validConnection(connection) || ![4, 8].includes(expectedFlags)) return failure;
+    const {callMs} = limits;
     const budget = deadline(5000);
     try {
-        const service = await owner(connection, SESSION, budget.cancellable);
+        const service = await owner(connection, SESSION, budget.cancellable, callMs);
         const [raw] = (await call(connection, service, '/org/gnome/SessionManager', SESSION,
-            'GetInhibitors', null, '(ao)', budget.cancellable)).deep_unpack();
+            'GetInhibitors', null, '(ao)', budget.cancellable, callMs)).deep_unpack();
         const paths = boundedStrings(raw, true);
         let matchingCount = 0;
         for (const path of paths) {
             const values = await Promise.all([
                 ['GetAppId', '(s)'], ['GetReason', '(s)'], ['GetFlags', '(u)'],
             ].map(async ([method, type]) => (await call(connection, service, path,
-                `${SESSION}.Inhibitor`, method, null, type, budget.cancellable)).deep_unpack()[0]));
+                `${SESSION}.Inhibitor`, method, null, type, budget.cancellable, callMs)).deep_unpack()[0]));
             if (values[0] === 'caffeine-gnome-extension' &&
                 values[1] === 'Inhibited by Caffeine GNOME extension' && values[2] === expectedFlags)
                 matchingCount++;
         }
-        if (await owner(connection, SESSION, budget.cancellable) !== service)
+        if (await owner(connection, SESSION, budget.cancellable, callMs) !== service)
             throw new Error('Service changed');
         return {status: matchingCount ? 'found' : 'not-found', count: paths.length, matchingCount};
     } catch {
@@ -132,16 +142,16 @@ function delay(milliseconds) {
         resolve(); return GLib.SOURCE_REMOVE;
     }));
 }
-async function waitForEntry(connection, service, entry, seen, present, cancellable) {
-    const until = GLib.get_monotonic_time() + WAIT_MS * 1000;
+async function waitForEntry(connection, service, entry, seen, present, cancellable, limits) {
+    const until = GLib.get_monotonic_time() + limits.waitMs * 1000;
     do {
         const [variant] = (await call(connection, service, WATCHER_PATH,
             'org.freedesktop.DBus.Properties', 'Get',
-            new GLib.Variant('(ss)', [WATCHER, 'RegisteredStatusNotifierItems']), '(v)', cancellable)).deep_unpack();
+            new GLib.Variant('(ss)', [WATCHER, 'RegisteredStatusNotifierItems']), '(v)', cancellable, limits.callMs)).deep_unpack();
         if (variant.get_type_string() !== 'as') throw new Error('Invalid property');
         const items = boundedStrings(variant.deep_unpack());
         if (seen() && items.includes(entry) === present &&
-            await owner(connection, WATCHER, cancellable) === service)
+            await owner(connection, WATCHER, cancellable, limits.callMs) === service)
             return true;
         await delay(100);
     } while (!cancellable.is_cancelled() && GLib.get_monotonic_time() < until);
@@ -157,9 +167,10 @@ export async function registerSyntheticStatusNotifierItem(connection, options = 
         close: async () => ({status: 'failure', absent: false, signal: false})});
     if (!options || typeof options !== 'object' || Array.isArray(options)) return failedControl();
     const {id, iconName} = options;
-    if (!validConnection(connection) || typeof id !== 'string' || !/^[a-zA-Z0-9-]{1,64}$/.test(id) ||
+    const limits = timing(options);
+    if (!limits || !validConnection(connection) || typeof id !== 'string' || !/^[a-zA-Z0-9-]{1,64}$/.test(id) ||
         typeof iconName !== 'string' || !/^[a-zA-Z0-9-]{1,96}$/.test(iconName)) return failedControl();
-    const budget = deadline(WAIT_MS + 2500);
+    const budget = deadline(limits.waitMs + 2500);
     let itemConnection = null, exported = null, registered = false, removed = false;
     let registrationSubscription = 0, removalSubscription = 0;
     let closeResult = null;
@@ -175,11 +186,11 @@ export async function registerSyntheticStatusNotifierItem(connection, options = 
         return closed;
     };
     try {
-        const service = await owner(connection, WATCHER, budget.cancellable);
+        const service = await owner(connection, WATCHER, budget.cancellable, limits.callMs);
         itemConnection = await privateConnection(budget.cancellable);
         itemConnection.set_exit_on_close(false);
         const [expectedBus, actualBus] = await Promise.all([connection, itemConnection].map(async c =>
-            (await busCall(c, 'GetId', null, '(s)', budget.cancellable)).deep_unpack()[0]));
+            (await busCall(c, 'GetId', null, '(s)', budget.cancellable, limits.callMs)).deep_unpack()[0]));
         if (expectedBus !== actualBus) throw new Error('Wrong bus');
         const entry = `${itemConnection.get_unique_name()}${ITEM_PATH}`;
         exported = Gio.DBusExportedObject.wrapJSObject(ITEM_XML, {
@@ -200,18 +211,18 @@ export async function registerSyntheticStatusNotifierItem(connection, options = 
         registrationSubscription = subscribe('StatusNotifierItemRegistered', () => { registered = true; });
         removalSubscription = subscribe('StatusNotifierItemUnregistered', () => { removed = true; });
         await call(itemConnection, service, WATCHER_PATH, WATCHER, 'RegisterStatusNotifierItem',
-            new GLib.Variant('(s)', [entry]), '()', budget.cancellable);
-        if (!await waitForEntry(connection, service, entry, () => registered, true, budget.cancellable))
+            new GLib.Variant('(s)', [entry]), '()', budget.cancellable, limits.callMs);
+        if (!await waitForEntry(connection, service, entry, () => registered, true, budget.cancellable, limits))
             throw new Error('Registration not observed');
         return {
             observation: {status: 'registered', registered: true, signal: true},
             async close() {
                 if (closeResult) return closeResult;
-                const removalBudget = deadline(WAIT_MS + 2500);
+                const removalBudget = deadline(limits.waitMs + 2500);
                 try {
                     if (!await closeConnection(itemConnection)) throw new Error('Close failed');
                     const absent = await waitForEntry(connection, service, entry,
-                        () => removed, false, removalBudget.cancellable);
+                        () => removed, false, removalBudget.cancellable, limits);
                     closeResult = {status: absent ? 'unregistered' : 'failure', absent, signal: removed};
                 } catch {
                     closeResult = {status: 'failure', absent: false, signal: false};

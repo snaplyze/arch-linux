@@ -5,6 +5,8 @@ import GLib from 'gi://GLib';
 if (!GLib.getenv('DESKTOP_SERVICE_PROBE_PRIVATE_BUS'))
     throw new Error('Use DESKTOP_SERVICE_PROBE_PRIVATE_BUS=1 dbus-run-session -- gjs -m tests/vm/desktop-service-probe-checks.js');
 const probe = await import('./guest/desktop-service-probe.js');
+// Failure paths wait for the probe's real limits; shorten them for this check only.
+const FAST = {callMs: 500, waitMs: 2000};
 const connection = Gio.bus_get_sync(Gio.BusType.SESSION, null);
 let checks = 0;
 function check(value, name) {
@@ -86,7 +88,7 @@ function noLeak(result) {
 try {
     for (const flag of [8, 4]) {
         flags = flag;
-        const result = await probe.observeCaffeineInhibitor(connection, {expectedFlags: flag});
+        const result = await probe.observeCaffeineInhibitor(connection, {expectedFlags: flag, ...FAST});
         check(result.status === 'found' && result.matchingCount === 1, 'exact Caffeine inhibitor found');
     }
     flags = 8;
@@ -95,24 +97,32 @@ try {
         reason = mutation === 'foreign-reason' ? 'PRIVATE_SENTINEL' : 'Inhibited by Caffeine GNOME extension';
         flags = mutation === 'wrong-flags' ? 4 : 8;
         inhibitors = mutation === 'empty' ? [] : mutation === 'too-many' ? Array(129).fill('/org/gnome/SessionManager/Inhibitor1') : mutation === 'duplicate' ? Array(2).fill('/org/gnome/SessionManager/Inhibitor1') : mutation === 'unknown-path' ? ['/org/gnome/SessionManager/Missing'] : ['/org/gnome/SessionManager/Inhibitor1'];
-        const result = await probe.observeCaffeineInhibitor(connection, {expectedFlags: 8});
+        const result = await probe.observeCaffeineInhibitor(connection, {expectedFlags: 8, ...FAST});
         check(result.status === (['too-many', 'duplicate', 'unknown-path'].includes(mutation) ? 'failure' : 'not-found'), mutation);
         noLeak(result);
     }
-    check((await probe.observeCaffeineInhibitor(connection, {expectedFlags: 12})).status === 'failure', 'reject unsupported flags');
+    check((await probe.observeCaffeineInhibitor(connection, {expectedFlags: 12, ...FAST})).status === 'failure', 'reject unsupported flags');
     check((await probe.observeCaffeineInhibitor(connection, null)).status === 'failure', 'malformed Caffeine options rejected');
     const badControl = await probe.registerSyntheticStatusNotifierItem(connection, null);
     check(badControl.observation.status === 'failure', 'malformed item options rejected');
+    // The timing override may only shorten the shipped limits.
+    for (const bad of [{callMs: 1501}, {callMs: 0}, {callMs: 1.5}, {waitMs: 10001}, {waitMs: '5'}]) {
+        check((await probe.observeCaffeineInhibitor(connection, {expectedFlags: 8, ...bad})).status === 'failure',
+            `Caffeine timing override ${JSON.stringify(bad)} rejected`);
+        check((await probe.registerSyntheticStatusNotifierItem(connection,
+            {id: 'arch-linux-acceptance', iconName: 'utilities-terminal-symbolic', ...bad})).observation.status === 'failure',
+            `item timing override ${JSON.stringify(bad)} rejected`);
+    }
     hang = true;
     const before = GLib.get_monotonic_time();
-    check((await probe.observeCaffeineInhibitor(connection, {expectedFlags: 8})).status === 'failure', 'hung manager rejected');
+    check((await probe.observeCaffeineInhibitor(connection, {expectedFlags: 8, ...FAST})).status === 'failure', 'hung manager rejected');
     check(GLib.get_monotonic_time() - before < 4e6, 'hung manager bounded');
     hang = false;
     for (const testMode of ['normal', 'wrong-entry', 'missing-signal', 'reject', 'hang']) {
         mode = testMode;
         items = [':99.1/ForeignItem'];
         const control = await probe.registerSyntheticStatusNotifierItem(connection,
-            {id: 'arch-linux-acceptance', iconName: 'utilities-terminal-symbolic'});
+            {id: 'arch-linux-acceptance', iconName: 'utilities-terminal-symbolic', ...FAST});
         check(control.observation.status === (mode === 'normal' ? 'registered' : 'failure'), `registration ${mode}`);
         noLeak(control.observation);
         if (mode === 'normal') {
@@ -130,7 +140,7 @@ try {
     mode = 'normal';
     items = [':99.1/ForeignItem'];
     const removalControl = await probe.registerSyntheticStatusNotifierItem(connection,
-        {id: 'arch-linux-acceptance', iconName: 'utilities-terminal-symbolic'});
+        {id: 'arch-linux-acceptance', iconName: 'utilities-terminal-symbolic', ...FAST});
     check(removalControl.observation.status === 'registered', 'removal control registered');
     mode = 'missing-removal-signal';
     const removalResult = await removalControl.close();
@@ -150,7 +160,7 @@ try {
     malformedWatcher.export(connection, '/StatusNotifierWatcher');
     try {
         const malformedControl = await probe.registerSyntheticStatusNotifierItem(connection,
-            {id: 'arch-linux-acceptance', iconName: 'utilities-terminal-symbolic'});
+            {id: 'arch-linux-acceptance', iconName: 'utilities-terminal-symbolic', ...FAST});
         check(malformedControl.observation.status === 'failure', 'malformed property cannot prove registration');
         noLeak(malformedControl.observation);
         const [owned] = connection.call_sync('org.freedesktop.DBus', '/org/freedesktop/DBus', 'org.freedesktop.DBus',

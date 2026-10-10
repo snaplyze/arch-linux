@@ -9,6 +9,8 @@ import io
 import json
 from pathlib import Path
 import re
+import copy
+import shutil
 from unittest.mock import patch
 import subprocess
 import sys
@@ -23,7 +25,14 @@ ROOT = Path(__file__).resolve().parent.parent
 HELPER = ROOT / "repository/release-source.py"
 
 
-class ReleaseSourceChecks(unittest.TestCase):
+BASELINE_TEMPLATES: dict[tuple[bool, int], tuple[Path, str, dict]] = {}
+TEMPLATE_ROOT = tempfile.TemporaryDirectory(prefix="release-source-templates-")
+unittest.addModuleCleanup(TEMPLATE_ROOT.cleanup)
+
+
+class ReleaseSourceFixture:
+    """Shared fixture; a mixin so each check class runs only its own tests."""
+
     def setUp(self) -> None:
         self.assertTrue(HELPER.is_file(), "release source preparation helper is missing")
         spec = importlib.util.spec_from_file_location("release_source", HELPER)
@@ -77,6 +86,8 @@ class ReleaseSourceChecks(unittest.TestCase):
     def prepare(self, version: str = "1.0.2") -> dict[str, str]:
         return self.module.prepare(self.root, self.main, version, Path(self.temporary.name) / version)
 
+
+class ReleaseSourceChecks(ReleaseSourceFixture, unittest.TestCase):
     def test_child_is_deterministic_and_main_is_unchanged(self) -> None:
         first = self.prepare()
         second = self.module.prepare(self.root, self.main, "1.0.2", Path(self.temporary.name) / "retry")
@@ -412,8 +423,26 @@ class ReleaseSourceChecks(unittest.TestCase):
             self.prepare("1.0.4")
 
 
-class PackageSourceChecks(ReleaseSourceChecks):
+class PackageSourceChecks(ReleaseSourceFixture, unittest.TestCase):
     def baseline(self, with_snapshot=True, package_count=6):
+        # The frozen baseline is deterministic and expensive (a full release preparation).
+        # Build each variant once, then give every test its own copy so mutations stay isolated.
+        key = (with_snapshot, package_count)
+        work = Path(self.temporary.name)
+        if key not in BASELINE_TEMPLATES:
+            self.build_baseline(with_snapshot, package_count)
+            template = Path(TEMPLATE_ROOT.name) / f"baseline-{int(with_snapshot)}-{package_count}"
+            shutil.copytree(work, template, symlinks=True)
+            BASELINE_TEMPLATES[key] = (template, self.main, copy.deepcopy(self.intent))
+        else:
+            template, main, intent = BASELINE_TEMPLATES[key]
+            shutil.rmtree(work)
+            shutil.copytree(template, work, symlinks=True)
+            self.main, self.intent = main, copy.deepcopy(intent)
+            self.directory = work / "published"
+        return self.directory
+
+    def build_baseline(self, with_snapshot=True, package_count=6):
         # Frozen primary inputs; preserve historical six and current seven packages.
         names = ["arch-linux-keyring"] + [f"arch-linux-fixture-{i}" for i in range(package_count - 1)]
         for name in names[1:]:

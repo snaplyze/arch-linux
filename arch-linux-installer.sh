@@ -1945,6 +1945,38 @@ block_attribute() {
     printf '%s\n' "$value"
 }
 
+# Read several attributes of one node with a single lsblk call. The pairs output (-P) quotes each
+# value and encodes quotes, backslashes and control characters as \xNN, so a value can never
+# contain a bare quote and the fixed-order parse below is unambiguous. Values are whitespace
+# trimmed like block_attribute. The result is stored in the associative array named by $2;
+# any lsblk failure, empty answer or unexpected shape is a failure (status 1).
+block_node_properties() {
+    local node="$1" array_name="$2" line attribute value columns
+    local -a attributes=()
+    local -n block_properties_out="$array_name"
+    shift 2
+    for attribute in "$@"; do
+        case "$attribute" in
+        TYPE | PKNAME | SIZE | WWN | SERIAL | MODEL | PARTUUID | START | FSTYPE) attributes+=("$attribute") ;;
+        *) return 1 ;;
+        esac
+    done
+    [ "${#attributes[@]}" -gt 0 ] || return 1
+    columns="$(IFS=,; printf '%s' "${attributes[*]}")"
+    line="$(lsblk -bdnP -o "$columns" -- "$node" 2>/dev/null | head -n1)" || return 1
+    [ -n "$line" ] || return 1
+    block_properties_out=()
+    for attribute in "${attributes[@]}"; do
+        [[ "$line" =~ ^${attribute}=\"([^\"]*)\"\ ?(.*)$ ]] || return 1
+        value="${BASH_REMATCH[1]}"
+        line="${BASH_REMATCH[2]}"
+        value="${value#"${value%%[![:space:]]*}"}"
+        # shellcheck disable=SC2034  # filled through the nameref, consumed by the caller
+        block_properties_out["$attribute"]="${value%"${value##*[![:space:]]}"}"
+    done
+    [ -z "$line" ]
+}
+
 # A virtio backend may not expose model, serial or WWN. diskseq is allocated by the kernel for
 # this disk instance, while boot_id confines that fallback to the current live environment.
 block_disk_sequence() {
@@ -1997,19 +2029,25 @@ block_identity_field_is_safe() {
     [ -n "$value" ] && [[ "$value" =~ $field_re ]]
 }
 
+# Identity helpers distinguish two kinds of nonzero result:
+#   1 = structurally unidentifiable (empty card-reader slot, zram, a disk without model plus
+#       serial/WWN and without a recognised virtual backend, unsafe field, wrong node type). Such a
+#       node has no identity and can never equal a persisted one.
+#   2 = operational probe failure (node vanished, lsblk/attribute/sequence/boot-id probe failed).
+#       The state of the node is unknown, so callers must treat it as ambiguity.
+# Every caller treats any nonzero status as rejection; only block_identity_inventory looks at which.
 block_disk_identity() {
     local disk canonical size wwn serial model diskseq run_identity material
+    local -A props=()
 
     disk="$1"
-    canonical="$(block_canonical "$disk")" || return 1
-    block_exists "$canonical" && [ "$(block_type "$canonical")" = disk ] || return 1
-    size="$(block_attribute "$canonical" SIZE)" || return 1
-    wwn="$(block_attribute "$canonical" WWN)" || return 1
-    serial="$(block_attribute "$canonical" SERIAL)" || return 1
-    model="$(block_attribute "$canonical" MODEL)" || return 1
-    wwn="${wwn#"${wwn%%[![:space:]]*}"}" && wwn="${wwn%"${wwn##*[![:space:]]}"}"
-    serial="${serial#"${serial%%[![:space:]]*}"}" && serial="${serial%"${serial##*[![:space:]]}"}"
-    model="${model#"${model%%[![:space:]]*}"}" && model="${model%"${model##*[![:space:]]}"}"
+    canonical="$(block_canonical "$disk")" || return 2
+    block_exists "$canonical" || return 2
+    block_node_properties "$canonical" props TYPE SIZE WWN SERIAL MODEL || return 2
+    [ -n "${props[TYPE]}" ] || return 2
+    [ "${props[TYPE]}" = disk ] || return 1
+    size="${props[SIZE]}" wwn="${props[WWN]}" serial="${props[SERIAL]}" model="${props[MODEL]}"
+    [ -n "$size" ] || return 2
     [[ "$size" =~ ^[1-9][0-9]*$ ]] || return 1
     [ -z "$model" ] || block_identity_field_is_safe "$model" || return 1
     if [ -n "$wwn" ]; then
@@ -2021,10 +2059,10 @@ block_disk_identity() {
             "$size" "$wwn" "$serial" "$model"
     else
         block_virtual_backend_is_recognized "$canonical" || return 1
-        diskseq="$(block_disk_sequence "$canonical")" || return 1
-        run_identity="$(block_virtual_run_identity)" || return 1
-        [[ "$diskseq" =~ ^[1-9][0-9]*$ ]] || return 1
-        [[ "$run_identity" =~ ^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$ ]] || return 1
+        diskseq="$(block_disk_sequence "$canonical")" || return 2
+        run_identity="$(block_virtual_run_identity)" || return 2
+        [[ "$diskseq" =~ ^[1-9][0-9]*$ ]] || return 2
+        [[ "$run_identity" =~ ^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$ ]] || return 2
         printf -v material 'kind=virtio\nsize=%s\nwwn=%s\nserial=%s\nmodel=%s\ndiskseq=%s\nboot-id=%s\n' \
             "$size" "$wwn" "$serial" "$model" "$diskseq" "$run_identity"
     fi
@@ -2033,16 +2071,19 @@ block_disk_identity() {
 
 block_partition_identity() {
     local partition canonical parent parent_identity partuuid start size material
+    local -A props=()
 
     partition="$1"
-    canonical="$(block_canonical "$partition")" || return 1
-    block_exists "$canonical" && [ "$(block_type "$canonical")" = part ] || return 1
-    parent="$(block_parent "$canonical")" || return 1
-    parent="$(block_canonical "$parent")" || return 1
-    parent_identity="$(block_disk_identity "$parent")" || return 1
-    partuuid="$(block_attribute "$canonical" PARTUUID)" || return 1
-    start="$(block_attribute "$canonical" START)" || return 1
-    size="$(block_attribute "$canonical" SIZE)" || return 1
+    canonical="$(block_canonical "$partition")" || return 2
+    block_exists "$canonical" || return 2
+    block_node_properties "$canonical" props TYPE PKNAME PARTUUID START SIZE || return 2
+    [ -n "${props[TYPE]}" ] || return 2
+    [ "${props[TYPE]}" = part ] || return 1
+    [ -n "${props[PKNAME]}" ] || return 2
+    parent="$(block_canonical "/dev/${props[PKNAME]}")" || return 2
+    parent_identity="$(block_disk_identity "$parent")" || return $?
+    partuuid="${props[PARTUUID]}" start="${props[START]}" size="${props[SIZE]}"
+    [ -n "$start" ] && [ -n "$size" ] || return 2
     [[ "$partuuid" =~ ^[A-Fa-f0-9-]{8,}$ ]] && [[ "$start" =~ ^[0-9]+$ ]] &&
         [[ "$size" =~ ^[1-9][0-9]*$ ]] || return 1
     printf -v material 'disk=%s\npartuuid=%s\nstart=%s\nsize=%s\n' \
@@ -2050,20 +2091,48 @@ block_partition_identity() {
     printf '%s' "$material" | sha256sum --binary | awk '{ print $1 }'
 }
 
-block_identity_is_unique() {
-    local kind="$1" expected="$2" path candidate count=0
+# One enumeration plus one identity probe per node: prints "<identity> <path>" for every node of the
+# kind that has an identity. A structurally unidentifiable node (status 1) cannot equal a valid
+# expected identity, because that always has size >= 1 and either model plus serial/WWN or a
+# recognised virtio backend, so it is left out. An operational probe failure (status 2) or a failed
+# enumeration leaves every answer unknown and fails the whole inventory.
+block_identity_inventory() {
+    local kind="$1" path paths candidate status
 
-    [[ "$expected" =~ ^[a-f0-9]{64}$ ]] || return 1
+    case "$kind" in disk | part) ;; *) return 1 ;; esac
+    paths="$(block_paths_for_type "$kind")" || return 1
     while IFS= read -r path; do
         [ -n "$path" ] || continue
+        status=0
         case "$kind" in
-        disk) candidate="$(block_disk_identity "$path")" || continue ;;
-        part) candidate="$(block_partition_identity "$path")" || continue ;;
+        disk) candidate="$(block_disk_identity "$path")" || status=$? ;;
+        part) candidate="$(block_partition_identity "$path")" || status=$? ;;
+        esac
+        case "$status" in
+        0) printf '%s %s\n' "$candidate" "$path" ;;
+        1) ;;
         *) return 1 ;;
         esac
-        [ "$candidate" = "$expected" ] && count=$((count + 1))
-    done < <(block_paths_for_type "$kind")
+    done <<<"$paths"
+}
+
+# Exactly one inventory entry may carry the expected identity (an empty inventory never matches).
+block_inventory_has_unique_identity() {
+    local inventory="$1" expected="$2" candidate path count=0
+
+    [[ "$expected" =~ ^[a-f0-9]{64}$ ]] || return 1
+    while read -r candidate path; do
+        [ "$candidate" != "$expected" ] || count=$((count + 1))
+    done <<<"$inventory"
     [ "$count" -eq 1 ]
+}
+
+block_identity_is_unique() {
+    local kind="$1" expected="$2" inventory
+
+    [[ "$expected" =~ ^[a-f0-9]{64}$ ]] || return 1
+    inventory="$(block_identity_inventory "$kind")" || return 1
+    block_inventory_has_unique_identity "$inventory" "$expected"
 }
 
 block_handle_matches_node() {
@@ -2155,6 +2224,7 @@ validate_partition_targets() {
 # config to one unique whole disk and, for dual boot, to the exact two GPT partitions selected.
 validate_destructive_targets() {
     local report="$1" ok=true disk_identity boot_identity root_identity boot_type root_bytes
+    local part_inventory
 
     validate_partition_targets "$report" || ok=false
     disk_identity="$(block_disk_identity "$ARCH_LINUX_DISK")" || disk_identity=''
@@ -2168,14 +2238,16 @@ validate_destructive_targets() {
     if [ "$ARCH_LINUX_DUAL_BOOT_ENABLED" = true ]; then
         boot_identity="$(block_partition_identity "$ARCH_LINUX_BOOT_PARTITION")" || boot_identity=''
         root_identity="$(block_partition_identity "$ARCH_LINUX_ROOT_PARTITION")" || root_identity=''
+        # One partition scan proves both uniqueness claims; a failed scan proves neither.
+        part_inventory="$(block_identity_inventory part)" || part_inventory=''
         if [ -z "${ARCH_LINUX_BOOT_PARTITION_IDENTITY:-}" ] ||
             [ "$boot_identity" != "$ARCH_LINUX_BOOT_PARTITION_IDENTITY" ] ||
-            ! block_identity_is_unique part "$boot_identity"; then
+            ! block_inventory_has_unique_identity "$part_inventory" "$boot_identity"; then
             "$report" "ARCH_LINUX_BOOT_PARTITION identity is missing, changed or ambiguous" && ok=false
         fi
         if [ -z "${ARCH_LINUX_ROOT_PARTITION_IDENTITY:-}" ] ||
             [ "$root_identity" != "$ARCH_LINUX_ROOT_PARTITION_IDENTITY" ] ||
-            ! block_identity_is_unique part "$root_identity"; then
+            ! block_inventory_has_unique_identity "$part_inventory" "$root_identity"; then
             "$report" "ARCH_LINUX_ROOT_PARTITION identity is missing, changed or ambiguous" && ok=false
         fi
         boot_type="$(block_attribute "$ARCH_LINUX_BOOT_PARTITION" FSTYPE)" || boot_type=''
@@ -2228,11 +2300,23 @@ assert_accepted_destructive_target() {
     }
 }
 
-# Membership returns 0 for a member, 1 for a proved nonmember, 2 for an uncertain probe.
+# Membership returns 0 for a member, 1 for a proved nonmember, 2 for an uncertain probe. An optional
+# third argument names an associative array whose keys are the decimal major:minor numbers of the
+# disk's complete forward topology (built once by the caller); the candidate is then matched by device
+# number, not by pathname, so an alternate node for the same device (mknod outside /dev, a container
+# /dev, a --no-canonicalize mount) is still attributed, and no further lsblk call is needed.
 block_belongs_to_disk() {
-    local candidate="$1" disk="$2" path canonical_disk topology canonical_path found=false member=false
+    local candidate="$1" disk="$2" members_name="${3:-}"
+    local path canonical_disk topology canonical_path found=false member=false candidate_device
     candidate="${candidate%%\[*}"
     [ -b "$candidate" ] || return 1
+    if [ -n "$members_name" ]; then
+        local -n block_member_set="$members_name"
+        candidate_device="$(stat -Lc '%Hr:%Lr' -- "$candidate" 2>/dev/null)" || return 2
+        [[ "$candidate_device" =~ ^[0-9]+:[0-9]+$ ]] || return 2
+        [ -n "${block_member_set[$candidate_device]:-}" ]
+        return
+    fi
     candidate="$(block_canonical "$candidate")" || return 2
     canonical_disk="$(block_canonical "$disk")" || return 2
     topology="$(lsblk -srpno PATH -- "$candidate" 2>/dev/null)" || return 2
@@ -2248,9 +2332,9 @@ block_belongs_to_disk() {
 }
 
 storage_path_belongs_to_disk() {
-    local storage_path="$1" disk="$2" mount_source
+    local storage_path="$1" disk="$2" members_name="${3:-}" mount_source
     if [ -b "$storage_path" ]; then
-        block_belongs_to_disk "$storage_path" "$disk"
+        block_belongs_to_disk "$storage_path" "$disk" "$members_name"
         return
     fi
     if [ ! -e "$storage_path" ]; then
@@ -2258,13 +2342,13 @@ storage_path_belongs_to_disk() {
     fi
     mount_source="$(findmnt -rn -o SOURCE -T "$storage_path" 2>/dev/null)" || return 2
     [ -n "$mount_source" ] && [[ ! "$mount_source" =~ [[:space:]] ]] || return 2
-    block_belongs_to_disk "${mount_source%%\[*}" "$disk"
+    block_belongs_to_disk "${mount_source%%\[*}" "$disk" "$members_name"
 }
 
 target_storage_is_idle() {
-    local report="$1" source swap_path descendant_path descendant_type extra status
+    local report="$1" source swap_path descendant_path descendant_type descendant_device extra status
     local mounts swaps topology mountpoint found=false
-    local -A seen_descendants=()
+    local -A seen_descendants=() disk_members=()
     status=0
     mounts="$(findmnt -rn -o SOURCE 2>&1)" || status=$?
     if [ "$status" -ne 0 ] && { [ "$status" -ne 1 ] || [ -n "$mounts" ]; }; then
@@ -2273,11 +2357,12 @@ target_storage_is_idle() {
     swaps="$(swapon --noheadings --raw --show=NAME 2>/dev/null)" || {
         "$report" "Could not inspect active swap"; return 1;
     }
-    topology="$(lsblk -rpn -o PATH,TYPE -- "$ARCH_LINUX_DISK" 2>/dev/null)" || {
+    topology="$(lsblk -rpn -o PATH,TYPE,MAJ:MIN -- "$ARCH_LINUX_DISK" 2>/dev/null)" || {
         "$report" "Could not inspect selected disk topology"; return 1;
     }
-    while read -r descendant_path descendant_type extra; do
-        [[ "$descendant_path" =~ ^/dev/[^[:space:]]+$ ]] && [ -z "$extra" ] || {
+    while read -r descendant_path descendant_type descendant_device extra; do
+        [[ "$descendant_path" =~ ^/dev/[^[:space:]]+$ ]] && [[ "$descendant_device" =~ ^[0-9]+:[0-9]+$ ]] &&
+            [ -z "$extra" ] || {
             "$report" "Malformed selected disk topology"; return 1;
         }
         [ -z "${seen_descendants[$descendant_path]:-}" ] || {
@@ -2290,13 +2375,13 @@ target_storage_is_idle() {
                 "$report" "Unexpected disk in selected topology"; return 1;
             }
             ;;
-        part)
-            block_belongs_to_disk "$descendant_path" "$ARCH_LINUX_DISK" || {
-                "$report" "Could not prove selected partition ancestry"; return 1;
-            }
-            ;;
+        part) ;;
         *) "$report" "Selected disk has an active ${descendant_type:-unknown} holder: ${descendant_path}"; return 1 ;;
         esac
+        # The forward topology of the disk is its complete set of descendants: every mount source and
+        # swap area below is attributed by device number in this set, built once.
+        # shellcheck disable=SC2034  # consumed by block_belongs_to_disk through its nameref
+        disk_members["$descendant_device"]=true
         if [ "$descendant_path" = "$ARCH_LINUX_DISK" ] && [ "$descendant_type" = disk ]; then found=true; fi
     done <<<"$topology"
     [ "$found" = true ] || { "$report" "Selected disk is missing from topology"; return 1; }
@@ -2304,7 +2389,7 @@ target_storage_is_idle() {
         [ -n "$source" ] || continue
         [[ ! "$source" =~ [[:space:]] ]] || { "$report" "Malformed mount source"; return 1; }
         status=0
-        storage_path_belongs_to_disk "${source%%\[*}" "$ARCH_LINUX_DISK" || status=$?
+        storage_path_belongs_to_disk "${source%%\[*}" "$ARCH_LINUX_DISK" disk_members || status=$?
         case "$status" in
         0) "$report" "Selected disk has a mounted filesystem; unmount it before installation"; return 1 ;;
         1) ;;
@@ -2317,7 +2402,7 @@ target_storage_is_idle() {
             "$report" "Malformed or missing active swap path"; return 1;
         }
         status=0
-        storage_path_belongs_to_disk "$swap_path" "$ARCH_LINUX_DISK" || status=$?
+        storage_path_belongs_to_disk "$swap_path" "$ARCH_LINUX_DISK" disk_members || status=$?
         case "$status" in
         0) "$report" "Selected disk has active swap; disable it before installation"; return 1 ;;
         1) ;;
@@ -2872,7 +2957,8 @@ select_keyboard() {
 
 select_disk() {
     if [ -z "$ARCH_LINUX_DISK" ] || [ -z "$ARCH_LINUX_BOOT_PARTITION" ] || [ -z "$ARCH_LINUX_ROOT_PARTITION" ]; then
-        local user_input selected_identity items options
+        local user_input selected_identity items options inventory inventory_path
+        local -A identity_by_path=() identity_count=()
         mapfile -t items < <(
             lsblk -d -p -n -o PATH,TYPE,SIZE,MODEL,SERIAL | while read -r path type size details; do
                 [ "$type" = disk ] || continue
@@ -2883,12 +2969,20 @@ select_disk() {
                 fi
             done
         )
+        # One identity scan serves every row. A failed scan leaves no uniquely identified disk, and a
+        # disk without an identity has no entry, so both are skipped like a duplicate.
+        inventory="$(block_identity_inventory disk)" || inventory=''
+        while read -r selected_identity inventory_path; do
+            [ -n "$inventory_path" ] || continue
+            identity_by_path[$inventory_path]="$selected_identity"
+            identity_count[$selected_identity]=$((${identity_count[$selected_identity]:-0} + 1))
+        done <<<"$inventory"
         options=()
         for item in "${items[@]}"; do
             read -r user_input _ <<<"$item"
             user_input="$(block_canonical "$user_input")" || continue
-            selected_identity="$(block_disk_identity "$user_input")" || continue
-            block_identity_is_unique disk "$selected_identity" || continue
+            selected_identity="${identity_by_path[$user_input]:-}"
+            [ -n "$selected_identity" ] && [ "${identity_count[$selected_identity]}" -eq 1 ] || continue
             options+=("$item")
         done
         [ "${#options[@]}" -gt 0 ] || {
@@ -3514,14 +3608,13 @@ exec_prepare_disk() {
         process_enter_cgroup
         [ "$DEBUG" = "true" ] && sleep 1 && process_return 0 # If debug mode then return
 
-        # Re-prove the complete accepted target, require it to be idle, then reproduce the snapshot
-        # once more immediately before the first storage mutation.
+        # exec_init_installation already proved the accepted target. Require it to be idle, then
+        # reproduce the complete snapshot immediately before the first storage mutation.
+        target_storage_is_idle log_fail || exit 1
         assert_accepted_destructive_target log_fail || {
             log_fail "Refusing to touch ${ARCH_LINUX_DISK}: destructive target changed"
             exit 1
         }
-        target_storage_is_idle log_fail || exit 1
-        assert_accepted_destructive_target log_fail || exit 1
 
         # Bind every destructive command to already-open block-device handles. Canonical pathname,
         # major:minor and the accepted stable fingerprint must all agree after open. A later
@@ -4537,28 +4630,16 @@ exec_install_desktop() {
 
             # Force remove gnome packages
             if [ "$ARCH_LINUX_DESKTOP_SLIM_ENABLED" = "true" ]; then
-                chroot_pacman_remove gnome-calendar || true
-                chroot_pacman_remove gnome-maps || true
-                chroot_pacman_remove gnome-contacts || true
-                chroot_pacman_remove gnome-font-viewer || true
-                chroot_pacman_remove gnome-characters || true
-                chroot_pacman_remove gnome-clocks || true
-                chroot_pacman_remove gnome-connections || true
-                chroot_pacman_remove gnome-music || true
-                chroot_pacman_remove gnome-weather || true
-                chroot_pacman_remove gnome-calculator || true
-                chroot_pacman_remove gnome-logs || true
-                chroot_pacman_remove gnome-text-editor || true
-                chroot_pacman_remove gnome-disk-utility || true
-                chroot_pacman_remove simple-scan || true
-                chroot_pacman_remove baobab || true
-                chroot_pacman_remove snapshot || true
-                chroot_pacman_remove epiphany || true
-                chroot_pacman_remove loupe || true
-                chroot_pacman_remove decibels || true
-                chroot_pacman_remove showtime || true
-                chroot_pacman_remove papers || true
-                #chroot_pacman_remove evince || true # Need for sushi
+                # papers stays installed: it is required by sushi, which the Arch 'gnome' group installs.
+                chroot_remove_installed_packages \
+                    gnome-calendar gnome-maps gnome-contacts gnome-font-viewer gnome-characters \
+                    gnome-clocks gnome-connections gnome-music gnome-weather gnome-calculator \
+                    gnome-logs gnome-text-editor gnome-disk-utility simple-scan baobab snapshot \
+                    epiphany loupe decibels showtime ||
+                    {
+                        log_fail "Could not remove the slim-profile GNOME applications"
+                        exit 1
+                    }
             fi
 
             # Add user to other useful groups (https://wiki.archlinux.org/title/Users_and_groups#User_groups)
@@ -6023,9 +6104,8 @@ desktop_write_ptyxis_keybindings() {
 
 chroot_remove_gnome_console() {
     # The Arch 'gnome' group includes GNOME Console. Remove it after group installation so Ptyxis
-    # is the sole terminal, but query first so an absent package is not reported as an error.
-    arch-chroot /mnt pacman -Qq gnome-console &>/dev/null || return 0
-    chroot_pacman_remove gnome-console
+    # is the sole terminal.
+    chroot_remove_installed_packages gnome-console
 }
 
 # These four packages moved out of official multilib. Keep their functionality,
@@ -6910,7 +6990,39 @@ chroot_aur_install() {
     [ "$aur_failed" = "false" ] && return 0
 }
 
-chroot_pacman_remove() { arch-chroot /mnt pacman -Rn --noconfirm -- "$@" || return 1; }
+# Remove the installed subset of the named packages in one transaction; absent packages are fine.
+# One query lists what is installed (pacman -Qq prints installed names and reports each absent one
+# as "package '<name>' was not found", or prints the provider of a virtual name, which is ignored).
+# Any other output, or a status other than 0/1, is a real failure, as is a failed removal, so an
+# unremovable package (for example one still required by another installed package) is never hidden.
+chroot_remove_installed_packages() {
+    local output status=0 line name requested
+    local -a installed=()
+    local -A wanted=()
+
+    for name in "$@"; do wanted[$name]=true; done
+    output="$(arch-chroot /mnt /usr/bin/env LC_ALL=C pacman -Qq -- "$@" 2>&1)" || status=$?
+    [ "$status" -le 1 ] || return 1
+    while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        requested="${wanted[$line]:-}"
+        if [ "$requested" = true ]; then
+            installed+=("$line")
+        elif [[ "$line" =~ ^[A-Za-z0-9@._+-]+$ ]]; then
+            # pacman -Q resolves a name that is not installed itself to a package that provides it
+            # and prints the provider. The requested name is then not installed by that exact name,
+            # and the provider is never removed.
+            :
+        elif [[ ! "$line" =~ ^error:\ package\ \'.+\'\ was\ not\ found$ ]]; then
+            return 1
+        fi
+    done <<<"$output"
+    if [ "$status" -eq 1 ] && [ -z "$output" ]; then
+        return 1
+    fi
+    [ "${#installed[@]}" -gt 0 ] || return 0
+    arch-chroot /mnt pacman -Rn --noconfirm -- "${installed[@]}"
+}
 
 chroot_user_path_is_safe() {
     local target="${1:-}" home_path="/home/${ARCH_LINUX_USERNAME}" component
