@@ -331,6 +331,15 @@ identity and per-package/database hashes. FAIL includes a non-zero exit status a
 phase. Heavy run-owned VM inputs are deleted before bounded credential scanning; cumulative evidence
 remains at most 500 MiB.
 
+After publication, Pages/public readback and this VM pass, inventory every tracked Markdown file,
+including nested READMEs and security, user, developer, maintenance and agent documentation. Reconcile
+current pins, commands, behavior, known defects, pending gates and acceptance summaries with the
+actual release; release-neutral pages need no artificial version edit. Preserve dated changelogs,
+decisions, retained pins and historical evidence with their original identities. Record identities
+in [validation](validation.md) and coverage, corrections, checks and publication limits in the
+[plan](PLAN.md) checkpoint, then run documentation checks, `git diff --check` and the source suite.
+State clearly when final documentation is local rather than published.
+
 ## 8. Updates
 
 Installer changes are new immutable SemVer releases. Arch Linux

@@ -1,92 +1,54 @@
 # Agent setup: finite plan and checkpoint
 
-Scope: autonomous-agent configuration only, in the physical checkout on main.
-This is operational setup evidence, not another normative contract or product roadmap.
-Rules come only from [AGENTS.md](../AGENTS.md). No Git staging, commits or external publication.
+Scope: autonomous-agent configuration only, in the canonical checkout. This is operational setup
+evidence, not another normative contract or product roadmap. Rules come only from
+[AGENTS.md](../AGENTS.md). Product audit, import and roadmap work are out of scope.
 
 | ID | Dependency | Acceptance | Status |
 | --- | --- | --- | --- |
-| AS-1 | none | Client/version, clean main/index, instruction sources | PASS |
-| AS-2 | AS-1 | Policy v6 with owner correction; preserved project constraints and managed orchestration block | PASS |
-| AS-3 | AS-1 | Native project permissions accepted; role/model/routing settings preserved | PASS |
-| AS-4 | AS-2, AS-3 | Native instruction loading, effective permissions, bounded spawn and smoke | PASS |
-| AS-5 | AS-4 | Source suite, scenario review, unchanged index, idempotence | PASS |
+| AS-1 | none | Clients/versions, Git state, instruction sources and concurrent edits | PASS |
+| AS-2 | AS-1 | Exactly one policy v15 block; managed codex-orchestrator block and project invariants preserved | PASS |
+| AS-3 | AS-2 | Codex native load (PASS); Claude Code `@AGENTS.md` import (fresh session NOT_TESTED) | PASS (partial) |
+| AS-4 | AS-3 | Effective permissions unchanged and accepted; no new blanket permission files | PASS |
+| AS-5 | AS-4 | Source/contract/doc checks, idempotence, issue → PR; merge is the owner's decision | PASS (merge pending) |
 
-Автоматическое резервирование конфигураций и агентских инструкций, исходные копии
-перед обычными правками и отдельная система восстановления настроек — **отменено владельцем**
-(2026-10-02). Это не незавершенные пункты приемки.
+Clients in use (2026-10-10): Codex CLI 0.161.0 loads root AGENTS.md natively; Claude Code 2.1.296
+loads CLAUDE.md, which imports AGENTS.md with `@AGENTS.md` (replacing the earlier manual-read
+pointer). No Cursor, Copilot or Gemini configuration exists. Orchestration: codex-orchestrator for
+Codex; the user-enabled Claude `orchestration` plugin, whose default routing lives in the owner's
+user CLAUDE.md and is not copied here.
 
-Observed client: Codex 0.160.0 local app-server, session metadata source=vscode,
-originator=codex-tui. Both use native AGENTS.md/project-config loading; this does not
-prove a separate Claude, Gemini or Copilot client is in use. Existing CLAUDE.md is
-unchanged; its manual-read adapter is not a verified native import. No nested agent
-instructions or project config existed at baseline.
+Permissions: project `.codex/config.toml` keeps approval_policy=never and
+sandbox_mode=danger-full-access; worker/tester roles keep installed models/effort and inherit the
+parent sandbox. Claude Code's effective mode is the owner's existing user-level
+`bypassPermissions`; no project `.claude/` settings were added. Global settings, trust and managed
+policy were not changed.
 
-Project `.codex/config.toml` sets approval_policy=never and sandbox_mode=danger-full-access.
-Project worker/tester preserve the installed models, effort, descriptions and duties,
-omitting sandbox_mode to inherit the parent. Reviewer/explorer/researcher remain unchanged.
-Live session overrides and managed requirements take precedence; do not bypass them.
+CI runner mode: `self-hosted` (all 18 jobs already select the owner's Linux labels; runner
+`ubuntu-actions-arch-linux` was online). Owner blocker: `ci.yml` runs on every `pull_request`, so fork
+code can reach the self-hosted host after approval (`all_external_contributors`). This setup changes no
+workflow or runner; such fork runs are NOT_TESTED until the owner adds a trusted-event condition.
 
-Checkpoint: AS-1 through AS-5 complete for configuration scope. Coordinator wrote
-all setup files; one read-only reviewer finished with no material findings. No
-product roadmap work, staging, commits, push, release or deployment was performed.
-Setup Goal is complete. This correction does not restart agent setup or product work. A fresh client session is needed for persistent
-settings; the current session was not reconfigured by these files.
+Checks (2026-10-10, policy v15):
 
-Historical setup acceptance (2026-10-02, Codex 0.160.0, before the owner correction):
+- PASS: `codex --strict-config doctor --json` overallStatus=ok.
+- PASS: `codex debug prompt-input` contains every line of AGENTS.md and one policy block. Before
+  this setup AGENTS.md was 35124 bytes, above Codex's 32 KiB project-document limit, so its tail
+  was silently truncated. Detail was moved into the owning docs; AGENTS.md is now below the limit.
+- PASS: `python3 tests/agent-contract-checks.py`, `python3 tests/docs-checks.py`, `git diff --check`.
+- Text review (not a model-behavior proof): audit mode writes no code; consolidating a check
+  requires a proven unchanged guarantee; test cleanup keeps behavior; simplification never bypasses
+  gates; a missing tool is reported, not imitated.
 
-- PASS: TOML parsing; `codex --strict-config doctor --json` overallStatus=ok.
-- PASS: native app-server `config/read` with cwd and includeLayers; both permission
-  origins are the enabled project layer, without config or sandbox CLI overrides.
-  All other effective config fields equal the pre-setup result. Existing project
-  trust was already trusted; no global trust or managed policy was changed.
-- PASS: fresh ephemeral `thread/start`, no permission overrides, reports
-  approvalPolicy=never and sandbox=dangerFullAccess.
-- PASS: `codex debug prompt-input` contains the entire 28016-byte AGENTS.md exactly
-  once, including the verbatim policy v6 and managed block provided by the owner.
-  No ancestor/nested overrides were found; context limit was not increased.
-  `--strict-config` is unsupported for debug (diagnostic command limitation); the
-  successful debug check uses no config overrides, and strict acceptance is separate.
-- PASS: owned temporary files inside and outside the project, `/usr/bin/true`,
-  public HTTPS 200 from developers.openai.com; temporary smoke files were removed.
-- PASS: native reviewer spawn, isolated brief, completed read-only review; rollout
-  confirms Sol 6.1/medium, never/danger-full-access and the correct physical cwd.
-  Reviewer saw policy v6 before explicit reading. The spawn alone cannot separate
-  inherited context from native loading; prompt-input independently verifies loading.
-- PASS: worker/tester TOML preserves every installed field except sandbox_mode,
-  omitted for parent inheritance. A fresh worker/tester spawn was NOT_TESTED; only
-  reviewer was spawned. Global reviewer/explorer/researcher defaults are unchanged.
-  A live parent override can supersede their read-only sandbox defaults: the
-  observed reviewer retained read-only duties while its runtime had Full Access.
-- PASS: `bash tests/source-tests.sh`, exit 0, all required source tests passed,
-  including `REPOSITORY_CHECKS_RESULT schema=1 namespace_fixtures=full scenarios=10
-  signer=passed release_closures=14+18 deferred=none`. This is source/fixture
-  acceptance; package builds, real installation/QEMU, production and release
-  acceptance were NOT_TESTED and are outside this setup.
-- PASS: independent scenario review for audit without writes, deletion only after
-  preservation checks, non-forced main conflicts, explicit external authority,
-  pause and checkpoint recovery. These are contract checks, not a model guarantee.
-- PASS: repeated policy normalization was byte-identical and created no new blocks
-  or paths; index/HEAD/global settings and pre-existing files except AGENTS.md
-  were preserved.
+- PASS: `bash tests/source-tests.sh`, exit 0, ending with `REPOSITORY_CHECKS_RESULT schema=1
+  namespace_fixtures=full scenarios=10 signer=passed release_closures=14+18 deferred=none`.
+- PASS: re-applying the v15 block is byte-identical; exactly one block remains.
+- NOT_TESTED: Claude Code `@AGENTS.md` expansion in a fresh session. The running session had cached
+  the earlier CLAUDE.md, and a paid model run only for setup was not used.
 
-Cleanup (2026-10-02): at the owner's explicit request, setup temporary files,
-backup bytes, raw logs and the recovery system were deleted. The retained historical
-setup checks above have no external raw evidence after this cleanup.
-No setup backup or automatic rollback remains; current agent settings are preserved.
+Checkpoint: setup files are published through an issue and PR. Merge is deferred: any CI-successful
+push to main starts `release.yml` with installer intent, and this setup authorizes no release. The
+owner decides when to merge. After context loss, confirm cwd, branch, index and PR state first.
 
-Correction checkpoint (2026-10-02): the owner cancellation is recorded in policy
-item 5; obsolete backup/recovery acceptance was removed from AS-1/AS-5. No
-settings-recovery helpers remain in the project; the previously deleted external
-bundle is absent. Only AGENTS.md and this plan are changed. No active product task
-exists; continue only on a new explicit assignment. After context loss, read this
-checkpoint and confirm cwd/Git/task state before continuing.
-
-Next step: open a fresh Codex session in this checkout and check its permissions
-and loaded AGENTS.md. If a higher-priority restriction or untrusted project layer
-appears, stop that dependent action and report it; this setup does not authorize
-changing global trust, UI permissions or managed protection. Other client adapters
-remain unverified until their actual use is established.
-
-References: [official configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference)
-and [official subagent inheritance](https://learn.chatgpt.com/docs/agent-configuration/subagents).
+Historical: policy v6 setup (2026-10-02, Codex 0.160.0) passed its own checks; at the owner's
+request its temporary files, backups and recovery system were deleted and are not restored.

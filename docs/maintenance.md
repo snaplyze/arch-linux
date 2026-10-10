@@ -29,6 +29,11 @@ theme and optional greeter, lock/unlock, update and boot again. Preserve user
 preferences and modified local extension copies. Test fallback and recovery as
 different transitions. A parser test, catalog support declaration, advisory check
 or new package revision does not replace that acceptance.
+Also cover fresh install, reinstall/removal, user overrides, repository bootstrap for both
+graphical profiles and unknown-major deactivation; Minimal TTY stays independent of that
+repository. Theme deactivation alone does not prove a working Stock session. Keep source, package,
+upgrade-VM and public readback results separate. Prepare compatibility before the next GNOME
+major reaches users when possible, without promising perpetual compatibility.
 
 Ship the verified signed repository before promising that `pacman -Syu` restores
 existing machines. Keep unqualified inputs and unpublished candidates explicit in
