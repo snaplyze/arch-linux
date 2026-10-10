@@ -54,7 +54,7 @@ desktop extras, Btrfs tools, Samba, VM support and second layout. Review the fin
 confirming the destructive stage.
 Choose an ordinary unused account name. Release 1.0.6 refuses known reserved users/groups
 before disk work and checks both target account databases before user creation;
-[CONFIG-01](PLAN.md#config-01--reject-predictable-account-collisions) records the policy and checks.
+[CONFIG-01](PLAN.md#registry) records the policy and checks.
 
 ## Minimal TTY
 

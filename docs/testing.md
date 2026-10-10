@@ -163,7 +163,7 @@ signed verdicts. The nine-scenario workflow is deployed. Release 1.0.6 child7af2
 October ISO, then finalized18 and immutable publication succeeded. The separate fresh public Marble/GDM VM passed19 assertions; exact outcomes and identities
 are in [validation](validation.md).
 Current acceptance remains tracked in
-[QA-01 / RELEASE-01](PLAN.md#qa-01--behavioral-and-vm-coverage).
+[QA-01 / RELEASE-01](PLAN.md#registry).
 See [VM commands](../tests/vm/README.md).
 Stock additionally checks Language/Formats, input layouts and terminal shortcuts. Every run retains
 its input identities, a compact installer log, functional assertions, `qemu-img check` and a

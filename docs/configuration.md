@@ -16,7 +16,7 @@ The generated file may contain an empty value before its selector runs. The comp
 contract is stricter: `validate_properties` requires every context-relevant value and checks
 cross-field rules. The password is runtime-only and never appears in `installer.conf`.
 Choose an ordinary unused account name. Release 1.0.6 rejects known reserved users/groups
-before disk work; the detailed policy below is recorded under [CONFIG-01](PLAN.md#config-01--reject-predictable-account-collisions).
+before disk work; the detailed policy below is recorded under [CONFIG-01](PLAN.md#registry).
 
 ## Complete allowlist
 

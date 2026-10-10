@@ -91,7 +91,7 @@ unchanged archive, committed `.SRCINFO` and hardened PKGBUILD hashes before use;
 neither transport nor branch HEAD authorizes new recipe bytes. TLS verification,
 builder isolation and final package verification remain mandatory.
 UID-emptiness and readback probes check `find` status as well as output; an inventory error
-refuses the handoff. [SAFE-02](PLAN.md#safe-02--fail-closed-on-idle-probe-errors) records the correction.
+refuses the handoff. [SAFE-02](PLAN.md#registry) records the correction.
 
 The desktop stage installs only GNOME/GDM or is skipped for TTY. Stock configuration is applied
 locally. Marble first verifies the project public certificate, exact fingerprints and strict
