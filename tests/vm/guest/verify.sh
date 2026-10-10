@@ -1095,9 +1095,9 @@ verify_common() {
     else
         bootctl is-installed
     fi
+    nm-online -q --timeout=60
     systemctl is-active --quiet NetworkManager.service
     systemctl is-active --quiet qemu-guest-agent.service
-    nm-online -q --timeout=60
     getent ahostsv4 archlinux.org >/dev/null
     [ -z "$(systemctl --failed --no-legend --plain)" ]
     clean_kernel_command_line

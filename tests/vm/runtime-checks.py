@@ -10,6 +10,43 @@ VERIFY = ROOT / "tests/vm/guest/verify.sh"
 def function(name):
     return re.search(r"^" + name + r"\(\) \{\n.*?^\}", VERIFY.read_text(), re.M | re.S).group(0)
 class RuntimeChecks(unittest.TestCase):
+    def test_common_network_readiness_waits_before_service_checks_and_rejects_failures(self):
+        # Execute the actual readiness fragment, with guest-only commands replaced
+        # by fixtures. NetworkManager becomes active during its existing wait.
+        readiness = re.search(
+            r"^    (?:systemctl is-active|nm-online).*?(?=^    clean_kernel_command_line)",
+            function("verify_common"), re.M | re.S).group(0)
+        for fault, status in (("none", 0), ("network-timeout", 1),
+                              ("manager-inactive", 3), ("agent-inactive", 3),
+                              ("dns", 2), ("failed-unit", 1)):
+            with self.subTest(fault=fault):
+                script = r'''set -Eeuo pipefail
+trap 'exit "$?"' ERR
+fault=$1
+manager_active=false
+nm-online(){
+    [ "$*" = '-q --timeout=60' ] || return 90
+    [ "$fault" != network-timeout ] || return 1
+    if [ "$fault" != manager-inactive ]; then manager_active=true; fi
+}
+systemctl(){
+    case "$*" in
+        'is-active --quiet NetworkManager.service') "$manager_active" || return 3;;
+        'is-active --quiet qemu-guest-agent.service') [ "$fault" != agent-inactive ] || return 3;;
+        '--failed --no-legend --plain')
+            if [ "$fault" = failed-unit ]; then printf 'fixture.service loaded failed failed\n'; fi;;
+        *) return 90;;
+    esac
+}
+getent(){ [ "$*" = 'ahostsv4 archlinux.org' ] || return 90; [ "$fault" != dns ] || return 2; }
+verify_common(){
+'''
+                script += readiness + "    printf target\n}\ntarget=$(verify_common)\nprintf '%s\\n' \"$target\"\n"
+                result = subprocess.run(["bash", "-c", script, "fixture", fault],
+                                        capture_output=True, text=True, timeout=5)
+                self.assertEqual(result.returncode, status, result.stderr)
+                self.assertEqual(result.stdout, "target\n" if status == 0 else "")
+
     def pam_events(self, records=None, raw=None):
         import contextlib, io, json
         source = re.search(r"^emit_gnome_shell_lifecycle_diagnostic\(\) \{\n.*?<<'PY'\n(.*?)\nPY\n", VERIFY.read_text(), re.M | re.S).group(1)
@@ -110,6 +147,53 @@ class RuntimeChecks(unittest.TestCase):
         self.assertIn("phase=input-validation state=begin", result.stdout)
         self.assertIn("phase=release-inputs state=end", result.stdout)
         self.assertNotIn("PRIVATE_PAYLOAD", result.stdout)
+
+    def test_phase_progress_notice_matches_plain_observation(self):
+        script = 'set -Eeuo pipefail\n' + self.host_function('emit_phase_progress') + r'''
+scenario_id=minimal-ext4-systemdboot
+source_commit=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+source_tree=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+run_id=minimal-20261010T120000Z-aabbccdd
+emit_phase_progress input-validation begin
+emit_phase_progress release-inputs end
+'''
+        result = subprocess.run(['bash', '-c', script], capture_output=True, text=True, timeout=5)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stderr, '')
+        payload = ('QEMU_PROGRESS scenario=minimal-ext4-systemdboot source_commit=' + 'a' * 40 +
+                   ' source_tree=' + 'b' * 40 + ' run_id=minimal-20261010T120000Z-aabbccdd')
+        expected = []
+        for phase, state in (('input-validation', 'begin'), ('release-inputs', 'end')):
+            observation = payload + ' phase=' + phase + ' state=' + state
+            expected.extend((observation, '::notice title=QEMU host progress::' + observation))
+        self.assertEqual(result.stdout.splitlines(), expected)
+
+    def test_phase_progress_rejects_command_injection_and_sanitizes_invalid_ids(self):
+        script = 'set -Eeuo pipefail\n' + self.host_function('emit_phase_progress') + r'''
+scenario_id=$1 source_commit=$2 source_tree=$3 run_id=$4
+emit_phase_progress "$5" "$6"
+'''
+        identifiers = ['minimal-ext4-systemdboot', 'a' * 40, 'b' * 40,
+                       'minimal-20261010T120000Z-aabbccdd']
+        attacks = ('PRIVATE_PAYLOAD\n::error::injected', 'PRIVATE_PAYLOAD\r::error::injected',
+                   'PRIVATE_PAYLOAD%0A::error::injected', 'PRIVATE_PAYLOAD::error::injected')
+        for attack in attacks:
+            for position in range(6):
+                with self.subTest(attack=attack, position=position):
+                    arguments = identifiers + ['firstboot', 'begin']
+                    arguments[position] = attack
+                    result = subprocess.run(['bash', '-c', script, 'fixture', *arguments],
+                                            capture_output=True, text=True, timeout=5)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stderr, '')
+                    if position >= 4:
+                        self.assertEqual(result.stdout, '')
+                    else:
+                        safe = identifiers.copy(); safe[position] = '-'
+                        payload = ('QEMU_PROGRESS scenario=%s source_commit=%s source_tree=%s run_id=%s '
+                                   'phase=firstboot state=begin') % tuple(safe)
+                        self.assertEqual(result.stdout.splitlines(),
+                                         [payload, '::notice title=QEMU host progress::' + payload])
 
     def test_repository_https_always_transfers_candidate_database_and_signature(self):
         import os, time
@@ -3049,6 +3133,9 @@ if qga_verify firstboot fixture; then printf 'ACCEPTED\n'; else printf 'REJECTED
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual("ACCEPTED\n" in result.stdout, accepted, result.stderr)
                 self.assertEqual("phase=firstboot state=end" in result.stdout, accepted, result.stderr)
+                notices = [line for line in result.stdout.splitlines()
+                           if line.startswith('::notice title=QEMU host progress::')]
+                self.assertEqual(any('phase=firstboot state=end' in line for line in notices), accepted)
 
     def test_archiso_probe_requires_exact_complete_unique_current_nonce(self):
         body = self.host_function("serial_archiso_ready")
@@ -3086,6 +3173,78 @@ wait_for_install_outcome "$1" 'STOCK_QEMU_INSTALL_COMPLETE run_id=fixture' 'Show
                 result = subprocess.run(['bash', '-c', program, 'fixture', str(path), mode],
                                         capture_output=True, text=True, timeout=5)
                 self.assertEqual(result.returncode, expected, result.stderr)
+
+    def test_installer_wait_signal_uses_single_failure_cleanup_and_current_phase(self):
+        import json, os, signal
+        source = (ROOT / 'tests/vm/run.sh').read_text()
+        cleanup = self.host_function('cleanup')
+        trap_block = source.split(cleanup, 1)[1].split('\nrecord_assertion()', 1)[0]
+        phase_start = source.split('    emit_phase_progress install-archiso end\n', 1)[1].split('    set +e\n', 1)[0]
+        result_builder = self.host_function('build_result')
+        variables = sorted(set(re.findall(r'\$\{([a-z_][a-z0-9_]*)\}', result_builder)))
+        program = 'set -Eeuo pipefail\n' + '\n'.join(name + '=fixture' for name in variables) + r'''
+run_root=$1 evidence=$1 assertions_file=$1/assertions.tsv
+run_id=stock-20261010T120000Z-aabbccdd scenario_id=stock-gnome-ext4-systemdboot
+source_commit=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa source_tree=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+current_phase=install-archiso marker_prefix=STOCK
+serial_bridge_input_fd='' serial_bridge_pid='' qemu_pid='' qemu_start_time=''
+runtime_dir='' runtime_password=fixture run_storage_finalized=false
+media_qualification=false evidence_size_bytes=0
+stop_repository_server(){ :; }
+find_run_qemu_processes(){ :; }
+capture_failure_diagnostic(){ :; }
+finalize_run_storage(){ printf 'finalized\n' >>"$run_root/finalizations"; }
+enforce_evidence_budget(){ :; }
+die(){ return 1; }
+sleep(){ printf 'READY\n'; command sleep 1; }
+'''
+        program += '\n'.join((result_builder, cleanup, trap_block,
+                              self.host_function('emit_phase_progress'),
+                              self.host_function('wait_for_install_outcome')))
+        program += '\n{\n' + phase_start + '\n} >/dev/null\n'
+        program += 'set +e\nwait_for_install_outcome "$run_root/absent.log" COMPLETE FAILURE 10\n'
+        for caught_signal, status in ((signal.SIGINT, 130), (signal.SIGTERM, 143)):
+            with self.subTest(signal=caught_signal.name), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary); (root / 'assertions.tsv').write_text('')
+                process = subprocess.Popen(['bash', '-c', program, 'fixture', temporary],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
+                try:
+                    self.assertEqual(process.stdout.readline(), 'READY\n')
+                    os.kill(process.pid, caught_signal)
+                    stdout, stderr = process.communicate(timeout=5)
+                    self.assertEqual(process.returncode, status, stderr)
+                    self.assertEqual(stdout, '')
+                    self.assertEqual((root / 'finalizations').read_text(), 'finalized\n')
+                    self.assertEqual((root / 'FAILURE.txt').read_text(),
+                        'status=FAIL\nexit_status=%s\nphase=installer-completion\nrun_id=stock-20261010T120000Z-aabbccdd\n' % status)
+                    result = json.loads((root / 'result.json').read_text())
+                    self.assertEqual((result['status'], result['exitStatus'], result['failedPhase']),
+                                     ('FAIL', status, 'installer-completion'))
+                finally:
+                    if process.poll() is None:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    process.communicate(timeout=5)
+
+    def test_staged_vm_workflow_replaces_step_shell_at_final_invocation(self):
+        workflow = (ROOT / '.github/workflows/release.yml').read_text()
+        blocks = re.findall(r'(?m)^        run: \|\n((?:          .*\n|\n)+)', workflow)
+        commands = [block for block in blocks if '--release-assets "${RUNNER_TEMP}/phase-a"' in block
+                    and 'tests/vm/run.sh' in block]
+        self.assertEqual(len(commands), 1)
+        command = commands[0]
+        # Execute the final invocation against a harmless Bash fixture. Replacing
+        # the step shell must prevent the appended command from running.
+        invocation = re.search(r'(?ms)^\s*(?:exec )?bash tests/vm/run.sh.*\Z', command).group()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); (root / 'tests/vm').mkdir(parents=True)
+            (root / 'tests/vm/run.sh').write_text('exit 23\n')
+            script = 'set -u\nlegacy_args=() upgrade_args=()\n' + invocation + '\nprintf SHELL_CONTINUED\n'
+            env = dict(__import__('os').environ)
+            env.update({name: 'fixture' for name in re.findall(r'\$\{([A-Za-z_][A-Za-z0-9_]*)\}', invocation)})
+            result = subprocess.run(['bash', '-c', script], cwd=root, env=env,
+                                    capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, 23, result.stderr)
+            self.assertEqual(result.stdout, '')
 
     def test_archiso_wait_retries_only_public_probe_and_rejects_stale_reply(self):
         body = self.host_function("serial_archiso_ready") + "\n" + self.host_function("wait_for_archiso_shell")
@@ -3132,7 +3291,7 @@ die(){ exit 1; }
         for mode in ('ready', 'timeout'):
             result = subprocess.run(['bash', '-c', program, 'fixture', mode], capture_output=True, text=True, timeout=5)
             self.assertEqual(result.returncode == 0, mode == 'ready', result.stderr)
-            self.assertEqual([line for line in result.stdout.splitlines() if not line.startswith('QEMU_PROGRESS ')], ['LAUNCH', 'PROBE', 'BOOTSTRAP:INSTALLER', 'CREDENTIAL_GATE']
+            self.assertEqual([line for line in result.stdout.splitlines() if not line.startswith(('QEMU_PROGRESS ', '::notice title=QEMU host progress::'))], ['LAUNCH', 'PROBE', 'BOOTSTRAP:INSTALLER', 'CREDENTIAL_GATE']
                              if mode == 'ready' else ['LAUNCH', 'PROBE'])
             self.assertEqual('phase=install-archiso state=end' in result.stdout, mode == 'ready')
             self.assertEqual('phase=installer-completion state=begin' in result.stdout, mode == 'ready')

@@ -937,7 +937,8 @@ with tempfile.TemporaryDirectory(prefix='arch-linux-guest-status-check-') as tem
             str(root / 'tests/vm'), temporary, response], capture_output=True, timeout=10,
             env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C'})
         output_lines = result.stdout.splitlines(keepends=True)
-        functional_output = b''.join(line for line in output_lines if not line.startswith(b'QEMU_PROGRESS '))
+        functional_output = b''.join(line for line in output_lines if not line.startswith(
+            (b'QEMU_PROGRESS ', b'::notice title=QEMU host progress::')))
         if result.returncode != (0 if accepted else 2) or functional_output != (
                 b'VERIFY_CONTINUED\n' if accepted else b''):
             raise SystemExit('static check failed: guest status handling changed functional outcome')

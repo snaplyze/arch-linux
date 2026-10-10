@@ -2731,6 +2731,210 @@ only this result/checkpoint prose; the final documentation tree will be checked
 again before protected delivery. No PASS is transferred from the previously
 frozen child to these edits.
 
+[PR82](https://github.com/snaplyze/arch-linux/pull/82) merged normally at
+2026-10-10T07:32:12Z after the required exact-head Source checks and independent
+review. Accepted head was `7d3c3801e29a9909e83051a17afff94cb66760a0`; resulting
+main is `1e9c33d233f75066f88774d8c67f31903eeb5236`. Both bind tree
+`a6c75fa26ed1363c3bdc1fc77b82854544af86dc` and canonical source SHA-256
+`88201818783fdcfa565e4af1155f5d43fa48d5d1c397da5427c061d289d155e9`.
+The final local source suite passed before commit, log SHA-256
+`24b68ee88e0886c27e68947f9d69b511a3b24df91a8aef2cdbb93087873e588f`.
+[PR CI38034505407/job114162038749](https://github.com/snaplyze/arch-linux/actions/runs/38034505407/job/114162038749)
+passed 168 runtime tests, full repository scenarios and ShellCheck; the downloaded
+log SHA-256 is
+`48ab16f09790bc26287b0781ddfa8f3aeb7737e58b8046e83f6cbed9d14384e8`.
+Before merge the live head/base matched, state was CLEAN/MERGEABLE, Source checks
+were successful from app15368, there were no review threads, and the rules
+required squash with zero approvals. The same clean checkout returned to main
+by fast-forward. Main CI38034759530/job114162778020 passed; its downloaded log
+SHA-256 is `6c5c53e0e6739c1951f6009c0c5bcbe9cacf8d639671311007ba7f97d7c5ac52`.
+Fresh configured release
+[38034970799](https://github.com/snaplyze/arch-linux/actions/runs/38034970799)
+started from that exact main; new child/build/VM/public results are not yet
+established. This later local checkpoint prose is not part of that accepted
+source tree.
+
+Fresh release38034970799 prepare/job114163397445 passed. Independent source
+artifact11663765383 readback passed (native exit 0), with ZIP SHA-256
+`3508d9ab751cc87664414daa478d3298dcfb06c17b464d44cfec46d04f74adc9`
+and source bundle SHA-256
+`492111cc974be0f0f8b68f598943dac914e4746c0132941219cd7f6eb63540fe`.
+The verified deterministic child is `f62fcfba58c4df020ae44288099854c193348ce7`,
+tree `13935a041cab61ac15bdee4d6d79617aba6ed6b5`, canonical source SHA-256
+`3885ec4b187637b818ca477e13294701dac805437e88bd5371084dcef5efe73c`.
+Installer SHA-256 remains
+`e6228b0f655d5551eaf5cc8d085ea8111b24df3930b27cc78700d0944432ff71`;
+the new ten-file harness is
+`20ec8b2fceb52c7063cea05346ec54fd4b12cbfd2966b38b7bd5202944eb6720`.
+Generated README and installation bootstrap blocks both use 1.0.7. The source
+receipt SHA-256 is `89ab40747b2db72ba57dc2a8e17a30be0396faf7be532fd328a0306885361b11`;
+objects were imported without changing references, the index or dirty checkpoint
+documents. Clean build/job114163442094 is running; package/signature/VM/public
+acceptance is not yet established for this child.
+
+Clean build/job114163442094 and protected unsigned readback/job114164289158
+passed. Independent unsigned artifact11663640966 readback also passed (native
+exit 0), ZIP SHA-256 `1a8e4276dd26c6f42fa563610d919baa71465d67df1bcc8a9d89a23fd1e412b1`.
+The exact schema-2 BUILD-METADATA SHA-256 is
+`8d4fc8320dba2a10797f21bd2ef531f68d242063dc1c9950f95ef7264ddcb24d`;
+UNSIGNED-SHA256SUMS is
+`cec8557a6db3f58e6a1beaaa0f4c6f5e94471a02b66bbbef7bd492303ed4dc37`.
+All seven package metadata/payload validators passed against 64 exact child
+package/trust/verifier blobs; `.PKGINFO`, `.BUILDINFO`, `.MTREE` and committed
+`.SRCINFO` were checked. An immutable temporary validation fixture was removed
+at the bounded readback's end; Git state and dirty documents were preserved.
+The first independent attempt rejected a main-versus-child `.SRCINFO` mismatch:
+the diagnostic had omitted the child's deterministic package-release changes.
+It failed before creating unsigned output; the corrected readback used exact
+child bytes. This was a diagnostic-tool failure, not a package defect or a retry
+with changed release inputs. Snapshot signing/job114164447992 is running;
+signed Phase-A, VM and public results remain pending for this child.
+
+Snapshot/job114164447992 passed all five root acceptance gates: ordinary and
+required-full repository fixtures each ended with full10/signer/14+18/none;
+root publication reported the sealed closure and all FD/namespace/PID1/agent
+boundaries passed; ordinary keyring mode reported the expected five scenarios
+with privileged work deferred; privileged keyring mode passed full10/none.
+The terminal log SHA-256 is
+`8121aee158712c496de76d86f8953d21dc895556a6c9fc6c7e4a8d87ed363991`.
+Independent Phase-A artifact11664575714 readback passed (native exit 0): exact
+fourteen assets, twelve signed manifest rows, three outer signatures, and
+twenty-five snapshot objects; BUILD-METADATA/UNSIGNED-SHA256SUMS match the
+independently checked unsigned bytes. ZIP SHA-256 is
+`00bf077a9903dc0b0f4d7ecf920da4957c67a79e61bc85ba4aa9c9b054197056`;
+RELEASE-SHA256SUMS is
+`7757c9a3bc5850ed6c339f9f052452ca6ed1c4d6ede0a3e457292f5afb9db5aa`;
+repository archive is
+`66f16102b5ae186b5007889f884903726c61fa32bbc99506dc44decf165173b4`.
+The Phase-A receipt SHA-256 is
+`abdfe0e9757f7bbf60b55234538c2704d9d14255d418f21da56a14e798791707`.
+Nine fresh VM jobs materialized. Core Minimal/job114165043594 began its combined
+ISO-download/scenario step at 07:45:53 UTC; eight other scenarios are queued.
+The step state alone does not prove a boot, installer phase or guest progress.
+No VM, finalized18 or public result is yet established for this child.
+
+Core Minimal/job114165043594 subsequently failed firstboot after three assertions
+confirmed accepted ISO, actual installer execution and normal installation
+completion/poweroff. New phase observations show source binding at 07:47:22 UTC,
+ArchISO/bootstrap/credential gate complete at 07:50:55, installer completion at
+08:01:51, firstboot verification beginning at 08:02:36 and rejected guest status
+at 08:02:41. The typed guest diagnostic is status3/source line1098, followed by
+caller3088; Minimal carries no manifest/probe prefix. This maps to
+`systemctl is-active --quiet NetworkManager.service` before the existing
+`nm-online -q --timeout=60` call. Status3 alone does not establish activating,
+inactive or failed service state; it does not attribute the older hard timeout.
+
+FAIL artifact11663608194, run `minimal-20261010T074722Z-d3f5cff4`, ZIP SHA-256
+`0d2afe745f0b248292288ffc9e25f1ba7d6357ccdf57f56e86e72a283ba4ffe4`
+and archive SHA-256
+`4249c3969c7f6a7417465b0a49c652cec32bdd61a500b41dc35070a03602a89f`
+match the exact f62fcfba child, new ten-file harness and signed Phase-A hashes.
+The strict PASS readback correctly rejected the FAIL result; separate failure
+binding checked those identities and preserved the three preceding assertions,
+without a PASS-consumer claim. Its result SHA-256 is
+`7e7bb1a54cce50035b571aefa193c3d2a10fa4c8822f6ca0c41916eb89a2ae20`.
+Publication cannot pass this attempt. At 09:18 UTC the root requested normal
+cancellation after Core Stock LUKS/GRUB/job114165043582 had executed more than
+75 minutes without accessible phase evidence. No current Stock verdict or cause
+is inferred from that interruption. Terminal logs and any partial artifact still
+require readback. The actual `verify_common` fragment reproduced status3 before its
+readiness wait with a delayed-activation fixture. Moving only the existing
+`nm-online -q --timeout=60` line before both active-service checks makes that
+fixture pass. Five negative cases reject network timeout, inactive manager,
+inactive guest agent, failed DNS and failed-unit output. This preserves service,
+agent, connectivity, DNS, failed-unit checks and timeouts.
+
+Worker execution: `python3 tests/vm/runtime-checks.py` passed 169 tests;
+`bash tests/source-tests.sh` exited zero, including the revised 169-test runtime
+suite and full repository namespaces10/signer14+18/deferrednone. Outputs were
+retained in the worker tool transcript, not a separately hashed logfile. The
+checked source-file SHA-256 values are
+`64c776b5cee4c4265211892217d3705246dd69399c48e54ae21454686e0be47f`
+(`tests/vm/guest/verify.sh`) and
+`48c70a520b8355b9a883ad1827b17e2adef8cc59037d7c4d13ebb7c13a9b161e`
+(`tests/vm/runtime-checks.py`). Independent read-only review found no material
+issue and executed the focused six-case method plus scoped diff checks with
+exit zero. Root integrated `bash tests/source-tests.sh` also exited zero; retained log
+SHA-256 `e558bd09d12b53cf6a36cb37b8bbe39d06b2f843100dfe455e1b00b11058886c`,
+including full repository namespaces10/signer14+18/deferrednone. Only this final
+receipt prose followed that run; documentation/diff checks were repeated.
+These are local source results; a fresh accepted child and real VM
+transaction remain required. Status3 alone still does not establish the actual
+failed guest service state or explain the earlier hard timeout.
+
+Protected [PR83](https://github.com/snaplyze/arch-linux/pull/83) contains the
+readiness correction; exact-head Source checks remain required. A further
+bounded observer correction duplicates the existing `QEMU_PROGRESS` payload as
+a standard GitHub notice. The original helper validated phase/state only;
+scenario, commit, tree and run identifiers were raw. Both output forms now use
+bounded allowlisted identifiers, with invalid values replaced by `-`, and retain
+the original schema without a timestamp. Invalid phase/state emits nothing;
+begin/end placement and acceptance conditions are unchanged. The RED regression
+reproduced missing notices and identifier injection (log SHA-256
+`b0737e54d0bdb1e7242af0f96146501da9e87c31a571aefb423ecac12d1451f3`).
+Focused five tests, full 171-test runtime suite and static checks passed; runtime
+log SHA-256 `ddbf550c281253de1a519aed65776ff6c845ed95311a123d6c2eb1368663738e`.
+An initial runtime fixture-output filter failure was corrected and its separate
+log retained. Independent read-only review found no material issue, ran five
+focused tests and checked all nine actual run prefixes. Root integrated
+`bash tests/source-tests.sh` exited zero, including 171 runtime tests, 29-document
+checks, full repository namespaces10/signer14+18/deferrednone and ShellCheck.
+Its retained log SHA-256 is
+`a9c6b3978db1503127bcd12117a4fceb29977b888c8290eb364579f1770b1a5e`.
+Only receipt prose followed that run; documentation and diff checks are repeated
+before committing. This source PASS is not VM recovery or public delivery.
+Live notice visibility is NOT_TESTED: the active Stock check run exposed zero
+annotations when queried; this does not prove that future notices are available
+before a job completes. No workflow, timeout or VM assertion was weakened.
+
+The release is terminal CANCELLED; Stock ended at 09:19:19 UTC. Its retained
+job-log SHA-256 is
+`7598c0fd5ddd8b226fae177f189106d30d6d14e96bdedbe20a842f9542253e7c`.
+The last observed phase was installer-completion (begin 08:09:16 UTC), with no
+end marker before cancellation at 09:19:12 UTC. This scenario did not establish
+firstboot or GNOME authentication acceptance. The archive step lacked
+`result.json`, and no Stock artifact was uploaded. Runner-owned cleanup reported
+completion; orphan VM processes were terminated by the runner. The cause of
+the incomplete installation and missing cancellation evidence remains under
+diagnosis. These observations do not convert interruption into a product FAIL
+or prove that the normal two-hour installation deadline would have failed.
+
+PR83 head `b1cab9dbaa9e8b7e6d2b46f3d6b5c10c8b4cc896` passed exact-head
+[CI38041152745](https://github.com/snaplyze/arch-linux/actions/runs/38041152745);
+retained job-log SHA-256
+`2c50fc5166932cfad9633d3d9aad52cf401c71ecc34a60144824a8c8629884e7`.
+This PASS belongs to that head, not the following cancellation correction.
+
+An actual-helper subprocess regression reproduced direct SIGINT/SIGTERM
+returning zero, finalizing storage but omitting FAILURE/result metadata. The
+signal trap previously reused the preceding command's status. Separate signal
+traps now exit130/143 through the single EXIT cleanup, and the installer wait
+sets its actual `installer-completion` phase. The staged workflow's final
+invocation uses `exec bash`, removing the intervening step shell. The tests
+extract actual cleanup, result builder, wait and phase code; both signals produce
+one finalization and nonzero FAIL metadata, and the executed workflow invocation
+does not resume its shell. RED log SHA-256
+`a982379376259e06fca1cc4baadc5e65d668638e171f35fe2fa36eda466df84a`;
+GREEN log SHA-256
+`78897bee628c2237d72d1bac3907b55850a3f471c92bbb4762c8bf7b5dcfb7e2`.
+Runtime173, actions-release28, static, agent-contract and Bash syntax checks pass.
+Independent read-only review found no material issue and executed both focused
+methods (both signals, actual failure metadata, one finalization, shell handoff).
+Root `bash tests/source-tests.sh` exited zero with runtime173, documents29, full
+repository namespaces10/signer14+18/deferrednone and ShellCheck. Retained log
+SHA-256 `c42cc42d23ba71e621063e6fbeda1e2a89add113cd84598ef2f7050dd9a7ac1c`.
+Only receipt prose followed this run; documentation and diff checks are repeated
+before committing. Exact-head CI and fresh VM/public acceptance remain required.
+
+The [runner cancellation protocol](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-cancellation)
+signals the step entry process, waits 7.5 seconds, sends TERM, then waits 2.5
+seconds before killing the process tree. Existing cleanup may take longer;
+this focused correction preserves its resource identity checks and compaction
+and does not establish reliable artifact delivery under that deadline. The
+historical cancellation log does not reveal which signal reached the harness.
+Real cancelled-run evidence delivery is NOT_TESTED; an interruption is never a
+successful installation or migration receipt.
+
 At 2026-10-10T07:19 UTC, finite read-only `git ls-remote` checks against the
 official AUR succeeded for both Plymouth and Bibata. Availability is advisory:
 the observed HEADs do not authorize changing the reviewed recipe pins. The

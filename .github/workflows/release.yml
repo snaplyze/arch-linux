@@ -383,7 +383,7 @@ jobs:
             upgrade_args=(--gnome51-upgrade-inputs "${upgrade_inputs}"
               --gnome51-upgrade-manifest-sha256 "${upgrade_manifest_sha}")
           fi
-          bash tests/vm/run.sh "${SCENARIO}" --mode staged \
+          exec bash tests/vm/run.sh "${SCENARIO}" --mode staged \
             --iso "${iso}" --iso-sha256 "${iso_hash}" \
             --output-root "${RUNNER_TEMP}/qemu-evidence" \
             --release-assets "${RUNNER_TEMP}/phase-a" --release-version "${RELEASE_VERSION}" \

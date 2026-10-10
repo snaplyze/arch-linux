@@ -13,7 +13,7 @@ publication. Exact historical attempts and evidence belong in
 | ID | Work and acceptance | Status |
 | --- | --- | --- |
 | G51-01 | Diagnose installed package/session state and upstream compatibility; bind findings to versions and authoritative sources. | DONE |
-| G51-02 | Prepare reviewed package/extension upgrade paths, preserve user overrides and safe unsupported-version handling; reproduce failures before fixes and test recovery. | Product source delivered; fresh a5e41978 signed build and independent Phase-A readback PASS; VM/public acceptance pending |
+| G51-02 | Prepare reviewed package/extension upgrade paths, preserve user overrides and safe unsupported-version handling; reproduce failures before fixes and test recovery. | Product source delivered; fresh f62fcfba signed build and independent Phase-A readback PASS; core Minimal FAIL at firstboot network-service assertion; GNOME/public acceptance pending |
 | G51-03 | Correct deterministic release documentation rendering; test independently differing source/document/release versions and preserve historical evidence. | DONE: overview/bootstrap/changelog rendering and 52 regressions PASS |
 | G51-04 | Update agent, update/release and user documentation with package delivery and real upgrade acceptance requirements. | Candidate instructions delivered; final publication reconciliation pending |
 | G51-05 | Independent diff review, affected checks and full source suite; record package, real session/VM and publication results separately. | HTTP correction, Shell observer regressions, source/review/protected delivery and fresh signed build PASS; new VM/publication acceptance pending; previous failed/cancelled results retained |
@@ -134,8 +134,51 @@ them and withhold successful phase completion. Original guest failure status is
 preserved even when diagnostics or UID lookup fail. Independent review also
 reproduced and closed public-capture failure fallthrough through the complete
 signature/retention/identity closure. Independent review and the full source
-suite passed, including full repository namespaces and ShellCheck. Next: deliver the reviewed
-diagnostic candidate and obtain new bound VM evidence before any unproven input
+suite passed, including full repository namespaces and ShellCheck. Protected
+[PR82](https://github.com/snaplyze/arch-linux/pull/82) merged after exact-head CI;
+the sole checkout returned to `main` by fast-forward at
+`1e9c33d233f75066f88774d8c67f31903eeb5236`. Main CI
+[38034759530](https://github.com/snaplyze/arch-linux/actions/runs/38034759530)
+passed. Fresh configured release
+[38034970799](https://github.com/snaplyze/arch-linux/actions/runs/38034970799)
+prepared deterministic child `f62fcfba58c4df020ae44288099854c193348ce7`;
+independent source transport/identity and generated 1.0.7 documentation readback
+passed. Clean build, protected unsigned readback and independent seven-package
+validation passed. All five root gates, snapshot signing and independent
+fourteen-file signed Phase-A readback passed. Core Minimal completed installation
+with three assertions, then failed firstboot at source1098 (NetworkManager active
+check, guest status3) before the existing sixty-second network readiness wait.
+The new progress observations show normal installer completion and guest-agent
+execution, so this is not the previous unlocated hard timeout. The actual readiness fragment reproduced a premature status3 before the wait.
+A one-line correction moves the existing sixty-second wait before service checks;
+one success and five rejection cases pass, preserving NetworkManager/QGA active,
+DNS and failed-unit checks. The worker full source suite passed (169 runtime tests,
+full namespace10/signer14+18/deferrednone); independent read-only review found no
+material issue. This is a local harness correction; actual failed VM service state
+and fresh VM recovery are not established. PR83 holds the readiness correction;
+mandatory exact-head CI is pending. At 09:18 UTC the root requested normal
+cancellation of the already nonpublishable release after Stock had run for more
+than 75 minutes without accessible phase evidence. Interruption is not a GNOME
+FAIL; retain terminal logs and any partial artifact before diagnosing its phase.
+The next candidate also duplicates sanitized `QEMU_PROGRESS` observations as
+GitHub notices. Existing phase boundaries and verdict checks remain unchanged;
+live annotation availability is NOT_TESTED. Focused tests, 171 runtime tests and
+static checks passed; independent review found no material issue and verified all
+nine generated run prefixes. Integrated `bash tests/source-tests.sh` passed,
+including 171 runtime tests, full namespace repository checks and ShellCheck. Release
+cancellation completed at 09:19:19 UTC. The terminal Stock log proves that its
+last observed phase was installer-completion, not GNOME login; no completion
+marker or partial result artifact was delivered. Runner cleanup completed.
+The b1cab9d notice candidate passed exact-head CI. A reproduced cancellation
+defect is corrected in the next delta: INT/TERM now exit130/143 through one EXIT
+cleanup, the installer wait records its actual phase, and the staged workflow
+replaces its step shell with the harness. Actual-helper signal regressions,
+173 runtime tests and workflow/agent checks pass. Independent review found no
+material issue; root integrated source suite passed with full repository
+namespaces and ShellCheck. Exact-head CI remains required. Runner termination grace still limits artifact
+delivery; no real cancelled-run recovery claim is made.
+Next: obtain new VM
+evidence before any unproven input
 or desktop behavior correction. The obsolete
 failed release is terminal CANCELLED (three PASS, one FAIL, five cancelled);
 job cleanup completed. No Dash product-fix claim. Filtered lifecycle
