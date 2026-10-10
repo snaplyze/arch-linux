@@ -1041,10 +1041,56 @@ gnome51_download_inputs https://fixture.invalid
                                         capture_output=True, text=True, timeout=5)
                 self.assertEqual(result.returncode == 0, accepted, result.stderr)
 
+    def test_qga_native_sources_use_bounded_argv_and_exact_stdin_bytes(self):
+        import base64, hashlib, json
+        body = self.host_function('qga_verify')
+        constructor = body[:body.index("    printf '%s\\n' ")]
+        constructor += '\n    printf %s "$request"\n}\n'
+        variables = sorted(set(re.findall(r'\$\{([a-z_0-9]+)(?::[^}]*)?\}', constructor)))
+        names = ('desktop-native.sh', 'desktop-receipt.py', 'desktop-shell-probe.js',
+                 'desktop-extension-observer.js', 'desktop-service-runner.js', 'desktop-service-probe.js')
+        sources = {name: (ROOT / 'tests/vm/guest' / name).read_bytes() for name in names}
+        self.assertGreater(sum(len(base64.b64encode(raw)) for raw in sources.values()), 131072)
+        script = ('set -euo pipefail\n' + '\n'.join(name + '=fixture' for name in variables) +
+                  '\nscript_dir="$1"\ngnome51_upgrade_manifest_sha256=-\nscenario_id="$2"\n'
+                  'emit_phase_progress(){ :; }\n' + constructor + '\nqga_verify "$3" fixture\n')
+        for scenario, phase in (('stock-gnome-btrfs-luks2-plymouth-grub', 'extension-firstlogin-prepare'),
+                                ('marble-gnome-btrfs-luks2-plymouth-systemdboot', 'extension-upgrade-prepare'),
+                                ('stock-gnome-btrfs-luks2-plymouth-grub', 'firstboot')):
+            with self.subTest(scenario=scenario, phase=phase):
+                produced = subprocess.run(['bash', '-c', script, 'native-source-transport',
+                    str(ROOT / 'tests/vm'), scenario, phase], capture_output=True, text=True, timeout=10)
+                self.assertEqual(produced.returncode, 0, produced.stderr)
+                request = json.loads(produced.stdout)
+                self.assertEqual(request['execute'], 'guest-exec')
+                self.assertEqual(request['arguments']['path'], '/usr/bin/bash')
+                argv = request['arguments']['arg']
+                self.assertEqual(len(argv), 30)
+                self.assertTrue(all(len(arg.encode()) < 4096 for arg in argv))
+                self.assertEqual(argv[1], 'exec 3<&0 </dev/null; exec /usr/bin/bash /dev/fd/3 "$@"')
+                payload = base64.b64decode(request['arguments']['input-data'])
+                verifier = (ROOT / 'tests/vm/guest/verify.sh').read_bytes()
+                if not phase.startswith('extension-'):
+                    self.assertEqual(payload, verifier)
+                    continue
+                self.assertTrue(payload.endswith(verifier))
+                loader = payload[:-len(verifier)].decode()
+                matches = re.findall(r'p=/run/arch-linux-qemu-(desktop[^\n]+)\n'
+                                     r'if [^\n]+printf %s ([A-Za-z0-9+/=]+) \| base64 --decode[^\n]+\n'
+                                     r'([^\n]+)\n([^\n]+)\n', loader)
+                self.assertEqual(tuple(name for name, *_ in matches), names)
+                for name, encoded, mode_check, hash_check in matches:
+                    self.assertEqual(base64.b64decode(encoded), sources[name])
+                    self.assertIn('0:500:1', mode_check)
+                    self.assertIn('[ ! -L "$p" ]', mode_check)
+                    self.assertIn(hashlib.sha256(sources[name]).hexdigest(), hash_check)
+                    self.assertIn('chmod 0500 -- "$p"', loader)
+                self.assertIn(base64.b64encode((ROOT / 'tests/vm/guest/extension-probe.js').read_bytes()).decode(), loader)
+
     def test_gnome51_qga_contract_transport_binds_bytes_without_new_arguments(self):
         import base64, hashlib, json
         body = self.host_function('qga_verify')
-        request_code = body[body.index('request="$(jq'):body.index('    printf \'%s\\n\' "${request}"')]
+        request_code = body[body.index('request="$('):body.index('    printf \'%s\\n\' "${request}"')]
         variables = re.findall(r'\$\{([a-z_0-9]+)(?::[^}]*)?\}', request_code)
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory); (root / 'guest').mkdir(); (root / 'guest/verify.sh').write_text('exit 0\n')
