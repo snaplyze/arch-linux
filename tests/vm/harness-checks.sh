@@ -571,7 +571,7 @@ for change, expected in (("atime","package-missing"),("mtime","unclassified"),("
             fields={name:getattr(value,name) for name in ("st_dev","st_ino","st_mode","st_uid","st_gid","st_nlink","st_size","st_mtime_ns","st_ctime_ns","st_atime","st_atime_ns")}
             if len(calls)==2:fields[{"atime":"st_atime_ns","mtime":"st_mtime_ns","ctime":"st_ctime_ns"}[change]]+=1;fields["st_atime"]+=1
             return types.SimpleNamespace(**fields)
-        with patch("sys.argv",["diagnostic",tmp,"fixture","install-archiso"]),patch("os.fstat",side_effect=observed):
+        with patch("sys.argv",["diagnostic",tmp,"fixture","install-archiso","","",""]),patch("os.fstat",side_effect=observed):
             exec(compile(embedded,"production-failure-diagnostic","exec"),{})
         output=(evidence/"failure-diagnostic.txt").read_text()
         assert "reason="+expected in output,(change,output)
@@ -579,6 +579,113 @@ for change, expected in (("atime","package-missing"),("mtime","unclassified"),("
 print("typed failure metadata: atime-only acceptance and mtime/ctime rejection passed")
 print("typed failure diagnostics: 8 production compaction cases passed; raw command/secret retention rejected")
 PY_FAILURE_DIAGNOSTICS
+
+# A failing guest phase is classified from its own stderr, with its exit status, before any
+# secret-bearing evidence is removed. Only strictly shaped tokens are ever retained.
+python3 - "${host}" <<'PY_GUEST_FAILURE_DIAGNOSTICS'
+import gzip, json, os, re, subprocess, sys, tempfile
+from pathlib import Path
+source=Path(sys.argv[1]).read_text()
+def function(name):
+    match=re.search(r"^"+name+r"\(\) \{\n.*?^\}",source,re.M|re.S)
+    assert match, "missing production helper: "+name
+    return match.group()
+functions=[function(name) for name in ("capture_failure_diagnostic","remove_secret_bearing_evidence","compact_run_evidence")]
+secret="fixture-runtime-credential"
+ok_fail="EXTENSION_FUNCTIONAL_FAIL phase=firstlogin feature=observation stage=dash-ready reason=missing-receipt"
+ok_probe="EXTENSION_PROBE_DIAGNOSTIC phase=firstlogin process=yes activated=yes mapped=no focused=no desktop_gio=yes desktop_exec=yes favorite_first=yes reason=not-mapped"
+ok_guest="STOCK_QEMU_GUEST_FAIL phase=extension-firstlogin-dash line=4690 status=1 command=return\\ 1"
+expected_rows=("script=guest reason=guest-phase-failed line=unknown status=1 guest_phase=extension-firstlogin-dash",
+    "script=guest event=EXTENSION_FUNCTIONAL_FAIL round=firstlogin feature=observation stage=dash-ready reason=missing-receipt guest_phase=extension-firstlogin-dash",
+    "script=guest event=EXTENSION_PROBE_DIAGNOSTIC round=firstlogin process=yes activated=yes mapped=no focused=no desktop_gio=yes desktop_exec=yes favorite_first=yes reason=not-mapped guest_phase=extension-firstlogin-dash",
+    "script=guest reason=script-error line=4690 status=1 guest_phase=extension-firstlogin-dash")
+def run(files, guest_phase="extension-firstlogin-dash", stem="extension-firstlogin-dash", status="1", outer="firstboot"):
+    with tempfile.TemporaryDirectory(prefix="qa-guest-failure-") as tmp:
+        root=Path(tmp); evidence=root/"evidence"; evidence.mkdir()
+        for name,data in files.items():
+            (evidence/name).write_bytes(data if isinstance(data,bytes) else data.encode())
+        (evidence/(stem+".status.json")).write_text('{"return":{"exited":true,"exitcode":'+status+'}}\n')
+        script=("set -Eeuo pipefail\nrun_root=$FIXTURE evidence=$FIXTURE/evidence runtime_password="+secret+" run_id=fixture current_phase="+outer+
+            " guest_failure_phase='"+guest_phase+"' guest_failure_stem='"+stem+"' guest_failure_status='"+status+"'\n"+
+            "\n".join(functions)+"\ncapture_failure_diagnostic\ncp -- \"$evidence/failure-diagnostic.txt\" \"$FIXTURE/diagnostic.copy\"\ncompact_run_evidence\n")
+        result=subprocess.run(["bash","-c",script],env=dict(os.environ,FIXTURE=tmp),capture_output=True,text=True,timeout=20)
+        assert result.returncode==0,result.stderr
+        diagnostic=(root/"diagnostic.copy").read_text()
+        summary=gzip.decompress((evidence/"scenario.log.gz").read_bytes()).decode()
+        assert len(diagnostic.encode())<=4096 and len(diagnostic.splitlines())<=32,diagnostic
+        assert [l for l in summary.splitlines() if l.startswith("QEMU_FAILURE_DIAGNOSTIC ")]==diagnostic.splitlines(),(diagnostic,summary)
+        assert secret not in diagnostic and secret not in summary
+        assert sorted(p.name for p in evidence.iterdir())==["scenario.log.gz"]
+        return diagnostic
+# (a) the Stock extension failure yields phase/status/stage/reason rows from the phase's own file; run() also proves compaction retains exactly these rows in scenario.log.gz.
+diagnostic=run({"extension-firstlogin-dash.stderr":"raw private /hidden/key\n"+ok_probe+"\n"+ok_fail+"\n"+ok_guest+"\n"})
+rows=diagnostic.splitlines()
+for expected in expected_rows:
+    assert any(row==f"QEMU_FAILURE_DIAGNOSTIC run_id=fixture phase=firstboot {expected}" for row in rows),(expected,diagnostic)
+assert "/hidden/key" not in diagnostic and "raw private" not in diagnostic
+# Exit status survives without any stderr, and the phase is still named.
+diagnostic=run({}, status="7")
+assert diagnostic.splitlines()==["QEMU_FAILURE_DIAGNOSTIC run_id=fixture phase=firstboot script=guest reason=guest-phase-failed line=unknown status=7 guest_phase=extension-firstlogin-dash",
+    "QEMU_FAILURE_DIAGNOSTIC run_id=fixture phase=firstboot script=guest reason=unclassified line=unknown status=unknown guest_phase=extension-firstlogin-dash"],diagnostic
+# (b) a stderr containing the runtime credential never leaks it; shaped tokens survive.
+diagnostic=run({"extension-firstlogin-dash.stderr":"password="+secret+"\nEXTENSION_FUNCTIONAL_FAIL phase=firstlogin feature=observation stage=dash-ready reason="+secret+"\n"+ok_fail+"\n"})
+assert "stage=dash-ready reason=missing-receipt" in diagnostic and diagnostic.count("event=EXTENSION_FUNCTIONAL_FAIL")==1,diagnostic
+# (c) the failing phase sorting before 40 other stderr files is still classified.
+files={f"zz-{index:02d}.stderr":"benign\n" for index in range(40)}
+files["extension-firstlogin-dash.stderr"]=ok_fail+"\n"
+diagnostic=run(files)
+assert "stage=dash-ready reason=missing-receipt" in diagnostic,diagnostic
+# Another passed phase's tokens are not attributed to the failing phase.
+files["zz-39.stderr"]="EXTENSION_FUNCTIONAL_FAIL phase=firstlogin feature=clipboard stage=other-stage reason=other-reason\n"
+assert "other-stage" not in run(files)
+# (d) malformed, oversized and extra tokens are rejected as whole lines.
+bad=["EXTENSION_FUNCTIONAL_FAIL phase=firstlogin feature=observation stage="+"a"*65+" reason=missing-receipt",
+     "EXTENSION_FUNCTIONAL_FAIL phase=firstlogin feature=observation stage=Dash reason=missing-receipt",
+     "EXTENSION_FUNCTIONAL_FAIL phase=firstlogin feature=observation stage=dash;rm reason=missing-receipt",
+     "EXTENSION_FUNCTIONAL_FAIL phase=firstlogin feature=observation stage=dash-ready reason=missing-receipt extra=/hidden/key",
+     "EXTENSION_FUNCTIONAL_FAIL phase=firstlogin feature=observation stage= reason=missing-receipt",
+     "EXTENSION_FUNCTIONAL_FAIL phase=firstlogin feature=observation stage=dash-ready reason=missing receipt",
+     "EXTENSION_FUNCTIONAL_FAIL phase=firstlogin feature=observation stage=dash-ready reason=missing-receipt\t/hidden/key",
+     "EXTENSION_PROBE_DIAGNOSTIC phase=firstlogin process=maybe activated=yes mapped=no focused=no desktop_gio=yes desktop_exec=yes favorite_first=yes reason=not-mapped",
+     "EXTENSION_FUNCTIONAL_FAIL phase=firstlogin feature=observation stage=dash-ready reason=" + "b"*20000]
+diagnostic=run({"extension-firstlogin-dash.stderr":"\n".join(bad)+"\n"})
+assert diagnostic.splitlines()==["QEMU_FAILURE_DIAGNOSTIC run_id=fixture phase=firstboot script=guest reason=guest-phase-failed line=unknown status=1 guest_phase=extension-firstlogin-dash",
+    "QEMU_FAILURE_DIAGNOSTIC run_id=fixture phase=firstboot script=guest reason=unclassified line=unknown status=unknown guest_phase=extension-firstlogin-dash"],diagnostic
+# Row and byte caps hold for many distinct valid lines; oversize or unsafe files are skipped.
+many="".join(f"EXTENSION_FUNCTIONAL_FAIL phase=firstlogin feature=observation stage=stage-{n} reason=missing-receipt\n" for n in range(200))
+diagnostic=run({"extension-firstlogin-dash.stderr":many}); assert 10<=len(diagnostic.splitlines())<=32 and len(diagnostic.encode())<=4096,diagnostic
+diagnostic=run({"extension-firstlogin-dash.stderr":ok_fail.encode()+b"\n"+b"x"*(16*1024*1024)})
+assert "stage=dash-ready" not in diagnostic and "reason=guest-phase-failed" in diagnostic,diagnostic
+for hostile in ("../evidence/x","Bad_Stem","a"*129,""):
+    diagnostic=run({"extension-firstlogin-dash.stderr":ok_fail+"\n"},stem=hostile)
+    assert "stage=dash-ready" not in diagnostic,(hostile,diagnostic)
+# qga_verify records the in-flight guest phase and the guest exit status, and clears them on success.
+import base64
+verifier=function("qga_verify")
+names=sorted(set(re.findall(r"\$\{([a-z_][a-z0-9_]*)\}",verifier))-{"phase","stem","status_response","stdout_file","stderr_file","request","start","guest_pid","status_request","upgrade_contract","probe_contract","probe_hash","desktop_contract","attempts","source_name","source_bytes","source_hash","evidence","script_dir","marker_prefix","run_id","scenario_id","guest_failure_status","input_mode","gnome51_upgrade_manifest_sha256","last_boot_id"})
+def verify_case(exit_code, marker):
+    with tempfile.TemporaryDirectory(prefix="qa-qga-verify-") as tmp:
+        evidence=Path(tmp)/"evidence"; evidence.mkdir()
+        out=base64.b64encode((("STOCK_QEMU_GUEST_PASS run_id=fixture scenario=stock phase=fixture-phase boot_id="+"a"*36+" x\n") if marker else "").encode()).decode()
+        status=json.dumps({"return":{"exited":True,"exitcode":exit_code,"out-data":out,"err-data":""}})
+        script=("set -Eeuo pipefail\n"+"\n".join(name+"=fixture" for name in names)+"\n"
+            "evidence=$FIXTURE/evidence script_dir=$REPO/tests/vm marker_prefix=STOCK run_id=fixture scenario_id=stock input_mode=staged\n"
+            "gnome51_upgrade_manifest_sha256=- last_boot_id='' guest_failure_phase='' guest_failure_stem='' guest_failure_status=''\n"
+            "die(){ printf '%s\\n' \"$*\" >&2; return 1; }\nemit_phase_progress(){ :; }\n"
+            "qga_call(){ case \"$1\" in *guest-exec-status*) printf '%s\\n' \"$STATUS\" ;; *) printf '{\"return\":{\"pid\":42}}\\n' ;; esac; }\n"
+            "sleep(){ :; }\n"+verifier+"\nrc=0; qga_verify fixture-phase fixture-stem || rc=$?\n"
+            "printf 'rc=%s phase=%s stem=%s status=%s\\n' \"$rc\" \"$guest_failure_phase\" \"$guest_failure_stem\" \"$guest_failure_status\"\n")
+        result=subprocess.run(["bash","-c",script],env=dict(os.environ,FIXTURE=tmp,REPO=sys.argv[1].rsplit("/tests/vm/",1)[0],STATUS=status),capture_output=True,text=True,timeout=30)
+        assert result.returncode==0,result.stderr
+        return result.stdout.strip(),result.stderr
+line,err=verify_case(3,False)
+assert line=="rc=1 phase=fixture-phase stem=fixture-stem status=3" and "guest verification failed: fixture-phase exit=3" in err,(line,err)
+line,err=verify_case(0,True)
+assert line=="rc=0 phase= stem= status=",(line,err)
+line,err=verify_case(0,False)
+assert line=="rc=1 phase=fixture-phase stem=fixture-stem status=0" and "marker is missing" in err,(line,err)
+print("guest failure diagnostics: phase, exit status and allowlisted tokens retained; credential, raw text and unsafe tokens rejected")
+PY_GUEST_FAILURE_DIAGNOSTICS
 
 python3 - "${repo_root}" <<'PY_GNOME51_CLOSURE'
 from pathlib import Path
