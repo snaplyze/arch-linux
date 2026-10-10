@@ -101,8 +101,8 @@ inspection still does not authorize installation or replace signature verificati
 
 ## Signing boundary
 
-The configured `release.yml` pipeline is authorized after a successful reviewed merge to
-`main`. It reconstructs and tests a deterministic version-only release child, binds both that child
+The configured `release.yml` pipeline is authorized when explicitly dispatched on reviewed
+`main` whose exact head passed push CI; merges never start it. It reconstructs and tests a deterministic version-only release child, binds both that child
 and the origin main commit/tree, and then gives only its `snapshot` and `finalize` jobs the
 release-environment `ARCH_LINUX_SIGNING_KEY` and `ARCH_LINUX_SIGNING_PASSPHRASE` secrets. Those jobs
 import only the signing-only subkey into a fresh temporary no-network boundary and remove it on exit.

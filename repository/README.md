@@ -73,8 +73,8 @@ build checks do not replace the [required upgrade checks](../docs/testing.md#gno
 
 ## Authorized signing and host recovery
 
-The configured `release.yml` pipeline is authorized after a successful CI-verified merge
-to `main`. It derives and validates a deterministic version-only release child, records the separate
+The configured `release.yml` pipeline is authorized when explicitly dispatched on `main` whose
+exact head passed push CI; merges never start it. It derives and validates a deterministic version-only release child, records the separate
 origin main identity in `repository/release-origin.json`, and signs only that child. Only its
 `snapshot` and `finalize` jobs use the `release` Environment and receive
 `ARCH_LINUX_SIGNING_KEY` and `ARCH_LINUX_SIGNING_PASSPHRASE`. The adapter imports only the
@@ -346,7 +346,7 @@ unchanged. The procedure below remains applicable only within its accepted basel
 
 The delivered tooling provides an explicit package child; external package signing/publication is
 separately authorized and remains NOT_TESTED. Normal installer intent stays the default. A reviewed
-`repository/delivery-intent.json` with package intent suppresses the automatic installer release
+`repository/delivery-intent.json` with package intent stops a dispatched installer release
 before version allocation; it does not grant package signing authority.
 
 Package intent schema 1 has exactly `schema`, `kind`, `packageTag` and `published`. Set `kind` to

@@ -133,12 +133,24 @@ def require_latest_main(identity: dict[str, str]) -> None:
         raise ValueError("reviewed main has advanced; the superseded candidate cannot be published")
 
 
+def require_main_ci_success(main_commit: str) -> None:
+    if re.fullmatch(r"[a-f0-9]{40}", main_commit) is None:
+        raise ValueError("main commit is malformed")
+    runs = api(f"/repos/{REPOSITORY}/actions/workflows/ci.yml/runs?event=push&branch=main&head_sha={main_commit}&per_page=100")
+    if not isinstance(runs, dict) or not isinstance(runs.get("workflow_runs"), list):
+        raise ValueError("CI run list is malformed")
+    if not any(isinstance(run, dict) and run.get("head_sha") == main_commit and run.get("event") == "push"
+               and run.get("head_branch") == "main" and run.get("status") == "completed"
+               and run.get("conclusion") == "success" for run in runs["workflow_runs"]):
+        raise ValueError("main head lacks successful push CI; wait for it before dispatching a release")
+
+
 def require_release_trigger(selection: dict[str, str]) -> None:
-    event = os.environ.get("GITHUB_EVENT_NAME", "")
-    if event == "workflow_run":
-        return
-    if event != "workflow_dispatch" or selection.get("resume") != "true":
-        raise ValueError("manual release runs may only resume an existing release; rerun main CI for a fresh candidate")
+    # Releases are explicit: only a dispatch on main starts or resumes one; merges never do.
+    if os.environ.get("GITHUB_EVENT_NAME") != "workflow_dispatch" or os.environ.get("GITHUB_REF") != "refs/heads/main":
+        raise ValueError("a release starts only from an explicit workflow dispatch on main")
+    if selection.get("resume") != "true":
+        require_main_ci_success(command(["git", "-C", str(ROOT), "rev-parse", "HEAD"]).decode().strip())
 
 
 def select_release() -> dict[str, str]:

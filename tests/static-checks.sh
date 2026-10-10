@@ -89,10 +89,8 @@ release_workflow="$repo_root/.github/workflows/release.yml"
 # GitHub expressions are matched literally, without shell expansion.
 # shellcheck disable=SC2016
 for literal in \
-    'name: Release' 'workflow_run:' 'workflows: [CI]' 'branches: [main]' 'types: [completed]' \
-    "github.event.workflow_run.conclusion == 'success'" \
-    "github.event.workflow_run.event == 'push'" \
-    "github.event.workflow_run.head_branch == 'main'" \
+    'name: Release' 'workflow_dispatch:' "github.event_name == 'workflow_dispatch'" \
+    "github.ref == 'refs/heads/main'" \
     'group: immutable-release' 'cancel-in-progress: false' \
     'repository/release-source.py prepare' 'repository/release-source.py restore' \
     'repository/actions-sign-release.py snapshot' 'repository/actions-sign-release.py finalize' \

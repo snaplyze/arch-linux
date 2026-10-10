@@ -1,11 +1,8 @@
 name: Release
 
 on:
-  workflow_run:
-    workflows: [CI]
-    branches: [main]
-    types: [completed]
-  # Recovery only: actions-release.py rejects dispatch without an existing accepted release.
+  # A release is an explicit act: dispatch on main. Merges, including documentation-only ones,
+  # never start one. actions-release.py requires successful push CI for the exact main head.
   workflow_dispatch:
 
 permissions:
@@ -24,15 +21,14 @@ jobs:
     name: Prepare source derived from reviewed main
     if: >-
       github.repository == 'snaplyze/arch-linux' &&
-      (github.event_name == 'workflow_dispatch' ||
-       (github.event.workflow_run.conclusion == 'success' &&
-        github.event.workflow_run.event == 'push' &&
-        github.event.workflow_run.head_branch == 'main' &&
-        github.event.workflow_run.head_repository.full_name == github.repository))
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main'
     runs-on: [self-hosted, Linux, X64, ubuntu-actions, arch-linux]
     timeout-minutes: 30
     # Draft inventory requires push-level access; this job performs API reads only.
+    # actions: read lets selection confirm push CI success for the dispatched main head.
     permissions:
+      actions: read
       contents: write
     outputs:
       delivery_kind: ${{ steps.source.outputs.delivery_kind }}
@@ -54,7 +50,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
           fetch-tags: true
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.sha }}
 
       - name: Check source and public verifier dependencies
         run: |
@@ -65,7 +61,7 @@ jobs:
         id: source
         env:
           GH_TOKEN: ${{ github.token }}
-          MAIN_COMMIT: ${{ github.event.workflow_run.head_sha || github.sha }}
+          MAIN_COMMIT: ${{ github.sha }}
         run: |
           set -euo pipefail
           test "${GITHUB_REF}" = refs/heads/main

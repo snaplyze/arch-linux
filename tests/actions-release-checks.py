@@ -759,28 +759,80 @@ wait_qga(){ :; }
             with self.assertRaises(ValueError):
                 self.module.require_immutability_policy()
 
-    def test_manual_dispatch_can_only_resume_an_existing_release(self) -> None:
-        for event, resume, accepted in (("workflow_run", "false", True),
-                                        ("workflow_run", "true", True),
-                                        ("workflow_dispatch", "true", True),
-                                        ("workflow_dispatch", "false", False),
-                                        ("push", "true", False), ("", "true", False)):
-            with self.subTest(event=event, resume=resume), patch.dict(self.module.os.environ, {"GITHUB_EVENT_NAME": event}):
+    def test_only_explicit_dispatch_on_main_starts_or_resumes_a_release(self) -> None:
+        main = "a" * 40
+        success = {"workflow_runs": [{"head_sha": main, "event": "push", "head_branch": "main",
+                                      "status": "completed", "conclusion": "success"}]}
+        for event, ref, resume, accepted in (("workflow_dispatch", "refs/heads/main", "false", True),
+                                             ("workflow_dispatch", "refs/heads/main", "true", True),
+                                             ("workflow_dispatch", "refs/heads/feature", "false", False),
+                                             ("workflow_dispatch", "refs/heads/feature", "true", False),
+                                             ("workflow_run", "refs/heads/main", "false", False),
+                                             ("workflow_run", "refs/heads/main", "true", False),
+                                             ("push", "refs/heads/main", "false", False), ("", "", "true", False)):
+            with self.subTest(event=event, ref=ref, resume=resume), \
+                    patch.dict(self.module.os.environ, {"GITHUB_EVENT_NAME": event, "GITHUB_REF": ref}), \
+                    patch.object(self.module, "command", return_value=(main + "\n").encode()), \
+                    patch.object(self.module, "api", return_value=success):
                 if accepted:
                     self.module.require_release_trigger({"resume": resume})
                 else:
                     with self.assertRaises(ValueError):
                         self.module.require_release_trigger({"resume": resume})
 
-    def test_select_cli_applies_manual_recovery_gate_before_returning_candidate(self) -> None:
-        for resume, expected_status in (("false", 1), ("true", 0)):
-            with self.subTest(resume=resume), \
-                    patch.dict(self.module.os.environ, {"GITHUB_EVENT_NAME": "workflow_dispatch", "GITHUB_REPOSITORY": "snaplyze/arch-linux"}), \
+    def test_fresh_dispatch_is_gated_on_ci_for_the_checked_out_head(self) -> None:
+        main = "a" * 40
+        good = {"head_sha": main, "event": "push", "head_branch": "main", "status": "completed", "conclusion": "success"}
+        environment = {"GITHUB_EVENT_NAME": "workflow_dispatch", "GITHUB_REF": "refs/heads/main"}
+        for head, runs in ((main, {"workflow_runs": []}), (main, {"workflow_runs": [dict(good, conclusion="cancelled")]}),
+                           ("b" * 40, {"workflow_runs": [good]})):
+            with self.subTest(head=head, runs=runs), patch.dict(self.module.os.environ, environment), \
+                    patch.object(self.module, "command", return_value=(head + "\n").encode()), \
+                    patch.object(self.module, "api", return_value=runs), self.assertRaises(ValueError):
+                self.module.require_release_trigger({"resume": "false"})
+        with patch.dict(self.module.os.environ, environment), patch.object(self.module, "api") as api:
+            self.module.require_release_trigger({"resume": "true"})
+        api.assert_not_called()
+
+    def test_fresh_release_requires_successful_push_ci_for_the_exact_main_head(self) -> None:
+        main = "a" * 40
+        good = {"head_sha": main, "event": "push", "head_branch": "main", "status": "completed", "conclusion": "success"}
+        rejected = ({"workflow_runs": []},
+                    {"workflow_runs": [dict(good, conclusion="failure")]},
+                    {"workflow_runs": [dict(good, status="in_progress", conclusion=None)]},
+                    {"workflow_runs": [dict(good, head_sha="b" * 40)]},
+                    {"workflow_runs": [dict(good, event="pull_request")]},
+                    {"workflow_runs": [dict(good, head_branch="feature")]},
+                    {"runs": []}, [])
+        for runs in rejected:
+            with self.subTest(runs=runs), patch.object(self.module, "api", return_value=runs):
+                with self.assertRaises(ValueError):
+                    self.module.require_main_ci_success(main)
+        with patch.object(self.module, "api", return_value={"workflow_runs": [dict(good, conclusion="failure"), good]}) as api:
+            self.module.require_main_ci_success(main)
+        self.assertIn(f"head_sha={main}", api.call_args.args[0])
+        self.assertIn("/actions/workflows/ci.yml/runs?event=push&branch=main", api.call_args.args[0])
+        with patch.object(self.module, "api") as api, self.assertRaises(ValueError):
+            self.module.require_main_ci_success("main")
+        api.assert_not_called()
+
+    def test_select_cli_applies_release_trigger_gate_before_returning_candidate(self) -> None:
+        for event, expected_status in (("workflow_run", 1), ("workflow_dispatch", 0)):
+            with self.subTest(event=event), \
+                    patch.dict(self.module.os.environ, {"GITHUB_EVENT_NAME": event, "GITHUB_REF": "refs/heads/main",
+                                                        "GITHUB_REPOSITORY": "snaplyze/arch-linux"}), \
                     patch.object(self.module.sys, "argv", ["actions-release.py", "select"]), \
-                    patch.object(self.module, "select_release", return_value={"resume": resume}), \
+                    patch.object(self.module, "select_release", return_value={"resume": "true"}), \
                     redirect_stdout(io.StringIO()) as output, redirect_stderr(io.StringIO()):
                 self.assertEqual(self.module.main(), expected_status)
             self.assertEqual(bool(output.getvalue()), expected_status == 0)
+
+    def test_release_workflow_has_no_automatic_trigger(self) -> None:
+        workflow = (ROOT / ".github/workflows/release.yml").read_text()
+        triggers = workflow.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
+        self.assertEqual([line.strip() for line in triggers.splitlines() if line.startswith("  ") and not line.strip().startswith("#")],
+                         ["workflow_dispatch:"])
+        self.assertNotIn("workflow_run", workflow)
 
     def test_release_notes_offer_the_exact_immutable_install_version(self) -> None:
         identity = {"release_version": "1.0.5", "main_commit": "a" * 40, "source_commit": "b" * 40}
