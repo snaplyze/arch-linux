@@ -2035,7 +2035,7 @@ block_identity_field_is_safe() {
 #       node has no identity and can never equal a persisted one.
 #   2 = operational probe failure (node vanished, lsblk/attribute/sequence/boot-id probe failed).
 #       The state of the node is unknown, so callers must treat it as ambiguity.
-# Every caller treats any nonzero status as rejection; only block_identity_is_unique looks at which.
+# Every caller treats any nonzero status as rejection; only block_identity_inventory looks at which.
 block_disk_identity() {
     local disk canonical size wwn serial model diskseq run_identity material
     local -A props=()
@@ -2301,19 +2301,23 @@ assert_accepted_destructive_target() {
 }
 
 # Membership returns 0 for a member, 1 for a proved nonmember, 2 for an uncertain probe. An optional
-# third argument names an associative array holding the canonical paths of the disk's complete
-# forward topology (built once by the caller); membership then needs no further lsblk call.
+# third argument names an associative array whose keys are the decimal major:minor numbers of the
+# disk's complete forward topology (built once by the caller); the candidate is then matched by device
+# number, not by pathname, so an alternate node for the same device (mknod outside /dev, a container
+# /dev, a --no-canonicalize mount) is still attributed, and no further lsblk call is needed.
 block_belongs_to_disk() {
     local candidate="$1" disk="$2" members_name="${3:-}"
-    local path canonical_disk topology canonical_path found=false member=false
+    local path canonical_disk topology canonical_path found=false member=false candidate_device
     candidate="${candidate%%\[*}"
     [ -b "$candidate" ] || return 1
-    candidate="$(block_canonical "$candidate")" || return 2
     if [ -n "$members_name" ]; then
         local -n block_member_set="$members_name"
-        [ -n "${block_member_set[$candidate]:-}" ]
+        candidate_device="$(stat -Lc '%Hr:%Lr' -- "$candidate" 2>/dev/null)" || return 2
+        [[ "$candidate_device" =~ ^[0-9]+:[0-9]+$ ]] || return 2
+        [ -n "${block_member_set[$candidate_device]:-}" ]
         return
     fi
+    candidate="$(block_canonical "$candidate")" || return 2
     canonical_disk="$(block_canonical "$disk")" || return 2
     topology="$(lsblk -srpno PATH -- "$candidate" 2>/dev/null)" || return 2
     [ -n "$topology" ] || return 2
@@ -2342,8 +2346,8 @@ storage_path_belongs_to_disk() {
 }
 
 target_storage_is_idle() {
-    local report="$1" source swap_path descendant_path descendant_type extra status
-    local mounts swaps topology mountpoint found=false canonical_descendant
+    local report="$1" source swap_path descendant_path descendant_type descendant_device extra status
+    local mounts swaps topology mountpoint found=false
     local -A seen_descendants=() disk_members=()
     status=0
     mounts="$(findmnt -rn -o SOURCE 2>&1)" || status=$?
@@ -2353,11 +2357,12 @@ target_storage_is_idle() {
     swaps="$(swapon --noheadings --raw --show=NAME 2>/dev/null)" || {
         "$report" "Could not inspect active swap"; return 1;
     }
-    topology="$(lsblk -rpn -o PATH,TYPE -- "$ARCH_LINUX_DISK" 2>/dev/null)" || {
+    topology="$(lsblk -rpn -o PATH,TYPE,MAJ:MIN -- "$ARCH_LINUX_DISK" 2>/dev/null)" || {
         "$report" "Could not inspect selected disk topology"; return 1;
     }
-    while read -r descendant_path descendant_type extra; do
-        [[ "$descendant_path" =~ ^/dev/[^[:space:]]+$ ]] && [ -z "$extra" ] || {
+    while read -r descendant_path descendant_type descendant_device extra; do
+        [[ "$descendant_path" =~ ^/dev/[^[:space:]]+$ ]] && [[ "$descendant_device" =~ ^[0-9]+:[0-9]+$ ]] &&
+            [ -z "$extra" ] || {
             "$report" "Malformed selected disk topology"; return 1;
         }
         [ -z "${seen_descendants[$descendant_path]:-}" ] || {
@@ -2374,12 +2379,9 @@ target_storage_is_idle() {
         *) "$report" "Selected disk has an active ${descendant_type:-unknown} holder: ${descendant_path}"; return 1 ;;
         esac
         # The forward topology of the disk is its complete set of descendants: every mount source and
-        # swap area below is attributed by membership in this set, built once.
-        canonical_descendant="$(block_canonical "$descendant_path")" || {
-            "$report" "Could not canonicalize selected disk topology"; return 1;
-        }
+        # swap area below is attributed by device number in this set, built once.
         # shellcheck disable=SC2034  # consumed by block_belongs_to_disk through its nameref
-        disk_members["$canonical_descendant"]=true
+        disk_members["$descendant_device"]=true
         if [ "$descendant_path" = "$ARCH_LINUX_DISK" ] && [ "$descendant_type" = disk ]; then found=true; fi
     done <<<"$topology"
     [ "$found" = true ] || { "$report" "Selected disk is missing from topology"; return 1; }
@@ -6990,9 +6992,9 @@ chroot_aur_install() {
 
 # Remove the installed subset of the named packages in one transaction; absent packages are fine.
 # One query lists what is installed (pacman -Qq prints installed names and reports each absent one
-# as "package '<name>' was not found"). Any other output, or a status other than 0/1, is a real
-# failure, as is a failed removal, so an unremovable package (for example one still required by
-# another installed package) is never hidden.
+# as "package '<name>' was not found", or prints the provider of a virtual name, which is ignored).
+# Any other output, or a status other than 0/1, is a real failure, as is a failed removal, so an
+# unremovable package (for example one still required by another installed package) is never hidden.
 chroot_remove_installed_packages() {
     local output status=0 line name requested
     local -a installed=()
@@ -7006,6 +7008,11 @@ chroot_remove_installed_packages() {
         requested="${wanted[$line]:-}"
         if [ "$requested" = true ]; then
             installed+=("$line")
+        elif [[ "$line" =~ ^[A-Za-z0-9@._+-]+$ ]]; then
+            # pacman -Q resolves a name that is not installed itself to a package that provides it
+            # and prints the provider. The requested name is then not installed by that exact name,
+            # and the provider is never removed.
+            :
         elif [[ ! "$line" =~ ^error:\ package\ \'.+\'\ was\ not\ found$ ]]; then
             return 1
         fi

@@ -2795,11 +2795,14 @@ ARCH_LINUX_ACCEPTED_TARGET_SNAPSHOT=''
 
 # Idle probes must distinguish valid empty state from failed or malformed inventories. Mount sources
 # and swap areas are attributed through the real membership helpers against the topology of the
-# selected disk, which is read once.
+# selected disk, which is read once and matched by device number, so a non-symlink alternate node
+# (mknod outside /dev, a container /dev, a --no-canonicalize mount) of a target partition is still
+# attributed to the disk.
 (
     ARCH_LINUX_DISK=/dev/fixture
     probe_case=empty
     swap_probe="${function_runtime_dir}/idle-swap"
+    alt_node="${function_runtime_dir}/alternate-block-node"
     : >"$swap_probe"
     function [ {
         local -a args=("$@")
@@ -2809,13 +2812,22 @@ ARCH_LINUX_ACCEPTED_TARGET_SNAPSHOT=''
             return
         fi
         if command test "${#args[@]}" -eq 2 && command test "${args[0]}" = -b; then
-            case "${args[1]}" in /dev/fixture | /dev/fixture1 | /dev/other) return 0 ;; esac
+            case "${args[1]}" in /dev/fixture | /dev/fixture1 | /dev/other | "$alt_node") return 0 ;; esac
+        fi
+        if command test "${#args[@]}" -eq 2 && command test "${args[0]}" = -e && command test "${args[1]}" = "$alt_node"; then
+            return 0
         fi
         command test "${args[@]}"
     }
-    block_canonical() {
-        [ "$probe_case" != canonical-error ] || [ "$1" != /dev/other ] || return 1
-        printf '%s' "$1"
+    stat() {
+        [ "$probe_case" != stat-error ] || return 1
+        case "${*: -1}" in
+        /dev/fixture) echo 8:0 ;;
+        /dev/fixture1) echo 8:1 ;;
+        /dev/other) echo 8:16 ;;
+        "$alt_node") case "$probe_case" in alt-foreign) echo 8:32 ;; *) echo 8:1 ;; esac ;;
+        *) return 1 ;;
+        esac
     }
     silent_report() { :; }
     findmnt() {
@@ -2829,31 +2841,33 @@ ARCH_LINUX_ACCEPTED_TARGET_SNAPSHOT=''
         case "$probe_case" in
         mounted) echo '/dev/fixture1[/@home]' ;;
         foreign-mount) printf '%s\n' tmpfs /dev/other ;;
-        canonical-error) echo /dev/other ;;
+        stat-error) echo /dev/other ;;
+        alt-mount | alt-foreign) echo "$alt_node" ;;
         esac
         [ "$probe_case" != malformed-mount ] || { echo 'broken row'; return; }
         return 0
     }
     swapon() {
         [ "$probe_case" != swap-error ] || return 2
-        case "$probe_case" in swapfile) echo "$swap_probe" ;; malformed-swap) echo 'bad row' ;; esac
+        case "$probe_case" in swapfile) echo "$swap_probe" ;; alt-swap) echo "$alt_node" ;; malformed-swap) echo 'bad row' ;; esac
         return 0
     }
     lsblk() {
         [ "$probe_case" != topology-error ] || return 2
         case "$probe_case" in
-        missing-disk) echo '/dev/else disk' ;;
-        malformed-topology) echo '/dev/fixture disk extra' ;;
-        holder) printf '/dev/fixture disk\n/dev/mapper/held crypt\n' ;;
-        mounted | swapfile) printf '/dev/fixture disk\n/dev/fixture1 part\n' ;;
-        *) echo '/dev/fixture disk' ;;
+        missing-disk) echo '/dev/else disk 8:0' ;;
+        malformed-topology) echo '/dev/fixture disk 8:0 extra' ;;
+        bad-device-number) echo '/dev/fixture disk x:y' ;;
+        holder) printf '/dev/fixture disk 8:0\n/dev/mapper/held crypt 253:0\n' ;;
+        mounted | swapfile | alt-mount | alt-swap | alt-foreign) printf '/dev/fixture disk 8:0\n/dev/fixture1 part 8:1\n' ;;
+        *) echo '/dev/fixture disk 8:0' ;;
         esac
     }
     target_storage_is_idle silent_report
-    for probe_case in empty-no-match foreign-mount; do
+    for probe_case in empty-no-match foreign-mount alt-foreign; do
         target_storage_is_idle silent_report
     done
-    for probe_case in mounts-error-one mountpoint-error-one mounts-error swap-error topology-error missing-disk malformed-topology malformed-mount holder occupied mapper mountpoint-error mounted swapfile malformed-swap canonical-error; do
+    for probe_case in mounts-error-one mountpoint-error-one mounts-error swap-error topology-error missing-disk malformed-topology malformed-mount holder occupied mapper mountpoint-error mounted swapfile malformed-swap bad-device-number alt-mount alt-swap stat-error; do
         if target_storage_is_idle silent_report; then
             echo "idle safety: accepted $probe_case" >&2
             exit 1
@@ -2867,6 +2881,7 @@ ARCH_LINUX_ACCEPTED_TARGET_SNAPSHOT=''
 (
     chroot_calls="${function_runtime_dir}/chroot-calls"
     chroot_installed=' gnome-maps baobab '
+    chroot_providers=' virtual-viewer '
     chroot_query_mode=normal
     chroot_remove_status=0
     arch-chroot() {
@@ -2878,10 +2893,14 @@ ARCH_LINUX_ACCEPTED_TARGET_SNAPSHOT=''
         '/usr/bin/env LC_ALL=C pacman -Qq -- '*)
             printf 'query %s\n' "${joined#/usr/bin/env LC_ALL=C pacman -Qq -- }" >>"$chroot_calls"
             [ "$chroot_query_mode" != broken ] || { echo 'error: failed to initialize alpm library' >&2; return 1; }
+            [ "$chroot_query_mode" != odd-line ] || { echo 'warning: database file is older than expected'; return 0; }
             shift 5
             for name in "$@"; do
                 if [[ "$chroot_installed" == *" ${name} "* ]]; then
                     printf '%s\n' "$name"
+                elif [[ "$chroot_providers" == *" ${name} "* ]]; then
+                    # pacman -Q falls back to a package that provides the name and prints that package
+                    printf 'provider-of-%s\n' "$name"
                 else
                     printf "error: package '%s' was not found\n" "$name" >&2
                     chroot_query_mode=some-absent
@@ -2909,6 +2928,14 @@ ARCH_LINUX_ACCEPTED_TARGET_SNAPSHOT=''
     run_remove gnome-maps gnome-music
     [ "$(cat "$chroot_calls")" = 'query gnome-maps gnome-music' ]
 
+    # A name that is only provided by another package is not installed by that name: the provider
+    # line is ignored and the provider is never removed.
+    chroot_installed=' gnome-maps '
+    run_remove gnome-maps virtual-viewer
+    [ "$(cat "$chroot_calls")" = $'query gnome-maps virtual-viewer\nremove gnome-maps' ]
+    run_remove virtual-viewer
+    [ "$(cat "$chroot_calls")" = 'query virtual-viewer' ]
+
     chroot_installed=' gnome-console '
     : >"$chroot_calls"
     chroot_remove_gnome_console
@@ -2927,6 +2954,13 @@ ARCH_LINUX_ACCEPTED_TARGET_SNAPSHOT=''
         echo 'slim cleanup: a failed package query was treated as no installed packages' >&2
         exit 1
     fi
+    chroot_query_mode=odd-line
+    : >"$chroot_calls"
+    if chroot_remove_installed_packages gnome-maps; then
+        echo 'slim cleanup: an unexpected query line was accepted' >&2
+        exit 1
+    fi
+    [ "$(cat "$chroot_calls")" = 'query gnome-maps' ]
     chroot_query_mode=normal
     # papers is required by sushi (Arch gnome group), so it must not be in the removal list.
     removal_list="$(sed -n '/^                chroot_remove_installed_packages \\$/,/||$/p' "$script")"
@@ -3564,9 +3598,18 @@ needs_ptyxis_russian_shortcuts || { echo 'needs_ptyxis_russian_shortcuts: second
             done
         done
     }
+    cost_devnum() {
+        local index="${1#/dev/cdisk}"
+        if [ "${cost_type[$1]}" = disk ]; then printf '%s:0' "$((index + 100))"; else printf '%s:%s' "$((${index%p*} + 100))" "${index##*p}"; fi
+    }
+    stat() {
+        [ -n "${cost_type[${*: -1}]:-}" ] || return 1
+        cost_devnum "${*: -1}"
+    }
     cost_value() {
         case "$2" in
         PATH) printf '%s' "$1" ;;
+        MAJ:MIN) cost_devnum "$1" ;;
         TYPE) printf '%s' "${cost_type[$1]}" ;;
         PKNAME) printf '%s' "${cost_parent[$1]:-}" ;;
         SIZE) printf '%s' "${cost_size[$1]}" ;;
