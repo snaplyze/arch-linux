@@ -1,8 +1,19 @@
 # Release process
 
 A source candidate is not a release. The configured `release.yml` pipeline has standing authority
-to sign and publish one immutable release after a successful CI-verified merge to `main`; no other
-workflow or operator gains that authority from this document.
+to sign and publish one immutable release when explicitly dispatched on `main` whose exact head
+passed push CI. Merges, including documentation-only ones, never start a release. No other workflow
+or operator gains that authority from this document.
+
+Start a release only after the accepted change is on `main` and its push CI succeeded:
+
+```bash
+gh workflow run release.yml --repo snaplyze/arch-linux --ref main
+```
+
+Selection rejects any other event or ref and, for a fresh candidate, requires a completed successful
+push CI run for the exact main head. Dispatch only when the change alters the released product or its
+acceptance, or the owner asks; never for documentation-only changes or during an owner pause.
 
 ## Release immutability
 
@@ -104,9 +115,12 @@ no Colloid/Marble theme packages. This requires a new full installer release. Th
 1.0.6 flow requests the four AUR packages and is incompatible with treating the new bundle as an
 unchanged six-package update. Package-only mode must reject that closure/installer transition.
 
-The manual **Run workflow** action resumes an existing release for the current reviewed `main`
-commit; it cannot start a fresh candidate. To retry source preparation before a tag exists,
-rerun that commit's CI push run and let its successful completion trigger the release workflow.
+The same dispatch resumes an existing release for the current reviewed `main` commit when a tag
+already records that origin. To retry source preparation before a tag exists, dispatch again on the
+unchanged `main` head; its push CI must still be successful. If that push run failed or was
+cancelled (a CI dispatch on `main` cancels it through the shared concurrency group), rerun it with
+`gh run rerun PUSH_RUN_ID`, which keeps `event=push`, then dispatch the release again. A CI
+`workflow_dispatch` run does not substitute for it.
 
 For a confirmed transport failure before an individual staged VM job produces evidence,
 preserve the failed attempt and let the current workflow finish its independent jobs.
@@ -121,8 +135,8 @@ using `gh run rerun RUN_ID --job JOB_DATABASE_ID`. Obtain the database ID from
 `gh run view RUN_ID --json jobs`; a browser job URL number is not the CLI job selector.
 Before retrying, recheck the reviewed main commit, exact release child/tree, accepted
 ISO/hash, and retained BUILD/UNSIGNED/Phase-A identities. Reuse their verified bytes;
-do not rerun successful build/signing jobs, repin inputs, alter the workflow or use a
-manual dispatch to create another candidate. Keep the original failure distinct from
+do not rerun successful build/signing jobs, repin inputs, alter the workflow or dispatch
+another candidate. Keep the original failure distinct from
 new VM results and independently verify every later artifact and source/input binding.
 An incomplete download never bypasses its hash or signature check. Repeated failures
 need new diagnosis; a retry is not functional acceptance. Changed source or inputs need
@@ -307,8 +321,8 @@ replacing an asset, and repeats unauthenticated asset and Pages readback.
 GitHub cannot atomically deploy Pages and publish a Release. The Pages job rechecks the reviewed
 `main` commit immediately before deployment; publication stops if that commit has advanced after
 Pages deployment. While the reviewed `main` commit is unchanged, a retry resumes only the exact
-existing draft and its already verified bytes. If `main` advances, its next successful CI run
-prepares a new candidate; the earlier draft stays unpublished. Never upload replacement assets,
+existing draft and its already verified bytes. If `main` advances, only a new dispatch on the new
+head prepares a new candidate; the earlier draft stays unpublished. Never upload replacement assets,
 move the earlier tag or transfer its acceptance to newer source.
 
 ## 7. Public final VM test
@@ -356,8 +370,8 @@ External package-only signing/deployment and installed-system acceptance remain 
 authorized and NOT_TESTED; see [DELIVERY-01](PLAN.md#delivery-01--package-only-provenance-and-procedure).
 
 The maintenance watcher may only create or update an advisory issue; monthly A+B is advisory and
-never blocks release. The configured release pipeline automatically signs and releases only its
-exact verified release child after the online `main` merge. No workflow automatically merges,
+never blocks release. The configured release pipeline signs and releases only its exact verified
+release child after an explicit dispatch on `main`. No workflow automatically merges,
 rotates keys or changes a fingerprint, checksum, source pin or accepted ISO. There is no `arch-os`
 synchronization. A signing key changes only through a separately authorized manual rotation
 procedure.

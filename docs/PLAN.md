@@ -346,8 +346,8 @@ Minor installer notes, not separate tasks: the reflector wait `while timeout 180
 
 | ID | Finding | Priority | Depends on | Acceptance | Effort / risk |
 | --- | --- | --- | --- | --- | --- |
-| REL-INTENT-01 | F-15 | P1 | Owner decision | Documentation-only merge produces no release; an explicit installer intent still produces exactly one; existing release tests updated | S code / policy decision |
-| CI-FORK-01 | F-16 | P1 | REL-INTENT-01 or an owner release decision | PR #93 merged; main `ci.yml` skips fork PRs | S / low |
+| REL-INTENT-01 | F-15 | P1 | Owner decision (taken 2026-10-10) | **Implemented in PR #95:** `release.yml` has only `workflow_dispatch`; selection accepts only a dispatch on `refs/heads/main` and, for a fresh candidate, a completed successful push CI run for the exact head; contract and release docs updated. Source tests PASS; a real dispatch is NOT_TESTED | S / policy |
+| CI-FORK-01 | F-16 | P1 | none | **DONE:** PR #93 squash-merged at the owner's request as `5d16a08`; main `ci.yml` skips fork PRs | S / low |
 | DIAG-01 | F-17 | P1 | none | A harness fixture with an `EXTENSION_FUNCTIONAL_FAIL` guest line yields phase, status and reason in `failure-diagnostic.txt`; caps and secret rules unchanged | S / low |
 | G51-02 next step | F-17, F-18 | P1 | DIAG-01 | Stock `extension-firstlogin-dash` failure reproduced locally with a known cause, corrected with a regression, then passed locally before a release run | M / medium |
 | LOOP-01 | F-18 | P1 | DIAG-01 | Written in testing/release docs as the pre-candidate rule; next candidate needs at most one release run | S docs / process |
@@ -361,10 +361,13 @@ Minor installer notes, not separate tasks: the reflector wait `while timeout 180
 ### Checkpoint
 
 2026-10-10: audit complete for the areas marked Проверено; partial areas list their limits.
-Product tests were not changed; no build, signing, QEMU or release ran. Publication of this section
-is by issue and PR stacked on PR #93; merging it to main is blocked by F-15 (a merge would start a
-release during the owner's pause), so the merge is left to the owner. Next step for implementers:
-DIAG-01, then the G51-02 local reproduction.
+The owner asked to merge all open PRs and to decide REL-INTENT-01 by current practice: releases
+are an explicit act (dispatch on `main` after push CI), never a side effect of a merge, as in
+release-PR or manual-deployment flows. PR #93 merged as `5d16a08`; its push CI would still start
+the old automatic release; that run, 38087531122, was cancelled during `prepare` as an unrequested
+run during the owner's pause.
+PR #95 carries the audit and REL-INTENT-01. Next step for implementers: DIAG-01, then the G51-02
+local reproduction; a new release then needs an explicit dispatch.
 
 ## Local runner migration — 2026-10-08
 

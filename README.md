@@ -113,8 +113,9 @@ The GNOME 51 seventh-package transition requires a full installer release. See
 
 Source pins change only through a reviewed pull request. The maintenance watcher may create or
 update one advisory issue, and the monthly A+B build remains advisory. The configured release
-pipeline creates one immutable release only after a successful reviewed merge to `main`; it builds,
-signs and tests a deterministic version-only child of that exact merge before publishing it. It
+pipeline creates one immutable release only when explicitly dispatched on reviewed `main` whose
+exact head passed CI; merges alone never release. It builds, signs and tests a deterministic
+version-only child of that exact commit before publishing it. It
 cannot merge source, change a fingerprint, checksum, source pin or accepted Arch ISO. There is no
 `arch-os` synchronization. Signing-key changes use a separate, explicitly authorized manual
 rotation procedure.

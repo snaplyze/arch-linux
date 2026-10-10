@@ -253,9 +253,11 @@ change and all affected tests are required.
 ## Release authorization
 
 The configured `release.yml` pipeline has standing authorization to create one new immutable
-release and deploy its verified Pages tree after a successful online merge to `main`: it must derive
-and test a deterministic, version-only release child, bind the origin main commit/tree separately,
-and publish only its exact finalized closure. This standing authorization does not permit a
+release and deploy its verified Pages tree when explicitly dispatched on `main` whose exact head
+passed push CI; merges never start a release. Dispatch only when the accepted change alters the
+released product or its acceptance, or the owner asks; never for documentation-only changes or
+during an owner pause. The run must derive and test a deterministic, version-only release child,
+bind the origin main commit/tree separately, and publish only its exact finalized closure. This standing authorization does not permit a
 different workflow, a retry with changed inputs, key rotation, repository-setting changes, release
 deletion, tag movement or any unrelated publication. Those actions still require separate explicit
 authorization. Source-candidate completion is not `RELEASED`.

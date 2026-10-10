@@ -46,9 +46,9 @@ Checks (2026-10-10, policy v15):
 - NOT_TESTED: Claude Code `@AGENTS.md` expansion in a fresh session. The running session had cached
   the earlier CLAUDE.md, and a paid model run only for setup was not used.
 
-Checkpoint: setup files are published through an issue and PR. Merge is deferred: any CI-successful
-push to main starts `release.yml` with installer intent, and this setup authorizes no release. The
-owner decides when to merge. After context loss, confirm cwd, branch, index and PR state first.
+Checkpoint: setup files were published through issue #92 and PR #93, merged by the owner's
+request. Since REL-INTENT-01 (2026-10-10) a merge no longer starts `release.yml`; a release needs an
+explicit dispatch on `main`, and this setup authorizes none. After context loss, confirm cwd, branch, index and PR state first.
 
 Historical: policy v6 setup (2026-10-02, Codex 0.160.0) passed its own checks; at the owner's
 request its temporary files, backups and recovery system were deleted and are not restored.
