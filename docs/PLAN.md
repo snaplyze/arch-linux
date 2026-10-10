@@ -253,6 +253,119 @@ UTC with matching Plymouth/Bibata HEADs and unchanged effective primary URLs.
 Primary-first fallback retains identical immutable verification and independent
 attempt directories. Availability/advisory checks do not authorize changed pins.
 
+## Deep audit — 2026-10-10
+
+Owner assignment: documentary deep audit (research and document edits only; no code, tests,
+dependencies, CI, executable configuration or permissions). CI-раннеры: `проект`, which resolves
+to the contract record `self-hosted`. Audit editor: the root Claude Code session; four read-only
+explorers (installer, pipeline/CI, tests/VM, documents) reported to it. This section is the single
+registry for the pass; prior F-01…F-14 and their tasks stay as recorded below.
+
+| Identity | Observed value |
+| --- | --- |
+| Physical root / client | `/home/snaplyze/Проекты/arch-linux`; Claude Code with the `orchestration` plugin |
+| Product baseline | origin main `5676fd823c819501331a9b5ba5a9d33a0e87e88d`; installer 8125 lines, 223 tracked paths |
+| Audit branch | `audit/deep-audit-2026-10-10`, created in place on `agent-policy-v15` (`2566086`, [PR #93](https://github.com/snaplyze/arch-linux/pull/93), open), because that branch already carries the v15 contract wording this assignment asks for |
+| Pre-existing changes | Uncommitted G51 checkpoint edits to `docs/PLAN.md` and `docs/validation.md` (owner pause record). Preserved byte-for-byte and **not** part of this audit's commit |
+| Own changes | This section and the stale extension requirement in the 2026-10-04 mode note below |
+
+The v15 contract on PR #93 already states the two clarifications requested here: guarantees are
+preserved, not every historical check ("Preserve each guarantee, not every historical check"), and
+resource acceptance uses the existing limits (workflow timeouts, VM preflight memory/disk, evidence
+at most 500 MiB) without invented numbers. It also replaces main's former "audit writes nothing"
+rule 4 with "аудит — исследование/документы, не код". No further `AGENTS.md` edit is needed; the
+wording reaches main only when PR #93 merges (see F-15).
+
+### Audit coverage (2026-10-10)
+
+| Area | Status | Evidence and limit |
+| --- | --- | --- |
+| Instructions, Git, index, remote, runner | Проверено | Branch/HEAD/index/remote read; runner `ubuntu-actions-arch-linux` online (API); fork approval `all_external_contributors` (API) |
+| Installer: config, disk identity, idle checks, partitioning, init | Проверено | Lines 680–985, 1911–2735, 2873–2921, 3344–3770 read; F-19, F-21, F-22 |
+| Installer: pacstrap, desktop, AUR builder, recovery, self-update | Частично | Slim GNOME removal read (F-20); AUR/chroot/recovery bodies not re-read; prior F-01…F-14 fixes not re-reviewed |
+| `install.sh` bootstrap | Проверено | Bounded curl retries, pinned fingerprints, launch-time identity and hash check; no finding |
+| Package build, signing, repository tools | Частично | Release, intent and readback paths read; launcher C, sealer and `acceptance-manifest.py` not re-read |
+| Workflows and runner routing | Проверено | 18 jobs in 5 workflows: 16 runner jobs, all `[self-hosted, Linux, X64, ubuntu-actions, arch-linux]`, plus 2 reusable-workflow callers; every external `uses:` SHA-pinned; `persist-credentials: false` on every checkout; F-15, F-16, F-23 |
+| Source tests: composition and cost | Проверено | Every stage timed once, serially (table below); F-24 |
+| VM harness failure evidence | Проверено | `qga_verify`, failure classifier and guest error trap read; F-17 |
+| VM scenario semantics and per-scenario budget | Частично | Nine-scenario matrix and job timeouts read; guest phases not re-read |
+| Plan, validation and loop causes | Проверено | Release run history (API) and 1.0.7 attempt records; F-18, F-25 |
+| Markdown links | Проверено | `tests/docs-checks.py` passed in the timing run |
+| Real build, signing, QEMU, Pages | Не проверено | Outside a documentary audit and blocked by the owner's pause; NOT_TESTED |
+| Performance of product runtime paths | Не проверено | No installer run; F-21 is a static hypothesis, not a measured slowdown |
+| MDX, notebooks, executable docs | Неприменимо | None in the repository |
+
+Checked and not reported: `release.yml` `prepare` keeps `contents: write` because listing draft
+releases needs push access (its comment says so); Pages and public readbacks run in separate
+jobs and cross real trust boundaries (GitHub release → Pages → public), so they are not
+same-boundary repetition; the host offline-signing path is a contract product path, not dead code.
+
+### Measured source-test cost
+
+Command: each stage of `tests/source-tests.sh` run serially from the repository root with
+`umask 022`, `PYTHONDONTWRITEBYTECODE=1`, on a 16-thread, 28 GiB workstation with no other test
+load, once (one sample; wall time, not a profile). All stages exited 0. Wall seconds:
+
+| Stage | s | Stage | s |
+| --- | --- | --- | --- |
+| `tests/vm/runtime-checks.py` | 33.0 | `tests/vm/desktop-service-probe-checks.js` (60 s timeout) | 33.2 |
+| `tests/release-source-checks.py` | 29.0 | `tests/repository-checks.sh` | 20.5 |
+| `tests/function-checks.sh` | 7.3 | `tests/package-checks.sh` | 4.1 |
+| `tests/installer-boundary-checks.py` | 4.0 | ShellCheck | 23.1 |
+| All other 26 stages together | 10.6 | **Total** | 165.1 |
+
+Peak child RSS was under 90 MiB for every stage except ShellCheck (about 1.1 GiB). The initial `bash -n` loop and `--version` smoke were not timed. The service-probe stage used 55% of its
+60 s timeout in this sample; on a slower runner it can fail by timeout without a product defect.
+CI on the self-hosted runner took 4–7 minutes per run including dependency installation (run list, 2026-10-10).
+Source tests are therefore not the cost driver; the release pipeline is (F-18).
+
+### Findings (2026-10-10)
+
+P0: urgent critical (none confirmed). P1: high damage or blocks the current goal. P2: ordinary
+correction or acceptance gap. P3: low risk. **Учтено** means recorded here; **описание
+исправлено** means a document was corrected; neither means the product was fixed or tested.
+
+| ID | Type / priority | Evidence | Impact | Resolution and what it replaces |
+| --- | --- | --- | --- | --- |
+| F-15 | Process defect; P1, blocks every documentation and contract merge | `repository/release-source.py` `delivery_intent` returns `{"schema": 1, "kind": "installer"}` when `repository/delivery-intent.json` is absent (it is absent on main); `release.yml` runs on every successful main CI `workflow_run` with no path or intent filter | Any merge to main, including documentation, starts a new immutable installer release: 19 job runs, including 9 serial QEMU legs (`max-parallel: 1`, 330 min each); configured timeout bound about 65 h, plus a Pages deploy with the default timeout. It conflicts with the owner's pause and keeps PR #93 (fork gate) and this audit unmerged | Owner decision REL-INTENT-01: release only on an explicit installer intent (or dispatch), never by default. Removes "merge is the owner's decision" workarounds; keeps one exact release per authorized main commit and immutable tags |
+| F-16 | Security risk; P1 on main, mitigated | `origin/main:.github/workflows/ci.yml` `source` job has no trusted-event condition; PR #93 adds `head.repo.full_name == github.repository` and a contract test | On main, an approved fork PR runs its code on the owner's self-hosted host. Mitigated by mandatory maintainer approval for all external contributors (API) | Merge PR #93 (CI-FORK-01) once F-15 is decided. No new mechanism |
+| F-17 | Diagnostic defect; P1, blocks G51-02 | `tests/vm/run.sh` `qga_verify` fails with `die "guest verification failed: ${phase}"` and drops exit code and reason; for guest phases the failure classifier (`FAILURE_DIAGNOSTIC_PY`) parses only `*_QEMU_GUEST_FAIL` and shell `syntax error` lines (package/network classes apply only to `install-archiso`), never `EXTENSION_FUNCTIONAL_FAIL` (`tests/vm/guest/verify.sh:4686`); the result's `failedPhase` is the outer `firstboot` | The 914ec4d Stock failure at `extension-firstlogin-dash` is NOT_PROVEN; an ad-hoc stderr observer was added and still captured nothing. Each diagnosis currently costs another release run | DIAG-01: record failing guest phase, exit status and allowlisted `stage`/`reason` tokens in `failure-diagnostic.txt` and the result. Replaces ad-hoc observers. Keep the 4096-byte cap, no raw stderr, no secrets. HYPOTHESES to check first: the classifier's last-32 lexical `*.stderr` slice can drop the failing phase file; `remove_secret_bearing_evidence` deletes any evidence file containing the runtime password, so a `.stderr` that also carries the fail line never reaches `scenario.log.gz`, and `*.status.json` (exit code) is removed by compaction |
+| F-18 | Process defect; P1, cause of the 1.0.7 loop | Release runs since 2026-10-05: 32, none successful (21 cancelled, 7 failed, 4 skipped; about 28 runner-hours in cancelled runs over all history). Repeated classes: file-mode/ambient-root guards three times, upstream availability twice, test cleanup race once | The full release pipeline is the debugging loop: one defect surfaces per run, each fix needs a new child and full rerun, and the cause of the latest failure is still unknown (F-17) | LOOP-01: before any new candidate, reproduce the failing scenario locally (`tests/vm/run.sh` on disposable VM, exact inputs) and pass it; a release run only confirms an already-passing local reproduction. Proposed target: at most one release run per accepted correction. Replaces repeated release retries; keeps tree-bound acceptance |
+| F-19 | Safety defect; P2 | `arch-linux-installer.sh` `block_identity_is_unique`: `candidate="$(block_disk_identity "$path")" \|\| continue` (same for partitions) | A disk whose identity probe fails is counted as "not a duplicate", so uniqueness can pass under uncertainty. The contract requires ambiguity and uncertainty to stop before mutation | SAFE-04: a probe failure makes the check fail (ambiguous). Regression in `tests/function-checks.sh` with one failing probe among duplicates |
+| F-20 | Correctness and cost; P3 | `exec_pacstrap_core` slim GNOME branch: 21 separate `chroot_pacman_remove <pkg> \|\| true` (each `arch-chroot /mnt pacman -Rn`) | Real removal errors are hidden; 21 chroot and pacman start-ups | SIMPLIFY-01: query installed names once, remove the installed subset in one transaction, fail on real errors. Keeps the option's meaning; absent packages stay acceptable |
+| F-21 | Efficiency hypothesis; P3 | `block_disk_identity` runs about five `lsblk` calls per node; `block_identity_is_unique` rescans every disk; `select_disk` does this per row (N²); `target_storage_is_idle` runs `lsblk` per mount source | Repeated subprocesses on the destructive path. NOT_MEASURED; disk counts are usually small | SIMPLIFY-02: one `lsblk -P` per node and one topology snapshot per check, same recheck points. Accept only with before/after timing at several disk counts and unchanged rejection tests |
+| F-22 | Redundancy; P3 | `exec_prepare_disk`: `assert_accepted_destructive_target`, then read-only `target_storage_is_idle`, then `assert_accepted_destructive_target` again | The first proof adds one full snapshot with no mutation in between; the second one is the required pre-mutation recheck and must stay | Part of SIMPLIFY-02; keep the earlier `exec_init_installation` check (other process, earlier time) |
+| F-23 | CI hygiene; P3 | `maintenance.yml` pins `actions/download-artifact@3e5f45b2…` commented `# v5.0.0`; GitHub tags API resolves that SHA to `v8.0.1`, while the other workflows pin real `v5.0.0` `634f93cb…` | Pins are immutable and safe, but the comment misleads review and two majors are maintained | CI-PIN-01: correct the comment or align on one reviewed version |
+| F-24 | Test cost; P3 | Timing table above; `desktop-service-probe-checks.js` 33.2 s of a 60 s timeout; HYPOTHESIS from the tests explorer: about 128 source-text substring assertions in `tests/vm/runtime-checks.py`, and the `EXTENSION_FUNCTIONAL_PASS` marker contract asserted in three files | Flaky-timeout risk and assertions tied to code shape | TEST-01: profile the two 30 s stages; replace text-shape assertions with fixture behavior where the same guarantee holds; keep policy text checks (pins, trust, routing). Accept with equal or better coverage and lower wall time |
+| F-25 | Documentation cost; P3 | `docs/validation.md` 4359 lines, `docs/PLAN.md` 2333 lines; the same child/run hashes repeat in both (for example 914ec4d and 106dcc0 checkpoints) | Context recovery needs thousands of lines; duplicates drift | DOC-02, separate cleanup assignment: compress closed 1.0.7 attempts to one table, keep evidence identities only in validation |
+| F-26 | Instruction inaccuracy; P3 | The 2026-10-04 mode note below required `superpowers:subagent-driven-development` | Conflicted with contract item 7 (no searching or invoking extensions for review, simplification or testing) | **Описание исправлено** in this audit |
+
+Minor installer notes, not separate tasks: the reflector wait `while timeout 180 tail --pid=$(pgrep reflector) …` runs at most once and mis-handles several reflector PIDs (bounded by the timeout); the three `properties_config_snapshot_*` no-op functions are test seams.
+
+### Queue (2026-10-10)
+
+| ID | Finding | Priority | Depends on | Acceptance | Effort / risk |
+| --- | --- | --- | --- | --- | --- |
+| REL-INTENT-01 | F-15 | P1 | Owner decision | Documentation-only merge produces no release; an explicit installer intent still produces exactly one; existing release tests updated | S code / policy decision |
+| CI-FORK-01 | F-16 | P1 | REL-INTENT-01 or an owner release decision | PR #93 merged; main `ci.yml` skips fork PRs | S / low |
+| DIAG-01 | F-17 | P1 | none | A harness fixture with an `EXTENSION_FUNCTIONAL_FAIL` guest line yields phase, status and reason in `failure-diagnostic.txt`; caps and secret rules unchanged | S / low |
+| G51-02 next step | F-17, F-18 | P1 | DIAG-01 | Stock `extension-firstlogin-dash` failure reproduced locally with a known cause, corrected with a regression, then passed locally before a release run | M / medium |
+| LOOP-01 | F-18 | P1 | DIAG-01 | Written in testing/release docs as the pre-candidate rule; next candidate needs at most one release run | S docs / process |
+| SAFE-04 | F-19 | P2 | none | Regression proves a probe failure rejects uniqueness; existing disk tests pass | S / low |
+| SIMPLIFY-01 | F-20 | P3 | none | One query and one removal; failure of a real removal stops; slim and non-slim fixtures pass | S / low |
+| SIMPLIFY-02 | F-21, F-22 | P3 | SAFE-04 | Same rejection fixtures; measured lower probe time at 2, 8 and 32 simulated disks | M / medium |
+| CI-PIN-01 | F-23 | P3 | none | One reviewed version label per action | S / low |
+| TEST-01 | F-24 | P3 | none | Lower measured source-test time; service probe well inside its timeout; no coverage loss | M / low |
+| DOC-02 | F-25 | P3 | none | Separate structural cleanup; no evidence lost | M / low |
+
+### Checkpoint
+
+2026-10-10: audit complete for the areas marked Проверено; partial areas list their limits.
+Product tests were not changed; no build, signing, QEMU or release ran. Publication of this section
+is by issue and PR stacked on PR #93; merging it to main is blocked by F-15 (a merge would start a
+release during the owner's pause), so the merge is left to the owner. Next step for implementers:
+DIAG-01, then the G51-02 local reproduction.
+
 ## Local runner migration — 2026-10-08
 
 Owner request: move all five GitHub Actions workflows for `snaplyze/arch-linux`
@@ -338,8 +451,8 @@ separate scope.
 
 > Current mode (2026-10-04): owner-authorized autonomous implementation of the full registry.
 > Reuse completed agent setup, audit and planning outcomes; do not restart them.
-> Use bounded `codex-orchestrator` / `superpowers:subagent-driven-development`,
-> subject to [AGENTS.md](../AGENTS.md).
+> Use the local orchestration named in [AGENTS.md](../AGENTS.md) (codex-orchestrator in Codex,
+> the `orchestration` plugin in Claude Code); review, simplification and testing follow its rules directly.
 > This is the single product improvement registry. Update statuses and checkpoint here.
 
 **Goal:** устранить подтвержденные риски установщика, принять актуальные входы Arch Linux,
