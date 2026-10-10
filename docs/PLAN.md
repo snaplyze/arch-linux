@@ -13,7 +13,7 @@ publication. Exact historical attempts and evidence belong in
 | ID | Work and acceptance | Status |
 | --- | --- | --- |
 | G51-01 | Diagnose installed package/session state and upstream compatibility; bind findings to versions and authoritative sources. | DONE |
-| G51-02 | Prepare reviewed package/extension upgrade paths, preserve user overrides and safe unsupported-version handling; reproduce failures before fixes and test recovery. | Product source and PR83 harness corrections delivered; new 912cfae4 source/build/signed Phase-A and independent readback PASS; core Minimal running; prior f62fcfba FAIL retained; GNOME/public acceptance pending |
+| G51-02 | Prepare reviewed package/extension upgrade paths, preserve user overrides and safe unsupported-version handling; reproduce failures before fixes and test recovery. | PR83/84 delivered; 2e548490 source/build PASS, cancelled before signing for immutable-documentation correction; prior 912cfae4 Minimal14 PASS historical; complete pre-freeze doc inventory/source PASS; fresh GNOME/public acceptance pending |
 | G51-03 | Correct deterministic release documentation rendering; test independently differing source/document/release versions and preserve historical evidence. | DONE: overview/bootstrap/changelog rendering and 52 regressions PASS |
 | G51-04 | Update agent, update/release and user documentation with package delivery and real upgrade acceptance requirements. | Candidate instructions delivered; final publication reconciliation pending |
 | G51-05 | Independent diff review, affected checks and full source suite; record package, real session/VM and publication results separately. | HTTP correction, Shell observer regressions, source/review/protected delivery and fresh signed build PASS; new VM/publication acceptance pending; previous failed/cancelled results retained |
@@ -204,6 +204,34 @@ Independent diff review confirms the correction and valid affected links; root
 `bash tests/source-tests.sh` passed (runtime173/docs29/full namespaces/ShellCheck).
 Only receipt prose followed; docs/diff are rechecked. Protected PR/exact-head CI
 and the corrected freeze's actual acceptance remain pending.
+Documentation [PR84](https://github.com/snaplyze/arch-linux/pull/84) head
+`6664c26269daec059d33996bf8a7bb6c07dddafe` holds the correction; CI38043349657
+started after the runner became available. Release38042159246 is terminal
+CANCELLED after Minimal/job114186502498 succeeded at 10:11:30 UTC. Independent
+strict core readback verified all fourteen assertions, including firstboot
+network, full Syu, reboot/no failed units, shutdown/image/process cleanup.
+This confirms the readiness repair on that exact child; it is historical for
+the corrected freeze and does not establish GNOME or public recovery.
+PR84 merged at 10:16:33 UTC after exact-head CI38043349657 passed. Local main
+fast-forwarded to `289fda52896f3df684798d5789a48ae3e1e71543`, tree
+`1564c1c59b7de775e14c6d20041f0f8b224fcbc6`; the root's uncommitted evidence
+notes were preserved byte-for-byte across the return. Main CI38044336202 is
+running before the corrected freeze; remaining GNOME/public acceptance stays open.
+Main CI38044336202 passed. Configured release38044528734 froze corrected child
+`2e5484905556d13dcd2aae88949b9d1b6cf1b78f`, tree
+`73f928cc919ab4c119f00c162f0c619acc984820`, canonical SHA-256
+`68c8e2bb9e7b6428ca84aa70c48a7673c44f2cc599c5fc58e54be4da4375f48a`.
+Independent source transport/deterministic derivation/generated1.0.7 pins PASS;
+clean build/job114191322190 and protected unsigned readback passed. Independent
+readback verified seven packages, sixty-four pinned source blobs and 42,193 MTREE rows.
+The all-Markdown audit found one further stale "Latest delivered release" heading
+in the release-process page. The run was cancelled before signing/publication;
+that dated 1.0.6 record is now explicitly historical. Complete semantic inventory
+of all twenty-nine Markdown files found no further mutable release-status defect.
+Root source suite passed (runtime173/full namespace10/signer14+18/no deferral);
+retained log SHA-256 `9e37d3f0ee1df623c160175ad65ad8ada93eabbc92bcd9d666b246942cad22c7`.
+Only evidence prose followed; documentation and diff checks are repeated.
+Corrected protected delivery and fresh package/VM/public acceptance remain required.
 Next: obtain new VM
 evidence before any unproven input
 or desktop behavior correction. The obsolete

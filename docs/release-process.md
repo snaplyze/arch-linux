@@ -359,7 +359,10 @@ SOURCE
   -> one public final VM test
 ```
 
-## Latest delivered release
+## Historical verified release 1.0.6
+
+The following record describes the verified 2026-10-04 delivery; it does not identify
+the newest published release.
 
 [Immutable release 1.0.6](https://github.com/snaplyze/arch-linux/releases/tag/1.0.6) was produced by
 [configured run37214392242](https://github.com/snaplyze/arch-linux/actions/runs/37214392242) after

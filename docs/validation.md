@@ -3019,6 +3019,87 @@ namespaces10/signer14+18/deferrednone and ShellCheck). Retained source log SHA-2
 Only receipt prose followed; docs/diff checks are repeated before committing.
 Protected PR/exact-head CI and corrected freeze/VM/public acceptance remain open.
 
+[PR84](https://github.com/snaplyze/arch-linux/pull/84), head
+`6664c26269daec059d33996bf8a7bb6c07dddafe`, tree
+`1564c1c59b7de775e14c6d20041f0f8b224fcbc6`, canonical SHA-256
+`3c21fd05adb476c81aee46c7ea59c87f00bfe398467b78efa56c8f2ecb2469a8`,
+contains the corrected documentation. CI38043349657/job114187848865 is running.
+
+Minimal/job114186502498 passed at 10:11:30 UTC. Independent artifact11667201074
+readback verified transport ZIP SHA-256
+`b7f36568a56f726b2565bdf7be6171fa9258f0d50be5ae3532da2539e5fdb7f3`,
+archive SHA-256 `03e75c419cf7d091161c35011cff4f4129b2071ad0d2aae0a6dad5fb61e34887`,
+result SHA-256 `54ab98ce071a4c52e0fc5fa2e0d44a01a536ab25d0b358ab7184a32b438814c1`,
+exact child912cfae4/tree6128fed5, ten-file harness, ISO and all four signed Phase-A
+input hashes. The actual frozen strict core consumer exited zero; consumer
+SHA-256 `ed131e3312b0fd846a4affb3866fb3a7c36aad17af1966849b06fe467de5e522`.
+All fourteen assertions passed: accepted ISO/exact installer/normal completion,
+UEFI/ext4/systemd-boot, Minimal TTY, installed console, network/DNS, no failed
+units, real full pacman Syu, new boot ID/console, no failed units after reboot,
+clean shutdown, zero QEMU exits and image/no-owned-process checks. This confirms
+the readiness correction for this child, not GNOME desktop recovery or the
+corrected documentation candidate. Terminal log SHA-256
+`56b9212ab4f7887966bc50a2a3de328d9631214e65198ca1d77236f12d39dc26`.
+
+Root requested normal cancellation after Minimal completion to prevent immutable
+publication with the audited stale README. Release38042159246 is terminal
+CANCELLED; remaining VM cases are interrupted/unexecuted, not product FAIL.
+The terminal log contains all sixteen paired plain/notice phase observations.
+After job completion the API exposed ten progress annotations (plus one unrelated
+warning). Active queries had exposed none; live visibility was not established.
+The [actual runner2.338.0 source](https://github.com/actions/runner/blob/v2.338.0/src/Runner.Worker/ExecutionContext.cs)
+limits retained issues to ten per type in a step while still logging later
+messages. Notices therefore supplement the full plain phase log; they are not
+a complete phase record or evidence of immediate active-job API availability.
+
+The cancelled next Stock job114186502587 ended before VM execution, during a
+download. Its terminal log SHA-256 is
+`1f71143f7f632c1dbc6a8a02dfdf76cbbe9bb997ea3013a6d1ed18e030ce431e`;
+runner cleanup reported completion. This is not a cancelled-harness artifact
+acceptance test and does not establish whether VM cleanup fits the signal grace.
+
+PR84 merged at 10:16:33 UTC after exact-head CI38043349657 passed for head6664c262
+(app15368); CI log SHA-256
+`777751e5fa808b55e9f1b96287f2faa23be6f124f894341f3535948a2e95b624`.
+Local main fast-forwarded to `289fda52896f3df684798d5789a48ae3e1e71543`, tree
+`1564c1c59b7de775e14c6d20041f0f8b224fcbc6`, canonical SHA-256
+`3c21fd05adb476c81aee46c7ea59c87f00bfe398467b78efa56c8f2ecb2469a8`.
+The root's uncommitted evidence notes stayed byte-identical across the return;
+the index stayed clear. [Main CI38044336202](https://github.com/snaplyze/arch-linux/actions/runs/38044336202)
+is running. Corrected frozen inputs, native GNOME and public delivery still need
+their own acceptance; the workstation remains unchanged and 1.0.7 unpublished.
+
+Main CI38044336202 passed; retained job-log SHA-256
+`a8a0b08bd75afcbe89a06bb2f59657a2b620f71783ab2d5d94d7eb1ce664edbb`.
+Configured [release38044528734](https://github.com/snaplyze/arch-linux/actions/runs/38044528734)
+prepared corrected child `2e5484905556d13dcd2aae88949b9d1b6cf1b78f`, tree
+`73f928cc919ab4c119f00c162f0c619acc984820`, canonical SHA-256
+`68c8e2bb9e7b6428ca84aa70c48a7673c44f2cc599c5fc58e54be4da4375f48a`.
+Prepare/job114191271350 passed. Independent source artifact11666791697 readback
+verified ZIP SHA-256
+`a799d6e3662b378c8c57c627be4c55d763f6fdd1ad8c68dd2287d265d1b269a3`,
+bundle SHA-256 `f992d3a4053b03fd61e3054cca84aaceab910baeb7e36f00b3c2ea6577b7c2ee`,
+origin/child identities, deterministic derivation and generated README/installation
+1.0.7 pins. Clean build/job114191322190 and protected unsigned readback/job114192131158
+passed. Independent unsigned artifact11667252246 readback also passed for the exact
+child: seven packages, sixty-four immutable source blobs and 42,193 MTREE rows.
+Transport SHA-256 `3ae180480be6969efb27621d83724961b579337ede38369055fda6865a8b0096`,
+build-metadata SHA-256 `15f419735e1e159a8919f77d5177433b01ef480484fe8b6814b1d17de95ff640`,
+unsigned-manifest SHA-256 `cec8557a6db3f58e6a1beaaa0f4c6f5e94471a02b66bbbef7bd492303ed4dc37`.
+The independent all-Markdown audit found another immutable-documentation
+defect: `docs/release-process.md` called its dated 1.0.6 evidence the "Latest
+delivered release". Root requested normal cancellation before signing; run ended
+CANCELLED at 2026-10-10T10:26:51Z. Snapshot signing, QEMU and publication did not
+execute. The heading was made explicitly historical, with the evidence unchanged.
+Independent semantic inventory of all twenty-nine tracked Markdown files completed:
+no other unqualified older-current-release claim or stale generated installation
+command was found. Dated/attempt-bound records retain their identities. Fresh signed package, VM and public gates remain open;
+prior Minimal14 PASS belongs to child912cfae4 and is not transferred.
+Root `PYTHONDONTWRITEBYTECODE=1 bash tests/source-tests.sh` passed with 173 runtime
+tests, full namespace10/signer14+18/deferrednone and ShellCheck; retained log
+SHA-256 `9e37d3f0ee1df623c160175ad65ad8ada93eabbc92bcd9d666b246942cad22c7`.
+Only receipt prose followed; final documentation/diff checks are repeated.
+
 At 2026-10-10T07:19 UTC, finite read-only `git ls-remote` checks against the
 official AUR succeeded for both Plymouth and Bibata. Availability is advisory:
 the observed HEADs do not authorize changing the reviewed recipe pins. The
