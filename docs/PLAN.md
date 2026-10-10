@@ -13,7 +13,7 @@ publication. Exact historical attempts and evidence belong in
 | ID | Work and acceptance | Status |
 | --- | --- | --- |
 | G51-01 | Diagnose installed package/session state and upstream compatibility; bind findings to versions and authoritative sources. | DONE |
-| G51-02 | Prepare reviewed package/extension upgrade paths, preserve user overrides and safe unsupported-version handling; reproduce failures before fixes and test recovery. | Product source delivered; fresh f62fcfba signed build and independent Phase-A readback PASS; core Minimal FAIL at firstboot network-service assertion; GNOME/public acceptance pending |
+| G51-02 | Prepare reviewed package/extension upgrade paths, preserve user overrides and safe unsupported-version handling; reproduce failures before fixes and test recovery. | Product source and PR83 harness corrections delivered; new 912cfae4 source/build/signed Phase-A and independent readback PASS; core Minimal running; prior f62fcfba FAIL retained; GNOME/public acceptance pending |
 | G51-03 | Correct deterministic release documentation rendering; test independently differing source/document/release versions and preserve historical evidence. | DONE: overview/bootstrap/changelog rendering and 52 regressions PASS |
 | G51-04 | Update agent, update/release and user documentation with package delivery and real upgrade acceptance requirements. | Candidate instructions delivered; final publication reconciliation pending |
 | G51-05 | Independent diff review, affected checks and full source suite; record package, real session/VM and publication results separately. | HTTP correction, Shell observer regressions, source/review/protected delivery and fresh signed build PASS; new VM/publication acceptance pending; previous failed/cancelled results retained |
@@ -177,6 +177,33 @@ replaces its step shell with the harness. Actual-helper signal regressions,
 material issue; root integrated source suite passed with full repository
 namespaces and ShellCheck. Exact-head CI remains required. Runner termination grace still limits artifact
 delivery; no real cancelled-run recovery claim is made.
+PR83 merged at 09:35:29 UTC after mandatory exact-head CI38041607403 passed
+for `66f02733f6efcf45a833cfb4a997da3cc5444620`. The canonical checkout returned
+to main by fast-forward: `e4c96c0a1a5731f50f82f34741d39f48c6828f6f`, tree
+`d82c165928402cb3d35cd2cf0a9869ca09c162c6`. Main CI38041929663 is running;
+the next signed candidate and fresh VM/public acceptance remain pending.
+Main CI38041929663 passed. Configured release38042159246 prepared deterministic
+child `912cfae4ca53f9a9d6d6c208bb69f19a37dfbd64`, tree
+`6128fed500a8619a7f6ed40a8fc1021073b32daf`, canonical SHA-256
+`ecb64c25c5620861d0e5a56e71ce7ef015be658980a481bdaffca3c16976c2c4`.
+Independent source transport, identity and generated 1.0.7 documentation readback
+passed. Clean package build/job114184446041 passed; independent unsigned
+readback verified seven packages, 64 immutable child source blobs and 42193
+MTREE rows. Protected readback/job114185577203 passed. All five root gates and
+snapshot/job114185858151 passed; independent signed Phase-A readback verified
+fourteen assets, twelve signed manifest rows and twenty-five repository objects.
+Core Minimal/job114186502498 started at 09:51:53 UTC; other VM cases are queued.
+Actual VM and public delivery gates remain open.
+Independent immutable-doc audit covered all 29 Markdown files in child912cfae4:
+generated pins are correct, but README still called implemented package-only
+tooling a present limitation. Root corrected that wording before any publication,
+retaining full-release requirements for the GNOME51 seventh package and separate
+authorization/NOT_TESTED external package delivery. Current Minimal may supply
+historical readiness evidence; a corrected freeze still needs its own acceptance.
+Independent diff review confirms the correction and valid affected links; root
+`bash tests/source-tests.sh` passed (runtime173/docs29/full namespaces/ShellCheck).
+Only receipt prose followed; docs/diff are rechecked. Protected PR/exact-head CI
+and the corrected freeze's actual acceptance remain pending.
 Next: obtain new VM
 evidence before any unproven input
 or desktop behavior correction. The obsolete

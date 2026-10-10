@@ -2935,6 +2935,90 @@ historical cancellation log does not reveal which signal reached the harness.
 Real cancelled-run evidence delivery is NOT_TESTED; an interruption is never a
 successful installation or migration receipt.
 
+Protected [PR83](https://github.com/snaplyze/arch-linux/pull/83) merged at
+2026-10-10T09:35:29 UTC after mandatory exact-head
+[CI38041607403](https://github.com/snaplyze/arch-linux/actions/runs/38041607403)
+passed for `66f02733f6efcf45a833cfb4a997da3cc5444620` (GitHub app15368).
+CI log SHA-256
+`d2d7fcdf27b6656341f07ec491a612bd7a431bdc6e2aef968eae0166c5d6d38b`.
+The sole checkout returned to main by fast-forward at
+`e4c96c0a1a5731f50f82f34741d39f48c6828f6f`, tree
+`d82c165928402cb3d35cd2cf0a9869ca09c162c6`, canonical source SHA-256
+`206474be7fe62b7f8cd370faad107726a70cdd93ae0dfe028fb67bd821e0e3ec`.
+[Main CI38041929663](https://github.com/snaplyze/arch-linux/actions/runs/38041929663)
+passed; job-log SHA-256
+`f8b14a4263f79466708998a482addafa081eba98bbcb6a28680f369ff14a2e7c`.
+These source receipts do not close the fresh package, VM or public delivery
+gates; the workstation remains unchanged and 1.0.7 is unpublished.
+
+Fresh configured [release38042159246](https://github.com/snaplyze/arch-linux/actions/runs/38042159246)
+prepared deterministic child `912cfae4ca53f9a9d6d6c208bb69f19a37dfbd64`, tree
+`6128fed500a8619a7f6ed40a8fc1021073b32daf`, canonical source SHA-256
+`ecb64c25c5620861d0e5a56e71ce7ef015be658980a481bdaffca3c16976c2c4`.
+Prepare/job114184389202 passed. Independent artifact11666177590 readback
+verified ZIP SHA-256
+`73e90fb8e8944227c68f3b0bb4a0227f583caafdb181e72e60a2806b9fb1a882`,
+bundle SHA-256 `c6da7ba522ea7a99d55b0a917842c032bf18c737b75b15fe82526a30f20ffc1e`,
+origin/child identities, deterministic derivation and generated 1.0.7 README and
+installation pins. Independent source receipt SHA-256
+`07b5c83608d95315afa74cad32028cf7bb45d35b7f38364865139e6a7dae4725`.
+Installer SHA-256 remains
+`e6228b0f655d5551eaf5cc8d085ea8111b24df3930b27cc78700d0944432ff71`;
+the new ten-file harness SHA-256 is
+`4fe500a0fe82a4f163c5fe5e6812d1562abaaa7885e7550e706f16402bfcc872`.
+
+Clean build/job114184446041 passed. Independent unsigned artifact11665754216
+readback verified ZIP SHA-256
+`17cbf941b60ac564a63f02efcc44e44e68bdb97bb20f0a65666e46a9ad3e8626`,
+seven packages, 64 frozen child source blobs and 42193 MTREE rows. BUILD metadata
+SHA-256 `3e317d9e7f643224d58ea65747ada58e5b627c6e1ababc3e8e6dd5cc19ecc2b2`;
+UNSIGNED manifest SHA-256
+`cec8557a6db3f58e6a1beaaa0f4c6f5e94471a02b66bbbef7bd492303ed4dc37`.
+The unsigned receipt SHA-256 is
+`2188ed920865492e3bcfe19e803b45f132657c5461b4758e3ade5f26e418cc23`.
+Package bytes reproduce the previous unpublicized build; changed BUILD metadata
+binds the new source. No prior VM result is transferred. Protected readback/
+job114185577203 passed.
+
+Snapshot/job114185858151 passed all five root gates: unflagged and full namespace
+repository modes (both scenarios10/signer14+18/deferrednone), sealed root
+publication boundary, ordinary keyring mode and privileged keyring mode
+(scenarios10/deferrednone). Retained signing-job log SHA-256
+`86040556a062eb83e88a80625638281a8ecf056db287a8dfd9e47e91e5e1e0ad`.
+Independent signed Phase-A artifact11665494830 readback verified exact fourteen
+assets, twelve signed manifest rows, all three outer signatures and twenty-five
+repository objects. ZIP SHA-256
+`103e53c38fa97c36b85af79891d98c238b6444480087ab534ce733c5eb16496e`;
+RELEASE manifest SHA-256
+`36ca5c8faa753f075f9afaa679f877d68551e032818a4a618dfec2d727c8c5f1`;
+repository archive SHA-256
+`c84a1ebd22e31071c884cdaec226e53c6e9b9f28d88791bc6cff1d9baaf59faa`.
+BUILD and UNSIGNED bytes match the accepted unsigned input; independent Phase-A
+receipt SHA-256
+`d354e9e8d17fedf86983136582382639b8b54d7177f02b10f99a9ad0c61e68de`.
+Core Minimal/job114186502498 started at 09:51:53 UTC; other scenarios are queued.
+An early active-check annotation query returned an empty list; notice visibility
+is still NOT_TESTED. No new VM/public PASS or published 1.0.7 exists yet.
+
+Independent read-only immutable-doc audit of child912cfae4 inventoried all 29
+Markdown files. README/installation pins are correct; no old 1.0.6 installation
+command outside generated blocks was found. Dated/attempt-bound older release,
+FAIL and CANCELLED records remain historical. One stale README sentence called
+implemented package-only tooling a present F-14 limitation, contradicting the
+delivered source/design records. Root corrected the source wording to describe the
+implemented route within unchanged accepted closure, the full-release requirement
+for GNOME51's seventh package, and separate authority/NOT_TESTED external package
+delivery. This child must not be published with that stale wording. Current
+Minimal evidence, if delivered, remains bound to this child; corrected frozen
+documentation requires a fresh accepted candidate, not transferred VM PASS.
+Independent diff review confirms the correction, valid affected links and honest
+remaining gates. The review's minor receipt-tense finding is corrected. Root
+`bash tests/source-tests.sh` exited zero (runtime173/docs29/full repository
+namespaces10/signer14+18/deferrednone and ShellCheck). Retained source log SHA-256
+`75c9cb1b438ee32944ebac7e698f0a8feec6f11a7cd8e0be90e7681aee56395e`.
+Only receipt prose followed; docs/diff checks are repeated before committing.
+Protected PR/exact-head CI and corrected freeze/VM/public acceptance remain open.
+
 At 2026-10-10T07:19 UTC, finite read-only `git ls-remote` checks against the
 official AUR succeeded for both Plymouth and Bibata. Availability is advisory:
 the observed HEADs do not authorize changing the reviewed recipe pins. The

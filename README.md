@@ -105,8 +105,11 @@ Installer changes use immutable SemVer releases. The [changelog](CHANGELOG.md) r
 released changes; a source commit alone is not a published release. Arch
 Linux itself continues to update through normal `pacman -Syu`. Marble/profile-only changes bump the
 owning package's `pkgrel` and are delivered through the signed Pages repository; they do not require
-a new installer release. This is the intended delivery policy; the present package-only route
-limitation is tracked in [F-14 / DELIVERY-01](docs/PLAN.md#review-findings).
+a new installer release within an unchanged accepted package closure. The package-only tooling
+is implemented; its external signing/publication remains separately authorized and NOT_TESTED.
+The GNOME 51 seventh-package transition requires a full installer release. See
+[package-only updates](repository/README.md#package-only-updates) and
+[DELIVERY-01](docs/PLAN.md#delivery-01--package-only-provenance-and-procedure).
 
 Source pins change only through a reviewed pull request. The maintenance watcher may create or
 update one advisory issue, and the monthly A+B build remains advisory. The configured release
