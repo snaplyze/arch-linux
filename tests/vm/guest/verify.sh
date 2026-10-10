@@ -4379,9 +4379,11 @@ assert stat.S_ISDIR(trusted.lstat().st_mode) and trusted.stat().st_uid == truste
 assert stat.S_ISREG(source.lstat().st_mode) and source.stat().st_uid == trusted_uid and stat.S_IMODE(source.stat().st_mode) == 0o500
 probe = pathlib.Path(sys.argv[10])
 assert probe.is_absolute() and probe.resolve() == probe
+owned_ancestors = set(list(probe.parents)[:3])
 for ancestor in probe.parents:
     info = ancestor.lstat()
-    assert stat.S_ISDIR(info.st_mode) and info.st_uid == trusted_uid and stat.S_IMODE(info.st_mode) == 0o755
+    modes = {0o755} if ancestor in owned_ancestors else {0o555, 0o755}
+    assert stat.S_ISDIR(info.st_mode) and info.st_uid == trusted_uid and stat.S_IMODE(info.st_mode) in modes
 info = probe.lstat()
 assert stat.S_ISREG(info.st_mode) and info.st_uid == trusted_uid and info.st_nlink == 1 and stat.S_IMODE(info.st_mode) == 0o555
 assert info.st_size <= 262144
@@ -4504,10 +4506,13 @@ try:
     assert (before.st_dev, before.st_ino) == (linked.st_dev, linked.st_ino)
 finally:
     os.close(fd)
+owned_ancestors = set(list(probe.parents)[:3])
 for ancestor in reversed(probe.parents):
-    if not ancestor.exists() and not ancestor.is_symlink(): ancestor.mkdir(mode=0o755); ancestor.chmod(0o755)
+    if ancestor in owned_ancestors and not ancestor.exists() and not ancestor.is_symlink():
+        ancestor.mkdir(mode=0o755); ancestor.chmod(0o755)
     info = ancestor.lstat()
-    assert stat.S_ISDIR(info.st_mode) and info.st_uid == trusted_uid and stat.S_IMODE(info.st_mode) == 0o755
+    modes = {0o755} if ancestor in owned_ancestors else {0o555, 0o755}
+    assert stat.S_ISDIR(info.st_mode) and info.st_uid == trusted_uid and stat.S_IMODE(info.st_mode) in modes
 fd = os.open(probe, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o555)
 try:
     assert os.write(fd, raw) == len(raw)
@@ -4522,9 +4527,11 @@ cleanup_extension_probe_code() {
 import hashlib, os, pathlib, stat, sys
 source, probe = map(pathlib.Path, sys.argv[1:])
 assert probe.is_absolute() and probe.resolve() == probe
+owned_ancestors = set(list(probe.parents)[:3])
 for ancestor in probe.parents:
     info = ancestor.lstat()
-    assert stat.S_ISDIR(info.st_mode) and info.st_uid == 0 and stat.S_IMODE(info.st_mode) == 0o755
+    modes = {0o755} if ancestor in owned_ancestors else {0o555, 0o755}
+    assert stat.S_ISDIR(info.st_mode) and info.st_uid == 0 and stat.S_IMODE(info.st_mode) in modes
 fd = os.open(probe.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
 try:
     assert os.listdir(fd) == ['probe.js']

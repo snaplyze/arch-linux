@@ -13,10 +13,10 @@ publication. Exact historical attempts and evidence belong in
 | ID | Work and acceptance | Status |
 | --- | --- | --- |
 | G51-01 | Diagnose installed package/session state and upstream compatibility; bind findings to versions and authoritative sources. | DONE |
-| G51-02 | Prepare reviewed package/extension upgrade paths, preserve user overrides and safe unsupported-version handling; reproduce failures before fixes and test recovery. | Package delivery implemented; historical fd91397 source/build/signed14/Minimal14 PASS; Stock FAIL from oversized jq argument before extension probe; release cancelled. Transport correction/review/full local source PASS; e83139d candidate and main4eadf74 CI PASS; c7caf7a source identity verified but frozen-checkpoint documentation P2; release38072414609 cancelled before signing/publication, regression fix in progress; fresh VM/public delivery pending. Historical attempts retain their own failures and identities below. |
-| G51-03 | Correct deterministic release documentation rendering; test independently differing source/document/release versions and preserve historical evidence. | Overview/bootstrap/changelog and historical checkpoint rendering implemented; 58 release-source regressions, independent focused review and full source suite PASS; clean candidate CI/fresh release gates pending |
+| G51-02 | Prepare reviewed package/extension upgrade paths, preserve user overrides and safe unsupported-version handling; reproduce failures before fixes and test recovery. | Package/profile/extension delivery implemented; current106dcc0 source/build/root5/signed14 independent readback PASS. Current Stock functional preparation FAIL; remaining fresh staged VM/final18/public gates pending. Previous attempts retain historical identities below. |
+| G51-03 | Correct deterministic release documentation rendering; test independently differing source/document/release versions and preserve historical evidence. | DONE source: overview/bootstrap/changelog and historical checkpoint rendering;58 regressions, independent review and actual106dcc0 frozen29-file inventory PASS. Final published documentation reconciliation remains G51-04. |
 | G51-04 | Update agent, update/release and user documentation with package delivery and real upgrade acceptance requirements. | Candidate instructions delivered; final publication reconciliation pending |
-| G51-05 | Independent diff review, affected checks and full source suite; record package, real session/VM and publication results separately. | Full functional acceptance and immutable GTK execution implemented/reviewed; historical fd91397 source/build/root5/signed14/Minimal14 independent readback PASS. Stock transport FAIL; fresh source/VM acceptance after correction and final18/public gates pending; no earlier Stock22 or Marble result transfers. |
+| G51-05 | Independent diff review, affected checks and full source suite; record package, real session/VM and publication results separately. | Independent review, clean ca70a7e source suite, PR90/main CI and106dcc0 child source/build/root5/Phase-A readback PASS. Current Stock functional preparation FAIL; staged/public VM, final18/public delivery and final documentation gates remain open. |
 
 ### Confirmed cause and delivery design
 
@@ -60,6 +60,71 @@ promote one nonempty Unreleased changelog entry before freezing the tag. Histori
 commands/results keep their identities; old tags and assets are never rewritten.
 
 ### Current checkpoint and remaining gates
+
+Frozen-checkpoint correction is accepted source candidate
+`ca70a7e6dec382dd3be7a005647f3baaedfebbab`, tree
+`c84ba158534e11b760e398059e72258fb0b501b5`, canonical SHA-256
+`cdaeffbe66419d7988994ed49a586074eccd0772229590082e0687ec89e3e6b8`.
+All58 release-source tests and independent focused review passed. A separate
+clean `umask022; PYTHONDONTWRITEBYTECODE=1 bash tests/source-tests.sh` passed,
+log SHA-256 `4e7a13868c9c654df7141d3c8eea2081528d245e45b818e4195509b9ee59fecf`.
+[PR90](https://github.com/snaplyze/arch-linux/pull/90) exact-head
+CI38073292610/job114274961921 PASSED, log SHA-256
+`5658ba8ede3f3e00533a71979d7ec179e3ac27d638087397e20a04f8423e491f`.
+Head-matched protected squash merged at2026-10-10T17:54:48Z into main
+`afefc9885aa3f4bae0b39c8679068adadab53e7d`, unchanged treec84ba158.
+This same checkout returned to fast-forwarded main, preserving both dirty
+checkpoint documents byte-for-byte and the clear index. Main
+CI38073664462/job114276054348 PASSED at this exact head; log SHA-256
+`2ff6623938958548fe15f2dd96800d91a942649185e2f17b4e726213cc6fc99d`.
+Later root checkpoint edits remain outside accepted source.
+Configured [release38073967896](https://github.com/snaplyze/arch-linux/actions/runs/38073967896)
+prepared version1.0.7 child `106dcc01bfa485745eb950624e25698877c63328`, tree
+`9fe0a590063b1e089b58ed10c6394a1e74d66a36`, canonical SHA-256
+`64780ee38132255be1a0b442cd0c351dceb7daa1284ab75dd25a64a9d224673e`.
+Root source readback verified all224 blobs/modes, exact22 transforms, full16
+harness, conditional1.0.7 instructions and both actual historical checkpoint
+notices bound to full origin main. Independent readback PASSED, including the
+29-file frozen Markdown inventory; the previous documentation P2 is resolved.
+Full child source suite and clean build/job114277010196 PASSED; build log
+SHA-256 `3fd8da0d8a109a91c3acd2a8ba02b5c217c55a03abdcc13151d4580ee77f0034`.
+Root unsigned readback PASSED all7 packages against64 immutable inputs and42193
+mtree rows, bound to this child/tree. CI unsigned readback/job114278244198
+PASSED. All5 actual child root gates and snapshot/job114278477881 PASSED.
+Root and independent Phase-A readback PASSED exact14 assets/12 manifest rows,
+3 top-level+10 inner signatures, all7 payloads/DB metadata and25 snapshot objects.
+Release manifest SHA-256 `7a2dbb906e901a49609e6011c0d272447b10a98d151fab633d7d04bda78ae7f4`;
+signed archive SHA-256 `cb07dcbc52d6043c13c9cf8daa2cf9b5bb51276c374bfc6435b1aedee7fe5616`.
+Core Minimal/job114279194036 PASSED; frozen strict consumer independently
+accepted all14 assertions for run `minimal-20261010T181341Z-d4568747` against
+this child, full16 harness and signed inputs. Log SHA-256
+`32ed942ffc44762cdc90c645b27172fed006ac465e6cf4772dd903d425775a84`.
+Core Stock/job114279194093 FAILED at2026-10-10T18:42:40Z, run
+`luksgrub-20261010T182755Z-de1189c7`. Independent failure-only readback binds
+artifact11679506208 to this child, full16 harness and exact signed inputs;
+15 preceding assertions include real GDM password login and7/7 enabled extensions.
+Functional preparation failed before exercising them: guest script-error line4522,
+status1 maps to `prepare_extension_probe_code` Python invocation after its30-line
+loader prefix. The original large-argv failure did not recur. Actual-helper
+fixtures reproduce0755 PASS versus secure0555 ancestor rejection. Read-only host
+inspection confirms rootUID0/mode0555/Btrfs; independently source-bound Marble
+install QGA observed the same mounted target root inode256/device73 transition
+0755 at18:54:10Z to0555 at18:55:12Z. The exact-mode guard through `/` is a confirmed
+harness defect; its failed Stock Python assertion was pruned, so no missing
+traceback is invented. A focused two-file correction now retains exact0755 for
+three owned code directories and accepts only root-owned0555/0755 for ambient
+ancestors, consistently in preparation, receipt validation and cleanup. Original
+500/555 file modes, hash/link/inode/FD/process custody remain intact. RED actual
+helper reproduction, focused2 tests and all176 runtime tests PASS; independent
+focused review also PASS. Precommit full source suite PASSED; log SHA-256
+`4438c0dd86722c705c207cfd7154e196bb3dbfc734a9c60e5e1ed936d2d216b8`.
+A clean exact-candidate source run and corrected-child build/signing/VM/public
+acceptance remain required. No host modes were changed.
+Core Marble/job114279194053 is IN_PROGRESS, run
+`marble-20261010T184901Z-ec8a96f1`, install QEMU3126577/start16369666 independently
+bound to106dcc0 and the exact staged scenario. Other6 scenarios are queued.
+No Stock/Marble functional PASS, production final18 or public delivery belongs
+to this child yet. Version1.0.7 is unpublished; prior tree results do not transfer.
 
 The native-source argv correction is accepted candidate
 `e83139d4fa2c9a5df8ac9eaa3d2697613fe91792`, tree
@@ -142,9 +207,8 @@ No earlier VM PASS transfers.
 
 Remaining sequence:
 
-1. Correct frozen checkpoint qualification, execute its regression and full
-   source suite, obtain independent review and deliver through protected PR.
-   Bind a fresh child/build/signed snapshot and complete all nine staged scenarios. Stock and
+1. Complete all nine fresh staged scenarios for release38073967896/106dcc0
+   against its verified signed snapshot. Stock and
    Marble require real GDM password login, lock/unlock, full `pacman -Syu` and
    another boot. Exercise every expected extension (seven Stock/eight Marble)
    in both required real-session rounds; strict core consumers require36 Stock
