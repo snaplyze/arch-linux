@@ -1,6 +1,8 @@
-# Agent adapter
+# CLAUDE.md
 
-Read [AGENTS.md](AGENTS.md) before any change.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-`AGENTS.md` is the only normative agent contract. This file adds no commands, exceptions or release
-authority.
+@AGENTS.md
+
+AGENTS.md is the only normative agent contract; this adapter adds no rules. Keep it at most 8
+lines: `tests/agent-contract-checks.py` enforces that in `bash tests/source-tests.sh`.

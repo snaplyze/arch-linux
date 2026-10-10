@@ -33,8 +33,9 @@ paths, rejecting symlinked ancestors and active mounts/containers. Runner
 credentials and tool cache are outside these cleanup paths. The project has a
 dedicated rootful Docker daemon; other projects retain their rootless daemons.
 Rootful Docker grants guest-root authority, so these accounts are not an isolation
-boundary between projects. External fork PR workflows require maintainer approval
-after code review (`all_external_contributors`). This persistent shared setup
+boundary between projects. The CI source job runs pull request code only from
+same-repository branches; fork PRs are skipped and never reach this runner, and
+approval (`all_external_contributors`) remains a second gate. This persistent shared setup
 does not provide a fresh VM for each job.
 
 Source preparation, validation and canonical readback explicitly set `umask 022`
