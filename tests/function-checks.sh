@@ -2831,6 +2831,82 @@ ARCH_LINUX_ACCEPTED_TARGET_SNAPSHOT=''
     done
 )
 
+# Slim GNOME cleanup queries the installed names once and removes only that subset in a single
+# transaction. Absent packages are fine, while an unexpected query result or a failed removal
+# propagates so a package that cannot be removed is never hidden.
+(
+    chroot_calls="${function_runtime_dir}/chroot-calls"
+    chroot_installed=' gnome-maps baobab '
+    chroot_query_mode=normal
+    chroot_remove_status=0
+    arch-chroot() {
+        local name joined
+        [ "$1" = /mnt ] || return 99
+        shift
+        joined="$*"
+        case "$joined" in
+        '/usr/bin/env LC_ALL=C pacman -Qq -- '*)
+            printf 'query %s\n' "${joined#/usr/bin/env LC_ALL=C pacman -Qq -- }" >>"$chroot_calls"
+            [ "$chroot_query_mode" != broken ] || { echo 'error: failed to initialize alpm library' >&2; return 1; }
+            shift 5
+            for name in "$@"; do
+                if [[ "$chroot_installed" == *" ${name} "* ]]; then
+                    printf '%s\n' "$name"
+                else
+                    printf "error: package '%s' was not found\n" "$name" >&2
+                    chroot_query_mode=some-absent
+                fi
+            done
+            [ "$chroot_query_mode" != some-absent ] || return 1
+            ;;
+        'pacman -Rn --noconfirm -- '*)
+            printf 'remove %s\n' "${joined#pacman -Rn --noconfirm -- }" >>"$chroot_calls"
+            return "$chroot_remove_status"
+            ;;
+        *) return 99 ;;
+        esac
+    }
+    run_remove() { : >"$chroot_calls"; chroot_query_mode=normal; chroot_remove_installed_packages "$@"; }
+
+    run_remove gnome-maps gnome-music baobab
+    [ "$(cat "$chroot_calls")" = $'query gnome-maps gnome-music baobab\nremove gnome-maps baobab' ]
+
+    chroot_installed=' gnome-maps baobab gnome-music '
+    run_remove gnome-maps gnome-music baobab
+    [ "$(cat "$chroot_calls")" = $'query gnome-maps gnome-music baobab\nremove gnome-maps gnome-music baobab' ]
+
+    chroot_installed=' '
+    run_remove gnome-maps gnome-music
+    [ "$(cat "$chroot_calls")" = 'query gnome-maps gnome-music' ]
+
+    chroot_installed=' gnome-console '
+    : >"$chroot_calls"
+    chroot_remove_gnome_console
+    [ "$(cat "$chroot_calls")" = $'query gnome-console\nremove gnome-console' ]
+
+    chroot_installed=' gnome-maps '
+    chroot_remove_status=1
+    if run_remove gnome-maps gnome-music; then
+        echo 'slim cleanup: a failed removal transaction was reported as success' >&2
+        exit 1
+    fi
+    chroot_remove_status=0
+    chroot_query_mode=broken
+    : >"$chroot_calls"
+    if chroot_remove_installed_packages gnome-maps; then
+        echo 'slim cleanup: a failed package query was treated as no installed packages' >&2
+        exit 1
+    fi
+    chroot_query_mode=normal
+    # papers is required by sushi (Arch gnome group), so it must not be in the removal list.
+    removal_list="$(sed -n '/^                chroot_remove_installed_packages \\$/,/||$/p' "$script")"
+    [ -n "$removal_list" ]
+    if grep -qw papers <<<"$removal_list"; then
+        echo 'slim cleanup: papers is required by sushi and cannot be removed' >&2
+        exit 1
+    fi
+)
+
 # Exercise actual membership helpers: a failed ancestry lookup cannot mean nonmembership,
 # and swapfiles are attributed through their backing mount source.
 (

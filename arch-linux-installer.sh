@@ -4563,28 +4563,16 @@ exec_install_desktop() {
 
             # Force remove gnome packages
             if [ "$ARCH_LINUX_DESKTOP_SLIM_ENABLED" = "true" ]; then
-                chroot_pacman_remove gnome-calendar || true
-                chroot_pacman_remove gnome-maps || true
-                chroot_pacman_remove gnome-contacts || true
-                chroot_pacman_remove gnome-font-viewer || true
-                chroot_pacman_remove gnome-characters || true
-                chroot_pacman_remove gnome-clocks || true
-                chroot_pacman_remove gnome-connections || true
-                chroot_pacman_remove gnome-music || true
-                chroot_pacman_remove gnome-weather || true
-                chroot_pacman_remove gnome-calculator || true
-                chroot_pacman_remove gnome-logs || true
-                chroot_pacman_remove gnome-text-editor || true
-                chroot_pacman_remove gnome-disk-utility || true
-                chroot_pacman_remove simple-scan || true
-                chroot_pacman_remove baobab || true
-                chroot_pacman_remove snapshot || true
-                chroot_pacman_remove epiphany || true
-                chroot_pacman_remove loupe || true
-                chroot_pacman_remove decibels || true
-                chroot_pacman_remove showtime || true
-                chroot_pacman_remove papers || true
-                #chroot_pacman_remove evince || true # Need for sushi
+                # papers stays installed: it is required by sushi, which the Arch 'gnome' group installs.
+                chroot_remove_installed_packages \
+                    gnome-calendar gnome-maps gnome-contacts gnome-font-viewer gnome-characters \
+                    gnome-clocks gnome-connections gnome-music gnome-weather gnome-calculator \
+                    gnome-logs gnome-text-editor gnome-disk-utility simple-scan baobab snapshot \
+                    epiphany loupe decibels showtime ||
+                    {
+                        log_fail "Could not remove the slim-profile GNOME applications"
+                        exit 1
+                    }
             fi
 
             # Add user to other useful groups (https://wiki.archlinux.org/title/Users_and_groups#User_groups)
@@ -6049,9 +6037,8 @@ desktop_write_ptyxis_keybindings() {
 
 chroot_remove_gnome_console() {
     # The Arch 'gnome' group includes GNOME Console. Remove it after group installation so Ptyxis
-    # is the sole terminal, but query first so an absent package is not reported as an error.
-    arch-chroot /mnt pacman -Qq gnome-console &>/dev/null || return 0
-    chroot_pacman_remove gnome-console
+    # is the sole terminal.
+    chroot_remove_installed_packages gnome-console
 }
 
 # These four packages moved out of official multilib. Keep their functionality,
@@ -6936,7 +6923,34 @@ chroot_aur_install() {
     [ "$aur_failed" = "false" ] && return 0
 }
 
-chroot_pacman_remove() { arch-chroot /mnt pacman -Rn --noconfirm -- "$@" || return 1; }
+# Remove the installed subset of the named packages in one transaction; absent packages are fine.
+# One query lists what is installed (pacman -Qq prints installed names and reports each absent one
+# as "package '<name>' was not found"). Any other output, or a status other than 0/1, is a real
+# failure, as is a failed removal, so an unremovable package (for example one still required by
+# another installed package) is never hidden.
+chroot_remove_installed_packages() {
+    local output status=0 line name requested
+    local -a installed=()
+    local -A wanted=()
+
+    for name in "$@"; do wanted[$name]=true; done
+    output="$(arch-chroot /mnt /usr/bin/env LC_ALL=C pacman -Qq -- "$@" 2>&1)" || status=$?
+    [ "$status" -le 1 ] || return 1
+    while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        requested="${wanted[$line]:-}"
+        if [ "$requested" = true ]; then
+            installed+=("$line")
+        elif [[ ! "$line" =~ ^error:\ package\ \'.+\'\ was\ not\ found$ ]]; then
+            return 1
+        fi
+    done <<<"$output"
+    if [ "$status" -eq 1 ] && [ -z "$output" ]; then
+        return 1
+    fi
+    [ "${#installed[@]}" -gt 0 ] || return 0
+    arch-chroot /mnt pacman -Rn --noconfirm -- "${installed[@]}"
+}
 
 chroot_user_path_is_safe() {
     local target="${1:-}" home_path="/home/${ARCH_LINUX_USERNAME}" component
