@@ -7,8 +7,19 @@ export LC_ALL=C
 marker_prefix=''
 
 guest_error() {
-    local status=$? line="$1" command="$2"
+    local status=$? line="$1" command="$2" diagnostic_account diagnostic_uid
     trap - ERR
+    if [ "${BASH_SUBSHELL}" -eq 0 ] && declare -F emit_gnome_shell_lifecycle_diagnostic >/dev/null; then
+        case "${phase:-preflight}" in
+        unlock | return-user-login) diagnostic_account="${username}" ;;
+        fresh-user-login) diagnostic_account=marblefresh ;;
+        *) diagnostic_account='' ;;
+        esac
+        if [ -n "${diagnostic_account}" ] && diagnostic_uid="$(id -u "${diagnostic_account}")"; then
+            emit_gnome_shell_lifecycle_diagnostic "${diagnostic_uid}" authentication-failure \
+                "${diagnostic_account}" || true
+        fi
+    fi
     if declare -F restore_extension_probe_settings >/dev/null &&
         [ -n "${probe_state:-}" ] && [ -f "${probe_state}/settings.json" ]; then
         restore_extension_probe_settings >/dev/null 2>&1 || true
@@ -609,10 +620,10 @@ SHORTCUTS
 }
 
 emit_gnome_shell_lifecycle_diagnostic() {
-    local uid="$1" checkpoint="$2" gid
-    gid="$(id -g "${username}")" || return 0
+    local uid="$1" checkpoint="$2" account="${3:-${username}}" gid
+    gid="$(id -g "${account}")" || return 0
     # Diagnostics never change acceptance or settings. All query output is parsed privately.
-    python3 - "${uid}" "${gid}" "${run_id}" "${phase}" "${checkpoint}" "${username}" <<'PY'
+    python3 - "${uid}" "${gid}" "${run_id}" "${phase}" "${checkpoint}" "${account}" <<'PY'
 import hashlib
 import json
 import os
@@ -664,6 +675,68 @@ def number(value, maximum=(1 << 63) - 1):
     if isinstance(value, str) and re.fullmatch(r"0|[1-9][0-9]{0,18}", value) and int(value) <= maximum:
         return value
     return "unknown"
+
+def emit_pam_attribution(uid, account, prefix):
+    # PAM events describe module activity, never the functional login verdict.
+    # Filter before the finite journal window; no message/user/peer data is exported.
+    raw = query(["/usr/bin/journalctl", "--boot=0", "--no-pager", "--lines=129", "--output=json",
+                 "--output-fields=_SYSTEMD_UNIT,_UID,_TRANSPORT,__MONOTONIC_TIMESTAMP,MESSAGE",
+                 r"--grep=^pam_(unix|faillock)\(gdm-password:(auth|account|session)\):",
+                 "--case-sensitive=yes", "_SYSTEMD_UNIT=gdm.service"])
+    reason, events, unclassified, records_count = "none", [], 0, "unknown"
+    try:
+        if raw is None:
+            raise JournalDiagnosticError("query-unavailable")
+        lines = raw.splitlines()
+        if len(lines) > 128:
+            raise JournalDiagnosticError("window-exhausted")
+        rows = [json.loads(line, object_pairs_hook=unique_object) for line in lines]
+        for row in rows:
+            if not isinstance(row, dict):
+                raise JournalDiagnosticError("invalid-object")
+            if (row.get("_SYSTEMD_UNIT") != "gdm.service" or row.get("_UID") != "0"
+                    or row.get("_TRANSPORT") not in {"syslog", "journal"}):
+                raise JournalDiagnosticError("invalid-field")
+            timestamp = number(row.get("__MONOTONIC_TIMESTAMP"))
+            if timestamp == "unknown":
+                raise JournalDiagnosticError("invalid-timestamp")
+            message = row.get("MESSAGE")
+            if not isinstance(message, str) or len(message) > 8192:
+                raise JournalDiagnosticError("invalid-field")
+            event = None
+            auth = "pam_unix(gdm-password:auth): "
+            if message.startswith(auth):
+                body = message[len(auth):]
+                if (body.startswith("authentication failure; ")
+                        or re.match(r"[1-9][0-9]{0,8} more authentication failures?; ", body)) and re.search(
+                            r"(?:^| )user=" + re.escape(account) + r"$", body):
+                    event = "authentication-failure"
+            elif re.fullmatch(r"pam_faillock\(gdm-password:(?:auth|account)\): (?:Consecutive login failures for user "
+                              + re.escape(account) + r" account temporarily locked|User " + re.escape(account)
+                              + r" is temporarily locked out due to [0-9]{1,9} consecutive failed login attempts)", message):
+                event = "account-locked"
+            elif re.fullmatch(r"pam_unix\(gdm-password:session\): session opened for user " + re.escape(account)
+                              + r"\(uid=" + re.escape(uid) + r"\) by [^\r\n]{0,128}\(uid=[0-9]{1,10}\)", message):
+                event = "session-opened"
+            elif message == f"pam_unix(gdm-password:session): session closed for user {account}":
+                event = "session-closed"
+            if event is None:
+                unclassified += 1
+            else:
+                events.append((event, timestamp))
+        records_count = len(rows)
+    except JournalDiagnosticError as error:
+        reason = error.reason
+    except json.JSONDecodeError:
+        reason = "invalid-json"
+    except (ValueError, TypeError):
+        reason = "invalid-field"
+    if reason != "none":
+        print(f"{prefix} pam_query=unknown pam_records=unknown pam_events=unknown pam_unclassified=unknown pam_rejection_reason={reason}", file=sys.stderr)
+        return
+    print(f"{prefix} pam_query=ok pam_records={records_count} pam_events={len(events)} pam_unclassified={unclassified} pam_rejection_reason=none", file=sys.stderr)
+    for event, timestamp in events:
+        print(f"{prefix} pam_event={event} event_monotonic_us={timestamp}", file=sys.stderr)
 
 # GJS/SpiderMonkey dumpstack frame syntax. Match before the journal window so
 # ordinary application messages cannot displace the narrowly selected frames.
@@ -747,7 +820,7 @@ def diagnose(uid, gid, run_id, phase, checkpoint, account="vmtest"):
             or not re.fullmatch(r"[A-Za-z0-9-]{1,80}", run_id)
             or not re.fullmatch(r"[a-z0-9-]{1,64}", phase)
             or not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", account)
-            or checkpoint not in {"migrated-login", "before-original-user-logout", "after-original-user-logout", "return-user-login", "extension-timeout"}):
+            or checkpoint not in {"migrated-login", "before-original-user-logout", "after-original-user-logout", "return-user-login", "extension-timeout", "authentication-failure"}):
         return
     prefix = f"GNOME_SHELL_DIAGNOSTIC run_id={run_id} phase={phase} checkpoint={checkpoint}"
     checkpoint_time = "unknown"
@@ -821,7 +894,9 @@ def diagnose(uid, gid, run_id, phase, checkpoint, account="vmtest"):
         condition = fields.get("ConditionResult")
         condition = condition if condition in {"yes", "no"} else "unknown"
         print(f"{prefix} unit={unit} result={result} exit_code={code} exit_status={number(fields.get('ExecMainStatus'), 255)} start_monotonic_us={number(fields.get('ExecMainStartTimestampMonotonic'))} invocation={invocation} condition_result={condition}", file=sys.stderr)
-    if checkpoint not in {"after-original-user-logout", "return-user-login", "extension-timeout"}:
+    if checkpoint == "authentication-failure":
+        emit_pam_attribution(uid, account, prefix)
+    if checkpoint not in {"after-original-user-logout", "return-user-login", "extension-timeout", "authentication-failure"}:
         return
     # Current boot includes the migration and original-user logout. Query only these public
     # units for this UID; retain no messages, paths, command lines or unknown identifiers.
