@@ -9,7 +9,7 @@ const [state, runId, round] = ARGV;
 if (!state || !/^(marble|luksgrub)-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}$/.test(runId) || !['firstlogin', 'upgrade', 'postreboot'].includes(round))
     throw new Error('Invalid probe identity');
 const sha = text => GLib.compute_checksum_for_string(GLib.ChecksumType.SHA256, text, -1);
-const [sourceBytes] = Gio.File.new_for_path(`${state}/probe.js`).load_bytes(null);
+const [sourceBytes] = Gio.File.new_for_uri(import.meta.url).load_bytes(null);
 const probeSha256 = GLib.compute_checksum_for_bytes(GLib.ChecksumType.SHA256, sourceBytes);
 const pid = new Gio.Credentials().get_unix_pid();
 const a = `archlinux-${runId}-${round}-a`;

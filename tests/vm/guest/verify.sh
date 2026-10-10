@@ -4369,7 +4369,7 @@ GNOME51_CUSTODY_PY
 verify_extension_probe_receipt() {
     local stage="$1" expected="${2:--}" mode="${3:-functional}" uid
     uid="$(id -u "${username}")"
-    python3 - "${probe_state}" "${stage}" "${expected}" "${run_id}" "${probe_round}" "${uid}" "${probe_source}" "${probe_trusted}" "${mode}" <<'EXTENSION_RECEIPT_PY'
+    python3 - "${probe_state}" "${stage}" "${expected}" "${run_id}" "${probe_round}" "${uid}" "${probe_source}" "${probe_trusted}" "${mode}" "${probe_code}" <<'EXTENSION_RECEIPT_PY'
 import hashlib, json, os, pathlib, stat, sys
 root = pathlib.Path(sys.argv[1]); stage, expected, run_id, round_name = sys.argv[2:6]; uid = int(sys.argv[6])
 source, trusted = map(pathlib.Path, sys.argv[7:9])
@@ -4377,7 +4377,14 @@ mode = sys.argv[9]; assert mode in {"functional", "diagnostic"}
 trusted_uid = 0
 assert stat.S_ISDIR(trusted.lstat().st_mode) and trusted.stat().st_uid == trusted_uid and stat.S_IMODE(trusted.stat().st_mode) == 0o700
 assert stat.S_ISREG(source.lstat().st_mode) and source.stat().st_uid == trusted_uid and stat.S_IMODE(source.stat().st_mode) == 0o500
-probe = root / 'probe.js'; assert stat.S_ISREG(probe.lstat().st_mode) and probe.stat().st_uid == uid
+probe = pathlib.Path(sys.argv[10])
+assert probe.is_absolute() and probe.resolve() == probe
+for ancestor in probe.parents:
+    info = ancestor.lstat()
+    assert stat.S_ISDIR(info.st_mode) and info.st_uid == trusted_uid and stat.S_IMODE(info.st_mode) == 0o755
+info = probe.lstat()
+assert stat.S_ISREG(info.st_mode) and info.st_uid == trusted_uid and info.st_nlink == 1 and stat.S_IMODE(info.st_mode) == 0o555
+assert info.st_size <= 262144
 digest = hashlib.sha256(source.read_bytes()).hexdigest()
 assert hashlib.sha256(probe.read_bytes()).hexdigest() == digest
 path = root / (stage + '.json'); info = path.lstat()
@@ -4417,6 +4424,7 @@ probe_state=''
 probe_round=''
 probe_source='/run/arch-linux-qemu-extension-probe.js'
 probe_trusted=''
+probe_code=''
 
 load_extension_probe_state() {
     [[ "${phase}" =~ ^extension-(firstlogin|upgrade|postreboot)-([a-z-]+)$ ]]
@@ -4430,6 +4438,7 @@ load_extension_probe_state() {
     esac
     probe_state="/run/user/$(id -u "${username}")/arch-linux-qemu-extension-${run_id}-${probe_round}"
     probe_trusted="/run/arch-linux-qemu-desktop-gtk/${run_id}/${probe_round}"
+    probe_code="/run/arch-linux-qemu-desktop-gtk-code/${run_id}/${probe_round}/probe.js"
 }
 
 verify_stock_gnome_settings() {
@@ -4479,6 +4488,72 @@ set_extension_setting() {
     run_in_user_session "${uid}" gsettings --schemadir "${schema[0]}" set "${schema[1]}" "${key}" "${value}"
 }
 
+prepare_extension_probe_code() {
+    python3 - "${probe_source}" "${probe_code}" <<'EXTENSION_CODE_PY'
+import os, pathlib, stat, sys
+source, probe = map(pathlib.Path, sys.argv[1:])
+trusted_uid = 0
+assert probe.is_absolute() and probe.parent.resolve() == probe.parent
+fd = os.open(source, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+try:
+    before = os.fstat(fd)
+    assert stat.S_ISREG(before.st_mode) and before.st_uid == trusted_uid and before.st_nlink == 1
+    assert stat.S_IMODE(before.st_mode) == 0o500 and 0 < before.st_size <= 262144
+    raw = os.read(fd, 262145); after = os.fstat(fd); linked = source.lstat()
+    assert len(raw) == before.st_size and (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns) == (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
+    assert (before.st_dev, before.st_ino) == (linked.st_dev, linked.st_ino)
+finally:
+    os.close(fd)
+for ancestor in reversed(probe.parents):
+    if not ancestor.exists() and not ancestor.is_symlink(): ancestor.mkdir(mode=0o755); ancestor.chmod(0o755)
+    info = ancestor.lstat()
+    assert stat.S_ISDIR(info.st_mode) and info.st_uid == trusted_uid and stat.S_IMODE(info.st_mode) == 0o755
+fd = os.open(probe, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o555)
+try:
+    assert os.write(fd, raw) == len(raw)
+    os.fchmod(fd, 0o555)
+finally:
+    os.close(fd)
+EXTENSION_CODE_PY
+}
+
+cleanup_extension_probe_code() {
+    python3 - "${probe_source}" "${probe_code}" <<'EXTENSION_CODE_CLEANUP_PY'
+import hashlib, os, pathlib, stat, sys
+source, probe = map(pathlib.Path, sys.argv[1:])
+assert probe.is_absolute() and probe.resolve() == probe
+for ancestor in probe.parents:
+    info = ancestor.lstat()
+    assert stat.S_ISDIR(info.st_mode) and info.st_uid == 0 and stat.S_IMODE(info.st_mode) == 0o755
+fd = os.open(probe.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+try:
+    assert os.listdir(fd) == ['probe.js']
+    def read(path, mode, dir_fd=None):
+        file_fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dir_fd)
+        try:
+            info = os.fstat(file_fd)
+            assert stat.S_ISREG(info.st_mode) and info.st_uid == 0 and info.st_nlink == 1
+            assert stat.S_IMODE(info.st_mode) == mode and 0 < info.st_size <= 262144
+            raw = os.read(file_fd, 262145)
+            assert len(raw) == info.st_size
+            return raw
+        finally:
+            os.close(file_fd)
+    assert hashlib.sha256(read('probe.js', 0o555, fd)).digest() == hashlib.sha256(read(source, 0o500)).digest()
+    os.unlink('probe.js', dir_fd=fd)
+    parent_fd = os.open(probe.parent.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        linked = os.stat(probe.parent.name, dir_fd=parent_fd, follow_symlinks=False)
+        retained = os.fstat(fd)
+        assert stat.S_ISDIR(linked.st_mode) and (linked.st_dev, linked.st_ino) == (retained.st_dev, retained.st_ino)
+        os.rmdir(probe.parent.name, dir_fd=parent_fd)
+    finally:
+        os.close(parent_fd)
+finally:
+    os.close(fd)
+EXTENSION_CODE_CLEANUP_PY
+}
+
 prepare_extension_probe() {
     local uid favorites desktop application path value encoded
     uid="$(id -u "${username}")"
@@ -4495,8 +4570,7 @@ prepare_extension_probe() {
     [ -f "${probe_source}" ] && [ ! -L "${probe_source}" ]
     [ "$(stat -c '%u:%a' "${probe_source}")" = 0:500 ]
     run_in_user_session "${uid}" mkdir -m0700 -- "${probe_state}"
-    install -o "${uid}" -g "$(id -g "${username}")" -m0500 -- /run/arch-linux-qemu-extension-probe.js "${probe_state}/probe.js"
-    sha256sum --binary -- "${probe_state}/probe.js" | awk '{print $1}' >"${probe_state}/probe.sha256"
+    prepare_extension_probe_code
     printf '[]\n' >"${probe_trusted}/settings.json"
     # Save only scoped, ephemeral test values; restore unset keys with dconf reset.
     for path in /org/gnome/shell/favorite-apps \
@@ -4515,8 +4589,8 @@ prepare_extension_probe() {
     desktop="/home/${username}/.local/share/applications/${application}.desktop"
     [ ! -e "${desktop}" ] && [ ! -L "${desktop}" ]
     run_in_user_session "${uid}" mkdir -p -- "${desktop%/*}"
-    printf '[Desktop Entry]\nType=Application\nName=Arch Linux extension acceptance\nExec=/usr/bin/gjs -m %s/probe.js %s %s %s\nTerminal=false\n' \
-        "${probe_state}" "${probe_state}" "${run_id}" "${probe_round}" >"${probe_state}/probe.desktop"
+    printf '[Desktop Entry]\nType=Application\nName=Arch Linux extension acceptance\nExec=/usr/bin/gjs -m %s %s %s %s\nTerminal=false\n' \
+        "${probe_code}" "${probe_state}" "${run_id}" "${probe_round}" >"${probe_state}/probe.desktop"
     install -o "${uid}" -g "$(id -g "${username}")" -m0600 -- "${probe_state}/probe.desktop" "${desktop}"
     favorites="$(run_in_user_session "${uid}" gsettings get org.gnome.shell favorite-apps)"
     favorites="$(python3 - "${favorites}" "${application}.desktop" <<'EXTENSION_FAVORITES_PY'
@@ -4741,7 +4815,7 @@ cleanup_extension_probe() {
     verify_extension_probe_receipt dash-ready
     pid="$(jq -er '.pid' "${probe_trusted}/identity.json")"
     [ "$(stat -c '%u' "/proc/${pid}")" = "${uid}" ]
-    tr '\0' '\n' <"/proc/${pid}/cmdline" | grep -Fxq "${probe_state}/probe.js"
+    tr '\0' '\n' <"/proc/${pid}/cmdline" | grep -Fxq "${probe_code}"
     kill -TERM -- "${pid}"
     for _ in {1..30}; do [ ! -d "/proc/${pid}" ] && break; sleep 0.1; done
     [ ! -d "/proc/${pid}" ]
@@ -4764,6 +4838,7 @@ for path in root.iterdir():
     path.unlink()
 root.rmdir()
 EXTENSION_CLEANUP_PY
+    cleanup_extension_probe_code
     rm -- "${probe_trusted}/identity.json"
     rm -- "${probe_trusted}/settings.json"
     rmdir -- "${probe_trusted}"
@@ -4783,7 +4858,7 @@ run_extension_probe_phase() {
         wait_extension_probe_receipt dash-ready
         pid="$(jq -er '.pid' "${probe_state}/dash-ready.json")"
         [ "$(stat -c '%u' "/proc/${pid}")" = "${uid}" ]
-        tr '\0' '\n' <"/proc/${pid}/cmdline" | grep -Fxq "${probe_state}/probe.js"
+        tr '\0' '\n' <"/proc/${pid}/cmdline" | grep -Fxq "${probe_code}"
         jq -er 'select(.width>=640 and .width<=8192 and .height>=480 and .height<=8192 and .scale>=1 and .scale<=4) | "EXTENSION_PROBE_DISPLAY width=\(.width) height=\(.height) scale=\(.scale)"' "${probe_state}/display.json"
         emit_extension_functional_pass dash launch=unique-extension-binding
         ;;

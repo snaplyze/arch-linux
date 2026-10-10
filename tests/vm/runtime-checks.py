@@ -438,31 +438,70 @@ emit_marble_action_pass(){ printf 'PASS:%s\n' "$1"; }
         import hashlib, json, os, shutil, time
         if not shutil.which('gjs'): self.skipTest('native GJS is not installed')
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory); state = root / 'state'; state.mkdir(); trusted = root / 'trusted'; trusted.mkdir(mode=0o700)
+            root = Path(directory); root.chmod(0o755); state = root / 'state'; state.mkdir(); trusted = root / 'trusted'; trusted.mkdir(mode=0o700)
             source = "import GLib from 'gi://GLib'; new GLib.MainLoop(null,false).run();\n"
             frozen = root / 'frozen.js'; frozen.write_text(source); frozen.chmod(0o500)
-            probe = state / 'probe.js'; probe.write_text(source); probe.chmod(0o500)
+            identity = 'marble-20261009T010203Z-12345678'
+            probe = root / 'gtk-code' / identity / 'upgrade' / 'probe.js'
+            prepare = function('prepare_extension_probe_code').replace('trusted_uid = 0', 'trusted_uid = os.getuid()').replace('reversed(probe.parents)', 'reversed(list(probe.parents)[:4])')
+            prepared = subprocess.run(['bash', '-c', 'set -euo pipefail\nprobe_source="$1" probe_code="$2"\n' + prepare + '\nprepare_extension_probe_code', 'fixture', str(frozen), str(probe)], capture_output=True, text=True)
+            self.assertEqual(prepared.returncode, 0, prepared.stderr)
             digest = hashlib.sha256(source.encode()).hexdigest()
             (state / 'probe.sha256').write_text(digest+'\n')
-            identity = 'marble-20261009T010203Z-12345678'
+            (state / 'probe.js').write_text("throw new Error('foreign source executed');\n")
             process = subprocess.Popen(['/usr/bin/gjs','-m',str(probe),str(state),identity,'upgrade'],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
             try:
                 time.sleep(.2); self.assertIsNone(process.poll())
                 receipt = {'schema':1,'runId':identity,'round':'upgrade','probeSha256':digest,
                            'stage':'dash-ready','valueSha256':'-','pid':process.pid}
-                script = ('set -euo pipefail\nprobe_state="$1" username="$2" probe_source="$3" probe_trusted="$4" run_id="$5" probe_round=upgrade\n' +
-                    # Only trust-file owner differs in this unprivileged fixture; live exe/argv/starttime remain production checks.
-                    function('verify_extension_probe_receipt').replace('trusted_uid = 0','trusted_uid = os.getuid()') +
+                script = ('set -euo pipefail\nprobe_state="$1" username="$2" probe_source="$3" probe_trusted="$4" run_id="$5" probe_round=upgrade probe_code="$9"\n' +
+                    # Map root custody to the fixture owner and check its four owned
+                    # closure ancestors; production checks all /run ancestors through /.
+                    # Live GJS executable, exact argv and starttime remain unchanged.
+                    function('verify_extension_probe_receipt').replace('trusted_uid = 0','trusted_uid = os.getuid()').replace('for ancestor in probe.parents:', 'for ancestor in list(probe.parents)[:4]:') +
                     '\nverify_extension_probe_receipt "$6" "$7" "${8:-functional}"\n')
                 path = state / 'dash-ready.json'
                 def check(stage='dash-ready', expected='-', mode='functional'):
-                    return subprocess.run(['bash','-c',script,'fixture',str(state),str(os.getuid()),str(frozen),str(trusted),identity,stage,expected,mode],capture_output=True,text=True)
+                    return subprocess.run(['bash','-c',script,'fixture',str(state),str(os.getuid()),str(frozen),str(trusted),identity,stage,expected,mode,str(probe)],capture_output=True,text=True)
                 self.assertNotEqual(check().returncode,0)
                 observation=state/'process-started.json'
                 observation.write_text(json.dumps(receipt | {'stage':'process-started'})); observation.chmod(0o600)
                 observed=check('process-started','-','diagnostic')
                 self.assertEqual(observed.returncode,0,observed.stderr)
                 self.assertFalse((trusted/'identity.json').exists(),'diagnostic must not create functional custody')
+                # A user can replace/restore state files, but neither the canonical
+                # launch nor diagnostic custody may execute/trust that alternate path.
+                user_probe = state / 'probe.js'
+                alternate = ("import GLib from 'gi://GLib'; import Gio from 'gi://Gio'; "
+                             "Gio.File.new_for_path(ARGV[0] + '/foreign-executed').replace_contents('foreign',null,false,Gio.FileCreateFlags.PRIVATE,null); "
+                             "new GLib.MainLoop(null,false).run();\n")
+                user_probe.write_text(alternate); user_probe.chmod(0o500)
+                self.assertFalse((state / 'foreign-executed').exists())
+                alternate_process = subprocess.Popen(['/usr/bin/gjs', '-m', str(user_probe),
+                    str(state), identity, 'upgrade'], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+                try:
+                    deadline = time.monotonic() + 3
+                    while not (state / 'foreign-executed').exists() and time.monotonic() < deadline:
+                        self.assertIsNone(alternate_process.poll())
+                        time.sleep(.02)
+                    self.assertEqual((state / 'foreign-executed').read_text(), 'foreign')
+                    user_probe.chmod(0o600); user_probe.write_text(source); user_probe.chmod(0o500)
+                    observation.write_text(json.dumps(receipt | {'stage':'process-started', 'pid':alternate_process.pid}))
+                    self.assertNotEqual(check('process-started', '-', 'diagnostic').returncode, 0,
+                                        'replace-execute-restore at a user path cannot enter custody')
+                finally:
+                    if alternate_process.poll() is None:
+                        alternate_process.terminate(); alternate_process.wait(timeout=5)
+                    alternate_process.stderr.close()
+                observation.write_text(json.dumps(receipt | {'stage':'process-started'}))
+                self.assertEqual(check('process-started', '-', 'diagnostic').returncode, 0)
+                for ancestor in list(probe.parents)[:4]:
+                    ancestor.chmod(0o777)
+                    self.assertNotEqual(check('process-started', '-', 'diagnostic').returncode, 0,
+                                        'mutable closure ancestor must fail before receipt custody')
+                    ancestor.chmod(0o755)
+
+
                 self.assertNotEqual(check('process-started').returncode,0,'functional custody still requires dash-ready')
                 for key, value in (('pid',os.getpid()),('probeSha256','b'*64),('round','postreboot'),('runId','old')):
                     observation.write_text(json.dumps(receipt | {'stage':'process-started',key:value}))
@@ -481,13 +520,19 @@ emit_marble_action_pass(){ printf 'PASS:%s\n' "$1"; }
                 identity_path.write_text(saved)
                 probe.chmod(0o600); probe.write_text(source+'// changed\n')
                 (state / 'probe.sha256').write_text(hashlib.sha256(probe.read_bytes()).hexdigest()+'\n')
-                self.assertNotEqual(check('pasted-a',value).returncode,0,'user-rehashed source must not be authority')
-                probe.write_text(source); probe.chmod(0o500)
+                self.assertNotEqual(check('pasted-a',value).returncode,0,'mutable closure source must not enter custody through a supplied hash')
+                probe.write_text(source); probe.chmod(0o555)
                 for key, invalid in [('runId','old'),('round','postreboot'),('probeSha256','b'*64),('stage','copied-a'),('valueSha256','c'*64),('pid',os.getpid())]:
                     path.write_text(json.dumps(copied | {key:invalid}))
                     self.assertNotEqual(check('pasted-a',value).returncode,0,key)
                 path.write_text(json.dumps(copied)); process.terminate(); process.wait(timeout=5)
                 self.assertNotEqual(check('pasted-a',value).returncode,0,'dead probe must be rejected')
+                cleanup = function('cleanup_extension_probe_code').replace('info.st_uid == 0', 'info.st_uid == os.getuid()').replace('for ancestor in probe.parents:', 'for ancestor in list(probe.parents)[:4]:')
+                cleaned = subprocess.run(['bash', '-c', 'set -euo pipefail\nprobe_source="$1" probe_code="$2"\n' + cleanup + '\ncleanup_extension_probe_code', 'fixture', str(frozen), str(probe)], capture_output=True, text=True)
+                self.assertEqual(cleaned.returncode, 0, cleaned.stderr)
+                self.assertFalse(probe.parent.exists())
+                self.assertTrue(user_probe.exists(), 'code cleanup must not remove user-state replacements')
+
             finally:
                 if process.poll() is None: process.terminate(); process.wait(timeout=5)
                 process.stderr.close()
@@ -728,6 +773,8 @@ run_extension_functional_acceptance upgrade
                     started=json.loads((root/'process-started.json').read_text())
                     self.assertEqual(started['stage'],'process-started')
                     self.assertEqual(started['runId'],identity)
+                    import hashlib
+                    self.assertEqual(started['probeSha256'], hashlib.sha256((root / 'identity.js').read_bytes()).hexdigest())
                     self.assertGreater(started['pid'],1)
                     self.assertFalse((root/'app-activated.json').exists())
                 else: self.assertIn('Invalid probe identity',result.stderr)
