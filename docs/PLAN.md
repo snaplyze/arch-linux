@@ -290,7 +290,39 @@ The follow-up full source suite exited0, including runtime174 and full repositor
 10/signing14+18/deferrednone; log SHA-256
 `94b06cbf9968ae85f5de040204235e05e080d4c6462e34dcadad3a3553f298ab`.
 Documentation/contract checks were repeated after checkpoint edits. Exact-head CI
-remains required before merge; the clean fb00 source result remains historical.
+passed for exact head `a5f2d9b7974baf1d7d35b9112ccee983913b6976` in
+[CI38058719339](https://github.com/snaplyze/arch-linux/actions/runs/38058719339).
+PR86 squash merged at 14:18:05 UTC to main
+`c9ea0399ecba37bd8d0e19557a5eac3111f07683`, tree
+`473fa7c451aa1af186cfd1a8e912d6c50630c3d7`; the same checkout returned to main by
+fast-forward with a clean index. Main CI38059060706 passed. Configured release
+[38059360429](https://github.com/snaplyze/arch-linux/actions/runs/38059360429)
+prepared child `43410ed884fdfe7b0b2914caa8d76f4f63b2c64d`, tree
+`8930e7104f960b0671bcc0c7c6f809d17d4fe128`, canonical SHA-256
+`6417993bda74e0ea0b1530f7979941dac4f609b4384222ba76c0a113325f9d20`,
+version1.0.7 UNPUBLISHED. Independent root source transport/child/docs readback
+passed. Independent read-only review verified all224 child blob identities,
+exact20 deterministic child changes and the unchanged16-file harness; no material
+finding. The exact child passed full source and clean seven-package build;
+independent root unsigned readback passed (64 source blobs, 42193 mtree rows).
+CI unsigned verifier passed. Release38059360429 terminalFAIL before production
+signing: both repository namespace modes passed, but the root publication fixture
+omitted six new harness inputs and failed reading desktop-native.sh. Its Stock
+synthetic functional receipts also need coverage. Keyring gates and all9VM/
+publication skipped; version1.0.7 remains UNPUBLISHED. Worker owns only publication
+fixture and signing regression; root owns integration/registry and actual five
+root gates before another candidate. No prior PASS transfers to the correction.
+Focused RED reproduced the missing native inputs in the actual fixture builder.
+Correction includes all16 mode-and-byte harness inputs and Stock functional
+receipts. The new actual-builder/consumer regression rejects removal of every
+Stock/Marble receipt; signing14 tests passed (two existing root-only skips),
+Bash/ShellCheck/diff passed. Independent read-only review and two targeted
+regressions passed with no material finding. Follow-up full source exited0,
+including full10/signing14+18/deferrednone; log SHA-256
+`16170c3c108db6b32395fcb44a77cf315dccbc5fceeb8c5ae3359acf6e254391`.
+Docs/diff checks repeated after checkpoint; actual five root gates remain pending
+before ready PR. No signing or desktop product bytes changed.
+The fb00 and predecessor VM results stay historical.
 At 12:19–12:23 UTC, read-only diagnostics through the existing strictly trusted
 runner SSH endpoint and identity-bound inner QGA observed pacman completing,
 followed by disposable unprivileged makepkg/fakeroot/archive compression.
