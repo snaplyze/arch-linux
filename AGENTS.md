@@ -186,11 +186,12 @@ a maintenance trigger, not permission to promote untested inputs or freeze Arch 
 
 ## Required source tests
 
-Preserve each guarantee, not every historical check. A check may be consolidated or replaced only
-when the same unchanged inputs keep the proven disk, signature, trust, secret and freshness
-guarantees; never weaken a gate, security or coverage to simplify. Resource acceptance uses the
-project's existing limits (workflow timeouts, VM preflight memory/disk, evidence at most 500 MiB);
-unknown numeric targets are not invented.
+Preserve each guarantee, not every historical check: this refines the rule against weakening checks
+and never permits deleting one to obtain PASS. A runtime check may be consolidated, or a duplicate
+test replaced, only when the same unchanged inputs keep the proven disk, signature, trust, secret,
+freshness and mutable-state (check/use) guarantees and boundary cases; mandatory gates and coverage
+stay. Resource acceptance uses the project's existing limits (workflow timeouts, VM preflight
+memory/disk, evidence at most 500 MiB); unknown numeric targets are not invented.
 
 Before a source candidate, run `bash tests/source-tests.sh`. That command includes Bash syntax,
 version smoke, bootstrap, static, installer-function, Marble lifecycle, package metadata,
@@ -236,8 +237,10 @@ applicable check after any source change.
 
 When a problem appears, diagnose it, make a focused correction, add or update its regression test,
 and repeat the affected checks. Continue development without artificial attempt or cycle limits.
-Do not retry an unchanged failure indefinitely or weaken a real disk, signature or secret-safety
-test to obtain PASS. Diagnostic-tool failures should be reported separately from product failures.
+Cycle per ready registry task: needed context, change, narrow check, required acceptance, next task.
+Reproduce VM, build or release failures with the cheapest local tier before a release dispatch; a
+release run confirms a locally passing candidate, it is not the debugging loop. Report
+diagnostic-tool failures separately from product failures.
 Publish through a PR branch in the same canonical checkout; record the accepted commit and tree
 before building. Source changes require fresh affected tests and newly bound build and VM results.
 Preserve historical results honestly; never transfer a PASS to another candidate or replace
@@ -272,7 +275,8 @@ a tag or replace published bytes. This obligation authorizes no new release, pus
 
 ## Scope and continuation
 
-Setup plan and checkpoint: [docs/agent-setup.md](docs/agent-setup.md). Product acceptance is in
+Work registry and current state: [docs/PLAN.md](docs/PLAN.md); setup checkpoint:
+[docs/agent-setup.md](docs/agent-setup.md). Product acceptance is in
 [docs/validation.md](docs/validation.md), releases in [docs/release-process.md](docs/release-process.md).
 Codex loads this file natively with codex-orchestrator; Claude Code imports it via `@AGENTS.md` in
 CLAUDE.md and uses the user-enabled `orchestration` plugin. Keep this file under Codex's 32 KiB
