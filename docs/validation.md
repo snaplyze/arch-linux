@@ -3675,6 +3675,135 @@ SHA-256 `eede3583d52fb6142ca6e33aba87bf7b9e261f3fd3f6100e9e0e4b1d4f769392`.
 Only the final result/checkpoint prose followed that run; documentation29 and
 diff checks passed. A separate clean exact-candidate source run and protected
 CI/delivery remain required. No fresh child/build/VM/public PASS is claimed.
+Accepted six-file frozen-checkpoint source candidate
+`ca70a7e6dec382dd3be7a005647f3baaedfebbab`, tree
+`c84ba158534e11b760e398059e72258fb0b501b5`, canonical SHA-256
+`cdaeffbe66419d7988994ed49a586074eccd0772229590082e0687ec89e3e6b8`.
+Separate clean exact-candidate full source suite PASSED; log SHA-256
+`4e7a13868c9c654df7141d3c8eea2081528d245e45b818e4195509b9ee59fecf`.
+Standing ready-candidate exception created `fix/release-checkpoint-snapshot`
+in this sole checkout; guarded main CAS preserved4eadf74 and ca70a7e on its branch.
+Ordinary push created [PR90](https://github.com/snaplyze/arch-linux/pull/90),
+OPEN/MERGEABLE with exact-head CI38073292610/job114274961921 IN_PROGRESS.
+Required check/protected merge remain pending. Index is clear; later root-owned
+checkpoint changes are outside ca70a7e. New child/build/signing/all9 staged/public
+VM and final29-file documentation reconciliation remain separate required gates.
+PR90 exact-head CI38073292610/job114274961921 PASSED, including terminal
+namespace10/signing14+18/deferrednone/full source and completed cleanup receipts;
+log SHA-256 `5658ba8ede3f3e00533a71979d7ec179e3ac27d638087397e20a04f8423e491f`.
+Fresh readback showed accepted headca70a7e/base4eadf74, MERGEABLE/CLEAN, no
+reviews/unresolved threads and no pagination omission. Head-matched protected
+squash merged at2026-10-10T17:54:48Z into main
+`afefc9885aa3f4bae0b39c8679068adadab53e7d`, unchanged treec84ba158/canonicalcdaeffbe.
+Guarded fast-forward fetch and same-checkout return to main preserved both dirty
+checkpoint pages byte-for-byte and the clear index. Main
+CI38073664462/job114276054348 is IN_PROGRESS on runner21 at the exact merged
+head. Later checkpoint prose is outside the accepted source; no new child,
+build, signed snapshot, VM or public-delivery result is accepted yet.
+Main CI38073664462/job114276054348 subsequently PASSED atafefc98. Terminal
+namespace10/signing14+18/deferrednone/fullsource and cleanup receipts verified;
+log SHA-256 `2ff6623938958548fe15f2dd96800d91a942649185e2f17b4e726213cc6fc99d`.
+Configured release38073967896 started automatically; prepare/job114276957728
+PASSED, build/job114277010196 IN_PROGRESS. Source transport artifact11678291477:
+ZIP SHA-256 `894fa4791335abd89f7858c5ee2ace2cdf925d4e76594fab0e2509989d5744a9`,
+bundle SHA-256 `967c0e622853962526b8dee16a78f87ca1e1c7ff48161fea09c640ed5a207655`.
+Version1.0.7 child `106dcc01bfa485745eb950624e25698877c63328`, tree
+`9fe0a590063b1e089b58ed10c6394a1e74d66a36`, canonical SHA-256
+`64780ee38132255be1a0b442cd0c351dceb7daa1284ab75dd25a64a9d224673e`
+binds origin mainafefc98/treec84ba158. Root verified all224 blobs/modes and
+exact22 deterministic transformations, full16 harness and conditional1.0.7
+instructions. Both actual child checkpoint documents equal the reviewed strict
+renderer: notice/title scope all current/pending/UNPUBLISHED statements to full
+origin main, conditional exact versioned Release/JSON/signature links, and
+original evidence preserved. Independent source readback PASSED all224 blobs,
+22 transforms, full16 harness, integrity/provenance and actual notice body
+preservation. The29-file frozen Markdown inventory found no conflicting
+unqualified old-release publication claim; previous P2 is resolved in106dcc0.
+Source acquisition preserved refs, index and both dirty root checkpoint bytes; no
+fresh build/signing/VM/public result is accepted yet.
+Fresh child106dcc0 full source suite and clean build/job114277010196 PASSED;
+terminal namespace10/signing14+18/deferrednone/source/build/payload and cleanup
+receipts verified. Build log SHA-256
+`3fd8da0d8a109a91c3acd2a8ba02b5c217c55a03abdcc13151d4580ee77f0034`.
+Root unsigned readback PASSED artifact11678022359, ZIP SHA-256
+`9fdd4f9b374b3652e7788c348d025b787737843303fa030c21fa1e2395d8e136`.
+BUILD-METADATA SHA-256 `f7e51dcd0bc2abfa5e9ad955a135389330efa5452ed53d85541c4b866241d6f0`,
+UNSIGNED-SHA256SUMS SHA-256 `1ed7d51fd20d140ca3b14b89f1cb4e466894f0b50ffe74d210fd022b0c34cd97`.
+Exact7 packages/64 immutable source inputs/42193 mtree rows were verified against
+this106dcc0/tree9fe0a590, preserving canonical Git/index and checkpoint state.
+The bounded read-only package fixture was removed. CI unsigned readback
+job114278244198 is executing; fresh actual root gates/signing/VM/public acceptance
+remain unfulfilled. Synthetic source signer14/18 fixtures are not production.
+CI unsigned readback/job114278244198 PASSED packages7/payload/source binding
+and cleanup; log SHA-256
+`5ce5d6b19fd8edb0ef12ff04f36a86f5d18ad1dac1bb77ad405aa79b6e5eb911`.
+Snapshot/job114278477881 entered IN_PROGRESS. Its namespace-before-secret and
+accepted-source sealing steps completed; full namespace/publication/keyring
+regression gates are executing. No actual root-gate completion, production
+Phase-A signature, VM or public-delivery claim is accepted at this point.
+Snapshot/job114278477881 subsequently PASSED all5 actual child root gates and
+production Phase-A signing. Terminal log SHA-256
+`01be121aa3c593d21358e5c03b22910ec2af8a4745fddc74ce8ee08f849a80f3`.
+Verified both full repository10/signer14+18/deferrednone results, sealed-root
+PUBLICATION_ROOT_CHECK_RESULT closure14/18/FIFO/memfd/namespaces4/PID1/agent/
+supervisordeath/signer/deferrednone, ordinary keyring5/deferredprivileged and
+privileged keyringfull10/deferrednone, plus completed cleanup. Those fixture
+14/18 results remain separate from actual production Phase-A14/final18.
+Root and independent Phase-A readback PASSED artifact11678127883, ZIP SHA-256
+`d37125b89f2f2b4736d931f304eeef059fac616508219c7b2b735da4f7521014`.
+RELEASE-SHA256SUMS SHA-256
+`7a2dbb906e901a49609e6011c0d272447b10a98d151fab633d7d04bda78ae7f4`,
+signed snapshot archive SHA-256
+`cb07dcbc52d6043c13c9cf8daa2cf9b5bb51276c374bfc6435b1aedee7fe5616`.
+Exact14 assets/12 signed manifest rows/25 snapshot objects, top3 and inner10
+signatures use source-bound public trust. All7 signed packages equal accepted
+unsigned bytes and pass child payload/SRCINFO and semantic database checks.
+BUILD-METADATA/UNSIGNED-SHA256SUMS bytes match the accepted unsigned artifact.
+Root verified db/files alias byte/signature equality; independent reviewer
+confirmed all37 staged file hashes/identities unchanged. Public-only GPG homes
+and bounded immutable fixtures were removed; source/index/checkpoints preserved.
+Core Minimal/job114279194036 is IN_PROGRESS. Other8 staged scenarios are queued:
+core Marble114279194053, core Stock114279194093; supplements114279194055,
+114279194071,114279194099,114279194128,114279194133,114279194586.
+No VM PASS or actual production final18/tag/release/Pages/public acceptance is
+accepted for106dcc0 yet. All9 staged and public-only Marble remain required.
+At2026-10-10T18:17 UTC, bounded read-only runner metadata verified owned UID997
+QEMU3077894/start16150907, name
+`ali-minimal-minimal-20261010T181341Z-d4568747-install`. Actual run identity binds
+minimal/staged1.0.7 to106dcc0/tree9fe0a590, archivecb07dcbc/buildf7e51dcd/
+unsigned1ed7d51f. Single-link owned installer log grew10611→11853bytes; last
+known phase label Pacstrap Arch Linux Core. This is progress/identity evidence,
+not completed installation or VM PASS. Initial diagnostic-only queries had a
+wrong null separator/name pattern and assumed a `-serial` argument; corrected
+by reading the actual launch source and parsing its file chardev. No guest
+mutation/session launch, restart or credentials/log body disclosure occurred.
+Minimal/job114279194036 subsequently PASSED at18:23 UTC; cleanup completed.
+Terminal log SHA-256 `32ed942ffc44762cdc90c645b27172fed006ac465e6cf4772dd903d425775a84`.
+Run `minimal-20261010T181341Z-d4568747`, artifact11678114269, transport ZIP
+SHA-256 `1f12a17365020073d5ee9ac647d076c541801591c56897960200b8db72f30e58`,
+evidence archive SHA-256
+`183eb6a7d2a1f38afd4b28f4228c1cac9b11b90510ce7807d2b6ba5dc37c4c33`,
+result SHA-256 `28f42cc03d2e3de6b9b28b8ebee2e233335f27d1eae03114819daee6aa137305`.
+The frozen strict consumer SHA-256
+`7f38f4ef52dff1bc569361c65b2f9ca5d88af21e095f9c210e8099f3f7aeabc6`
+independently accepted all14 assertions with exact106dcc0/tree9fe0a590,
+full16 immutable harness and current signed/ISO inputs. Its unchanged consumer
+bytes are read from this child; no old result transfers. Installation, another
+boot, clean shutdown/disk and cleanup are accepted within the Minimal scope.
+The old install PID3077894 was observed missing during normal phase transition;
+a further live assertion query failed diagnostically before terminal readback.
+Neither observation was used to infer failure/restart; terminal PASS artifact
+and strict consumer establish the result. The owned one-run observation helper
+was removed after its stage. Core Stock/job114279194093 is now IN_PROGRESS;
+other7 staged jobs are queued. Fresh Stock36/Marble43, all supplements, final18
+and public-only Marble acceptance remain required.
+At2026-10-10T18:28:35Z, bounded read-only metadata verified owned UID997
+Stock QEMU3086220/start16236575, run `luksgrub-20261010T182755Z-de1189c7`,
+install phase. Actual run identity binds Stock/LUKS2/GRUB to106dcc0/tree9fe0a590
+and signed archivecb07dcbc; installer log grew1282→12779→50313bytes,
+with known phase labels Pacstrap Arch Linux Core then Bootsplash. This is fresh
+VM/input progress evidence, not password login or extension-functional acceptance.
+No guest mutation/restart/raw credentials or log body disclosure occurred.
 
 
 At 2026-10-10T14:00 UTC, bounded official AUR and Arch-maintained mirror probes
@@ -3987,6 +4116,58 @@ verifies signed `RELEASE-SHA256SUMS`, the exact archive digest and signature, by
 the archive and Pages manifests/signatures, schema-2 source/build identity, all 23 Pages object
 hashes/sizes, and all package/canonical-database signatures. Merely echoing an expected archive hash
 or validating an unbound Pages manifest is not public readback evidence.
+
+### 2026-10-10: current106dcc0 Stock functional preparation failure
+
+`gh api repos/snaplyze/arch-linux/actions/jobs/114279194093/logs` recorded
+`EXECUTED_FAIL` at2026-10-10T18:42:40Z for
+`extension-firstlogin-prepare`, run `luksgrub-20261010T182755Z-de1189c7`.
+Terminal job log SHA-256
+`73a83d0611119d8f8165cfe228bb59476ef6e0435f71d5e6c28983fa284d4ea9`.
+Independent historical-failure-only artifact11679506208 readback bound source
+`106dcc01bfa485745eb950624e25698877c63328`, full16 harness, ISO and signed Phase-A
+inputs. Transport SHA-256 `8a2be832b9382c75ff88b98cbe426556e89a0377c8e328f5455e0d4f7424e042`;
+evidence archive `d53daffca924999f1ffe3a9c0e860fde0e5abb1c3bbd5017a0848e9c1d43f299`;
+result `14121971e7948ffd8de8ab5dabbf04df53c5dc267602ead3e2be51b1cca453d1`.
+Its15 preceding assertions include real password login and7/7 enabled extensions,
+but no functional tests passed. Sanitized evidence records guest script-error
+line4522/status1; raw stderr was already removed by owned job cleanup. The prior
+large-argv failure did not recur. Diagnosis remains open; Marble is still running.
+No final18/public delivery or workstation mutation follows from these results.
+
+Read-only diagnosis then bound current Marble run
+`marble-20261010T184901Z-ec8a96f1`, install QEMU3126577/start16369666/UID997,
+source106dcc0 and the frozen QGA-client SHA-256
+`93e7ccdc4600fb42fdf5883ac7e93cfc62ae41a0d0c260a7b67a4e54aae8c288`.
+Its actual mounted Btrfs target `/mnt`, UID0/inode256/device73, was0755 at18:54:10Z
+and0555 at18:55:12Z; `/mnt/usr` remained0755. Arch ISO `/` is separately0555 on
+overlay. `stat -c '%u:%a:%F %n' / /run /usr; findmnt -n -o FSTYPE /` on the
+workstation returned rootUID0/mode0555/Btrfs and `/run`0755. The exact helper's
+finite fixture reproduces0755 PASS versus secure0555 ancestor rejection at the
+all-ancestors exact-mode assertion. That guard defect is confirmed independently;
+these observations do not supply the pruned Stock traceback or establish its
+particular Python assertion, and installed-session functional acceptance is pending.
+
+### 2026-10-10: secure ambient-root guard correction, source scope
+
+The actual GTK-code helper rejects a secure0555 ambient ancestor before the fix,
+while the0755 control passes (RED). The focused change in `tests/vm/guest/verify.sh`
+keeps all three owned code directories exact0755 and limits ambient directories
+to root-owned0555/0755. Preparation creates only owned directories; receipt
+validation and cleanup apply the same distinction. Original/source500 and code555,
+hashes, no-follow, links, retained descriptors, inode and live-process proof remain.
+`python3 tests/vm/runtime-checks.py` returned `EXECUTED_PASS`,176 tests in33.148s.
+The two actual-helper/native tests passed preparation, live receipt and cleanup at
+secure0555, with invalid owned/ambient modes and symlink replacements rejected.
+Independent read-only focused review repeated both tests and found no material issue;
+Bash syntax, ShellCheck and diff checks passed. Precommit
+`umask 022; PYTHONDONTWRITEBYTECODE=1 bash tests/source-tests.sh` returned
+`EXECUTED_PASS`, ending with the full namespace10/signer14+18/deferrednone
+receipt and `all required source tests passed`; log SHA-256
+`4438c0dd86722c705c207cfd7154e196bb3dbfc734a9c60e5e1ed936d2d216b8`.
+Post-result checkpoint edits pass the documentation checker; clean exact-candidate
+verification remains required. This local correction is not a released child or a VM PASS. The host,
+current old-child VM, settings, services, root modes and signed inputs are unchanged.
 
 ## Status discipline
 

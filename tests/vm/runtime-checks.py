@@ -434,6 +434,54 @@ emit_marble_action_pass(){ printf 'PASS:%s\n' "$1"; }
                     self.assertNotEqual(result.returncode, 0)
                     self.assertNotIn('PASS:', result.stdout)
 
+    def test_gtk_code_closure_accepts_secure_ambient_modes(self):
+        import os
+        for mode in (0o755, 0o555):
+            with self.subTest(ambient_mode=oct(mode)), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                frozen = root / 'source.js'; frozen.write_text('// fixed source\n'); frozen.chmod(0o500)
+                probe = root / 'gtk-code' / 'run' / 'upgrade' / 'probe.js'
+                probe.parent.mkdir(parents=True)
+                for ancestor in list(probe.parents)[:3]: ancestor.chmod(0o755)
+                root.chmod(mode)
+                prepare = function('prepare_extension_probe_code').replace('trusted_uid = 0', 'trusted_uid = os.getuid()').replace('reversed(probe.parents)', 'reversed(list(probe.parents)[:4])')
+                cleanup = function('cleanup_extension_probe_code').replace('info.st_uid == 0', 'info.st_uid == os.getuid()').replace('for ancestor in probe.parents:', 'for ancestor in list(probe.parents)[:4]:')
+                try:
+                    script = 'set -euo pipefail\nprobe_source="$1" probe_code="$2"\n' + prepare + '\n' + cleanup + '\n"$3"\n'
+                    def invoke(action):
+                        return subprocess.run(['bash', '-c', script, 'ambient-gtk-fixture', str(frozen), str(probe), action], capture_output=True, text=True)
+                    prepared = invoke('prepare_extension_probe_code')
+                    self.assertEqual(prepared.returncode, 0, prepared.stderr)
+                    for ancestor in list(probe.parents)[:4]:
+                        original_mode = ancestor.stat().st_mode & 0o777
+                        invalid_modes = (0o777, 0o700, 0o555) if ancestor != root else (0o777, 0o700)
+                        for invalid_mode in invalid_modes:
+                            with self.subTest(ancestor=ancestor.name, invalid_mode=oct(invalid_mode)):
+                                ancestor.chmod(invalid_mode)
+                                self.assertNotEqual(invoke('cleanup_extension_probe_code').returncode, 0)
+                                self.assertEqual(probe.read_bytes(), frozen.read_bytes())
+                                ancestor.chmod(original_mode); probe.unlink(); ancestor.chmod(invalid_mode)
+                                self.assertNotEqual(invoke('prepare_extension_probe_code').returncode, 0)
+                                self.assertFalse(probe.exists())
+                                ancestor.chmod(original_mode)
+                                self.assertEqual(invoke('prepare_extension_probe_code').returncode, 0)
+                    retained = probe.parent.with_name('retained-upgrade')
+                    probe.parent.rename(retained); probe.parent.symlink_to(retained, target_is_directory=True)
+                    try:
+                        self.assertNotEqual(invoke('prepare_extension_probe_code').returncode, 0)
+                        self.assertNotEqual(invoke('cleanup_extension_probe_code').returncode, 0)
+                        self.assertEqual((retained / 'probe.js').read_bytes(), frozen.read_bytes())
+                    finally:
+                        probe.parent.unlink(); retained.rename(probe.parent)
+                    result = invoke('cleanup_extension_probe_code')
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertFalse(probe.parent.exists())
+                    self.assertEqual(frozen.read_bytes(), b'// fixed source\n')
+                    self.assertEqual(frozen.stat().st_mode & 0o777, 0o500)
+                    self.assertEqual(root.stat().st_mode & 0o777, mode)
+                finally:
+                    root.chmod(0o755)
+
     def test_functional_receipt_binds_live_native_probe_and_frozen_source(self):
         import hashlib, json, os, shutil, time
         if not shutil.which('gjs'): self.skipTest('native GJS is not installed')
@@ -446,6 +494,7 @@ emit_marble_action_pass(){ printf 'PASS:%s\n' "$1"; }
             prepare = function('prepare_extension_probe_code').replace('trusted_uid = 0', 'trusted_uid = os.getuid()').replace('reversed(probe.parents)', 'reversed(list(probe.parents)[:4])')
             prepared = subprocess.run(['bash', '-c', 'set -euo pipefail\nprobe_source="$1" probe_code="$2"\n' + prepare + '\nprepare_extension_probe_code', 'fixture', str(frozen), str(probe)], capture_output=True, text=True)
             self.assertEqual(prepared.returncode, 0, prepared.stderr)
+            root.chmod(0o555)  # Secure ambient Btrfs root mode; owned code directories stay 0755.
             digest = hashlib.sha256(source.encode()).hexdigest()
             (state / 'probe.sha256').write_text(digest+'\n')
             (state / 'probe.js').write_text("throw new Error('foreign source executed');\n")
@@ -455,8 +504,8 @@ emit_marble_action_pass(){ printf 'PASS:%s\n' "$1"; }
                 receipt = {'schema':1,'runId':identity,'round':'upgrade','probeSha256':digest,
                            'stage':'dash-ready','valueSha256':'-','pid':process.pid}
                 script = ('set -euo pipefail\nprobe_state="$1" username="$2" probe_source="$3" probe_trusted="$4" run_id="$5" probe_round=upgrade probe_code="$9"\n' +
-                    # Map root custody to the fixture owner and check its four owned
-                    # closure ancestors; production checks all /run ancestors through /.
+                    # Map root custody to the fixture owner and check three code directories
+                    # plus one ambient directory; production also checks /run through /.
                     # Live GJS executable, exact argv and starttime remain unchanged.
                     function('verify_extension_probe_receipt').replace('trusted_uid = 0','trusted_uid = os.getuid()').replace('for ancestor in probe.parents:', 'for ancestor in list(probe.parents)[:4]:') +
                     '\nverify_extension_probe_receipt "$6" "$7" "${8:-functional}"\n')
@@ -496,10 +545,13 @@ emit_marble_action_pass(){ printf 'PASS:%s\n' "$1"; }
                 observation.write_text(json.dumps(receipt | {'stage':'process-started'}))
                 self.assertEqual(check('process-started', '-', 'diagnostic').returncode, 0)
                 for ancestor in list(probe.parents)[:4]:
-                    ancestor.chmod(0o777)
-                    self.assertNotEqual(check('process-started', '-', 'diagnostic').returncode, 0,
-                                        'mutable closure ancestor must fail before receipt custody')
-                    ancestor.chmod(0o755)
+                    original_mode = ancestor.stat().st_mode & 0o777
+                    invalid_modes = (0o777, 0o700, 0o555) if ancestor != root else (0o777, 0o700)
+                    for invalid_mode in invalid_modes:
+                        ancestor.chmod(invalid_mode)
+                        self.assertNotEqual(check('process-started', '-', 'diagnostic').returncode, 0,
+                                            'unsafe ambient or noncanonical owned directory must fail custody')
+                    ancestor.chmod(original_mode)
 
 
                 self.assertNotEqual(check('process-started').returncode,0,'functional custody still requires dash-ready')
@@ -536,6 +588,7 @@ emit_marble_action_pass(){ printf 'PASS:%s\n' "$1"; }
             finally:
                 if process.poll() is None: process.terminate(); process.wait(timeout=5)
                 process.stderr.close()
+                root.chmod(0o755)
 
     def test_screenshot_observation_rejects_stale_missing_and_wrong_geometry(self):
         import binascii, json, os, struct, zlib
