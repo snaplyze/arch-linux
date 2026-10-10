@@ -13,10 +13,10 @@ publication. Exact historical attempts and evidence belong in
 | ID | Work and acceptance | Status |
 | --- | --- | --- |
 | G51-01 | Diagnose installed package/session state and upstream compatibility; bind findings to versions and authoritative sources. | DONE |
-| G51-02 | Prepare reviewed package/extension upgrade paths, preserve user overrides and safe unsupported-version handling; reproduce failures before fixes and test recovery. | Package delivery implemented; current fd91397 source/build/signed14/Minimal14 PASS; Stock FAIL from oversized jq argument before extension probe; release cancelled. Transport correction/review/full local source PASS; candidate CI and fresh VM/public delivery pending. Historical attempts retain their own failures and identities below. |
-| G51-03 | Correct deterministic release documentation rendering; test independently differing source/document/release versions and preserve historical evidence. | DONE: overview/bootstrap/changelog rendering and 52 regressions PASS |
+| G51-02 | Prepare reviewed package/extension upgrade paths, preserve user overrides and safe unsupported-version handling; reproduce failures before fixes and test recovery. | Package delivery implemented; historical fd91397 source/build/signed14/Minimal14 PASS; Stock FAIL from oversized jq argument before extension probe; release cancelled. Transport correction/review/full local source PASS; e83139d candidate and main4eadf74 CI PASS; c7caf7a source identity verified but frozen-checkpoint documentation P2; release38072414609 cancelled before signing/publication, regression fix in progress; fresh VM/public delivery pending. Historical attempts retain their own failures and identities below. |
+| G51-03 | Correct deterministic release documentation rendering; test independently differing source/document/release versions and preserve historical evidence. | Overview/bootstrap/changelog and historical checkpoint rendering implemented; 58 release-source regressions, independent focused review and full source suite PASS; clean candidate CI/fresh release gates pending |
 | G51-04 | Update agent, update/release and user documentation with package delivery and real upgrade acceptance requirements. | Candidate instructions delivered; final publication reconciliation pending |
-| G51-05 | Independent diff review, affected checks and full source suite; record package, real session/VM and publication results separately. | Full functional acceptance and immutable GTK execution implemented/reviewed; current fd91397 source/build/root5/signed14/Minimal14 independent readback PASS. Stock transport FAIL; fresh source/VM acceptance after correction and final18/public gates pending; no earlier Stock22 or Marble result transfers. |
+| G51-05 | Independent diff review, affected checks and full source suite; record package, real session/VM and publication results separately. | Full functional acceptance and immutable GTK execution implemented/reviewed; historical fd91397 source/build/root5/signed14/Minimal14 independent readback PASS. Stock transport FAIL; fresh source/VM acceptance after correction and final18/public gates pending; no earlier Stock22 or Marble result transfers. |
 
 ### Confirmed cause and delivery design
 
@@ -61,7 +61,37 @@ commands/results keep their identities; old tags and assets are never rewritten.
 
 ### Current checkpoint and remaining gates
 
-Source changes were delivered through reviewed same-checkout PRs, most recently
+The native-source argv correction is accepted candidate
+`e83139d4fa2c9a5df8ac9eaa3d2697613fe91792`, tree
+`ae0bd931a056bcb1e87aeebe9b14c47264e2c398`, canonical SHA-256
+`be909297078f26395505b0762bedcb14c457e446c719555d16f83f3b908f6f86`.
+Independent focused review and clean exact-candidate full source suite passed;
+log SHA-256 `deed2a5eaec04bfacb8e35482a511c7273ab2d9f1cf11a8624949a86233c11bc`.
+[PR89](https://github.com/snaplyze/arch-linux/pull/89) exact-head
+CI38070056065/job114265449343 passed; squash merged at17:06 UTC into main
+`4eadf74f6fefd0411a69ba373ac8855dba5d8b3f`, unchanged treeae0bd931.
+This same checkout returned to fast-forwarded main, preserving both local
+checkpoint documents and the clear index. Main CI38070409148/job114266471956
+passed at the exact merged head; log SHA-256
+`8a835d77faa4f8a5d9ce62d8634f09572ce680aae1a460cac68dee89079fc88e`.
+Subsequent root checkpoint edits are outside the accepted source.
+Configured [release38072414609](https://github.com/snaplyze/arch-linux/actions/runs/38072414609)
+prepared version1.0.7 child `c7caf7a1065df7911bdd81bdd8fb769d411cd7a9`, tree
+`e839b6f26205fecdcfa25ed96896f6dd98e3e67b`, canonical SHA-256
+`6428b88bed09e8e4006559fc83ebca6c4f5ef6017dd6b2d7b403aa5a074577d0`.
+Root and independent source identity readback verified all224 blobs/modes,
+exact20 deterministic changes, main provenance, full16 harness and conditional
+1.0.7 commands. Independent review found P2: frozen PLAN retains unqualified
+current-looking UNPUBLISHED/candidate-CI-pending statements belonging to the
+older fd91397 attempt. Release38072414609 was CANCELLED at17:38 UTC before
+signing/publication; build cleanup completed. This attempt has no accepted build,
+VM or public result. Deterministic child checkpoint qualification,58 release-source regressions and
+independent focused review passed. Full `bash tests/source-tests.sh` passed
+with log SHA-256 `eede3583d52fb6142ca6e33aba87bf7b9e261f3fd3f6100e9e0e4b1d4f769392`.
+A clean exact candidate/CI and fresh release gates remain required. Version1.0.7
+remains unpublished.
+
+The preceding GTK provenance source changes were delivered through
 [PR88](https://github.com/snaplyze/arch-linux/pull/88). Accepted candidate
 `07460d2355badff1e5f37c8c51ca86a97de10e0e`, tree
 `61b753593723225b7192da57378fb1e519ac79b7`, canonical SHA-256
@@ -106,14 +136,15 @@ no per-extension functional acceptance, full Syu/reboot or final Stock PASS.
 Release cancellation completed after this mandatory failure;
 remaining GNOME/VM, production final18 and public gates are unfulfilled. The
 source transport correction and real request-construction regression passed
-independent review and a full local source run on main. Exact clean candidate
-CI and a new release attempt remain pending; no earlier VM PASS transfers.
+independent review, a clean exact-candidate full source run and PR89 CI.
+Main CI passed; release38072414609 was cancelled on frozen-documentation P2.
+No earlier VM PASS transfers.
 
 Remaining sequence:
 
-1. Bind the reviewed native-source transport correction to a clean candidate,
-   complete its source/CI checks and deliver through the protected PR path. Bind
-   a new deterministic child/snapshot and complete all nine staged scenarios. Stock and
+1. Correct frozen checkpoint qualification, execute its regression and full
+   source suite, obtain independent review and deliver through protected PR.
+   Bind a fresh child/build/signed snapshot and complete all nine staged scenarios. Stock and
    Marble require real GDM password login, lock/unlock, full `pacman -Syu` and
    another boot. Exercise every expected extension (seven Stock/eight Marble)
    in both required real-session rounds; strict core consumers require36 Stock
