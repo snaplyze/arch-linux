@@ -169,6 +169,14 @@ including 171 runtime tests, full namespace repository checks and ShellCheck. Re
 cancellation completed at 09:19:19 UTC. The terminal Stock log proves that its
 last observed phase was installer-completion, not GNOME login; no completion
 marker or partial result artifact was delivered. Runner cleanup completed.
+The b1cab9d notice candidate passed exact-head CI. A reproduced cancellation
+defect is corrected in the next delta: INT/TERM now exit130/143 through one EXIT
+cleanup, the installer wait records its actual phase, and the staged workflow
+replaces its step shell with the harness. Actual-helper signal regressions,
+173 runtime tests and workflow/agent checks pass. Independent review found no
+material issue; root integrated source suite passed with full repository
+namespaces and ShellCheck. Exact-head CI remains required. Runner termination grace still limits artifact
+delivery; no real cancelled-run recovery claim is made.
 Next: obtain new VM
 evidence before any unproven input
 or desktop behavior correction. The obsolete

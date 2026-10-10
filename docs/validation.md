@@ -2899,6 +2899,42 @@ the incomplete installation and missing cancellation evidence remains under
 diagnosis. These observations do not convert interruption into a product FAIL
 or prove that the normal two-hour installation deadline would have failed.
 
+PR83 head `b1cab9dbaa9e8b7e6d2b46f3d6b5c10c8b4cc896` passed exact-head
+[CI38041152745](https://github.com/snaplyze/arch-linux/actions/runs/38041152745);
+retained job-log SHA-256
+`2c50fc5166932cfad9633d3d9aad52cf401c71ecc34a60144824a8c8629884e7`.
+This PASS belongs to that head, not the following cancellation correction.
+
+An actual-helper subprocess regression reproduced direct SIGINT/SIGTERM
+returning zero, finalizing storage but omitting FAILURE/result metadata. The
+signal trap previously reused the preceding command's status. Separate signal
+traps now exit130/143 through the single EXIT cleanup, and the installer wait
+sets its actual `installer-completion` phase. The staged workflow's final
+invocation uses `exec bash`, removing the intervening step shell. The tests
+extract actual cleanup, result builder, wait and phase code; both signals produce
+one finalization and nonzero FAIL metadata, and the executed workflow invocation
+does not resume its shell. RED log SHA-256
+`a982379376259e06fca1cc4baadc5e65d668638e171f35fe2fa36eda466df84a`;
+GREEN log SHA-256
+`78897bee628c2237d72d1bac3907b55850a3f471c92bbb4762c8bf7b5dcfb7e2`.
+Runtime173, actions-release28, static, agent-contract and Bash syntax checks pass.
+Independent read-only review found no material issue and executed both focused
+methods (both signals, actual failure metadata, one finalization, shell handoff).
+Root `bash tests/source-tests.sh` exited zero with runtime173, documents29, full
+repository namespaces10/signer14+18/deferrednone and ShellCheck. Retained log
+SHA-256 `c42cc42d23ba71e621063e6fbeda1e2a89add113cd84598ef2f7050dd9a7ac1c`.
+Only receipt prose followed this run; documentation and diff checks are repeated
+before committing. Exact-head CI and fresh VM/public acceptance remain required.
+
+The [runner cancellation protocol](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-cancellation)
+signals the step entry process, waits 7.5 seconds, sends TERM, then waits 2.5
+seconds before killing the process tree. Existing cleanup may take longer;
+this focused correction preserves its resource identity checks and compaction
+and does not establish reliable artifact delivery under that deadline. The
+historical cancellation log does not reveal which signal reached the harness.
+Real cancelled-run evidence delivery is NOT_TESTED; an interruption is never a
+successful installation or migration receipt.
+
 At 2026-10-10T07:19 UTC, finite read-only `git ls-remote` checks against the
 official AUR succeeded for both Plymouth and Bibata. Availability is advisory:
 the observed HEADs do not authorize changing the reviewed recipe pins. The

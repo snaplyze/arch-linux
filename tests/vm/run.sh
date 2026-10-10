@@ -638,7 +638,9 @@ cleanup() {
     fi
     exit "${status}"
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 record_assertion() {
     local id="$1" detail="$2"
@@ -2850,6 +2852,7 @@ main() {
     [ "${scenario_id}" != minimal-dualboot-ext4-systemdboot ] || bootstrap_timeout=1800
     deliver_installer_credentials
     emit_phase_progress install-archiso end
+    current_phase='installer-completion'
     emit_phase_progress installer-completion begin
     set +e
     wait_for_install_outcome "${evidence}/install-serial.log" \

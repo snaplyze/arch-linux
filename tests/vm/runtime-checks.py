@@ -3174,6 +3174,78 @@ wait_for_install_outcome "$1" 'STOCK_QEMU_INSTALL_COMPLETE run_id=fixture' 'Show
                                         capture_output=True, text=True, timeout=5)
                 self.assertEqual(result.returncode, expected, result.stderr)
 
+    def test_installer_wait_signal_uses_single_failure_cleanup_and_current_phase(self):
+        import json, os, signal
+        source = (ROOT / 'tests/vm/run.sh').read_text()
+        cleanup = self.host_function('cleanup')
+        trap_block = source.split(cleanup, 1)[1].split('\nrecord_assertion()', 1)[0]
+        phase_start = source.split('    emit_phase_progress install-archiso end\n', 1)[1].split('    set +e\n', 1)[0]
+        result_builder = self.host_function('build_result')
+        variables = sorted(set(re.findall(r'\$\{([a-z_][a-z0-9_]*)\}', result_builder)))
+        program = 'set -Eeuo pipefail\n' + '\n'.join(name + '=fixture' for name in variables) + r'''
+run_root=$1 evidence=$1 assertions_file=$1/assertions.tsv
+run_id=stock-20261010T120000Z-aabbccdd scenario_id=stock-gnome-ext4-systemdboot
+source_commit=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa source_tree=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+current_phase=install-archiso marker_prefix=STOCK
+serial_bridge_input_fd='' serial_bridge_pid='' qemu_pid='' qemu_start_time=''
+runtime_dir='' runtime_password=fixture run_storage_finalized=false
+media_qualification=false evidence_size_bytes=0
+stop_repository_server(){ :; }
+find_run_qemu_processes(){ :; }
+capture_failure_diagnostic(){ :; }
+finalize_run_storage(){ printf 'finalized\n' >>"$run_root/finalizations"; }
+enforce_evidence_budget(){ :; }
+die(){ return 1; }
+sleep(){ printf 'READY\n'; command sleep 1; }
+'''
+        program += '\n'.join((result_builder, cleanup, trap_block,
+                              self.host_function('emit_phase_progress'),
+                              self.host_function('wait_for_install_outcome')))
+        program += '\n{\n' + phase_start + '\n} >/dev/null\n'
+        program += 'set +e\nwait_for_install_outcome "$run_root/absent.log" COMPLETE FAILURE 10\n'
+        for caught_signal, status in ((signal.SIGINT, 130), (signal.SIGTERM, 143)):
+            with self.subTest(signal=caught_signal.name), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary); (root / 'assertions.tsv').write_text('')
+                process = subprocess.Popen(['bash', '-c', program, 'fixture', temporary],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
+                try:
+                    self.assertEqual(process.stdout.readline(), 'READY\n')
+                    os.kill(process.pid, caught_signal)
+                    stdout, stderr = process.communicate(timeout=5)
+                    self.assertEqual(process.returncode, status, stderr)
+                    self.assertEqual(stdout, '')
+                    self.assertEqual((root / 'finalizations').read_text(), 'finalized\n')
+                    self.assertEqual((root / 'FAILURE.txt').read_text(),
+                        'status=FAIL\nexit_status=%s\nphase=installer-completion\nrun_id=stock-20261010T120000Z-aabbccdd\n' % status)
+                    result = json.loads((root / 'result.json').read_text())
+                    self.assertEqual((result['status'], result['exitStatus'], result['failedPhase']),
+                                     ('FAIL', status, 'installer-completion'))
+                finally:
+                    if process.poll() is None:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    process.communicate(timeout=5)
+
+    def test_staged_vm_workflow_replaces_step_shell_at_final_invocation(self):
+        workflow = (ROOT / '.github/workflows/release.yml').read_text()
+        blocks = re.findall(r'(?m)^        run: \|\n((?:          .*\n|\n)+)', workflow)
+        commands = [block for block in blocks if '--release-assets "${RUNNER_TEMP}/phase-a"' in block
+                    and 'tests/vm/run.sh' in block]
+        self.assertEqual(len(commands), 1)
+        command = commands[0]
+        # Execute the final invocation against a harmless Bash fixture. Replacing
+        # the step shell must prevent the appended command from running.
+        invocation = re.search(r'(?ms)^\s*(?:exec )?bash tests/vm/run.sh.*\Z', command).group()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); (root / 'tests/vm').mkdir(parents=True)
+            (root / 'tests/vm/run.sh').write_text('exit 23\n')
+            script = 'set -u\nlegacy_args=() upgrade_args=()\n' + invocation + '\nprintf SHELL_CONTINUED\n'
+            env = dict(__import__('os').environ)
+            env.update({name: 'fixture' for name in re.findall(r'\$\{([A-Za-z_][A-Za-z0-9_]*)\}', invocation)})
+            result = subprocess.run(['bash', '-c', script], cwd=root, env=env,
+                                    capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, 23, result.stderr)
+            self.assertEqual(result.stdout, '')
+
     def test_archiso_wait_retries_only_public_probe_and_rejects_stale_reply(self):
         body = self.host_function("serial_archiso_ready") + "\n" + self.host_function("wait_for_archiso_shell")
         program = 'set -euo pipefail\n' + body + r'''
