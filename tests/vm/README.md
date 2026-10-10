@@ -225,6 +225,13 @@ If the installer exits before creating its log (for example, a dependency downlo
 guest reports its actual exit status and powers off. Missing diagnostic logs must not hide that
 failure or leave the host waiting for an installation that has already stopped.
 
+When a guest verification phase fails, the harness records that phase, its exit status and only
+allowlisted `[a-z0-9-]` tokens from its own stderr (`*_QEMU_GUEST_FAIL` line and status,
+`EXTENSION_FUNCTIONAL_FAIL` round/feature/stage/reason, `EXTENSION_PROBE_DIAGNOSTIC` reason and
+observation flags) as `QEMU_FAILURE_DIAGNOSTIC` rows. Rows are capped at 32 rows and 4096 bytes,
+never copy free text, drop any row containing the runtime password and are retained in
+`scenario.log.gz`; `result.json` keeps its exact key set.
+
 `frame-evidence.py` captures ordinary diagnostic screenshots from the actual QEMU display. They
 are optional: capture errors are warnings, not OS failures. There is no continuous recorder, timing
 threshold, pixel challenge, contact sheet or separate manual receipt. Inspect screenshots when they
