@@ -3403,9 +3403,185 @@ These fixtures do not establish production or GUI acceptance;
 version1.0.7 UNPUBLISHED. Local checkpoint
 edits are outside431832a/a9831fa/a6887ee's trees; no old receipt transfers.
 
+Clean GTK candidate `07460d2355badff1e5f37c8c51ca86a97de10e0e`, tree
+`61b753593723225b7192da57378fb1e519ac79b7`, canonical SHA-256
+`70ce67c95c37b482ae1615304f3d41e6fbc013118ec26edf1f1be446ae11b758`,
+passed a separate full `bash tests/source-tests.sh` with normal umask022,
+log SHA-256 `76c3a4b2c34ba9a1d74eb969567a1d04a428b7b8f11215c850d6d7dc540c38ce`.
+Independent identity-bound focused review passed and reran the final native
+regression. [PR88](https://github.com/snaplyze/arch-linux/pull/88) was opened
+from the ready candidate using the authorized same-checkout branch exception;
+exact-head CI38063749036 passed, job114247094915 log SHA-256
+`549aaa6b957ed16ceb79c921aa647ccbc1aa2720d303480a9c9f8766e3a4b62b`.
+PR88 squash merged at15:33:13 UTC to main
+`057f606ed88a7f43d5f1ac5022765146f8b9f7c2`, unchanged tree
+`61b753593723225b7192da57378fb1e519ac79b7`. Main advanced by fast-forward;
+return to it preserved both dirty checkpoint files byte-for-byte and the clear
+index. Main CI38064081162 passed, log SHA-256
+`ccf1d722ac218a04d26c2e852b8d11ba09b68514d6166bd05ce483a519033e87`.
+Configured release [38064355933](https://github.com/snaplyze/arch-linux/actions/runs/38064355933)
+prepared child `fd91397f98c5e534e156408377938de4e1ef81fc`, tree
+`6e0ce85479655f232574b703df9eb793ad3223cd`, canonical SHA-256
+`d892ca1a3851c08054edda104fc29e53465afc5e2004f890f42830b6dcb51b10`,
+version1.0.7 UNPUBLISHED. Root source readback passed artifact11675080294,
+ZIP SHA-256 `069d4c2e5e93408d6ffd5b7031b9b87a2ff0b89f6ae123f660649b2fb3ef24d8`,
+bundle SHA-256 `b7902e4d588f18599b44b4903e56d662c65e039d115d50a7beccecb614b0f1c5`,
+main/child deterministic binding, canonical mode/bytes and frozen1.0.7 commands.
+Refs/index/checkpoint bytes were preserved. Independent read-only review
+verified pack integrity, all224 blobs/modes/canonical identity, exact20 deterministic
+changes, commit/main provenance, unchanged reviewed GTK files/full16 harness,
+and frozen conditional1.0.7 instructions with historical1.0.6/cancelled-run
+identities retained. No finding or fixtures/writes. Full source and clean seven-package
+build/job114248922485 passed, log SHA-256
+`5b3aebd694c13d1b6179c8b41814c7842e3b00f207d86353dac1f0c7ae889c87`.
+Root unsigned readback passed artifact11674931133, ZIP SHA-256
+`776e0565a8d1f73ff5343161e795508f99d3815d7e45ae69ad88ade4df12f477`,
+build metadata SHA-256 `2de9f752b1a4d9df980546358ac277903fdd5ed1fdcc900678f3d414d9ec966a`,
+unsigned manifest SHA-256 `a265d5f47caa01684151f0408072ba4655417d0a16ed6692885fce248d1768f3`.
+All7 packages matched64 immutable package input blobs and42193 mtree rows.
+Manifest equality with the prior build reflects unchanged package bytes, not a
+transferred PASS; metadata binds this new source. CI readback/job114250060464
+passed. All five child root gates/job114250245824 passed: both repository
+modes full10/signing14+18/deferrednone, root sealed publication synthetic14/18
+and both keyring modes (privileged full10/deferrednone), followed by production
+Phase-A signing. Terminal log SHA-256
+`fba86892f59229f203341542218d407270e1ca541f2cbafdf3b5cb28c2d20e42`.
+Root independent signed readback passed artifact11674696912, ZIP SHA-256
+`fe603a3ee7b8a9df8dbd29821707dfab3df12f7cf6d57ee701a17c28cea8d054`,
+exact14 files/signed12 manifest rows/top3 GPG signatures, accepted source/trust
+bytes and byte-identical unsigned metadata. Manifest SHA-256
+`885cb55c822bcb6e94200591b51fd2406c98fd525a2979dbbc89f211a06f45c5`,
+snapshot SHA-256 `a88f724734edb023373e0ac3672b85187d8903d048be6eb876ab418d33e7ba23`;
+snapshot contract matched25 objects. Independent readback verified exact14/12/25
+identities, all3 top-level plus10 inner signatures against source-bound trust,
+all7 packages against this run's unsigned bytes and official payload verifier,
+and repository database metadata. The pinned log confirmed all5 root gates
+before production signing; no material finding. An initial database-verifier
+argument-format error was corrected without any input changes. All reviewer-owned
+fixtures removed and dirty documents preserved. Core Minimal VM/job114250948756 started;
+all9VM, production final18 and public gates remain unfulfilled. A bounded
+read-only runner/QGA observation confirmed current Minimal run
+`minimal-20261010T155035Z-c489a71d`, UID997 QEMU PID2691371, phase postreboot.
+The guest diagnostic reported systemd running and no selected installation
+processes. Exact QGA script SHA-256, socket ownership/inode and peer PID/UID
+were checked. The first observation rejected the already-ended install PID
+before any guest command; this diagnostic race is not a VM failure. These
+observations are not the final VM verdict. Minimal/job114250948756 subsequently
+passed, terminal log SHA-256 `073143bda0cbda88765a1a80d0496b51f755b7e9882803facc0d081f75c764e0`.
+Independent immutable child consumer accepted all14 assertions, exact16 harness
+source hashes and signed input binding for this run. Artifact11674198553 ZIP
+SHA-256 `1a06a06150c0574fdc1573401d5421bb0b178f3527ded33ab19bd5907f14f997`,
+evidence archive SHA-256 `066d274dfe2317004053f041f418deccd8e7416f63989496499a7c1ab11a88d5`,
+result SHA-256 `36de7fc6d67e5b7ace3699e26bdeccb184d2132c2ee9c9386dae00dc38b27810`.
+Core Stock/job114250948777 started; remaining8VM/final18/public remain pending.
+This Minimal result does not establish GNOME behavior. Root local checkpoints
+remain outside07460d2/057f606/fd91397.
+At 2026-10-10T16:38 UTC, bounded read-only observation of current Stock
+run `luksgrub-20261010T160943Z-27d41588` bound runner UID997/QEMU PID2694528
+and its exact target-drive evidence path. A no-follow regular-file read found
+660696 serial bytes, one-second age and fixed public phase markers GNOME
+Desktop, Desktop Driver and Bootsplash; the preceding observation contained
+547379 bytes. This establishes changing installation output, not completed
+installation, login or extension functionality. No raw journal, process
+arguments, secrets, settings or service changes were exposed. The GitHub job
+remained in progress; no timeout or live VM restart was introduced.
+At 16:45 UTC the same exact live VM's exported installer log recorded
+completed Initialize Installation, Prepare Disk, Pacstrap Arch Linux Core,
+Desktop Driver and Bootsplash phases. GNOME Desktop had no completion marker.
+These earlier phases precede GNOME Desktop in the accepted installer; serial
+spinner output alone cannot establish progress within that active phase.
+The initial diagnostic filter incorrectly required the human-readable assertion
+detail to contain no spaces and therefore returned no rows; this did not
+establish an empty assertion file. The corrected read below emits only verified
+assertion IDs/statuses and leaves detail text private. No final VM PASS was
+accepted from these observations.
+At 16:47–16:49 UTC, exact-peer read-only QGA diagnostics completed (guest PIDs
+76293 and77783) on the accepted install VM. The first observed pacman and three
+gpg zombies; the second no longer found pacman. Neither snapshot proves the
+transaction outcome. The install VM then exited and the same run entered
+firstboot, UID997/QEMU PID2716705. Its exported installer log contained completed
+GNOME Desktop, VM Support and Finalize Arch Linux markers. The corrected,
+no-follow same-run assertion read verified11 intermediate PASS IDs: accepted
+ISO, actual installer execution, encrypted Btrfs/GRUB/storage/initramfs/EFI
+bindings, Plymouth framebuffer and first LUKS unlock to GDM. Real password
+login, lock/unlock, per-extension functionality, full Syu/reboot and the final
+immutable artifact consumer remain required. Inner guest queries stopped before
+login; subsequent observations read only runner evidence.
+The current plan checkpoint was subsequently condensed from553 to84 lines and
+G51-02/G51-05 rows aligned to the actual fd91397 gates. Before replacement,
+all62 full commit/tree/SHA-256 identities, every old URL and numeric run/job ID
+were asserted present in this retained validation record or the concise
+checkpoint; no historical identity was removed or relabelled. The current
+sequence includes all9 staged variants, all7/8 extension behavior in both rounds,
+final18/public/public-Marble and final29-page reconciliation. Documentation
+checks (29 files) and diff checks passed; these local documentary changes do
+not alter the frozen source or transfer acceptance to it. Independent read-only
+review found no material omission: all9 variants and final/public/documentary
+gates retained; actual consumer counts14/36/43 matched; historical identities
+remained present and Minimal/GNOME/public scope stayed separate. No source
+bytes or foreign data changed.
+A fresh pre-publication `git ls-files` inventory confirmed29 tracked Markdown
+files, including root/nested READMEs, security, user/developer/maintenance,
+agent instructions and the PR template. Current-version/bootstrap and candidate
+status references were located separately from dated1.0.6 results and immutable
+source/license pins. Final actual-release reconciliation remains pending; no
+publication status or current main bootstrap pin was promoted early.
+No clean source result proves actual GNOME or public delivery.
+
+Core Stock/job114250948777 subsequently FAILED at16:49 UTC before the
+extension-firstlogin-prepare guest request could launch. Terminal log SHA-256
+`855970b70cc318538b541d380b4b6b07ad86730c143a8a70f9513cef223cfbae`
+records `tests/vm/run.sh: line 2090: /usr/bin/jq: Argument list too long`.
+The native six-source contract was supplied as one `jq --arg` argument;
+this exceeded Linux's per-argument limit. This is a harness transport failure,
+not evidence that a GNOME extension failed. Artifact11676198023 ZIP SHA-256
+`b4675bbf14541197246f53c60394e8367aad12855f135d2bfc6117d212871ef6`,
+archive SHA-256 `7207e5fe2c98751f9016630ffd6b15d09b24097bdc713f734f473d4635f89fc4`,
+result SHA-256 `d0a3413c49eba5a594d6d5846c619c88697d06665fe7a987e275373f86b43ca4`.
+Failure-only immutable readback verified the exact child/tree/full16 harness,
+signed inputs and15 prior PASS assertions. Real GDM password login, seven
+extensions enabled, Stock baseline/network/zero failed units, LUKS/Btrfs and
+locale/shortcut checks passed; per-extension functionality, lock/unlock, full
+Syu/reboot and final Stock acceptance did not run. No strict PASS consumer or
+finalization was accepted. Stock terminal cleanup reported complete. Core
+Marble had started when cancellation of run38064355933 was requested after
+this mandatory failure. A bounded worker owns only the transport/regression
+correction; root retains checkpoint documents and integration. No workstation
+settings or packages changed;1.0.7 remains unpublished.
+The configured run then became terminal CANCELLED: Minimal PASS, Stock FAIL,
+and Marble plus six supplemental jobs CANCELLED. No final18/tag/release/Pages
+publication occurred. Actual six base64 source blobs total138416 bytes before
+wrapper text, above Linux's131072-byte per-argument boundary on4KiB pages. Current
+[Arch execve documentation](https://man.archlinux.org/man/execve.2.en)
+confirms the32-page per-string limit independently of total ARG_MAX;
+[jq1.8 documentation](https://jqlang.org/manual/)
+provides raw-file variable input without carrying file contents in argv.
+The real request regression must exercise this actual payload, not only assert
+its size or replace it with a short fixture.
+The extracted real `qga_verify` constructor reproduced the old E2BIG failure
+with the current six-source payload in both Stock and Marble. The bounded fix
+streams the loader through Bash builtin printf into `jq --rawfile /dev/stdin`;
+it creates no temporary file and leaves guest code bytes, root0500 originals,
+hashes, ordering and QGA stdin transport unchanged. The regression verifies all
+six actual decoded sources, provenance controls,30 bounded guest arguments and
+byte-identical non-extension `verify.sh` payload. Both constructor tests and
+all175 runtime tests passed. Independent read-only review found no material
+finding, repeated both regressions and confirmed fail-closed jq/early-pipe
+failures. Bash syntax, ShellCheck and diff checks passed.
+Root `umask022; PYTHONDONTWRITEBYTECODE=1 bash tests/source-tests.sh` passed,
+log SHA-256 `914d8fc6346237b5c55ce35843b1cc66e42a19e228827f7dd0fb38ce37ae0d4f`.
+It includes full namespace10/signer14+18/deferrednone and final ShellCheck.
+This local run precedes the final checkpoint update/clean candidate binding;
+fresh exact-candidate CI and real VM acceptance remain required. No earlier
+Stock15/Minimal14 result transfers to the corrected source.
+
+
 At 2026-10-10T14:00 UTC, bounded official AUR and Arch-maintained mirror probes
 again returned matching Plymouth and bibata-cursor-theme-bin HEADs as recorded
 above. Availability checks remain advisory and do not promote any recipe update.
+At 15:29 UTC the same bounded probes passed again with unchanged matching HEADs.
+Git effective URL checks confirmed both primary requests remain official AUR
+URLs rather than configured mirror rewrites. No reviewed pin changed.
 
 At 2026-10-10T07:19 UTC, finite read-only `git ls-remote` checks against the
 official AUR succeeded for both Plymouth and Bibata. Availability is advisory:

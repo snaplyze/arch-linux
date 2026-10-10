@@ -2048,9 +2048,11 @@ qga_verify() {
             desktop_contract+='actual=$(sha256sum --binary -- "$p"); [ "${actual%% *}" = '"${source_hash}"' ]'$'\n'
         done
     fi
-    # Carry source bytes through QGA stdin, keeping exec arguments small. The fixed
+    # Read the native loader from stdin too: its aggregate exceeds Linux's per-argument
+    # limit. Carry source bytes through QGA stdin, keeping exec arguments small. The fixed
     # loader reads FD 3 as its script and gives diagnostic commands /dev/null stdin.
-    request="$(jq -cn --rawfile script "${script_dir}/guest/verify.sh" --arg phase "${phase}" \
+    request="$(printf '%s' "${desktop_contract}" | jq -cn --rawfile desktop_contract /dev/stdin \
+        --rawfile script "${script_dir}/guest/verify.sh" --arg phase "${phase}" \
         --arg serial "${target_serial}" --arg vendor SNAPLYZE --arg model "${target_model}" \
         --arg username vmtest --arg scenario "${scenario_id}" --arg run_id "${run_id}" \
         --arg repository_primary "${repository_primary_fingerprint}" \
@@ -2068,7 +2070,6 @@ qga_verify() {
         --arg legacy_profile_version "${legacy_profile_version:--}" \
         --arg legacy_gtk3_version "${legacy_gtk3_version:--}" --arg media_qualification "${media_qualification}" \
         --arg probe_contract "${probe_contract}" --arg probe_hash "${probe_hash}" \
-        --arg desktop_contract "${desktop_contract}" \
         --arg upgrade_contract "${upgrade_contract}" --arg upgrade_hash "${gnome51_upgrade_manifest_sha256}" \
         --arg gdm_worker_baseline "${gdm_worker_baseline:--}" '
         {execute:"guest-exec",arguments:{path:"/usr/bin/bash","capture-output":true,
