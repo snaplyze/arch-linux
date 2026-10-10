@@ -10,6 +10,43 @@ VERIFY = ROOT / "tests/vm/guest/verify.sh"
 def function(name):
     return re.search(r"^" + name + r"\(\) \{\n.*?^\}", VERIFY.read_text(), re.M | re.S).group(0)
 class RuntimeChecks(unittest.TestCase):
+    def test_common_network_readiness_waits_before_service_checks_and_rejects_failures(self):
+        # Execute the actual readiness fragment, with guest-only commands replaced
+        # by fixtures. NetworkManager becomes active during its existing wait.
+        readiness = re.search(
+            r"^    (?:systemctl is-active|nm-online).*?(?=^    clean_kernel_command_line)",
+            function("verify_common"), re.M | re.S).group(0)
+        for fault, status in (("none", 0), ("network-timeout", 1),
+                              ("manager-inactive", 3), ("agent-inactive", 3),
+                              ("dns", 2), ("failed-unit", 1)):
+            with self.subTest(fault=fault):
+                script = r'''set -Eeuo pipefail
+trap 'exit "$?"' ERR
+fault=$1
+manager_active=false
+nm-online(){
+    [ "$*" = '-q --timeout=60' ] || return 90
+    [ "$fault" != network-timeout ] || return 1
+    if [ "$fault" != manager-inactive ]; then manager_active=true; fi
+}
+systemctl(){
+    case "$*" in
+        'is-active --quiet NetworkManager.service') "$manager_active" || return 3;;
+        'is-active --quiet qemu-guest-agent.service') [ "$fault" != agent-inactive ] || return 3;;
+        '--failed --no-legend --plain')
+            if [ "$fault" = failed-unit ]; then printf 'fixture.service loaded failed failed\n'; fi;;
+        *) return 90;;
+    esac
+}
+getent(){ [ "$*" = 'ahostsv4 archlinux.org' ] || return 90; [ "$fault" != dns ] || return 2; }
+verify_common(){
+'''
+                script += readiness + "    printf target\n}\ntarget=$(verify_common)\nprintf '%s\\n' \"$target\"\n"
+                result = subprocess.run(["bash", "-c", script, "fixture", fault],
+                                        capture_output=True, text=True, timeout=5)
+                self.assertEqual(result.returncode, status, result.stderr)
+                self.assertEqual(result.stdout, "target\n" if status == 0 else "")
+
     def pam_events(self, records=None, raw=None):
         import contextlib, io, json
         source = re.search(r"^emit_gnome_shell_lifecycle_diagnostic\(\) \{\n.*?<<'PY'\n(.*?)\nPY\n", VERIFY.read_text(), re.M | re.S).group(1)
