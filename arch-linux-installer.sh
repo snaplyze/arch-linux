@@ -1997,19 +1997,30 @@ block_identity_field_is_safe() {
     [ -n "$value" ] && [[ "$value" =~ $field_re ]]
 }
 
+# Identity helpers distinguish two kinds of nonzero result:
+#   1 = structurally unidentifiable (empty card-reader slot, zram, a disk without model plus
+#       serial/WWN and without a recognised virtual backend, unsafe field, wrong node type). Such a
+#       node has no identity and can never equal a persisted one.
+#   2 = operational probe failure (node vanished, lsblk/attribute/sequence/boot-id probe failed).
+#       The state of the node is unknown, so callers must treat it as ambiguity.
+# Every caller treats any nonzero status as rejection; only block_identity_is_unique looks at which.
 block_disk_identity() {
-    local disk canonical size wwn serial model diskseq run_identity material
+    local disk canonical node_type size wwn serial model diskseq run_identity material
 
     disk="$1"
-    canonical="$(block_canonical "$disk")" || return 1
-    block_exists "$canonical" && [ "$(block_type "$canonical")" = disk ] || return 1
-    size="$(block_attribute "$canonical" SIZE)" || return 1
-    wwn="$(block_attribute "$canonical" WWN)" || return 1
-    serial="$(block_attribute "$canonical" SERIAL)" || return 1
-    model="$(block_attribute "$canonical" MODEL)" || return 1
+    canonical="$(block_canonical "$disk")" || return 2
+    block_exists "$canonical" || return 2
+    node_type="$(block_type "$canonical")" || return 2
+    [ -n "$node_type" ] || return 2
+    [ "$node_type" = disk ] || return 1
+    size="$(block_attribute "$canonical" SIZE)" || return 2
+    wwn="$(block_attribute "$canonical" WWN)" || return 2
+    serial="$(block_attribute "$canonical" SERIAL)" || return 2
+    model="$(block_attribute "$canonical" MODEL)" || return 2
     wwn="${wwn#"${wwn%%[![:space:]]*}"}" && wwn="${wwn%"${wwn##*[![:space:]]}"}"
     serial="${serial#"${serial%%[![:space:]]*}"}" && serial="${serial%"${serial##*[![:space:]]}"}"
     model="${model#"${model%%[![:space:]]*}"}" && model="${model%"${model##*[![:space:]]}"}"
+    [ -n "$size" ] || return 2
     [[ "$size" =~ ^[1-9][0-9]*$ ]] || return 1
     [ -z "$model" ] || block_identity_field_is_safe "$model" || return 1
     if [ -n "$wwn" ]; then
@@ -2021,10 +2032,10 @@ block_disk_identity() {
             "$size" "$wwn" "$serial" "$model"
     else
         block_virtual_backend_is_recognized "$canonical" || return 1
-        diskseq="$(block_disk_sequence "$canonical")" || return 1
-        run_identity="$(block_virtual_run_identity)" || return 1
-        [[ "$diskseq" =~ ^[1-9][0-9]*$ ]] || return 1
-        [[ "$run_identity" =~ ^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$ ]] || return 1
+        diskseq="$(block_disk_sequence "$canonical")" || return 2
+        run_identity="$(block_virtual_run_identity)" || return 2
+        [[ "$diskseq" =~ ^[1-9][0-9]*$ ]] || return 2
+        [[ "$run_identity" =~ ^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$ ]] || return 2
         printf -v material 'kind=virtio\nsize=%s\nwwn=%s\nserial=%s\nmodel=%s\ndiskseq=%s\nboot-id=%s\n' \
             "$size" "$wwn" "$serial" "$model" "$diskseq" "$run_identity"
     fi
@@ -2032,17 +2043,21 @@ block_disk_identity() {
 }
 
 block_partition_identity() {
-    local partition canonical parent parent_identity partuuid start size material
+    local partition canonical node_type parent parent_identity partuuid start size material
 
     partition="$1"
-    canonical="$(block_canonical "$partition")" || return 1
-    block_exists "$canonical" && [ "$(block_type "$canonical")" = part ] || return 1
-    parent="$(block_parent "$canonical")" || return 1
-    parent="$(block_canonical "$parent")" || return 1
-    parent_identity="$(block_disk_identity "$parent")" || return 1
-    partuuid="$(block_attribute "$canonical" PARTUUID)" || return 1
-    start="$(block_attribute "$canonical" START)" || return 1
-    size="$(block_attribute "$canonical" SIZE)" || return 1
+    canonical="$(block_canonical "$partition")" || return 2
+    block_exists "$canonical" || return 2
+    node_type="$(block_type "$canonical")" || return 2
+    [ -n "$node_type" ] || return 2
+    [ "$node_type" = part ] || return 1
+    parent="$(block_parent "$canonical")" || return 2
+    parent="$(block_canonical "$parent")" || return 2
+    parent_identity="$(block_disk_identity "$parent")" || return $?
+    partuuid="$(block_attribute "$canonical" PARTUUID)" || return 2
+    start="$(block_attribute "$canonical" START)" || return 2
+    size="$(block_attribute "$canonical" SIZE)" || return 2
+    [ -n "$start" ] && [ -n "$size" ] || return 2
     [[ "$partuuid" =~ ^[A-Fa-f0-9-]{8,}$ ]] && [[ "$start" =~ ^[0-9]+$ ]] &&
         [[ "$size" =~ ^[1-9][0-9]*$ ]] || return 1
     printf -v material 'disk=%s\npartuuid=%s\nstart=%s\nsize=%s\n' \
@@ -2050,19 +2065,30 @@ block_partition_identity() {
     printf '%s' "$material" | sha256sum --binary | awk '{ print $1 }'
 }
 
+# Exactly one node of this kind may carry the expected identity. A node that is structurally
+# unidentifiable (status 1) cannot equal it: a valid expected identity always has size >= 1 and
+# either model plus serial/WWN or a recognised virtio backend, so such nodes are skipped. An
+# operational probe failure (status 2) or a failed enumeration leaves the answer unknown and fails.
 block_identity_is_unique() {
-    local kind="$1" expected="$2" path candidate count=0
+    local kind="$1" expected="$2" path paths candidate status count=0
 
     [[ "$expected" =~ ^[a-f0-9]{64}$ ]] || return 1
+    case "$kind" in disk | part) ;; *) return 1 ;; esac
+    paths="$(block_paths_for_type "$kind")" || return 1
     while IFS= read -r path; do
         [ -n "$path" ] || continue
+        status=0
         case "$kind" in
-        disk) candidate="$(block_disk_identity "$path")" || continue ;;
-        part) candidate="$(block_partition_identity "$path")" || continue ;;
+        disk) candidate="$(block_disk_identity "$path")" || status=$? ;;
+        part) candidate="$(block_partition_identity "$path")" || status=$? ;;
+        esac
+        case "$status" in
+        0) ;;
+        1) continue ;;
         *) return 1 ;;
         esac
         [ "$candidate" = "$expected" ] && count=$((count + 1))
-    done < <(block_paths_for_type "$kind")
+    done <<<"$paths"
     [ "$count" -eq 1 ]
 }
 

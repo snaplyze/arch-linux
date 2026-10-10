@@ -2472,6 +2472,104 @@ if validate_destructive_targets silent_report; then
 fi
 sdb_serial='SERIAL-B'
 
+# Uniqueness distinguishes structurally unidentifiable nodes (empty card-reader slot, zram-like disk
+# without model/serial/WWN or virtio backend) from operational probe failures. The former cannot equal
+# a valid identity and are skipped; the latter leave the answer unknown and fail closed.
+(
+    fixture_failing_probe=false
+    fixture_duplicate_sdb=false
+    for original in block_exists block_type block_attribute block_parent \
+        block_virtual_backend_is_recognized block_paths_for_type; do
+        eval "original_$(declare -f "$original")"
+    done
+    block_exists() {
+        case "$1" in /dev/sdreader | /dev/zram0 | /dev/sdfail | /dev/sdfail1) return 0 ;; esac
+        original_block_exists "$@"
+    }
+    block_type() {
+        case "$1" in
+        /dev/sdreader | /dev/zram0 | /dev/sdfail) printf 'disk'; return 0 ;;
+        /dev/sdfail1) printf 'part'; return 0 ;;
+        esac
+        original_block_type "$@"
+    }
+    block_attribute() {
+        case "$1:$2" in
+        /dev/sdreader:SIZE) printf '0'; return 0 ;;
+        /dev/zram0:SIZE) printf '8589934592'; return 0 ;;
+        /dev/sdreader:* | /dev/zram0:*) printf ''; return 0 ;;
+        /dev/sdfail:*) return 1 ;;
+        /dev/sdb:SERIAL)
+            if [ "$fixture_duplicate_sdb" = true ]; then printf 'SERIAL-A'; return 0; fi
+            ;;
+        /dev/sdfail1:*) printf '77777777-7777-7777-7777-777777777777'; return 0 ;;
+        esac
+        original_block_attribute "$@"
+    }
+    block_parent() {
+        [ "$1" = /dev/sdfail1 ] && { printf '/dev/sdfail'; return 0; }
+        original_block_parent "$@"
+    }
+    block_virtual_backend_is_recognized() {
+        case "$1" in /dev/sdreader | /dev/zram0) return 1 ;; esac
+        original_block_virtual_backend_is_recognized "$@"
+    }
+    block_paths_for_type() {
+        case "$1" in
+        disk)
+            printf '%s\n' /dev/sda /dev/sdb /dev/sdreader /dev/zram0
+            [ "$fixture_failing_probe" != true ] || printf '%s\n' /dev/sdfail
+            ;;
+        part)
+            printf '%s\n' /dev/sda1 /dev/sda2 /dev/sdb1 /dev/sdb2
+            [ "$fixture_failing_probe" != true ] || printf '%s\n' /dev/sdfail1
+            ;;
+        *) return 1 ;;
+        esac
+    }
+
+    unique_disk_identity="$(block_disk_identity /dev/sda)"
+    unique_part_identity="$(block_partition_identity /dev/sda2)"
+    status=0
+    block_disk_identity /dev/sdreader >/dev/null || status=$?
+    [ "$status" -eq 1 ] || { echo "disk safety: empty reader status $status, expected 1" >&2; exit 1; }
+    status=0
+    block_disk_identity /dev/zram0 >/dev/null || status=$?
+    [ "$status" -eq 1 ] || { echo "disk safety: zram-like disk status $status, expected 1" >&2; exit 1; }
+    status=0
+    block_disk_identity /dev/sdfail >/dev/null || status=$?
+    [ "$status" -eq 2 ] || { echo "disk safety: failed probe status $status, expected 2" >&2; exit 1; }
+    status=0
+    block_partition_identity /dev/sdfail1 >/dev/null || status=$?
+    [ "$status" -eq 2 ] || { echo "disk safety: failed partition probe status $status, expected 2" >&2; exit 1; }
+
+    # (a) Unidentifiable devices alongside the target do not make it ambiguous.
+    block_identity_is_unique disk "$unique_disk_identity" || {
+        echo 'disk safety: empty reader or zram-like disk made a unique disk ambiguous' >&2
+        exit 1
+    }
+    block_identity_is_unique part "$unique_part_identity"
+
+    # (b) A failed probe on another node leaves uniqueness unknown and must fail closed.
+    fixture_failing_probe=true
+    if block_identity_is_unique disk "$unique_disk_identity"; then
+        echo 'disk safety: failed disk identity probe counted as not a duplicate' >&2
+        exit 1
+    fi
+    if block_identity_is_unique part "$unique_part_identity"; then
+        echo 'disk safety: failed partition identity probe counted as not a duplicate' >&2
+        exit 1
+    fi
+
+    # (c) A real duplicate is still ambiguous next to the unidentifiable devices.
+    fixture_failing_probe=false
+    fixture_duplicate_sdb=true
+    if block_identity_is_unique disk "$unique_disk_identity"; then
+        echo 'disk safety: duplicate disk identity counted as unique' >&2
+        exit 1
+    fi
+)
+
 # The actual sysfs recognizer accepts an exact virtio device component, not a generic SCSI/ATA
 # path that could also be a passed-through physical disk.
 (
@@ -2568,11 +2666,24 @@ block_type() { case "$1" in /dev/vda|/dev/sda|/dev/sdb) printf 'disk' ;; /dev/vd
 block_disk_sequence() { [ "$1" = /dev/vda ] && printf '%s\n' "$vm_diskseq"; }
 block_virtual_run_identity() { printf '%s\n' "$vm_run_identity"; }
 block_virtual_backend_is_recognized() { [ "$vm_virtual_backend" = true ]; }
+block_parent() {
+    case "$1" in
+    /dev/vda1 | /dev/vda2) printf '/dev/vda' ;;
+    /dev/sda1 | /dev/sda2) printf '/dev/sda' ;;
+    /dev/sdb1 | /dev/sdb2) printf '/dev/sdb' ;;
+    esac
+}
 block_attribute() {
     local node="$1" field="$2"
     case "${node}:${field}" in
     /dev/vda:SIZE) printf '68719476736' ;;
     /dev/vda:WWN|/dev/vda:SERIAL|/dev/vda:MODEL) printf '' ;;
+    /dev/vda1:PARTUUID) printf '55555555-5555-5555-5555-555555555555' ;;
+    /dev/vda2:PARTUUID) printf '66666666-6666-6666-6666-666666666666' ;;
+    /dev/vda1:START) printf '2048' ;;
+    /dev/vda2:START) printf '2099200' ;;
+    /dev/vda1:SIZE) printf '1073741824' ;;
+    /dev/vda2:SIZE) printf '67645734912' ;;
     /dev/sda:SIZE|/dev/sdb:SIZE) printf '107374182400' ;;
     /dev/sda:WWN|/dev/sdb:WWN) printf '' ;;
     /dev/sda:SERIAL) printf '%s' "$sda_serial" ;;
