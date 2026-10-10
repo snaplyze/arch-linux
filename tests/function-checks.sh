@@ -2418,6 +2418,23 @@ expect_reject 'partitions do not exist'     true /dev/sda /dev/sda9 /dev/sda8
 source <(sed -n '/^block_partition_identity()/,/^}/p' "$script")
 # shellcheck disable=SC1090
 source <(sed -n '/^block_identity_is_unique()/,/^}/p' "$script")
+# The fixtures below describe nodes through the block_type/block_parent/block_attribute tables. This
+# adapter serves the single-call property probe from those tables with the same failure semantics;
+# the real lsblk -P probe is exercised by the differential fixture at the end of this file.
+block_node_properties() {
+    local node="$1" array_name="$2" attribute value
+    local -n adapter_out="$array_name"
+    shift 2
+    adapter_out=()
+    for attribute in "$@"; do
+        case "$attribute" in
+        TYPE) value="$(block_type "$node")" || return 1 ;;
+        PKNAME) value="$(block_parent "$node")" || value=''; value="${value#/dev/}" ;;
+        *) value="$(block_attribute "$node" "$attribute")" || return 1 ;;
+        esac
+        adapter_out["$attribute"]="$value"
+    done
+}
 sdb_serial='SERIAL-B'
 sda2_start='2099200'
 block_attribute() {
@@ -2776,15 +2793,14 @@ fi
 sda2_start='2099200'
 ARCH_LINUX_ACCEPTED_TARGET_SNAPSHOT=''
 
-# Idle probes must distinguish valid empty state from failed or malformed inventories.
+# Idle probes must distinguish valid empty state from failed or malformed inventories. Mount sources
+# and swap areas are attributed through the real membership helpers against the topology of the
+# selected disk, which is read once.
 (
     ARCH_LINUX_DISK=/dev/fixture
     probe_case=empty
     swap_probe="${function_runtime_dir}/idle-swap"
     : >"$swap_probe"
-    storage_path_belongs_to_disk() {
-        case "$probe_case" in mounted | swapfile) return 0 ;; membership-error) return 2 ;; *) return 1 ;; esac
-    }
     function [ {
         local -a args=("$@")
         unset 'args[${#args[@]}-1]'
@@ -2792,17 +2808,29 @@ ARCH_LINUX_ACCEPTED_TARGET_SNAPSHOT=''
             command test "$probe_case" = mapper
             return
         fi
+        if command test "${#args[@]}" -eq 2 && command test "${args[0]}" = -b; then
+            case "${args[1]}" in /dev/fixture | /dev/fixture1 | /dev/other) return 0 ;; esac
+        fi
         command test "${args[@]}"
+    }
+    block_canonical() {
+        [ "$probe_case" != canonical-error ] || [ "$1" != /dev/other ] || return 1
+        printf '%s' "$1"
     }
     silent_report() { :; }
     findmnt() {
         case "$*" in
         *'-M /mnt'*) [ "$probe_case" != mountpoint-error-one ] || { echo 'findmnt: operational error' >&2; return 1; }; [ "$probe_case" = occupied ] && { echo /dev/other; return 0; }; [ "$probe_case" != mountpoint-error ] || return 2; return 1 ;;
+        *'-T '*) [ "$probe_case" = swapfile ] && { echo /dev/fixture1; return 0; }; return 2 ;;
         esac
         [ "$probe_case" != mounts-error-one ] || { echo "findmnt: operational error" >&2; return 1; }
         [ "$probe_case" != mounts-error ] || return 2
         [ "$probe_case" != empty-no-match ] || return 1
-        case "$probe_case" in mounted | membership-error) echo /dev/fixture1 ;; esac
+        case "$probe_case" in
+        mounted) echo '/dev/fixture1[/@home]' ;;
+        foreign-mount) printf '%s\n' tmpfs /dev/other ;;
+        canonical-error) echo /dev/other ;;
+        esac
         [ "$probe_case" != malformed-mount ] || { echo 'broken row'; return; }
         return 0
     }
@@ -2817,13 +2845,15 @@ ARCH_LINUX_ACCEPTED_TARGET_SNAPSHOT=''
         missing-disk) echo '/dev/else disk' ;;
         malformed-topology) echo '/dev/fixture disk extra' ;;
         holder) printf '/dev/fixture disk\n/dev/mapper/held crypt\n' ;;
+        mounted | swapfile) printf '/dev/fixture disk\n/dev/fixture1 part\n' ;;
         *) echo '/dev/fixture disk' ;;
         esac
     }
     target_storage_is_idle silent_report
-    probe_case=empty-no-match
-    target_storage_is_idle silent_report
-    for probe_case in mounts-error-one mountpoint-error-one mounts-error swap-error topology-error missing-disk malformed-topology malformed-mount holder occupied mapper mountpoint-error mounted swapfile malformed-swap membership-error; do
+    for probe_case in empty-no-match foreign-mount; do
+        target_storage_is_idle silent_report
+    done
+    for probe_case in mounts-error-one mountpoint-error-one mounts-error swap-error topology-error missing-disk malformed-topology malformed-mount holder occupied mapper mountpoint-error mounted swapfile malformed-swap canonical-error; do
         if target_storage_is_idle silent_report; then
             echo "idle safety: accepted $probe_case" >&2
             exit 1
@@ -3274,6 +3304,391 @@ needs_ptyxis_russian_shortcuts || { echo 'needs_ptyxis_russian_shortcuts: second
     fixture_pid=''
     if wait_for_qemu_exec "$dead_pid" "$fixture_start" 1; then
         echo 'function check failed: exec readiness accepted an exited child' >&2
+        exit 1
+    fi
+)
+
+# ---------------------------------------------------------------------------------------------------
+# Single-call identity probe. The reference functions below are the previous per-attribute
+# implementation, kept verbatim as an oracle: for every representative attribute set the production
+# helpers must return the same status (1 structural, 2 operational) and byte-identical identity while
+# issuing one lsblk call per node instead of one per attribute. The stub lsblk encodes quotes,
+# backslashes and control characters like the real -P output.
+(
+    extract_function() {
+        awk -v name="$1" '
+            $0 ~ "^" name "\\(\\)" { printing = 1; if ($0 ~ /\{.*\}$/) { print; exit } }
+            printing { print }
+            printing && /^}$/ { exit }' "$script"
+    }
+    for production_function in block_type block_parent block_attribute block_node_properties \
+        block_identity_field_is_safe block_disk_identity block_partition_identity \
+        block_identity_inventory block_inventory_has_unique_identity block_identity_is_unique; do
+        # shellcheck disable=SC1090
+        source <(extract_function "$production_function")
+    done
+    legacy_block_disk_identity() {
+        local disk canonical node_type size wwn serial model diskseq run_identity material
+
+        disk="$1"
+        canonical="$(block_canonical "$disk")" || return 2
+        block_exists "$canonical" || return 2
+        node_type="$(block_type "$canonical")" || return 2
+        [ -n "$node_type" ] || return 2
+        [ "$node_type" = disk ] || return 1
+        size="$(block_attribute "$canonical" SIZE)" || return 2
+        wwn="$(block_attribute "$canonical" WWN)" || return 2
+        serial="$(block_attribute "$canonical" SERIAL)" || return 2
+        model="$(block_attribute "$canonical" MODEL)" || return 2
+        wwn="${wwn#"${wwn%%[![:space:]]*}"}" && wwn="${wwn%"${wwn##*[![:space:]]}"}"
+        serial="${serial#"${serial%%[![:space:]]*}"}" && serial="${serial%"${serial##*[![:space:]]}"}"
+        model="${model#"${model%%[![:space:]]*}"}" && model="${model%"${model##*[![:space:]]}"}"
+        [ -n "$size" ] || return 2
+        [[ "$size" =~ ^[1-9][0-9]*$ ]] || return 1
+        [ -z "$model" ] || block_identity_field_is_safe "$model" || return 1
+        if [ -n "$wwn" ]; then
+            block_identity_field_is_safe "$wwn" || return 1
+        fi
+        [ -z "$serial" ] || block_identity_field_is_safe "$serial" || return 1
+        if [ -n "$model" ] && { [ -n "$wwn" ] || [ -n "$serial" ]; }; then
+            printf -v material 'size=%s\nwwn=%s\nserial=%s\nmodel=%s\n' \
+                "$size" "$wwn" "$serial" "$model"
+        else
+            block_virtual_backend_is_recognized "$canonical" || return 1
+            diskseq="$(block_disk_sequence "$canonical")" || return 2
+            run_identity="$(block_virtual_run_identity)" || return 2
+            [[ "$diskseq" =~ ^[1-9][0-9]*$ ]] || return 2
+            [[ "$run_identity" =~ ^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$ ]] || return 2
+            printf -v material 'kind=virtio\nsize=%s\nwwn=%s\nserial=%s\nmodel=%s\ndiskseq=%s\nboot-id=%s\n' \
+                "$size" "$wwn" "$serial" "$model" "$diskseq" "$run_identity"
+        fi
+        printf '%s' "$material" | sha256sum --binary | awk '{ print $1 }'
+    }
+    legacy_block_partition_identity() {
+        local partition canonical node_type parent parent_identity partuuid start size material
+
+        partition="$1"
+        canonical="$(block_canonical "$partition")" || return 2
+        block_exists "$canonical" || return 2
+        node_type="$(block_type "$canonical")" || return 2
+        [ -n "$node_type" ] || return 2
+        [ "$node_type" = part ] || return 1
+        parent="$(block_parent "$canonical")" || return 2
+        parent="$(block_canonical "$parent")" || return 2
+        parent_identity="$(legacy_block_disk_identity "$parent")" || return $?
+        partuuid="$(block_attribute "$canonical" PARTUUID)" || return 2
+        start="$(block_attribute "$canonical" START)" || return 2
+        size="$(block_attribute "$canonical" SIZE)" || return 2
+        [ -n "$start" ] && [ -n "$size" ] || return 2
+        [[ "$partuuid" =~ ^[A-Fa-f0-9-]{8,}$ ]] && [[ "$start" =~ ^[0-9]+$ ]] &&
+            [[ "$size" =~ ^[1-9][0-9]*$ ]] || return 1
+        printf -v material 'disk=%s\npartuuid=%s\nstart=%s\nsize=%s\n' \
+            "$parent_identity" "${partuuid,,}" "$start" "$size"
+        printf '%s' "$material" | sha256sum --binary | awk '{ print $1 }'
+    }
+
+    declare -A fx_type=() fx_pkname=() fx_size=() fx_wwn=() fx_serial=() fx_model=()
+    declare -A fx_partuuid=() fx_start=() fx_virtio=() fx_seq=()
+    fx_count_file="${function_runtime_dir}/identity-lsblk-count"
+    : >"$fx_count_file"
+    fx_value() { # node column
+        case "$2" in
+        TYPE) printf '%s' "${fx_type[$1]}" ;;
+        PKNAME) printf '%s' "${fx_pkname[$1]:-}" ;;
+        SIZE) printf '%s' "${fx_size[$1]:-}" ;;
+        WWN) printf '%s' "${fx_wwn[$1]:-}" ;;
+        SERIAL) printf '%s' "${fx_serial[$1]:-}" ;;
+        MODEL) printf '%s' "${fx_model[$1]:-}" ;;
+        PARTUUID) printf '%s' "${fx_partuuid[$1]:-}" ;;
+        START) printf '%s' "${fx_start[$1]:-}" ;;
+        FSTYPE) printf '' ;;
+        *) return 1 ;;
+        esac
+    }
+    lsblk() {
+        local node="${!#}" arg columns='' take=false pairs=false column value encoded
+        local -a column_list=()
+        printf 'x\n' >>"$fx_count_file"
+        for arg in "$@"; do
+            if "$take"; then columns="$arg"; take=false; continue; fi
+            case "$arg" in
+            --) break ;;
+            -*P*) pairs=true ;;
+            esac
+            case "$arg" in -*o) take=true ;; esac
+        done
+        [ -n "${fx_type[$node]+set}" ] || return 32
+        IFS=, read -r -a column_list <<<"$columns"
+        for column in "${column_list[@]}"; do
+            value="$(fx_value "$node" "$column")" || return 1
+            if "$pairs"; then
+                encoded="${value//\\/\\x5c}"
+                encoded="${encoded//\"/\\x22}"
+                encoded="${encoded//$'\t'/\\x09}"
+                printf '%s="%s" ' "$column" "$encoded"
+            else
+                printf '%s\n' "${value//$'\t'/\\x09}"
+            fi
+        done
+        "$pairs" && printf '\n'
+        return 0
+    }
+    block_canonical() { printf '%s' "$1"; }
+    block_exists() { return 0; }
+    block_virtual_backend_is_recognized() { [ "${fx_virtio[$1]:-}" = true ]; }
+    block_disk_sequence() { [ -n "${fx_seq[$1]:-}" ] && printf '%s\n' "${fx_seq[$1]}"; }
+    block_virtual_run_identity() { printf '11111111-1111-4111-8111-111111111111\n'; }
+
+    set_disk() { # node size wwn serial model
+        fx_type[$1]=disk fx_size[$1]="$2" fx_wwn[$1]="$3" fx_serial[$1]="$4" fx_model[$1]="$5"
+    }
+    set_part() { # node parent partuuid start size
+        fx_type[$1]=part fx_pkname[$1]="${2#/dev/}" fx_partuuid[$1]="$3" fx_start[$1]="$4" fx_size[$1]="$5"
+    }
+    compare_identity() { # label expected_status function_suffix node
+        local label="$1" expected="$2" kind="$3" node="$4" old_hash new_hash old_status=0 new_status=0 calls limit
+        local suffix="$kind"
+        [ "$kind" != part ] || suffix=partition
+        old_hash="$("legacy_block_${suffix}_identity" "$node")" || old_status=$?
+        : >"$fx_count_file"
+        new_hash="$("block_${suffix}_identity" "$node")" || new_status=$?
+        calls="$(wc -l <"$fx_count_file")"
+        if [ "$old_status" -ne "$expected" ] || [ "$new_status" -ne "$old_status" ] ||
+            [ "$new_hash" != "$old_hash" ]; then
+            echo "identity differential: ${label}: expected ${expected}, old ${old_status}, new ${new_status}" >&2
+            exit 1
+        fi
+        # A disk costs one lsblk call; a partition costs one for itself and one for its parent.
+        if [ "$kind" = disk ]; then limit=1; else limit=2; fi
+        [ "$calls" -le "$limit" ] || {
+            echo "identity differential: ${label}: ${calls} lsblk calls, limit ${limit}" >&2
+            exit 1
+        }
+    }
+
+    set_disk /dev/dtypical 1000204886016 eui.0000000678945612caf25b0230001070 1D49000000000029 'Samsung SSD 970 EVO'
+    set_disk /dev/dnowwn 512110190592 '' SER-A1 'QEMU HARDDISK'
+    set_disk /dev/dnoserial 512110190592 0x5002538d00000000 '' 'Fixture Disk'
+    set_disk /dev/dpadded 512110190592 '  ' '  S/N: 12,3@x+y  ' '  Padded Model  '
+    set_disk /dev/dnomodel 512110190592 eui.1 SER1 ''
+    set_disk /dev/dvirtio 68719476736 '' '' ''
+    fx_virtio[/dev/dvirtio]=true fx_seq[/dev/dvirtio]=73
+    set_disk /dev/dvirtionoseq 68719476736 '' '' ''
+    fx_virtio[/dev/dvirtionoseq]=true
+    set_disk /dev/dphysnone 68719476736 '' '' ''
+    set_disk /dev/dreader 0 '' '' ''
+    set_disk /dev/dnosize '' eui.1 SER1 'Fixture Disk'
+    set_disk /dev/dquote 512110190592 '' SER1 'Evil"Model'
+    set_disk /dev/dbackslash 512110190592 '' 'SER\1' 'Model'
+    set_disk /dev/dshell 512110190592 '' SER1 'M;rm -rf $(x)*'
+    set_disk /dev/dtab 512110190592 '' SER1 $'Tab\tModel'
+    set_disk /dev/dcyrillic 512110190592 '' SER1 'Диск'
+    set_disk /dev/dwwnbad 512110190592 'eui "x"' SER1 'Fixture Disk'
+    fx_type[/dev/dloop]=loop fx_size[/dev/dloop]=1048576
+    fx_type[/dev/dnotype]=''
+    compare_identity 'typical disk' 0 disk /dev/dtypical
+    compare_identity 'empty WWN' 0 disk /dev/dnowwn
+    compare_identity 'empty serial' 0 disk /dev/dnoserial
+    compare_identity 'padded and special-but-safe fields' 0 disk /dev/dpadded
+    compare_identity 'empty model without virtio backend' 1 disk /dev/dnomodel
+    compare_identity 'virtio without model serial wwn' 0 disk /dev/dvirtio
+    compare_identity 'virtio without diskseq' 2 disk /dev/dvirtionoseq
+    compare_identity 'no identity fields and no backend' 1 disk /dev/dphysnone
+    compare_identity 'empty card-reader slot' 1 disk /dev/dreader
+    compare_identity 'empty size answer' 2 disk /dev/dnosize
+    compare_identity 'quote in model' 1 disk /dev/dquote
+    compare_identity 'backslash in serial' 1 disk /dev/dbackslash
+    compare_identity 'shell metacharacters in model' 1 disk /dev/dshell
+    compare_identity 'tab in model' 1 disk /dev/dtab
+    compare_identity 'non-ASCII model' 1 disk /dev/dcyrillic
+    compare_identity 'quote in WWN' 1 disk /dev/dwwnbad
+    compare_identity 'loop device' 1 disk /dev/dloop
+    compare_identity 'empty type answer' 2 disk /dev/dnotype
+    compare_identity 'node unknown to lsblk' 2 disk /dev/dmissing
+
+    set_part /dev/dtypical1 /dev/dtypical 11111111-1111-1111-1111-111111111111 2048 1073741824
+    set_part /dev/dtypical2 /dev/dtypical ABCDEF12-0000-4000-8000-ABCDEF123456 2099200 106300440576
+    set_part /dev/dmbr1 /dev/dnowwn 1a2b3c4d-01 2048 536870912
+    set_part /dev/dnopartuuid1 /dev/dtypical '' 2048 1073741824
+    set_part /dev/dzerosize1 /dev/dtypical 11111111-1111-1111-1111-111111111112 2048 0
+    set_part /dev/dnostart1 /dev/dtypical 11111111-1111-1111-1111-111111111113 '' 1073741824
+    set_part /dev/dreaderpart1 /dev/dreader 11111111-1111-1111-1111-111111111114 2048 1073741824
+    set_part /dev/dorphan1 /dev/dmissing 11111111-1111-1111-1111-111111111115 2048 1073741824
+    set_part /dev/dnoparent1 '' 11111111-1111-1111-1111-111111111116 2048 1073741824
+    set_part /dev/dvirtiopart1 /dev/dvirtio 11111111-1111-1111-1111-111111111117 2048 1073741824
+    compare_identity 'typical partition' 0 part /dev/dtypical1
+    compare_identity 'uppercase PARTUUID is normalised' 0 part /dev/dtypical2
+    compare_identity 'MBR-style PARTUUID' 0 part /dev/dmbr1
+    compare_identity 'virtio parent' 0 part /dev/dvirtiopart1
+    compare_identity 'empty PARTUUID' 1 part /dev/dnopartuuid1
+    compare_identity 'zero-size partition' 1 part /dev/dzerosize1
+    compare_identity 'empty START answer' 2 part /dev/dnostart1
+    compare_identity 'partition of an unidentifiable disk' 1 part /dev/dreaderpart1
+    compare_identity 'parent unknown to lsblk' 2 part /dev/dorphan1
+    compare_identity 'partition without a parent name' 2 part /dev/dnoparent1
+    compare_identity 'disk passed as partition' 1 part /dev/dtypical
+    compare_identity 'partition passed as disk' 1 disk /dev/dtypical1
+)
+
+# Cost bound: with a stubbed lsblk that counts invocations, the picker pass, the full destructive
+# target validation and the idle probe must grow linearly with the number of disks (and the idle probe
+# must not grow with the number of mounts). The bounds are generous constants, not call-order claims;
+# the previous implementation needed several thousand calls for 32 disks.
+(
+    for production_function in block_type block_parent block_attribute block_node_properties \
+        block_identity_field_is_safe block_disk_identity block_partition_identity \
+        block_identity_inventory block_inventory_has_unique_identity block_identity_is_unique \
+        block_paths_for_type; do
+        # shellcheck disable=SC1090
+        source <(awk -v name="$production_function" '
+            $0 ~ "^" name "\\(\\)" { printing = 1; if ($0 ~ /\{.*\}$/) { print; exit } }
+            printing { print }
+            printing && /^}$/ { exit }' "$script")
+    done
+    declare -A cost_type=() cost_parent=() cost_size=() cost_serial=() cost_partuuid=() cost_start=()
+    cost_count_file="${function_runtime_dir}/cost-lsblk-count"
+    cost_mounts=''
+    cost_build() {
+        local index part
+        cost_type=() cost_parent=() cost_size=() cost_serial=() cost_partuuid=() cost_start=()
+        cost_mounts=tmpfs
+        for ((index = 0; index < $1; index++)); do
+            cost_type[/dev/cdisk$index]=disk cost_size[/dev/cdisk$index]=107374182400
+            cost_serial[/dev/cdisk$index]="SER$index"
+            for part in 1 2; do
+                cost_type[/dev/cdisk${index}p$part]=part cost_parent[/dev/cdisk${index}p$part]="cdisk$index"
+                printf -v cost_partuuid[/dev/cdisk${index}p$part] '%08x-0000-4000-8000-00000000000%d' "$index" "$part"
+                cost_start[/dev/cdisk${index}p$part]=$((part * 2048))
+                cost_size[/dev/cdisk${index}p$part]=$((part == 1 ? 1073741824 : 100000000000))
+                [ "$index" -eq 0 ] || cost_mounts+=$'\n'"/dev/cdisk${index}p$part"
+            done
+        done
+    }
+    cost_value() {
+        case "$2" in
+        PATH) printf '%s' "$1" ;;
+        TYPE) printf '%s' "${cost_type[$1]}" ;;
+        PKNAME) printf '%s' "${cost_parent[$1]:-}" ;;
+        SIZE) printf '%s' "${cost_size[$1]}" ;;
+        WWN) printf '' ;;
+        SERIAL) printf '%s' "${cost_serial[$1]:-}" ;;
+        MODEL) printf '%s' 'Fixture Disk' ;;
+        PARTUUID) printf '%s' "${cost_partuuid[$1]:-}" ;;
+        START) printf '%s' "${cost_start[$1]:-}" ;;
+        FSTYPE) [ "${1: -2}" = p1 ] && printf vfat || printf ext4 ;;
+        *) return 1 ;;
+        esac
+    }
+    lsblk() {
+        local arg columns='' take=false pairs=false inverse=false single=false target='' column node value
+        local -a column_list=() rows=()
+        printf 'x\n' >>"$cost_count_file"
+        while [ "$#" -gt 0 ]; do
+            arg="$1"; shift
+            if "$take"; then columns="$arg"; take=false; continue; fi
+            case "$arg" in
+            --) target="${1:-}"; break ;;
+            -*) [[ "$arg" == *P* ]] && pairs=true
+                [[ "$arg" == *s* ]] && inverse=true
+                [[ "$arg" == *d* ]] && single=true
+                [[ "$arg" == *o ]] && take=true ;;
+            esac
+        done
+        if [ -n "$target" ]; then
+            [ -n "${cost_type[$target]:-}" ] || return 32
+            rows=("$target")
+            if "$inverse"; then
+                [ -z "${cost_parent[$target]:-}" ] || rows+=("/dev/${cost_parent[$target]}")
+            elif ! "$single" && [ "${cost_type[$target]}" = disk ]; then
+                rows+=("${target}p1" "${target}p2")
+            fi
+        else
+            for node in "${!cost_type[@]}"; do
+                "$single" && [ "${cost_type[$node]}" != disk ] || rows+=("$node")
+            done
+            mapfile -t rows < <(printf '%s\n' "${rows[@]}" | sort -V)
+        fi
+        IFS=, read -r -a column_list <<<"$columns"
+        for node in "${rows[@]}"; do
+            value=''
+            for column in "${column_list[@]}"; do
+                if "$pairs"; then
+                    value+="${value:+ }${column}=\"$(cost_value "$node" "$column")\""
+                else
+                    value+="${value:+ }$(cost_value "$node" "$column")"
+                fi
+            done
+            printf '%s\n' "$value"
+        done
+    }
+    findmnt() {
+        case "$*" in
+        *'-M /mnt'*) return 1 ;;
+        *'-o SOURCE'*'-T '*) return 1 ;;
+        *'-rn -o SOURCE'*) printf '%s\n' "$cost_mounts" ;;
+        *) return 1 ;;
+        esac
+    }
+    swapon() { return 0; }
+    block_canonical() { printf '%s' "$1"; }
+    block_exists() { [ -n "${1:-}" ] && [ -n "${cost_type[$1]:-}" ]; }
+    function [ {
+        local -a args=("$@")
+        unset 'args[${#args[@]}-1]'
+        if command test "${#args[@]}" -eq 3 && command test "${args[0]}" = '!'; then
+            case "${args[1]}" in -b | -e) [ -z "${cost_type[${args[2]}]:-}" ] || return 1 ;; esac
+            command test "${args[@]}"
+            return
+        fi
+        if command test "${#args[@]}" -eq 2 && command test "${args[1]}" = /dev/mapper/cryptroot; then
+            return 1
+        fi
+        if command test "${#args[@]}" -eq 2 && { command test "${args[0]}" = -b || command test "${args[0]}" = -e; } &&
+            [ -n "${args[1]}" ] && [ -n "${cost_type[${args[1]}]:-}" ]; then
+            return 0
+        fi
+        command test "${args[@]}"
+    }
+    silent_report() { :; }
+    gum_choose() { shift 2; printf '%s\n' "$1"; }
+    gum_confirm() { return 1; }
+    gum_property() { :; }
+    properties_generate() { :; }
+    trap_gum_exit_confirm() { return 1; }
+    log_fail() { :; }
+
+    # Prints the lsblk call count; the measured operation must also succeed.
+    cost_calls() { : >"$cost_count_file"; "$@" >/dev/null || return 1; wc -l <"$cost_count_file"; }
+    cost_select() {
+        ARCH_LINUX_DISK='' ARCH_LINUX_BOOT_PARTITION='' ARCH_LINUX_ROOT_PARTITION=''
+        select_disk && [ "$ARCH_LINUX_DISK" = /dev/cdisk0 ]
+    }
+    cost_validate() {
+        ARCH_LINUX_DISK=/dev/cdisk0 ARCH_LINUX_BOOT_PARTITION=/dev/cdisk0p1 ARCH_LINUX_ROOT_PARTITION=/dev/cdisk0p2
+        ARCH_LINUX_DUAL_BOOT_ENABLED=true
+        validate_destructive_targets silent_report
+    }
+    cost_idle() { ARCH_LINUX_DISK=/dev/cdisk0; target_storage_is_idle silent_report; }
+
+    for disks in 4 16; do
+        cost_build "$disks"
+        ARCH_LINUX_DISK_IDENTITY="$(block_disk_identity /dev/cdisk0)"
+        ARCH_LINUX_BOOT_PARTITION_IDENTITY="$(block_partition_identity /dev/cdisk0p1)"
+        ARCH_LINUX_ROOT_PARTITION_IDENTITY="$(block_partition_identity /dev/cdisk0p2)"
+        picker_calls="$(cost_calls cost_select)"
+        validate_calls="$(cost_calls cost_validate)"
+        idle_calls="$(cost_calls cost_idle)"
+        # The mounted sources of every other disk are attributed without per-mount probes.
+        [ "$picker_calls" -le $((4 * disks + 8)) ] &&
+            [ "$validate_calls" -le $((8 * disks + 16)) ] && [ "$idle_calls" -le 4 ] || {
+            echo "identity cost: ${disks} disks used picker=${picker_calls} validate=${validate_calls} idle=${idle_calls}" >&2
+            exit 1
+        }
+    done
+    # The same fixture must still reject a mounted partition of the selected disk.
+    cost_mounts+=$'\n/dev/cdisk0p2'
+    if cost_idle; then
+        echo 'identity cost: a mounted partition of the selected disk was accepted' >&2
         exit 1
     fi
 )

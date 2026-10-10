@@ -92,7 +92,7 @@ failure="$2"
 identity_checks=0
 assert_accepted_destructive_target() {
     identity_checks=$((identity_checks + 1))
-    [ "$failure" != post-probe-identity ] || [ "$identity_checks" -le 2 ]
+    [ "$failure" != post-probe-identity ] || [ "$identity_checks" -le 1 ]
 }
 idle_checks=0
 target_storage_is_idle() {
