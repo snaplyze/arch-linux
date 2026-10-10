@@ -322,6 +322,52 @@ including full10/signing14+18/deferrednone; log SHA-256
 `16170c3c108db6b32395fcb44a77cf315dccbc5fceeb8c5ae3359acf6e254391`.
 Docs/diff checks repeated after checkpoint; actual five root gates remain pending
 before ready PR. No signing or desktop product bytes changed.
+Clean candidate `431832a2b31967cd70eae5f4b3c2125ce094ae34`, tree
+`209de612a191b24619301ad72d041855ae6d8bcd`, canonical SHA-256
+`26bf1cc0b6725f1cf8a81de9be1c6b12fcc9d3c1cc37eab32e1f1a57bca326eb`,
+passed a separate clean full source suite (log
+`8cc667d0ee6ea040823360552febeedcd2a4ff8c26be329a09a7cd9035f58be2`)
+and all five actual root gates (log
+`4bb8ed2bdaf4ee103be4ef59e70a2ad3d924980ce5c7b334a939d1d25cee5252`).
+Independent proof review found no material defect. Dedicated runner's disposable
+2CPU/2GiB/256pid container is absent, owned keyring loops absent and exact remote
+inputs removed after identity/hash checks. These synthetic gates do not prove
+production signing or GNOME behavior. [PR87](https://github.com/snaplyze/arch-linux/pull/87)
+uses the ready-candidate branch exception; exact-head CI38060997004 passed.
+PR87 squash merged at14:52:50 UTC to main
+`a9831fadecd8fb4ddf8196a129ecff4c23d916f1`, unchanged tree
+`209de612a191b24619301ad72d041855ae6d8bcd`. Local main advanced by fast-forward
+and this checkout returned to it with the two checkpoint files byte-preserved
+and index clear. Main CI38061366805 passed. Configured release
+[38061649342](https://github.com/snaplyze/arch-linux/actions/runs/38061649342)
+prepared child `a6887ee8593e4223af7af0a01726cd293d296ec6`, tree
+`93ecae49f3c1c724d0597a1680f9119b2fa78be3`, canonical SHA-256
+`0b81bfcbe6cd2cfdcefdf64b71cbc1af2c41cdf6f02313b256c451cc706a60e3`,
+version1.0.7 UNPUBLISHED. Root independently verified source transport/child/
+frozen documentation. Independent read-only review verified all224 blobs, exact20
+deterministic changes and unchanged reviewed root correction/full16 harness with
+no finding. The child passed full source and clean seven-package build; root and
+CI unsigned readback passed. All five actual child root gates and production
+Phase-A signing passed. Root independent signed14/snapshot25-object readback
+passed, including independent inner10 signature and seven-package payload review.
+Core Minimal VM started; the run is terminal CANCELLED (all9VM cancelled),
+with job cleanup complete, after an independent
+native GJS reproduction confirmed a GTK receipt provenance defect: a user-owned
+probe pathname could execute foreign bytes, then accept receipts after the original
+bytes were restored. This affects trustworthy GNOME functional acceptance, not
+the independently verified signed bytes. No VM PASS is accepted for this candidate;
+all9VM, production final18 and public gates remain unfulfilled. A focused immutable
+GTK code-path correction now executes only root-owned0555 code below root-owned
+0755 ancestors, hashes the loaded module URI and binds receipts/launch/cleanup
+to that path. Native replacement regression and independent focused review
+(two native tests, Bash syntax and ShellCheck) passed without findings. Full
+source verification passed (`bash tests/source-tests.sh`, normal umask022; log
+SHA-256 `755d75a75eee74b69280c295874019c4c65974013d357de28920a0435f4d04b2`),
+including full10/signing14+18/deferrednone repository fixtures. Actual GNOME
+acceptance still awaits new inputs.
+Version1.0.7 stays
+UNPUBLISHED. No source/synthetic result proves a working GNOME session.
+Root-owned checkpoint edits remain local and outside the accepted source commit.
 The fb00 and predecessor VM results stay historical.
 At 12:19–12:23 UTC, read-only diagnostics through the existing strictly trusted
 runner SSH endpoint and identity-bound inner QGA observed pacman completing,

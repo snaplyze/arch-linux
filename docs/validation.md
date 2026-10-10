@@ -3314,6 +3314,94 @@ including full repository10/signing14+18/deferrednone; log SHA-256
 Docs/diff were checked again after checkpoint edits. This working-source result
 does not establish actual five-root acceptance, which remains required before
 another ready PR and immutable release child.
+Clean candidate `431832a2b31967cd70eae5f4b3c2125ce094ae34`, tree
+`209de612a191b24619301ad72d041855ae6d8bcd`, canonical SHA-256
+`26bf1cc0b6725f1cf8a81de9be1c6b12fcc9d3c1cc37eab32e1f1a57bca326eb`
+passed its separate clean full source suite, log SHA-256
+`8cc667d0ee6ea040823360552febeedcd2a4ff8c26be329a09a7cd9035f58be2`.
+On the dedicated runner VM, a disposable exact pinned Arch container at2CPU/
+2GiB/256pids/thirty-minute bound consumed its SHA-pinned immutable Git bundle,
+copied to root-owned input before use. Both nonroot repository modes reached
+full10/signing14+18/deferrednone; exact env-i root publication reached sealed14/18
+with FIFO/memfd/namespaces/PID1/supervisor-death checks; ordinary and privileged
+keyring modes passed, the latter full10/deferrednone. Final commit/tree/clean
+custody check passed. Five-root log SHA-256
+`4bb8ed2bdaf4ee103be4ef59e70a2ad3d924980ce5c7b334a939d1d25cee5252`.
+Independent review verified source/log/recipe identities and all five markers,
+finding no material issue; it did not independently requery external cleanup.
+Root verified exact container CID/label absence and no owned keyring backing
+loops, then removed only the hash/metadata-checked remote bundle, recipe and CID.
+This is synthetic source/root acceptance, not production signing or a GNOME VM
+verdict. [PR87](https://github.com/snaplyze/arch-linux/pull/87) exact-head
+CI38060997004 passed; its log SHA-256
+`c90a20b7d71ebf2862681f0dd1b35e967ef8822a464264b5eae763296a51ec6a`.
+PR87 squash merged at2026-10-10T14:52:50Z to main
+`a9831fadecd8fb4ddf8196a129ecff4c23d916f1`, unchanged tree
+`209de612a191b24619301ad72d041855ae6d8bcd`. The sole checkout's main was updated
+by fast-forward before return, preserving both dirty checkpoint files byte for
+byte and the clear index. Main CI38061366805 passed, log SHA-256
+`1f5380a828d2e49f4ff33b023dfe33c4e11ef0809ab39572a3bfa7409149394a`.
+Configured release [38061649342](https://github.com/snaplyze/arch-linux/actions/runs/38061649342)
+prepared version1.0.7 child `a6887ee8593e4223af7af0a01726cd293d296ec6`, tree
+`93ecae49f3c1c724d0597a1680f9119b2fa78be3`, canonical SHA-256
+`0b81bfcbe6cd2cfdcefdf64b71cbc1af2c41cdf6f02313b256c451cc706a60e3`.
+Root verified source artifact11673541042, ZIP SHA-256
+`2262de96e34af723b40b942cb813e21588c7d362d9599b54a565268a9c0156ae`, bundle SHA-256
+`85b6377e335276a3d918a3e1d14a3e64d2cdff990a1fce0ba375691478aa373f`,
+deterministic main/child binding, canonical mode/bytes and frozen1.0.7 commands.
+Refs/index and local checkpoint bytes were preserved. Independent read-only
+review verified all224 blob identities/canonical mode-and-byte hash, exact20
+deterministic child changes and commit provenance, unchanged reviewed root
+fixture files/full16 harness and frozen release prose with no finding.
+Build job114241007330 passed full source and clean seven-package build, log SHA-256
+`25bab4d3f780b8ebce048c2e38c85cac19c66a2bacb7589ab13cd96d2335bdc7`.
+CI independent unsigned readback/job114242069024 passed. Root readback passed
+artifact11673432003, ZIP SHA-256
+`1f86428e7d9a30db718e9bdb94bbf54abf06f7ef25a32523e36ce906727f6dfa`,
+build metadata SHA-256 `c4be930853027766480e3a3d674ed7330c7f29062468830f796056c4cf4d9689`,
+unsigned manifest SHA-256 `a265d5f47caa01684151f0408072ba4655417d0a16ed6692885fce248d1768f3`.
+All seven package metadata/payload/mtree inputs matched64 immutable source blobs,
+42193 mtree rows. Actual child root gates/job114242248253 passed both repository
+modes full10/signing14+18/deferrednone, sealed publication fixture14/18 and both
+keyring modes (privileged full10/deferrednone), then production Phase-A signing.
+Job log SHA-256 `ded664df270e814fafc2153158f766f8c89b88a3c6bb1ca911814d7f3784b8a1`.
+Root independently verified exact14 Phase-A files/artifact11673632054, ZIP SHA-256
+`9fff5b253c836c2129b5639cd80784e7115cd09447608d1c792e766e5000555e`,
+exact12 signed manifest rows and three top-level signatures from the source-bound
+signing subkey/certification primary; installer/bootstrap/trust bytes and both
+unsigned metadata files matched their accepted inputs. Manifest SHA-256
+`e94983a068d5d2d8b7fedd1a1989637d47780fe85ac5a228b582ee4c115cff29`, snapshot SHA-256
+`2775a66797f6935391b15a0c5ec58ddbd47d92c3a9e66212800dead32dce39e2`;
+immutable snapshot contract matched25 objects. Core Minimal VM/job114242966715
+started. Independent readback also verified all10 inner signatures (seven
+packages, database/files and inner manifest), seven signed payloads against the
+accepted unsigned bytes, and repository metadata. Cancellation was requested
+after independent finite native GJS reproduction confirmed a GTK source-path
+provenance defect: actual extracted receipt validation accepted foreign-code
+receipts after the user-owned probe pathname was replaced with original bytes.
+The live PID/executable/argv/start-time checks did not detect that substitution.
+The reproduction changed no desktop, bus or settings and removed its own fixture
+and process. The run is terminal CANCELLED (all9VM cancelled); Minimal terminal
+log SHA-256 `f28b518641f71e6dc713d116aa828a4235ab574322928976619d992d00de120e`
+records job cleanup complete. No VM PASS is accepted for this candidate; GNOME functional
+acceptance, all9VM and final18/public gates remain unfulfilled. A focused
+root-owned0555 GTK execution path under root-owned0755 ancestors now replaces
+the user-owned executable copy. The JS hashes its own loaded module URI;
+launch/receipt/cleanup bind the exact code path. Native GJS executes foreign
+user-path code and restores original bytes, then actual receipt validation
+rejects it while canonical execution remains accepted. Independent focused
+review repeated both native tests, Bash syntax and ShellCheck successfully,
+with no material finding. Full source verification is running; actual GNOME VM
+acceptance remains untested for this correction. The first root source invocation
+used umask077 and failed three existing GDM helper mode checks (0700 vs0755);
+this was a diagnostic invocation error, not a product regression. Failed log
+SHA-256 `d742201d695d3896697a37d006ab072d647e63224204519850b644cd7029998f`.
+The stable source suite passed with normal umask022 (`bash tests/source-tests.sh`),
+log SHA-256 `755d75a75eee74b69280c295874019c4c65974013d357de28920a0435f4d04b2`;
+full10/signing14+18/deferrednone repository fixtures and final ShellCheck passed.
+These fixtures do not establish production or GUI acceptance;
+version1.0.7 UNPUBLISHED. Local checkpoint
+edits are outside431832a/a9831fa/a6887ee's trees; no old receipt transfers.
 
 At 2026-10-10T14:00 UTC, bounded official AUR and Arch-maintained mirror probes
 again returned matching Plymouth and bibata-cursor-theme-bin HEADs as recorded
