@@ -25,9 +25,9 @@ parent sandbox. Claude Code's effective mode is the owner's existing user-level
 policy were not changed.
 
 CI runner mode: `self-hosted` (all 18 jobs already select the owner's Linux labels; runner
-`ubuntu-actions-arch-linux` was online). Owner blocker: `ci.yml` runs on every `pull_request`, so fork
-code can reach the self-hosted host after approval (`all_external_contributors`). This setup changes no
-workflow or runner; such fork runs are NOT_TESTED until the owner adds a trusted-event condition.
+`ubuntu-actions-arch-linux` was online). At the owner's request (2026-10-10), the `ci.yml` source job
+now runs only for push, dispatch or same-repository pull requests; fork PRs are skipped and
+NOT_TESTED. `tests/agent-contract-checks.py` rejects removing or weakening that condition.
 
 Checks (2026-10-10, policy v15):
 

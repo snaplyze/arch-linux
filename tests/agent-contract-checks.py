@@ -115,6 +115,12 @@ ARCH_CONTAINER = (
 RUNNER_MARKERS = (
     'CI=true GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=self-hosted',
 )
+TRUSTED_CI_EVENTS = (
+    "    if: >-\n"
+    "      github.event_name != 'pull_request' ||\n"
+    "      github.event.pull_request.head.repo.full_name == github.repository\n"
+    "    runs-on: [self-hosted, Linux, X64, ubuntu-actions, arch-linux]\n"
+)
 CANONICAL_SOURCE = '/opt/arch-linux-canonical'
 PROTECTED_WORKDIR = f'working-directory: {CANONICAL_SOURCE}'
 
@@ -189,6 +195,7 @@ def validate_runner(text: str, *, require_systempaths: bool = False) -> None:
 
 def validate_ci(text: str) -> None:
     validate_runner(text, require_systempaths=True)
+    demand(text.count(TRUSTED_CI_EVENTS) == 1, 'CI runs untrusted pull request code on the self-hosted runner')
     demand(text.count(UBUNTU_CONTAINER) == 1, 'CI pinned Ubuntu container differs')
     steps = (
         '      - name: Install check dependencies\n',
@@ -512,6 +519,12 @@ mutations = (
      package_readback_container,
      package_readback_container.replace('--security-opt systempaths=unconfined', ''), 1),
     ('CI runner selector', validate_ci, ci, RUNNER_SELECTOR, 'runs-on: ubuntu-24.04', 1),
+    ('CI untrusted pull request on self-hosted', validate_ci, ci,
+     "    if: >-\n      github.event_name != 'pull_request' ||\n"
+     "      github.event.pull_request.head.repo.full_name == github.repository\n", '', 1),
+    ('CI fork repository condition', validate_ci, ci,
+     'github.event.pull_request.head.repo.full_name == github.repository',
+     'github.event.pull_request.head.repo.fork == false || true', 1),
     ('CI namespace profile', validate_ci, ci, 'apparmor=arch-linux-ci', 'apparmor=docker-default', 1),
     ('CI host sysctl write', validate_ci, ci, 'set -euo pipefail',
      'set -euo pipefail\n          printf 0 >/proc/sys/kernel/apparmor_restrict_unprivileged_userns', 1),

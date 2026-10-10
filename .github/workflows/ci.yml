@@ -20,6 +20,10 @@ defaults:
 jobs:
   source:
     name: Source checks
+    # Fork and other untrusted pull request code must not reach the self-hosted runner.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, Linux, X64, ubuntu-actions, arch-linux]
     timeout-minutes: 30
     container:

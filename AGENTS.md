@@ -277,9 +277,9 @@ CLAUDE.md and uses the user-enabled `orchestration` plugin. Keep this file under
 project-document limit; move detail into the owning document instead. No other client settings.
 
 CI-раннеры: self-hosted. Jobs use the owner's Linux runner labels in
-[testing](docs/testing.md#local-runner-environment); route changes are owner decisions. Fork or other
-untrusted `pull_request` code must not run there; until the owner adds a trusted-event condition,
-such runs are NOT_TESTED and gated only by repository approval.
+[testing](docs/testing.md#local-runner-environment); route changes are owner decisions. CI runs
+`pull_request` code there only from this repository's own branches; fork PRs are skipped and remain
+NOT_TESTED until a maintainer checks them through a trusted branch.
 
 The owner authorized project-scoped noninteractive Full Access: public, nonsecret `.codex/config.toml`
 and `.codex/agents/`; Claude Code uses the owner's user-level mode, with no project permission file.
