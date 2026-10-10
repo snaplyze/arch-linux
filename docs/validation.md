@@ -3233,6 +3233,34 @@ a new clean candidate still requires its own full suite and downstream gates.
 Required GJS/private-bus test dependencies were added to the Ubuntu CI and Arch
 package-build source-check environments; `bash tests/static-checks.sh` passed.
 
+Clean local commit `fb00dba0f6b847ceb9e4ca49261567e092dc9241`, tree
+`5a9014644886f40e4e45cf83c05d801fb4bd85b9`, canonical SHA-256
+`7220e66c24a0546d2ddac19541a712b1722ae7813419db9a1548d7ee06c08835`,
+passed its separate full source suite exit0, including runtime174 and repository
+full10/signing14+18/no deferral; log SHA-256
+`fdc677c8cb5e3cc9837bc7db0fec4fbca042abd693353b4f049d4b650d55091c`.
+PR86 exact-head CI38057799588/job114229732392 failed four native cases after GJS
+became installed in the Ubuntu container: GTK4's typelib was absent, and the Gio
+lookup fixture assumed the host org.gnome.shell schema. This is a source-tool
+portability failure, not a GNOME repair verdict. Add explicit GTK4 introspection
+and GLib compiler dependencies, and compile the minimal settings schema inside
+owned fixtures. Native identity checks and exact favorite/desktop/Exec controls
+remain active; no skip or unknown-as-PASS fallback. The exact pinned Ubuntu image
+passed both native cases, service runner51, observer91 and private-D-Bus63 as
+nonroot with read-only source, 2 CPUs, 1 GiB and a fifteen-minute bound. A first
+diagnostic container stopped at an existing UID1000 before tests; the corrected
+run used that existing user and exited0. Independent focused review found no
+material issue. The follow-up full source command
+`PYTHONDONTWRITEBYTECODE=1 bash tests/source-tests.sh` exited0, including
+runtime174, all native fixtures and full repository10/signing14+18/deferrednone;
+log SHA-256 `94b06cbf9968ae85f5de040204235e05e080d4c6462e34dcadad3a3553f298ab`.
+Documentation/contract checks were repeated after these checkpoint edits.
+This is a working-source result; new exact-head CI is pending.
+
+At 2026-10-10T14:00 UTC, bounded official AUR and Arch-maintained mirror probes
+again returned matching Plymouth and bibata-cursor-theme-bin HEADs as recorded
+above. Availability checks remain advisory and do not promote any recipe update.
+
 At 2026-10-10T07:19 UTC, finite read-only `git ls-remote` checks against the
 official AUR succeeded for both Plymouth and Bibata. Availability is advisory:
 the observed HEADs do not authorize changing the reviewed recipe pins. The

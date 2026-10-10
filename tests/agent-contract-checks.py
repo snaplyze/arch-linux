@@ -200,7 +200,7 @@ def validate_ci(text: str) -> None:
     ordered(text, steps, 'CI')
     install_step = block(text, steps[0], steps[1])
     demand('sudo' not in install_step, 'CI container dependency step uses sudo')
-    for literal in ('dbus-daemon dconf-cli file git gjs gnupg libarchive-tools', 'python3 util-linux',
+    for literal in ('dbus-daemon dconf-cli file git gjs gnupg libarchive-tools', 'gir1.2-gtk-4.0 libglib2.0-bin', 'python3 util-linux',
                     'install -m0755 -o root -g root'):
         demand(literal in install_step, f'CI dependency contract differs: {literal}')
     prepare_step = block(text, steps[2], steps[3])

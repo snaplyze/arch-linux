@@ -655,15 +655,37 @@ run_extension_functional_acceptance upgrade
         body=function('emit_extension_probe_diagnostic')
         program=re.search(r"/usr/bin/gjs -c '\n(.*?)\n' ",body,re.S).group(1)
         identity='org.archlinux.QemuExtensionProbe.upgrade.desktop'
-        for present, executable, expected in ((True,'/usr/bin/gjs','yes'),(False,'/usr/bin/gjs','no'),(True,'/usr/bin/false','yes')):
-            with self.subTest(present=present, executable=executable), tempfile.TemporaryDirectory() as directory:
+        cases = ((True, '/usr/bin/gjs', [], 'no'),
+                 (True, '/usr/bin/gjs', [identity], 'yes'),
+                 (True, '/usr/bin/gjs', ['org.archlinux.Other.desktop', identity], 'no'),
+                 (False, '/usr/bin/gjs', [], 'no'),
+                 (True, '/usr/bin/false', [], 'no'))
+        for present, executable, favorites, favorite_first in cases:
+            with self.subTest(present=present, executable=executable, favorites=favorites), tempfile.TemporaryDirectory() as directory:
                 root=Path(directory);applications=root/'applications';applications.mkdir()
                 path=applications/identity
                 if present: path.write_text('[Desktop Entry]\nType=Application\nName=Synthetic test\nExec='+executable+' -m /controlled/probe.js\nTerminal=false\n')
-                env={'PATH':os.environ.get('PATH','/usr/bin'),'HOME':directory,'LANG':'C.UTF-8','XDG_DATA_HOME':directory,'XDG_CONFIG_HOME':directory,'XDG_CACHE_HOME':directory,'GSETTINGS_BACKEND':'memory'}
+                # Compile the actual Settings schema in owned storage: Ubuntu need
+                # not install GNOME Shell for this read-only native Gio check.
+                schemas=root/'schemas';schemas.mkdir()
+                (schemas/'org.gnome.shell.gschema.xml').write_text(
+                    '<schemalist><schema id="org.gnome.shell" path="/org/gnome/shell/">'
+                    '<key name="favorite-apps" type="as"><default>' + repr(favorites) +
+                    '</default></key></schema></schemalist>')
+                compiled=subprocess.run(['glib-compile-schemas','--strict',str(schemas)],
+                                        capture_output=True,text=True,timeout=10)
+                self.assertEqual(compiled.returncode,0,compiled.stderr)
+                before={item.relative_to(root):item.read_bytes() for item in root.rglob('*') if item.is_file()}
+                env={'PATH':os.environ.get('PATH','/usr/bin'),'HOME':directory,'LANG':'C.UTF-8',
+                     'XDG_DATA_HOME':directory,'XDG_DATA_DIRS':directory,'XDG_CONFIG_HOME':directory,
+                     'XDG_CACHE_HOME':directory,'GSETTINGS_BACKEND':'memory','GSETTINGS_SCHEMA_DIR':str(schemas),
+                     'DBUS_SESSION_BUS_ADDRESS':'unix:path='+str(root/'absent-session-bus')}
                 result=subprocess.run(['gjs','-c',program,identity,str(path)],env=env,capture_output=True,text=True,timeout=10)
                 self.assertEqual(result.returncode,0,result.stderr)
-                self.assertEqual(result.stdout.strip(),'desktop_gio='+expected+' desktop_exec='+('yes' if present and executable=='/usr/bin/gjs' else 'no')+' favorite_first=no')
+                self.assertEqual(result.stdout.strip(),'desktop_gio='+('yes' if present else 'no')+
+                                 ' desktop_exec='+('yes' if present and executable=='/usr/bin/gjs' else 'no')+
+                                 ' favorite_first='+favorite_first)
+                self.assertEqual({item.relative_to(root):item.read_bytes() for item in root.rglob('*') if item.is_file()},before)
                 self.assertNotIn(directory,result.stdout)
                 self.assertNotIn('Synthetic',result.stdout)
 

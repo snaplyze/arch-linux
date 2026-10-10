@@ -109,7 +109,7 @@ import sys
 expected = {
     "packages.yml": (
         "bash", "coreutils", "curl", "dbus", "dconf", "git", "gjs", "glib2", "glib2-devel", "gnupg",
-        "gsettings-desktop-schemas", "jq", "libarchive", "python", "sassc", "shellcheck",
+        "gsettings-desktop-schemas", "gtk4", "jq", "libarchive", "python", "sassc", "shellcheck",
         "unzip", "zstd",
     ),
     "maintenance.yml": (

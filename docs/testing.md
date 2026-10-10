@@ -73,6 +73,9 @@ The package-migration checks require `vercmp`. On Ubuntu 24.04 it is supplied by
 `makepkg`; the CI dependency setup installs that package explicitly. GJS and a
 private D-Bus daemon are also required for the observer/controller and isolated
 StatusNotifier/SessionManager checks; they do not access the host desktop bus.
+Native GTK-probe identity checks require GTK4 introspection, while Gio desktop
+lookup fixtures compile their own minimal Shell settings schema with GLib tools.
+They must not depend on the host GNOME schema or installed desktop preferences.
 
 It executes:
 

@@ -273,6 +273,24 @@ exit0, runtime174/full namespace10/signer14+18/no deferral; retained log SHA-256
 `883f5d5f11b6faee5b35480c0665e9d48aed96988bed8a47d8d5f793ab843dbf`.
 Subsequent bounded phase/document edits have fresh focused checks; the clean
 commit requires a fresh full suite before PR/main/new build/signing/all9VM/public gates.
+Clean local commit `fb00dba0f6b847ceb9e4ca49261567e092dc9241`, tree
+`5a9014644886f40e4e45cf83c05d801fb4bd85b9`, canonical SHA-256
+`7220e66c24a0546d2ddac19541a712b1722ae7813419db9a1548d7ee06c08835`,
+passed the full source suite exit0; log SHA-256
+`fdc677c8cb5e3cc9837bc7db0fec4fbca042abd693353b4f049d4b650d55091c`.
+[PR86](https://github.com/snaplyze/arch-linux/pull/86) was published through the
+existing same-checkout branch exception. Exact-head CI38057799588 failed four
+newly enabled native GJS cases in Ubuntu: missing GTK4 typelib and missing
+org.gnome.shell schema, while the Arch host passed. The fixture now compiles its
+own minimal schema; GTK4/GLib tool dependencies are explicit in both source-check
+environments. Bounded nonroot checks in the exact pinned Ubuntu CI image passed
+both repaired native cases and the native service runner51, observer91 and
+private-D-Bus63 cases. Independent read-only review found no material issue.
+The follow-up full source suite exited0, including runtime174 and full repository
+10/signing14+18/deferrednone; log SHA-256
+`94b06cbf9968ae85f5de040204235e05e080d4c6462e34dcadad3a3553f298ab`.
+Documentation/contract checks were repeated after checkpoint edits. Exact-head CI
+remains required before merge; the clean fb00 source result remains historical.
 At 12:19–12:23 UTC, read-only diagnostics through the existing strictly trusted
 runner SSH endpoint and identity-bound inner QGA observed pacman completing,
 followed by disposable unprivileged makepkg/fakeroot/archive compression.

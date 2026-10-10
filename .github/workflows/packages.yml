@@ -87,7 +87,7 @@ jobs:
           pacman-key --populate archlinux
           pacman -Sy --noconfirm --needed archlinux-keyring
           pacman -Syu --noconfirm --needed \
-            bash coreutils curl dbus dconf git gjs glib2 glib2-devel gnupg gsettings-desktop-schemas jq libarchive \
+            bash coreutils curl dbus dconf git gjs glib2 glib2-devel gnupg gsettings-desktop-schemas gtk4 jq libarchive \
             python sassc shellcheck unzip zstd
 
       - name: Check out source
