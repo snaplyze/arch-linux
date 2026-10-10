@@ -462,7 +462,6 @@ executable_sources=(
     repository/verify-unsigned-build.sh
     repository/lib/common.sh
     tests/vm/run.sh
-    tests/vm/frame-evidence.py
     tests/vm/qga-client.py
     tests/vm/https-server.py
     tests/vm/prepare-marble-repository.sh
@@ -473,6 +472,18 @@ executable_sources=(
 )
 for relative in "${executable_sources[@]}"; do
     /usr/bin/install -D -m0755 -o 0 -g 0 -- "$repo_root/$relative" "$fixture_source/$relative"
+done
+nonexecutable_sources=(
+    tests/vm/frame-evidence.py
+    tests/vm/guest/desktop-native.sh
+    tests/vm/guest/desktop-receipt.py
+    tests/vm/guest/desktop-extension-observer.js
+    tests/vm/guest/desktop-shell-probe.js
+    tests/vm/guest/desktop-service-probe.js
+    tests/vm/guest/desktop-service-runner.js
+)
+for relative in "${nonexecutable_sources[@]}"; do
+    /usr/bin/install -D -m0644 -o 0 -g 0 -- "$repo_root/$relative" "$fixture_source/$relative"
 done
 /usr/bin/install -D -m0644 -o 0 -g 0 -- "$repo_root/repository/offline-signing-launcher.c" \
     "$fixture_source/repository/offline-signing-launcher.c"
@@ -1153,6 +1164,7 @@ for index, (scenario, prefix, serial_code) in enumerate(scenarios, 1):
     ).encode()
     if prefix == 'marble':
         log += b'GNOME51_UPGRADE_BASELINE_PASS synthetic_unit_fixture=1\nGNOME51_UPGRADE_RECOVERY_PASS synthetic_unit_fixture=1\n'
+    if prefix in ('luksgrub', 'marble'):
         log += upgrade_fixture.functional_log(source, run_id)
     write(evidence / 'scenario.log.gz', gzip.compress(log, mtime=0))
     write(evidence / 'final-qemu-img-check.txt', b'No errors were found on the image.\n')

@@ -28,11 +28,13 @@ NAMESPACES = ROOT / "repository/prepare-actions-namespaces.sh"
 
 
 class AdapterChecks(unittest.TestCase):
-    def test_publication_fixture_consumes_actual_sealer_required_closure(self) -> None:
+    def build_publication_fixture(self, temporary):
         source = (ROOT / "tests/publication-root-check.sh").read_text()
         fragment = 'fixture_source="$work/fixture-source"\n' + source.split(
             'fixture_source="$work/fixture-source"\n', 1)[1].split(
             'PYTHONDONTWRITEBYTECODE=1 PACKAGE_FIXTURE_OUTPUT_DIR=', 1)[0]
+        baseline_start = source.index('/usr/bin/install -D -m0644 -o 0 -g 0 -- "$repo_root/tests/vm/gnome51-upgrade-baseline.json"')
+        fragment += source[baseline_start:source.index('gnome51_baseline_manifest=', baseline_start)]
         # Exercise the fixture's actual installers and verifier wrapper, without host-root
         # ownership changes. Everything written is inside this disposable test fixture.
         fragment = fragment.replace("/usr/bin/install", "fixture_install")
@@ -50,12 +52,16 @@ fixture_install() {
     /usr/bin/install "${args[@]}"
 }
 '''
+        completed = subprocess.run(["bash", "-c", setup + fragment,
+                                    "publication-closure-fixture", temporary, str(ROOT)],
+                                   capture_output=True, timeout=10, check=False)
+        self.assertEqual(completed.returncode, 0, completed.stderr.decode())
+        fixture = Path(temporary) / "fixture-source"
+        return fixture
+
+    def test_publication_fixture_consumes_actual_sealer_required_closure(self) -> None:
         with tempfile.TemporaryDirectory(prefix="publication-source-closure-") as temporary:
-            completed = subprocess.run(["bash", "-c", setup + fragment,
-                                        "publication-closure-fixture", temporary, str(ROOT)],
-                                       capture_output=True, timeout=10, check=False)
-            self.assertEqual(completed.returncode, 0, completed.stderr.decode())
-            fixture = Path(temporary) / "fixture-source"
+            fixture = self.build_publication_fixture(temporary)
             files = {str(path.relative_to(fixture)) for path in fixture.rglob("*") if path.is_file()}
             sealer = ROOT / "repository/seal-offline-signing-code.py"
             tree = ast.parse(sealer.read_text(), filename=str(sealer))
@@ -126,6 +132,53 @@ fixture_install() {
             execute.assert_called_once_with("/usr/bin/python3",
                                             ["/usr/bin/python3", "-I", str(canonical), *arguments])
 
+
+    def test_publication_fixture_native_receipts_match_immutable_consumer(self) -> None:
+        source = (ROOT / 'tests/publication-root-check.sh').read_text()
+        # Execute the actual receipt/runtime builder, stopping before signed results.
+        start = source.index("    marker = {'minimal': 'MINIMAL'")
+        fragment = source[start:source.index('    assertion_rows = []', start)]
+        start = source.index("    write(run / 'qemu-version.txt'")
+        fragment += source[start:source.index('    retained_counter = ', start)]
+        import textwrap
+        code = compile(textwrap.dedent(fragment), 'publication-runtime-fixture', 'exec')
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory(prefix='publication-native-closure-') as temporary:
+            fixture = self.build_publication_fixture(temporary)
+            upgrade = runpy.run_path(str(fixture / 'tests/gnome51-evidence-fixture.py'))
+            consumer = runpy.run_path(str(fixture / 'repository/acceptance-manifest.py'))
+            for index, scenario in enumerate(consumer['SCENARIOS'][1:], 1):
+                with self.subTest(scenario=scenario):
+                    prefix = consumer['PREFIXES'][scenario]
+                    run_id = f'{prefix}-20261010T010203Z-{index:08x}'
+                    run = Path(temporary) / 'evidence-fixtures' / scenario
+                    records = {}
+                    def write(path, raw): records[path.relative_to(run).as_posix()] = raw
+                    namespace = dict(source=fixture, prefix=prefix, scenario=scenario, run_id=run_id,
+                                     run=run, evidence=run / 'evidence', write=write,
+                                     digest=lambda raw: hashlib.sha256(raw).hexdigest(), gzip=gzip,
+                                     am=SimpleNamespace(**consumer), upgrade_fixture=SimpleNamespace(**upgrade))
+                    exec(code, namespace)
+                    result = {'harnessSha256': consumer['sha256_bytes'](records['harness.sha256'])}
+                    def read(name, limit):
+                        value = records[name]
+                        self.assertLessEqual(len(value), limit)
+                        return value
+                    consumer['validate_runtime_markers'](read, result, scenario, run_id)
+                    log = gzip.decompress(records['evidence/scenario.log.gz'])
+                    self.assertIn(b'synthetic_unit_fixture=1', log)
+                    original = records['evidence/scenario.log.gz']
+                    receipts = [line for line in log.splitlines(keepends=True)
+                                if line.startswith(b'EXTENSION_FUNCTIONAL_PASS')]
+                    for receipt in receipts:
+                        records['evidence/scenario.log.gz'] = gzip.compress(log.replace(receipt, b''), mtime=0)
+                        with self.assertRaises(consumer['ManifestError']):
+                            consumer['validate_runtime_markers'](read, result, scenario, run_id)
+                    records['evidence/scenario.log.gz'] = original
+                    for name in consumer['HARNESS_FILES']:
+                        self.assertEqual((fixture / name).read_bytes(), (ROOT / name).read_bytes())
+                        self.assertEqual((fixture / name).stat().st_mode & 0o777,
+                                         (ROOT / name).stat().st_mode & 0o777)
 
     def test_publication_agent_watcher_skips_processes_that_disappear_during_read(self) -> None:
         source = (ROOT / "tests/publication-root-check.sh").read_text()

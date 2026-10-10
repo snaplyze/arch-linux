@@ -3255,7 +3255,65 @@ material issue. The follow-up full source command
 runtime174, all native fixtures and full repository10/signing14+18/deferrednone;
 log SHA-256 `94b06cbf9968ae85f5de040204235e05e080d4c6462e34dcadad3a3553f298ab`.
 Documentation/contract checks were repeated after these checkpoint edits.
-This is a working-source result; new exact-head CI is pending.
+This is a working-source result. Exact-head
+[CI38058719339](https://github.com/snaplyze/arch-linux/actions/runs/38058719339)
+passed at `a5f2d9b7974baf1d7d35b9112ccee983913b6976`; log SHA-256
+`b64dc5e52fce874d3a3f06f93d35562f2e84ebd42a6860954e91a009ecc1f814`.
+PR86 squash merged at 2026-10-10T14:18:05Z to main
+`c9ea0399ecba37bd8d0e19557a5eac3111f07683`, unchanged tree
+`473fa7c451aa1af186cfd1a8e912d6c50630c3d7`. The canonical checkout returned by
+fast-forward with no foreign changes. Main CI38059060706 passed; its log SHA-256
+is `394cedda97f2c894c35163183ae1390c592fada509c6b49e038c2bce7a8700e1`.
+The configured release [38059360429](https://github.com/snaplyze/arch-linux/actions/runs/38059360429)
+prepared version1.0.7, child `43410ed884fdfe7b0b2914caa8d76f4f63b2c64d`, tree
+`8930e7104f960b0671bcc0c7c6f809d17d4fe128`, canonical SHA-256
+`6417993bda74e0ea0b1530f7979941dac4f609b4384222ba76c0a113325f9d20`.
+Source artifact11671724685 transport SHA-256
+`34f1a0d25227fe7a425ec90fa1e7f037853722d99a06e225804e3c06cc1a145f`, bundle SHA-256
+`cb1a8727ebcc3fbf54958a16d9a568a3029b347d47399e22032187d680654500`.
+Root independently verified transport/bundle, deterministic origin/child identity,
+canonical bytes and frozen README/install1.0.7 commands without changing refs,
+index or source. Independent read-only review verified the bundle pack/child raw
+commit and all224 mode-and-byte blob identities, exact20 deterministic child
+changes, unchanged16-file harness and frozen release prose with no material
+finding. Build job114234331701 passed its full child source suite and clean
+seven-package build; retained log SHA-256
+`d505280ccfa5f2a9ddf587a26ca08b393098778666a5fbcbffd6ba52867c80c8`.
+Root unsigned readback passed artifact11672168224, ZIP SHA-256
+`fc848465d271b6c7c3d181d8437d79570a40626ab327c3f039b27045ce201c55`,
+build metadata SHA-256 `16934e823afdc707d8366e3be5bc3c84e171d6aacd10ab33007e8b237a1630d7`,
+unsigned manifest SHA-256 `a265d5f47caa01684151f0408072ba4655417d0a16ed6692885fce248d1768f3`.
+All seven metadata/payload/mtree inputs matched 64 immutable source blobs,
+42193 mtree rows; refs/index and dirty documents were preserved. CI readback and
+root gates/signing/all9VM/final18/public gates were pending at build readback; no old
+VM result transfers to this main or its child, and 1.0.7 remains unpublished.
+
+Release38059360429 then terminated FAIL at root gate job114235618936 before
+production signing/private-secret handoff. Both repository runs reached full10/
+signer14+18/deferrednone; root publication's own synthetic snapshot passed, then
+its harness read failed because fixture-source omitted desktop-native.sh and the
+other new native harness files. Log SHA-256
+`65c0292a7f55ceae31e7de1e1dc38346ae36ea681120553b4ed16de4f8b31c0a`.
+The source gate's fixture lacked this accepted harness closure despite ordinary
+source tests passing. Root fixture also requires Stock functional receipts.
+Keyring gates, production Phase-A, all9VM, tag/draft/final18/Pages/publication and
+public VM were skipped. No tag or public asset was written; latest stays1.0.6.
+The focused correction must pass its regression and all actual root gates before
+another immutable child; these source/build results remain bound to43410ed8.
+The focused regression reproduced the missing native source through the actual
+publication fixture constructor. The correction includes six native files at0644
+and preserves frame-evidence.py's0644 source mode. Both Stock and Marble use the
+synthetic functional-log producer. A source regression executes actual fixture
+runtime construction against its immutable consumer, checks all16 mode/byte
+inputs and rejects removal of each required receipt. Signing14 tests passed with
+two existing root-only skips; Bash/ShellCheck/diff passed. Independent read-only
+review found no material issue; its two targeted actual-builder tests passed.
+Follow-up `PYTHONDONTWRITEBYTECODE=1 bash tests/source-tests.sh` exited0,
+including full repository10/signing14+18/deferrednone; log SHA-256
+`16170c3c108db6b32395fcb44a77cf315dccbc5fceeb8c5ae3359acf6e254391`.
+Docs/diff were checked again after checkpoint edits. This working-source result
+does not establish actual five-root acceptance, which remains required before
+another ready PR and immutable release child.
 
 At 2026-10-10T14:00 UTC, bounded official AUR and Arch-maintained mirror probes
 again returned matching Plymouth and bibata-cursor-theme-bin HEADs as recorded
