@@ -13,10 +13,10 @@ publication. Exact historical attempts and evidence belong in
 | ID | Work and acceptance | Status |
 | --- | --- | --- |
 | G51-01 | Diagnose installed package/session state and upstream compatibility; bind findings to versions and authoritative sources. | DONE |
-| G51-02 | Prepare reviewed package/extension upgrade paths, preserve user overrides and safe unsupported-version handling; reproduce failures before fixes and test recovery. | PR83/84 delivered; 2e548490 source/build PASS, cancelled before signing for immutable-documentation correction; prior 912cfae4 Minimal14 PASS historical; complete pre-freeze doc inventory/source PASS; fresh GNOME/public acceptance pending |
+| G51-02 | Prepare reviewed package/extension upgrade paths, preserve user overrides and safe unsupported-version handling; reproduce failures before fixes and test recovery. | PR83–85 delivered; daec8e9f source/build/signed14/Minimal14/Stock22 independent readback PASS; Core Marble fresh-user-login FAIL; release cancelled; expanded functional acceptance and new candidate pending |
 | G51-03 | Correct deterministic release documentation rendering; test independently differing source/document/release versions and preserve historical evidence. | DONE: overview/bootstrap/changelog rendering and 52 regressions PASS |
 | G51-04 | Update agent, update/release and user documentation with package delivery and real upgrade acceptance requirements. | Candidate instructions delivered; final publication reconciliation pending |
-| G51-05 | Independent diff review, affected checks and full source suite; record package, real session/VM and publication results separately. | HTTP correction, Shell observer regressions, source/review/protected delivery and fresh signed build PASS; new VM/publication acceptance pending; previous failed/cancelled results retained |
+| G51-05 | Independent diff review, affected checks and full source suite; record package, real session/VM and publication results separately. | Source/build/Minimal14/Stock22 PASS; independent audit found remaining per-extension functional coverage gaps; additional acceptance implementation and fresh VM/publication required |
 
 ### Confirmed cause and delivery design
 
@@ -231,7 +231,56 @@ of all twenty-nine Markdown files found no further mutable release-status defect
 Root source suite passed (runtime173/full namespace10/signer14+18/no deferral);
 retained log SHA-256 `9e37d3f0ee1df623c160175ad65ad8ada93eabbc92bcd9d666b246942cad22c7`.
 Only evidence prose followed; documentation and diff checks are repeated.
-Corrected protected delivery and fresh package/VM/public acceptance remain required.
+[PR85](https://github.com/snaplyze/arch-linux/pull/85) exact-head CI38045178691
+passed; protected squash merge completed at 10:35:25 UTC. The sole checkout
+returned by fast-forward to main `09e30447552bde29b748d508f675a95ef03670ee`
+with root evidence notes unchanged and the index clear. Main CI38045432264
+passed; configured release38045648678 prepared child `daec8e9f22ab64c0364c28f07799468c2ab7f142`.
+Independent source readback/deterministic transform/generated1.0.7 pins/historical
+heading, clean seven-package build/protected and independent unsigned readback PASS.
+Snapshot/job114195626252/all five release-host gates/signing and independent
+Phase-A14 readback PASS. Core Minimal/job114196260752 and independent frozen strict consumer14 PASS.
+Core Stock Btrfs/LUKS2/GRUB/job114196260700 passed at 12:34:30 UTC; independent
+artifact11670495311 and frozen strict consumer passed all22 assertions, including
+real password login/unlock, full Syu, reboot/second login and clean shutdown/image.
+Core Marble/job114196260751 failed at 13:37:35 UTC in fresh-user-login.
+Run38045648678 was normally cancelled before finalization/publication; six
+remaining staged scenarios have no accepted result. Frozen failure artifact
+11671741833 independently bound four earlier PASS assertions and exit1.
+Remaining migration/functionality/VM/final18/public acceptance required.
+Independent bounded review found that current functional receipts cover Dash,
+Clipboard and No Screenshot Box only, on Marble upgrade/postreboot. AppIndicator,
+Blur, Caffeine, Just Perfection and User Themes have enabled/configuration checks;
+Stock has no equivalent functional round. This leaves the literal desktop update
+acceptance open. Add source-bound native effect/property observations through
+normal interactive Looking Glass (never remote Shell.Eval or unsafe mode), public
+StatusNotifier/SessionManager behavior probes and exact setting restoration;
+reuse the functional rounds for Stock. Existing core results remain scoped and
+historical. The Marble FAIL is retained and the attempt is terminal CANCELLED before
+finalization. New acceptance source requires a new frozen candidate.
+Working source now covers seven Stock and eight Marble features in both real
+session rounds, with exact 16-file harness, Stock36/Marble43 assertion closures.
+Local functional8/input5, fake-native observer91, private-bus63, service runner51
+and restoration/custody30 checks passed; none establishes actual GNOME behavior.
+Independent review reproduced silent malformed-snapshot restoration and a missing
+original-native-state binding; both fixed with complete scoped snapshots, exact
+raw dconf readback and restored native receipts. Boot identity is included in
+process custody. Root-owned code closures prevent user-directory source swaps.
+The reproduced owned-state cleanup pathname race now uses retained directory
+handles and verifies pathname identity; independent review and the actual
+foreign-file preservation regression passed. Root `PYTHONDONTWRITEBYTECODE=1 bash tests/source-tests.sh` completed
+exit0, runtime174/full namespace10/signer14+18/no deferral; retained log SHA-256
+`883f5d5f11b6faee5b35480c0665e9d48aed96988bed8a47d8d5f793ab843dbf`.
+Subsequent bounded phase/document edits have fresh focused checks; the clean
+commit requires a fresh full suite before PR/main/new build/signing/all9VM/public gates.
+At 12:19–12:23 UTC, read-only diagnostics through the existing strictly trusted
+runner SSH endpoint and identity-bound inner QGA observed pacman completing,
+followed by disposable unprivileged makepkg/fakeroot/archive compression.
+The earlier pacman child zombies disappeared. The installer subsequently exited
+zero and the harness recorded the accepted ISO/exact installer assertions.
+Firstboot, real GDM password login and same-session password unlock subsequently
+passed, then full Syu/reboot and the final22-assertion verdict passed. The
+historical unlock cause is still unproved.
 Next: obtain new VM
 evidence before any unproven input
 or desktop behavior correction. The obsolete

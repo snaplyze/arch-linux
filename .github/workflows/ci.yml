@@ -31,7 +31,7 @@ jobs:
           set -euo pipefail
           apt-get update
           apt-get install --yes --no-install-recommends \
-            build-essential ca-certificates curl dconf-cli file git gnupg libarchive-tools \
+            build-essential ca-certificates curl dbus-daemon dconf-cli file git gjs gnupg libarchive-tools \
             python3 util-linux xz-utils zstd jq makepkg
           command -v vercmp >/dev/null
           shellcheck_version=0.11.0

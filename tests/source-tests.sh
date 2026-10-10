@@ -20,6 +20,13 @@ python3 tests/retained-multilib-checks.py
 bash tests/vm/harness-checks.sh
 python3 tests/vm/runtime-checks.py
 python3 tests/vm/gnome51-input-checks.py
+python3 tests/vm/desktop-functional-checks.py
+python3 tests/vm/desktop-input-checks.py
+python3 tests/vm/desktop-receipt-checks.py
+timeout 60 gjs -m tests/vm/desktop-extension-observer-checks.js
+timeout 60 env GIO_USE_VFS=local gjs -m tests/vm/desktop-service-runner-checks.js
+timeout 60 env GIO_USE_VFS=local DESKTOP_SERVICE_PROBE_PRIVATE_BUS=1 \
+    dbus-run-session -- gjs -m tests/vm/desktop-service-probe-checks.js
 python3 tests/extension-evidence-checks.py
 python3 tests/release-source-checks.py
 python3 tests/actions-release-checks.py

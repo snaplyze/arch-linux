@@ -539,6 +539,10 @@ emit_marble_action_pass(){ printf 'PASS:%s\n' "$1"; }
 qga_verify(){
   printf 'OBSERVE:%s\n' "$1"
   [ "$1" != "$fail" ] || return 1
+  if [[ "$1" = *-native-prepare ]]; then
+    probe_round=${1#extension-}; probe_round=${probe_round%-native-prepare}
+    printf 'DESKTOP_PROBE_IDENTITY uid=1000 round=%s\n' "$probe_round" >"$evidence/$2.stdout"
+  fi
   if [[ "$1" = *-dash ]]; then printf 'EXTENSION_PROBE_DISPLAY width=1280 height=800 scale=1\n' >"$evidence/$2.stdout"; fi
 }
 qmp_extension_input(){ printf 'INPUT:%s\n' "$1"; }
@@ -549,14 +553,27 @@ run_extension_functional_acceptance upgrade
 ''')
             for failure in ['', 'extension-upgrade-dash', 'extension-upgrade-history-a', 'extension-upgrade-pasted-b',
                             'extension-upgrade-control-no-capture', 'extension-upgrade-control-captured',
-                            'extension-upgrade-positive-captured', 'extension-upgrade-cleanup']:
+                            'extension-upgrade-positive-captured', 'extension-upgrade-cleanup',
+                            'extension-upgrade-native-prepare', 'extension-upgrade-native-ready',
+                            'extension-upgrade-native-indicator-register', 'extension-upgrade-native-indicator-remove',
+                            'extension-upgrade-native-caffeine-baseline', 'extension-upgrade-native-caffeine-on',
+                            'extension-upgrade-native-caffeine-off', 'extension-upgrade-native-blur-enable',
+                            'extension-upgrade-native-blur-on', 'extension-upgrade-native-blur-disable',
+                            'extension-upgrade-native-blur-off', 'extension-upgrade-native-panel-shown',
+                            'extension-upgrade-native-panel-hidden', 'extension-upgrade-native-panel-overview-prepare',
+                            'extension-upgrade-native-panel-overview-only',
+                            'extension-upgrade-native-panel-restore', 'extension-upgrade-native-theme-stock',
+                            'extension-upgrade-native-theme-marble', 'extension-upgrade-native-cleanup']:
                 result = subprocess.run(['bash', '-c', script, 'fixture', directory, failure],
                                         capture_output=True, text=True, timeout=5)
                 self.assertEqual(result.returncode == 0, failure == '', result.stderr)
                 assertions = [line for line in result.stdout.splitlines() if line.startswith('ASSERT:')]
                 self.assertEqual(assertions, [] if failure else [
                     'ASSERT:clipboard-history-copy-paste', 'ASSERT:dash-extension-app-activation',
-                    'ASSERT:no-screenshot-box-capture-on-release'])
+                    'ASSERT:no-screenshot-box-capture-on-release',
+                    'ASSERT:appindicator-synthetic-item-lifecycle', 'ASSERT:caffeine-keyboard-inhibition-cycle',
+                    'ASSERT:blur-overview-native-effects', 'ASSERT:just-perfection-panel-control',
+                    'ASSERT:user-theme-native-stylesheet-switch'])
                 if not failure:
                     self.assertLess(result.stdout.index('INPUT:next'), result.stdout.index('OBSERVE:extension-upgrade-history-a'))
                     self.assertLess(result.stdout.index('INPUT:previous'), result.stdout.index('OBSERVE:extension-upgrade-history-b'))
@@ -964,7 +981,7 @@ gnome51_download_inputs https://fixture.invalid
             root = Path(directory); (root / 'guest').mkdir(); (root / 'guest/verify.sh').write_text('exit 0\n')
             contract = b'{"schema":1}\n'; encoded = base64.b64encode(contract).decode()
             script = ('set -euo pipefail\n' + '\n'.join(name + '=fixture' for name in sorted(set(variables))) +
-                      '\nscript_dir="$1"\nprobe_contract=\nprobe_hash=-\nupgrade_contract=' + encoded + '\ngnome51_upgrade_manifest_sha256=' +
+                      '\nscript_dir="$1"\nprobe_contract=\nprobe_hash=-\ndesktop_contract=\nupgrade_contract=' + encoded + '\ngnome51_upgrade_manifest_sha256=' +
                       hashlib.sha256(contract).hexdigest() + '\n' + request_code + '\nprintf %s "$request"')
             result = subprocess.run(['bash', '-c', script, 'fixture', directory], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -2680,6 +2697,42 @@ sleep(){ if [ "$fixture_case" != delayed ]; then SECONDS=$((SECONDS+181)); fi; }
                 result = subprocess.run(["bash", "-c", script, "login-guard-fixture", temporary], capture_output=True, text=True, timeout=5)
                 self.assertEqual(result.returncode, status)
                 self.assertEqual("PASSWORD_SENT" in result.stdout, status == 0)
+
+    def test_named_gdm_login_waits_for_stable_new_worker_before_password(self):
+        host = (ROOT / "tests/vm/run.sh").read_text()
+        body = re.search(r"^marble_named_gdm_login\(\) \{\n.*?^\}", host, re.M | re.S).group(0)
+        for outcome in ('ready', 'pending', 'changed', 'baseline-fail'):
+            with self.subTest(outcome=outcome), tempfile.TemporaryDirectory() as temporary:
+                script = r"""
+set -euo pipefail
+evidence=$1; outcome=$2; checks=0; username_sent=no
+sleep(){ :; }
+capture_screen(){ :; }
+hmp_request(){ [ "$1:$2" = type:marblefresh ]; username_sent=yes; printf 'USERNAME_SENT\n'; }
+hmp_type_password(){ printf 'PASSWORD_SENT\n'; }
+die(){ printf 'FAIL\n' >&2; return 1; }
+qga_verify(){
+    if [ "$1" = gdm-activation-baseline ]; then
+        [ "$outcome" != baseline-fail ] || return 1
+        last_boot_id=boot; last_gdm_daemon_identity=10.100; last_gdm_greeter_session=c1
+        last_gdm_worker_ids=none
+    elif [ "$1" = gdm-activation-check ]; then
+        [ "$username_sent" = yes ]; checks=$((checks+1)); printf 'CHECK %s\n' "$checks"
+        last_gdm_activation_status=pending; last_gdm_new_worker_identity=none
+        if [ "$outcome" != pending ] && [ "$checks" -ge 2 ]; then
+            last_gdm_activation_status=started; last_gdm_new_worker_identity=20.200
+            if [ "$outcome" = changed ] && [ "$checks" -ge 3 ]; then last_gdm_new_worker_identity=21.201; fi
+        fi
+    else printf 'LOGIN_CHECK\n'; fi
+}
+"""
+                result = subprocess.run(['bash', '-c', script + body + '\nmarble_named_gdm_login fresh-user-login fresh-user marblefresh\n',
+                                         'named-guard', temporary, outcome], capture_output=True, text=True, timeout=5)
+                self.assertEqual('PASSWORD_SENT' in result.stdout, outcome == 'ready', result.stdout)
+                self.assertEqual(result.returncode == 0, outcome == 'ready', result.stderr)
+                if outcome == 'ready':
+                    self.assertLess(result.stdout.index('CHECK 3'), result.stdout.index('PASSWORD_SENT'))
+                    self.assertEqual(result.stdout.count('USERNAME_SENT'), 1)
 
     def test_gdm_activation_evidence_is_exact_and_unambiguous(self):
         host = (ROOT / "tests/vm/run.sh").read_text()

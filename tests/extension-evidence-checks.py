@@ -12,20 +12,25 @@ AM = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(AM)
 RUN = 'marble-20261009T010203Z-12345678'
 PROBE = 'a' * 64
+FEATURES = ('clipboard', 'dash', 'screenshot', 'appindicator', 'caffeine',
+            'blur', 'just-perfection', 'user-theme')
+PROBES = {feature: (PROBE if feature in FEATURES[:3] else
+                   'b' * 64 if feature in ('appindicator', 'caffeine') else 'c' * 64)
+          for feature in FEATURES}
 
 
 def receipt(phase, feature, session='c2'):
     return (f'EXTENSION_FUNCTIONAL_PASS phase={phase} feature={feature} run_id={RUN} '
-            f'session={session} probe_sha256={PROBE} synthetic_unit_fixture=1\n')
+            f'session={session} probe_sha256={PROBES[feature]} synthetic_unit_fixture=1\n')
 
 
 class EvidenceChecks(unittest.TestCase):
     def setUp(self):
         self.rows = [receipt(phase, feature) for phase in ('upgrade', 'postreboot')
-                     for feature in ('clipboard', 'dash', 'screenshot')]
+                     for feature in FEATURES]
 
     def verify(self, rows):
-        AM.validate_extension_functional_log(''.join(rows), RUN, PROBE)
+        AM.validate_extension_functional_log(''.join(rows), RUN, PROBES, AM.SCENARIOS[2])
 
     def producer_harness_manifest(self):
         # Execute only the actual array declaration and sha256sum, never the VM main function.
@@ -65,6 +70,42 @@ class EvidenceChecks(unittest.TestCase):
 
     def test_complete_receipts(self):
         self.verify(self.rows)
+
+    def test_stock_requires_all_seven_features_after_both_logins(self):
+        stock_run = RUN.replace('marble-', 'luksgrub-', 1)
+        rows = [receipt(phase, feature).replace(RUN, stock_run)
+                for phase in ('firstlogin', 'postreboot') for feature in FEATURES[:-1]]
+        probes = {key: value for key, value in PROBES.items() if key != 'user-theme'}
+        def verify(values):
+            AM.validate_extension_functional_log(''.join(values), stock_run, probes, AM.SCENARIOS[1])
+        verify(rows)
+        for index in range(len(rows)):
+            with self.subTest(index=index), self.assertRaises(AM.ManifestError):
+                verify(rows[:index] + rows[index + 1:])
+        with self.assertRaises(AM.ManifestError):
+            verify(rows + [receipt('postreboot', 'user-theme').replace(RUN, stock_run)])
+
+    def test_helper_source_hashes_cannot_substitute_for_each_other(self):
+        for feature in FEATURES[3:]:
+            index = FEATURES.index(feature)
+            with self.subTest(feature=feature), self.assertRaises(AM.ManifestError):
+                self.verify([*self.rows[:index], self.rows[index].replace(PROBES[feature], PROBE),
+                             *self.rows[index + 1:]])
+
+    def test_incomplete_or_unbound_source_closure_rejected(self):
+        for probes in ({}, {key: value for key, value in PROBES.items() if key != 'blur'},
+                       dict(PROBES, blur='0' * 64), dict(PROBES, blur='bad'),
+                       dict(PROBES, unknown=PROBE)):
+            with self.subTest(probes=probes), self.assertRaises(AM.ManifestError):
+                AM.validate_extension_functional_log(''.join(self.rows), RUN, probes, AM.SCENARIOS[2])
+
+    def test_migration_round_cannot_replace_stock_first_login(self):
+        stock_run = RUN.replace('marble-', 'luksgrub-', 1)
+        probes = {key: value for key, value in PROBES.items() if key != 'user-theme'}
+        rows = [receipt(phase, feature).replace(RUN, stock_run)
+                for phase in ('upgrade', 'postreboot') for feature in FEATURES[:-1]]
+        with self.assertRaises(AM.ManifestError):
+            AM.validate_extension_functional_log(''.join(rows), stock_run, probes, AM.SCENARIOS[1])
 
     def test_each_feature_and_round_is_required(self):
         for index in range(len(self.rows)):

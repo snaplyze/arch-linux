@@ -50,9 +50,10 @@ class ActionsReleaseChecks(unittest.TestCase):
                            for name in consumer["HARNESS_FILES"])
         marker = ("MINIMAL", "LUKSGRUB", "MARBLE")[index]
         log = f"{marker}_QEMU_INSTALLER_EXIT status=0\n{marker}_QEMU_INSTALL_COMPLETE\n".encode()
-        if index == 2:
+        if index in (1, 2):
             fixture = runpy.run_path(str(ROOT / "tests/gnome51-evidence-fixture.py"))
-            log += b"GNOME51_UPGRADE_BASELINE_PASS\nGNOME51_UPGRADE_RECOVERY_PASS\n"
+            if index == 2:
+                log += b"GNOME51_UPGRADE_BASELINE_PASS\nGNOME51_UPGRADE_RECOVERY_PASS\n"
             log += fixture["functional_log"](ROOT, run_id)
         records = {"result.json": b'{"screenshots":[]}\n', "harness.sha256": harness,
                    "evidence/preseal-harness-check.txt": b"".join(
@@ -519,7 +520,11 @@ current_phase=firstboot
 die(){ return 1; }
 qga_verify(){
     if [ "$1" = postreboot-prelogin ]; then last_boot_id=second; fi
-    case "$1" in extension-*-dash)
+    case "$1" in
+    extension-*-native-prepare)
+        probe_round=${1#extension-}; probe_round=${probe_round%-native-prepare}
+        printf 'DESKTOP_PROBE_IDENTITY uid=1000 round=%s\n' "$probe_round" >"$evidence/$2.stdout" ;;
+    extension-*-dash)
         printf 'EXTENSION_PROBE_DISPLAY width=1280 height=800 scale=1\n' >"${evidence}/$2.stdout" ;;
     esac
 }
@@ -545,7 +550,7 @@ wait_qga(){ :; }
             rows = (Path(tmp) / "assertions.tsv").read_bytes()
         assertions = [dict(zip(("id", "status", "detail"), line.split("\t"), strict=True))
                       for line in rows.decode().splitlines()]
-        self.assertEqual(len(assertions), 33)
+        self.assertEqual(len(assertions), 43)
         # Run the actual run_record assertion-validation statements, avoiding fake
         # repository signatures/VM evidence and retaining the exact ordered closure.
         path = ROOT / "repository/acceptance-manifest.py"
