@@ -330,6 +330,11 @@ blocks and documentation indexes. Keep installation recommendations consistent
 with the generated pin. Describe mutable publication/runtime status through exact
 evidence links or explicitly historical records, so a frozen tag cannot retain an
 unqualified claim that its current release is an older version or remains untested.
+The release child's plan and validation pages must explicitly scope all mutable
+checkpoint statuses to the historical source-freeze snapshot, bind the reviewed
+origin main commit and selected release, and point to exact public acceptance for
+later results. Test pending/unpublished wording in these pages, not only README
+version blocks; preserve underlying historical receipts and never invent a PASS.
 
 After immutable publication, verified Pages/public readback and the required public VM acceptance
 succeed, inventory every tracked Markdown file, including the root README, nested READMEs,

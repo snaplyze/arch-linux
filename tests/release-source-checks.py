@@ -48,6 +48,9 @@ class ReleaseSourceChecks(unittest.TestCase):
             "CHANGELOG.md": "# Changelog\n\n## Unreleased\n\n- Correct release bootstrap instructions; acceptance is separate.\n\n## 1.0.6 — 2026-10-04\n\nHistorical acceptance remains bound to release 1.0.6.\n",
             "README.md": self.document_fixture("README.md"),
             "docs/installation.md": self.document_fixture("docs/installation.md"),
+            "docs/PLAN.md": "# Project review and modernization implementation plan\n\n### Current checkpoint and remaining gates\n\nVersion 1.0.7 is **UNPUBLISHED**; candidate CI remains pending.\nOrigin fd91397 and historical release 1.0.6 PASS remain tree-bound.\n",
+            "docs/validation.md": "# Validation and evidence\n\nHistorical release 1.0.6 PASS: source " + "a" * 40 + "\n\nCandidate 1.0.7 publication and final18 remain pending.\n",
+
         }
         for name, contents in files.items():
             path = self.root / name
@@ -86,6 +89,80 @@ class ReleaseSourceChecks(unittest.TestCase):
         self.assertIn("pkgrel=3", self.git("show", f"{first['source_commit']}:packages/arch-linux-keyring/PKGBUILD"))
         self.module.verify(self.root, first["source_commit"], self.main, "1.0.2")
         self.git("bundle", "verify", str(Path(self.temporary.name) / "1.0.2/source.bundle"))
+
+    def test_release_child_qualifies_mutable_checkpoints_and_preserves_evidence(self) -> None:
+        identity = self.prepare("1.0.9")
+        child = identity["source_commit"]
+        for path in ("docs/PLAN.md", "docs/validation.md"):
+            with self.subTest(path=path):
+                original = self.module.blob(self.root, self.main, path)
+                generated = self.module.blob(self.root, child, path)
+                self.assertIn(b"historical source-freeze snapshot for release **1.0.9**", generated)
+                self.assertIn(self.main.encode(), generated)
+                self.assertIn(b"https://github.com/snaplyze/arch-linux/releases/tag/1.0.9", generated)
+                self.assertIn(b"https://github.com/snaplyze/arch-linux/releases/download/1.0.9/arch-linux-acceptance-1.0.9.json", generated)
+                self.assertIn(b"arch-linux-acceptance-1.0.9.json.sig", generated)
+                _, original_body = original.split(b"\n\n", 1)
+                historical_body = generated.split(b"<!-- END release-checkpoint-snapshot -->\n\n", 1)[1]
+                if path == "docs/PLAN.md":
+                    original_body = original_body.replace(b"### Current checkpoint and remaining gates\n",
+                        b"### Source-freeze checkpoint and remaining gates\n", 1)
+                    self.assertNotIn(b"### Current checkpoint and remaining gates", generated)
+                    self.assertIn(b"Version 1.0.7 is **UNPUBLISHED**; candidate CI remains pending.", generated)
+                self.assertEqual(historical_body, original_body)
+                self.assertEqual((self.root / path).read_bytes(), original)
+        self.assertEqual(self.git("rev-parse", "HEAD"), self.main)
+        self.assertEqual(self.git("status", "--porcelain"), "")
+        repeated = self.module.prepare(self.root, self.main, "1.0.9", Path(self.temporary.name) / "checkpoint-repeat")
+        self.assertEqual(identity, repeated)
+        self.module.verify(self.root, child, self.main, "1.0.9")
+
+    def test_checkpoint_provenance_notice_and_evidence_tampering_are_rejected(self) -> None:
+        identity = self.prepare("1.0.9")
+        child = identity["source_commit"]
+        for path in ("docs/PLAN.md", "docs/validation.md"):
+            original = self.module.blob(self.root, child, path)
+            mutations = {
+                "origin-main": original.replace(self.main.encode(), b"f" * 40, 1),
+                "notice-version": original.replace(b"release **1.0.9**", b"release **1.0.8**", 1),
+                "acceptance-link": original.replace(b"arch-linux-acceptance-1.0.9.json", b"arch-linux-acceptance-1.0.8.json", 1),
+                "publication-claim": original.replace(b"does not establish", b"establishes", 1),
+                "historical-evidence": original.replace(b"historical release 1.0.6 PASS" if path == "docs/PLAN.md" else b"Historical release 1.0.6 PASS", b"FABRICATED PASS", 1),
+                "missing-notice": original.split(b"<!-- END release-checkpoint-snapshot -->\n\n", 1)[1],
+            }
+            for defect, changed in mutations.items():
+                with self.subTest(path=path, defect=defect):
+                    self.assertNotEqual(changed, original)
+                    tree = self.module.replace_tree(self.root, child, {path: ("100644", changed)})
+                    forged = self.module.release_commit(self.root, self.main, "1.0.9", tree)
+                    with self.assertRaisesRegex(ValueError, "bytes or modes"):
+                        self.module.verify(self.root, forged, self.main, "1.0.9")
+
+    def test_checkpoint_renderer_rejects_undeclared_or_already_frozen_structure(self) -> None:
+        for path in ("docs/PLAN.md", "docs/validation.md"):
+            original = self.module.blob(self.root, self.main, path)
+            title = original.split(b"\n\n", 1)[0] + b"\n\n"
+            malformed = (original.replace(title, b"# Unreviewed document\n\n", 1),
+                         original + title,
+                         original + b"<!-- BEGIN release-checkpoint-snapshot -->\n",
+                         original + b"<!-- END release-checkpoint-snapshot -- >\n")
+            for raw in malformed:
+                with self.subTest(path=path, raw=raw), self.assertRaisesRegex(ValueError, "checkpoint"):
+                    self.module.release_checkpoint_document(raw, path, self.main, "1.0.9")
+        path = "docs/PLAN.md"
+        original = self.module.blob(self.root, self.main, path)
+        heading = b"### Current checkpoint and remaining gates\n"
+        for raw in (original.replace(heading, b"", 1), original + heading):
+            with self.assertRaisesRegex(ValueError, "checkpoint heading"):
+                self.module.release_checkpoint_document(raw, path, self.main, "1.0.9")
+        for path in ("docs/PLAN.md", "docs/validation.md"):
+            self.git("rm", path)
+            self.git("commit", "-m", "missing declared checkpoint fixture")
+            broken = self.git("rev-parse", "HEAD")
+            with self.assertRaisesRegex(ValueError, "checkpoint document is missing"):
+                self.module.transformed_tree(self.root, broken, "1.0.9")
+            self.git("restore", "--source", self.main, "--staged", "--worktree", path)
+            self.git("commit", "-m", "restore checkpoint fixture")
 
     def test_historical_versions_and_non_semver_are_rejected(self) -> None:
         for version in ("1.0.0", "1.0.1", "01.0.2", "1.0.2;false", "main", "../1.0.2"):

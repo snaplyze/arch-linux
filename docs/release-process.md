@@ -151,6 +151,14 @@ Record the tree identity, input hashes and exact statuses, then freeze only afte
 source gates pass. A source failure stops acceptance of that candidate. Results from an earlier
 tree are invalid for a corrected candidate.
 
+The generated release child scopes `docs/PLAN.md` and `docs/validation.md` as
+historical snapshots at the reviewed origin main commit. Their checkpoint
+statuses describe that source freeze; they cannot establish later publication
+or VM acceptance. The generated notice binds the selected release and links its
+exact public Release and signed acceptance assets. Preserve all underlying
+historical receipts, and test this qualification alongside the generated
+README, installation commands and changelog before freezing the child.
+
 If a defect is found, diagnose it, correct the source and add a regression test in the same
 canonical checkout. Repeat affected checks, build/sign the corrected inputs and run the applicable
 VM scenarios. There is no artificial cycle or attempt limit. Keep old results associated with their

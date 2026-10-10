@@ -67,6 +67,30 @@ curl -fsS https://raw.githubusercontent.com/snaplyze/arch-linux/@RELEASE_VERSION
 }
 
 
+CHECKPOINT_DOCUMENTS = {
+    "docs/PLAN.md": (b"# Project review and modernization implementation plan\n\n",
+                     b"### Current checkpoint and remaining gates\n"),
+    "docs/validation.md": (b"# Validation and evidence\n\n", None),
+}
+CHECKPOINT_NOTICE = """<!-- BEGIN release-checkpoint-snapshot -->
+This document is a historical source-freeze snapshot for release **@RELEASE_VERSION@**,
+copied from [reviewed main @MAIN_COMMIT@](https://github.com/snaplyze/arch-linux/commit/@MAIN_COMMIT@).
+Its checkpoints, pending gates and publication verdicts describe that origin main commit before
+release preparation. All status statements and uses of "current" below belong to that origin
+main snapshot, including UNPUBLISHED verdicts and pending gates. They do not report publication
+or acceptance after the source freeze.
+
+For subsequent status, verify [release @RELEASE_VERSION@](https://github.com/snaplyze/arch-linux/releases/tag/@RELEASE_VERSION@)
+and its exact [signed acceptance JSON](https://github.com/snaplyze/arch-linux/releases/download/@RELEASE_VERSION@/arch-linux-acceptance-@RELEASE_VERSION@.json)
+with its [detached signature](https://github.com/snaplyze/arch-linux/releases/download/@RELEASE_VERSION@/arch-linux-acceptance-@RELEASE_VERSION@.json.sig)
+using the [release verification procedure](release-process.md). These links identify the required
+public evidence; their presence here does not establish that publication or acceptance succeeded.
+Original entries below retain their versions, input identities and verdicts.
+<!-- END release-checkpoint-snapshot -->
+
+"""
+
+
 SOURCE_RELEASE_OVERVIEW = """As of 2026-10-09, the GNOME 51 recovery changes currently in this checkout are an unpublished
 candidate. They add a shared signed extension package, reviewed desktop/GDM
 compatibility and safe migration of the old local extension. They are not yet
@@ -506,6 +530,22 @@ def release_changelog(raw: bytes, version: str) -> bytes:
     return raw[:start - len(b"## Unreleased\n")] + b"## " + version.encode("ascii") + b"\n" + raw[start:]
 
 
+def release_checkpoint_document(raw: bytes, path: str, main: str, version: str) -> bytes:
+    title, checkpoint = CHECKPOINT_DOCUMENTS[path]
+    if not raw.startswith(title) or raw.count(title) != 1:
+        raise ValueError(f"release checkpoint document requires one exact title in {path}")
+    if (b"<!-- BEGIN release-checkpoint-snapshot" in raw or
+            b"<!-- END release-checkpoint-snapshot" in raw):
+        raise ValueError(f"release checkpoint document already contains snapshot markers in {path}")
+    body = raw[len(title):]
+    if checkpoint is not None:
+        body = replace_once(body, checkpoint, b"### Source-freeze checkpoint and remaining gates\n",
+                            f"current checkpoint heading in {path}")
+    notice = CHECKPOINT_NOTICE.encode("ascii").replace(b"@RELEASE_VERSION@", version.encode("ascii"))
+    notice = notice.replace(b"@MAIN_COMMIT@", main.encode("ascii"))
+    return title.rstrip(b"\n") + b" (source-freeze snapshot)\n\n" + notice + body
+
+
 def transformed_tree(root: Path, main: str, version: str) -> str:
     if HEX40.fullmatch(main) is None or oid(root, f"{main}^{{commit}}") != main:
         raise ValueError("reviewed main commit is malformed")
@@ -556,6 +596,11 @@ def transformed_tree(root: Path, main: str, version: str) -> str:
     if "CHANGELOG.md" not in entries:
         raise ValueError("release changelog document is missing")
     changes["CHANGELOG.md"] = entries["CHANGELOG.md"][0], release_changelog(blob(root, main, "CHANGELOG.md"), version)
+    for path in CHECKPOINT_DOCUMENTS:
+        if path not in entries:
+            raise ValueError(f"release checkpoint document is missing: {path}")
+        changes[path] = entries[path][0], release_checkpoint_document(blob(root, main, path), path, main, version)
+
     revisions = {}
     packages = blob(root, main, "repository/package-set").decode("ascii").splitlines()
     if len(packages) != len(set(packages)) or not packages:

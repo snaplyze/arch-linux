@@ -3574,6 +3574,107 @@ It includes full namespace10/signer14+18/deferrednone and final ShellCheck.
 This local run precedes the final checkpoint update/clean candidate binding;
 fresh exact-candidate CI and real VM acceptance remain required. No earlier
 Stock15/Minimal14 result transfers to the corrected source.
+Candidate `e83139d4fa2c9a5df8ac9eaa3d2697613fe91792`, tree
+`ae0bd931a056bcb1e87aeebe9b14c47264e2c398`, canonical SHA-256
+`be909297078f26395505b0762bedcb14c457e446c719555d16f83f3b908f6f86`
+contains exactly the two transport/test files and two root checkpoint pages.
+A separate clean `umask022; PYTHONDONTWRITEBYTECODE=1 bash tests/source-tests.sh`
+passed, log SHA-256 `deed2a5eaec04bfacb8e35482a511c7273ab2d9f1cf11a8624949a86233c11bc`.
+The owner-authorized ready-candidate exception created
+`fix/gnome51-native-stdin` in this same checkout; guarded local main CAS restored
+057f606 while preserving e83139d on that branch. Ordinary branch push created
+[PR89](https://github.com/snaplyze/arch-linux/pull/89). Exact-head
+CI38070056065/job114265449343 is IN_PROGRESS; PR OPEN/MERGEABLE, required check
+pending. Main is not bypassed. Index remained clear; later checkpoint edits
+remain outside the accepted candidate. Cancelled Marble/job114250948791 terminal
+log SHA-256 `8f8fac1650f9b1a476c50f846402e95c28a00b6af39572031b647c0b1d5ad7a2`
+confirmed completed resource cleanup. New child/root/build/VM/public gates
+remain required after merge; no failed or cancelled result is relabelled.
+PR89 exact-head CI38070056065/job114265449343 passed, including the terminal
+full source and full namespace10/signing14+18/deferrednone receipts. Log
+SHA-256 `fb97466a5023051dc1366f573526dcffcbb3483a4f0ea8266676b4b873799e96`.
+Fresh PR readback reported exact accepted head/base, MERGEABLE/CLEAN and no
+unresolved review threads or reviews. Head-matched protected squash merged at
+2026-10-10T17:06:48Z into main `4eadf74f6fefd0411a69ba373ac8855dba5d8b3f`,
+with unchanged candidate treeae0bd931/canonicalbe909297. Guarded fast-forward
+fetch and same-checkout return to main preserved both dirty checkpoint pages
+byte-for-byte and the clear index. Main CI38070409148 is pending at4eadf74;
+automatic release preparation is still pending. No fresh package/VM/public
+result is accepted for this merged source.
+At17:11–17:15 UTC, main CI38070409148/job114266471956 remained QUEUED,
+runner_id0, labels matching runner21. API reported online/busyfalse; the dedicated
+service was active and only its UID997 Listener was present, without Worker.
+Bounded diagnostic metadata confirmed the preceding worker finished17:05:52;
+the following Broker request cancellation/retry classes do not prove a fault.
+[Upstream BrokerMessageListener](https://raw.githubusercontent.com/actions/runner/main/src/Runner.Listener/BrokerMessageListener.cs)
+explicitly cancels polling on job-status changes. The first metadata query safely
+rejected an older diagnostic file with different ownership; a follow-up read used
+only the confirmed current file. No raw credentials/arguments were exposed.
+Queue cause remains unproved; the same exact job is retained without restart,
+re-registration, changed settings or a duplicate run.
+Follow-up readback confirmed the preceding successful job114265449343 used
+this same runner21. CI's main-ref concurrency has no other active repository
+run; pending deployment approvals are empty. A same-UID/PID/starttime guarded
+socket observation found one established HTTPS connection with zero send/receive
+queues, without exposing addresses or tokens. This does not prove broker
+request progress or assignment, and no restart is justified by elapsed time.
+At2026-10-10T17:31:49Z this same job114266471956 was assigned to runner21
+and entered IN_PROGRESS. Setup/runner/container initialization passed; dependency
+installation started. No cancellation, rerun, restart or configuration change
+was used. The prior delay has no proven cause.
+Direct UID997 `Runner.Listener --version` readback reported2.338.0, matching
+[the official current release](https://github.com/actions/runner/releases/tag/v2.338.0).
+[Issue4728](https://github.com/actions/runner/issues/4728) and its open
+[PR4729](https://github.com/actions/runner/pull/4729) describe a Busy→Online
+message race, but local job creation59seconds after the preceding completion
+does not establish that race. The cancellation log alone is insufficient;
+no unmerged runner patch or upgrade was applied.
+Main CI38070409148/job114266471956 subsequently PASSED at exact main4eadf74.
+Terminal full source/namespace10/signing14+18/deferrednone receipts and completed
+cleanup were checked; log SHA-256
+`8a835d77faa4f8a5d9ce62d8634f09572ce680aae1a460cac68dee89079fc88e`.
+Configured release38072414609 started automatically; prepare/job114272383728
+PASSED and build/job114272443067 entered IN_PROGRESS. Source transport readback:
+artifact11676524956, ZIP SHA-256
+`7df5eefcb66fb703885ee406616cdc5196ddc3fd6b81d8496ebf2c8e9dad5d8b`,
+bundle SHA-256 `dd03ba3eb713e803e006bb282c77ebec542f171134d68814e7e0557acd4c338b`.
+Child `c7caf7a1065df7911bdd81bdd8fb769d411cd7a9`, tree
+`e839b6f26205fecdcfa25ed96896f6dd98e3e67b`, canonical SHA-256
+`6428b88bed09e8e4006559fc83ebca6c4f5ef6017dd6b2d7b403aa5a074577d0`
+binds main4eadf74/treeae0bd931 and version1.0.7. Root independently verified
+all224 blobs/modes and exact20 deterministic transforms, complete16 harness
+and frozen conditional1.0.7 bootstrap blocks. Source artifact acquisition
+preserved refs, index and both dirty checkpoint documents byte-for-byte.
+Independent review verified the224 blobs/modes,20 transforms,full16 harness
+and transport regression bytes, but found P2 in the frozen PLAN: its current
+checkpoint still says Version1.0.7 UNPUBLISHED and candidateCI/newreleasepending
+for older attempt38064355933/fd91397 without explicitly historical scope.
+README/installation/overview/changelog rendering was correct. This source
+identity verification does not close frozen-documentation acceptance.
+Root cancelled release38072414609; terminal cancellation was confirmed at
+2026-10-10T17:38:46Z. Build/job114272443067 was CANCELLED, cleanup complete;
+terminal log SHA-256
+`e95fe52a9682e7916addc21efdd48c4f1d84a6e14802888e6bc3cb9e7e48b095`.
+Unsigned readback/signing/VM/finalization/publication were not accepted. No
+signed Phase-A/final18/tag/Pages or package-delivery claim belongs to this child.
+A focused deterministic historical-source checkpoint qualification/regression
+is in progress. Earlier results and released1.0.6 remain unchanged.
+Focused correction adds deterministic historical source-freeze qualification to
+child PLAN/validation titles and notices, binding full origin main and selected
+version with conditional exact Release/acceptance JSON/signature links. All
+underlying evidence bytes remain unchanged except the declared PLAN checkpoint
+heading. Package-only transformation remains unchanged. Synthetic selected1.0.9
+fixtures reproduced old unqualified1.0.7 UNPUBLISHED/pending text (RED); corrected
+rendering passed preservation/determinism, provenance/evidence tampering and
+strict structure negatives (GREEN). All58 release-source checks passed; an
+independent reviewer passed the three focused regressions and actual document
+body preservation. AGENTS/release-process record the qualification requirement.
+Full `umask022; PYTHONDONTWRITEBYTECODE=1 bash tests/source-tests.sh` PASSED,
+including namespace10/signing14+18/deferrednone and final ShellCheck; log
+SHA-256 `eede3583d52fb6142ca6e33aba87bf7b9e261f3fd3f6100e9e0e4b1d4f769392`.
+Only the final result/checkpoint prose followed that run; documentation29 and
+diff checks passed. A separate clean exact-candidate source run and protected
+CI/delivery remain required. No fresh child/build/VM/public PASS is claimed.
 
 
 At 2026-10-10T14:00 UTC, bounded official AUR and Arch-maintained mirror probes
