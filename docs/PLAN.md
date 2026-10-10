@@ -263,7 +263,7 @@ registry for the pass; prior F-01…F-14 and their tasks stay as recorded below.
 
 | Identity | Observed value |
 | --- | --- |
-| Physical root / client | `/home/snaplyze/Проекты/arch-linux`; Claude Code with the `orchestration` plugin |
+| Physical root / client | The canonical checkout (verified with `pwd -P`); Claude Code with the `orchestration` plugin |
 | Product baseline | origin main `5676fd823c819501331a9b5ba5a9d33a0e87e88d`; installer 8125 lines, 223 tracked paths |
 | Audit branch | `audit/deep-audit-2026-10-10`, created in place on `agent-policy-v15` (`2566086`, [PR #93](https://github.com/snaplyze/arch-linux/pull/93), open), because that branch already carries the v15 contract wording this assignment asks for |
 | Pre-existing changes | Uncommitted G51 checkpoint edits to `docs/PLAN.md` and `docs/validation.md` (owner pause record). Preserved byte-for-byte and **not** part of this audit's commit |
