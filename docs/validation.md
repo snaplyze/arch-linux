@@ -2833,9 +2833,11 @@ The strict PASS readback correctly rejected the FAIL result; separate failure
 binding checked those identities and preserved the three preceding assertions,
 without a PASS-consumer claim. Its result SHA-256 is
 `7e7bb1a54cce50035b571aefa193c3d2a10fa4c8822f6ca0c41916eb89a2ae20`.
-Publication cannot pass this attempt. Core Stock LUKS/GRUB/job114165043582 is
-running; retain new authentication observations before deciding the next source
-candidate. The actual `verify_common` fragment reproduced status3 before its
+Publication cannot pass this attempt. At 09:18 UTC the root requested normal
+cancellation after Core Stock LUKS/GRUB/job114165043582 had executed more than
+75 minutes without accessible phase evidence. No current Stock verdict or cause
+is inferred from that interruption. Terminal logs and any partial artifact still
+require readback. The actual `verify_common` fragment reproduced status3 before its
 readiness wait with a delayed-activation fixture. Moving only the existing
 `nm-online -q --timeout=60` line before both active-service checks makes that
 fixture pass. Five negative cases reject network timeout, inactive manager,
@@ -2859,6 +2861,43 @@ receipt prose followed that run; documentation/diff checks were repeated.
 These are local source results; a fresh accepted child and real VM
 transaction remain required. Status3 alone still does not establish the actual
 failed guest service state or explain the earlier hard timeout.
+
+Protected [PR83](https://github.com/snaplyze/arch-linux/pull/83) contains the
+readiness correction; exact-head Source checks remain required. A further
+bounded observer correction duplicates the existing `QEMU_PROGRESS` payload as
+a standard GitHub notice. The original helper validated phase/state only;
+scenario, commit, tree and run identifiers were raw. Both output forms now use
+bounded allowlisted identifiers, with invalid values replaced by `-`, and retain
+the original schema without a timestamp. Invalid phase/state emits nothing;
+begin/end placement and acceptance conditions are unchanged. The RED regression
+reproduced missing notices and identifier injection (log SHA-256
+`b0737e54d0bdb1e7242af0f96146501da9e87c31a571aefb423ecac12d1451f3`).
+Focused five tests, full 171-test runtime suite and static checks passed; runtime
+log SHA-256 `ddbf550c281253de1a519aed65776ff6c845ed95311a123d6c2eb1368663738e`.
+An initial runtime fixture-output filter failure was corrected and its separate
+log retained. Independent read-only review found no material issue, ran five
+focused tests and checked all nine actual run prefixes. Root integrated
+`bash tests/source-tests.sh` exited zero, including 171 runtime tests, 29-document
+checks, full repository namespaces10/signer14+18/deferrednone and ShellCheck.
+Its retained log SHA-256 is
+`a9c6b3978db1503127bcd12117a4fceb29977b888c8290eb364579f1770b1a5e`.
+Only receipt prose followed that run; documentation and diff checks are repeated
+before committing. This source PASS is not VM recovery or public delivery.
+Live notice visibility is NOT_TESTED: the active Stock check run exposed zero
+annotations when queried; this does not prove that future notices are available
+before a job completes. No workflow, timeout or VM assertion was weakened.
+
+The release is terminal CANCELLED; Stock ended at 09:19:19 UTC. Its retained
+job-log SHA-256 is
+`7598c0fd5ddd8b226fae177f189106d30d6d14e96bdedbe20a842f9542253e7c`.
+The last observed phase was installer-completion (begin 08:09:16 UTC), with no
+end marker before cancellation at 09:19:12 UTC. This scenario did not establish
+firstboot or GNOME authentication acceptance. The archive step lacked
+`result.json`, and no Stock artifact was uploaded. Runner-owned cleanup reported
+completion; orphan VM processes were terminated by the runner. The cause of
+the incomplete installation and missing cancellation evidence remains under
+diagnosis. These observations do not convert interruption into a product FAIL
+or prove that the normal two-hour installation deadline would have failed.
 
 At 2026-10-10T07:19 UTC, finite read-only `git ls-remote` checks against the
 official AUR succeeded for both Plymouth and Bibata. Availability is advisory:

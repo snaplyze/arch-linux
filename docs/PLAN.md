@@ -155,8 +155,20 @@ one success and five rejection cases pass, preserving NetworkManager/QGA active,
 DNS and failed-unit checks. The worker full source suite passed (169 runtime tests,
 full namespace10/signer14+18/deferrednone); independent read-only review found no
 material issue. This is a local harness correction; actual failed VM service state
-and fresh VM recovery are not established. Core Stock LUKS/GRUB/job114165043582 is running; publication
-cannot pass this attempt, but retain the new GNOME authentication observations.
+and fresh VM recovery are not established. PR83 holds the readiness correction;
+mandatory exact-head CI is pending. At 09:18 UTC the root requested normal
+cancellation of the already nonpublishable release after Stock had run for more
+than 75 minutes without accessible phase evidence. Interruption is not a GNOME
+FAIL; retain terminal logs and any partial artifact before diagnosing its phase.
+The next candidate also duplicates sanitized `QEMU_PROGRESS` observations as
+GitHub notices. Existing phase boundaries and verdict checks remain unchanged;
+live annotation availability is NOT_TESTED. Focused tests, 171 runtime tests and
+static checks passed; independent review found no material issue and verified all
+nine generated run prefixes. Integrated `bash tests/source-tests.sh` passed,
+including 171 runtime tests, full namespace repository checks and ShellCheck. Release
+cancellation completed at 09:19:19 UTC. The terminal Stock log proves that its
+last observed phase was installer-completion, not GNOME login; no completion
+marker or partial result artifact was delivered. Runner cleanup completed.
 Next: obtain new VM
 evidence before any unproven input
 or desktop behavior correction. The obsolete

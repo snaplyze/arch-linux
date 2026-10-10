@@ -129,11 +129,18 @@ die() {
 
 emit_phase_progress() {
     local phase="$1" state="$2"
+    local observed_scenario="${scenario_id:--}" observed_commit="${source_commit:--}"
+    local observed_tree="${source_tree:--}" observed_run="${run_id:--}" observation
     [[ "${phase}" =~ ^[a-z0-9-]{1,64}$ ]] || return 0
     [ "${state}" = begin ] || [ "${state}" = end ] || return 0
+    [[ "${observed_scenario}" =~ ^[a-z0-9-]{1,64}$ ]] || observed_scenario='-'
+    [[ "${observed_commit}" =~ ^[a-f0-9]{40}$ ]] || observed_commit='-'
+    [[ "${observed_tree}" =~ ^[a-f0-9]{40}$ ]] || observed_tree='-'
+    [[ "${observed_run}" =~ ^(minimal|dualboot|stock|btrfs|grub|luks|luksgrub|marble|marblestock)-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}$ ]] || observed_run='-'
     # Public phase observations carry no credentials, requests, paths or verdicts.
-    printf 'QEMU_PROGRESS scenario=%s source_commit=%s source_tree=%s run_id=%s phase=%s state=%s\n' \
-        "${scenario_id:--}" "${source_commit:--}" "${source_tree:--}" "${run_id:--}" "${phase}" "${state}"
+    printf -v observation 'QEMU_PROGRESS scenario=%s source_commit=%s source_tree=%s run_id=%s phase=%s state=%s' \
+        "${observed_scenario}" "${observed_commit}" "${observed_tree}" "${observed_run}" "${phase}" "${state}"
+    printf '%s\n::notice title=QEMU host progress::%s\n' "${observation}" "${observation}"
 }
 
 # Only distribution-owned known matching firmware pairs are accepted; never create links.

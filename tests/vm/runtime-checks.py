@@ -148,6 +148,53 @@ verify_common(){
         self.assertIn("phase=release-inputs state=end", result.stdout)
         self.assertNotIn("PRIVATE_PAYLOAD", result.stdout)
 
+    def test_phase_progress_notice_matches_plain_observation(self):
+        script = 'set -Eeuo pipefail\n' + self.host_function('emit_phase_progress') + r'''
+scenario_id=minimal-ext4-systemdboot
+source_commit=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+source_tree=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+run_id=minimal-20261010T120000Z-aabbccdd
+emit_phase_progress input-validation begin
+emit_phase_progress release-inputs end
+'''
+        result = subprocess.run(['bash', '-c', script], capture_output=True, text=True, timeout=5)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stderr, '')
+        payload = ('QEMU_PROGRESS scenario=minimal-ext4-systemdboot source_commit=' + 'a' * 40 +
+                   ' source_tree=' + 'b' * 40 + ' run_id=minimal-20261010T120000Z-aabbccdd')
+        expected = []
+        for phase, state in (('input-validation', 'begin'), ('release-inputs', 'end')):
+            observation = payload + ' phase=' + phase + ' state=' + state
+            expected.extend((observation, '::notice title=QEMU host progress::' + observation))
+        self.assertEqual(result.stdout.splitlines(), expected)
+
+    def test_phase_progress_rejects_command_injection_and_sanitizes_invalid_ids(self):
+        script = 'set -Eeuo pipefail\n' + self.host_function('emit_phase_progress') + r'''
+scenario_id=$1 source_commit=$2 source_tree=$3 run_id=$4
+emit_phase_progress "$5" "$6"
+'''
+        identifiers = ['minimal-ext4-systemdboot', 'a' * 40, 'b' * 40,
+                       'minimal-20261010T120000Z-aabbccdd']
+        attacks = ('PRIVATE_PAYLOAD\n::error::injected', 'PRIVATE_PAYLOAD\r::error::injected',
+                   'PRIVATE_PAYLOAD%0A::error::injected', 'PRIVATE_PAYLOAD::error::injected')
+        for attack in attacks:
+            for position in range(6):
+                with self.subTest(attack=attack, position=position):
+                    arguments = identifiers + ['firstboot', 'begin']
+                    arguments[position] = attack
+                    result = subprocess.run(['bash', '-c', script, 'fixture', *arguments],
+                                            capture_output=True, text=True, timeout=5)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stderr, '')
+                    if position >= 4:
+                        self.assertEqual(result.stdout, '')
+                    else:
+                        safe = identifiers.copy(); safe[position] = '-'
+                        payload = ('QEMU_PROGRESS scenario=%s source_commit=%s source_tree=%s run_id=%s '
+                                   'phase=firstboot state=begin') % tuple(safe)
+                        self.assertEqual(result.stdout.splitlines(),
+                                         [payload, '::notice title=QEMU host progress::' + payload])
+
     def test_repository_https_always_transfers_candidate_database_and_signature(self):
         import os, time
         with tempfile.TemporaryDirectory() as directory:
@@ -3086,6 +3133,9 @@ if qga_verify firstboot fixture; then printf 'ACCEPTED\n'; else printf 'REJECTED
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual("ACCEPTED\n" in result.stdout, accepted, result.stderr)
                 self.assertEqual("phase=firstboot state=end" in result.stdout, accepted, result.stderr)
+                notices = [line for line in result.stdout.splitlines()
+                           if line.startswith('::notice title=QEMU host progress::')]
+                self.assertEqual(any('phase=firstboot state=end' in line for line in notices), accepted)
 
     def test_archiso_probe_requires_exact_complete_unique_current_nonce(self):
         body = self.host_function("serial_archiso_ready")
@@ -3169,7 +3219,7 @@ die(){ exit 1; }
         for mode in ('ready', 'timeout'):
             result = subprocess.run(['bash', '-c', program, 'fixture', mode], capture_output=True, text=True, timeout=5)
             self.assertEqual(result.returncode == 0, mode == 'ready', result.stderr)
-            self.assertEqual([line for line in result.stdout.splitlines() if not line.startswith('QEMU_PROGRESS ')], ['LAUNCH', 'PROBE', 'BOOTSTRAP:INSTALLER', 'CREDENTIAL_GATE']
+            self.assertEqual([line for line in result.stdout.splitlines() if not line.startswith(('QEMU_PROGRESS ', '::notice title=QEMU host progress::'))], ['LAUNCH', 'PROBE', 'BOOTSTRAP:INSTALLER', 'CREDENTIAL_GATE']
                              if mode == 'ready' else ['LAUNCH', 'PROBE'])
             self.assertEqual('phase=install-archiso state=end' in result.stdout, mode == 'ready')
             self.assertEqual('phase=installer-completion state=begin' in result.stdout, mode == 'ready')
