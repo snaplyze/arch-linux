@@ -13,7 +13,7 @@ publication. Exact historical attempts and evidence belong in
 | ID | Work and acceptance | Status |
 | --- | --- | --- |
 | G51-01 | Diagnose installed package/session state and upstream compatibility; bind findings to versions and authoritative sources. | DONE |
-| G51-02 | Prepare reviewed package/extension upgrade paths, preserve user overrides and safe unsupported-version handling; reproduce failures before fixes and test recovery. | Product source delivered; prior a773 signed build PASS; fresh harness candidate build/VM acceptance pending |
+| G51-02 | Prepare reviewed package/extension upgrade paths, preserve user overrides and safe unsupported-version handling; reproduce failures before fixes and test recovery. | Product source delivered; fresh a5e41978 signed build and independent Phase-A readback PASS; VM/public acceptance pending |
 | G51-03 | Correct deterministic release documentation rendering; test independently differing source/document/release versions and preserve historical evidence. | DONE: overview/bootstrap/changelog rendering and 52 regressions PASS |
 | G51-04 | Update agent, update/release and user documentation with package delivery and real upgrade acceptance requirements. | Candidate instructions delivered; final publication reconciliation pending |
 | G51-05 | Independent diff review, affected checks and full source suite; record package, real session/VM and publication results separately. | HTTP correction, Shell observer regressions, source/review/protected delivery and fresh signed build PASS; new VM/publication acceptance pending; previous failed/cancelled results retained |
@@ -105,8 +105,40 @@ diagnostic receipts never create functional custody. The added bounded Shell
 stack observer exports only allowlisted module names and typed timing, with no
 causal claim. Fresh full source suite passed (160 runtime checks, seventeen
 archive checks, full namespace/signer/14+18/no deferral); protected PR delivery
-is next. The obsolete failed release is terminal CANCELLED (three PASS, one
-FAIL, five cancelled); job cleanup completed. No Dash product-fix claim. Filtered lifecycle
+passed through [PR81](https://github.com/snaplyze/arch-linux/pull/81): exact-head
+CI 38001915628 passed and the protected squash merge completed at 23:03:03 UTC.
+Main is `2414cef10db033f1807bf0a3729a259c5bdea6af`, accepted tree/canonical
+unchanged; the sole checkout returned by fast-forward. All twenty-nine Markdown
+files were inventoried before freeze, with no mandatory stale current-release
+claim outside renderer blocks. Fresh main CI 38002450811 passed. Configured
+release 38002781657 prepared child `a5e41978f40e8596a6cee9d96b1139e6a11c93c2`;
+independent source transport/deterministic-child readback and rendered 1.0.7
+bootstrap pins passed. Clean build and protected unsigned artifact readback passed;
+independent seven-package payload/metadata readback passed. Five root gates,
+signing and independent Phase-A readback passed (fourteen assets, twelve signed
+manifest rows, three signatures, twenty-five snapshot objects). Nine fresh VM
+jobs materialized. Minimal reached successful ISO hash/KVM preflight, then exhausted
+the 330-minute job limit without a retained result; its precise stalled harness
+stage is unknown. Core Marble failed `fresh-user-login` after four assertions:
+the named-user session wait expired, while the preceding logout records Shell
+SIGKILL/timeout rather than the historical SIGSEGV. Core Stock LUKS/GRUB and
+supplemental Stock ext4 each failed the real password-unlock check after fifteen
+assertions. Their three FAIL artifacts independently match the frozen child,
+ten-file harness and signed Phase-A inputs. The run is terminal CANCELLED (three
+FAIL, six cancelled); the last active Stock job's runner cleanup completed at
+06:55:46 UTC. VM/final/public gates remain open. Bounded phase and authentication
+failure diagnostics are now implemented locally; 168 runtime regressions pass.
+A new conditional-caller regression reproduced six QGA false acceptances when
+`die` returned without ending the function; explicit failure returns now reject
+them and withhold successful phase completion. Original guest failure status is
+preserved even when diagnostics or UID lookup fail. Independent review also
+reproduced and closed public-capture failure fallthrough through the complete
+signature/retention/identity closure. Independent review and the full source
+suite passed, including full repository namespaces and ShellCheck. Next: deliver the reviewed
+diagnostic candidate and obtain new bound VM evidence before any unproven input
+or desktop behavior correction. The obsolete
+failed release is terminal CANCELLED (three PASS, one FAIL, five cancelled);
+job cleanup completed. No Dash product-fix claim. Filtered lifecycle
 evidence records Shell SIGSEGV at original-user logout (core-dump, signal 11);
 return login kept extensions enabled in this run. The old-owner baseline uses
 already-upgraded GNOME 51, not a binary GNOME-50-to-51 transition; prior progress

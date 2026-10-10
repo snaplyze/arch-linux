@@ -10,6 +10,107 @@ VERIFY = ROOT / "tests/vm/guest/verify.sh"
 def function(name):
     return re.search(r"^" + name + r"\(\) \{\n.*?^\}", VERIFY.read_text(), re.M | re.S).group(0)
 class RuntimeChecks(unittest.TestCase):
+    def pam_events(self, records=None, raw=None):
+        import contextlib, io, json
+        source = re.search(r"^emit_gnome_shell_lifecycle_diagnostic\(\) \{\n.*?<<'PY'\n(.*?)\nPY\n", VERIFY.read_text(), re.M | re.S).group(1)
+        namespace = {"__name__": "pam_fixture"}
+        exec(compile(source, "actual-lifecycle-helper", "exec"), namespace)
+        calls = []
+        def query(args, **kwargs):
+            calls.append(args)
+            return raw if raw is not None else "\n".join(json.dumps(row) for row in records or [])
+        namespace["query"] = query
+        output = io.StringIO()
+        with contextlib.redirect_stderr(output):
+            namespace["emit_pam_attribution"]("1000", "vmtest", "GNOME_SHELL_DIAGNOSTIC fixture")
+        return output.getvalue(), calls
+
+    def pam_record(self, message, timestamp="100"):
+        return {"_SYSTEMD_UNIT": "gdm.service", "_UID": "0", "_TRANSPORT": "syslog",
+                "__MONOTONIC_TIMESTAMP": timestamp, "MESSAGE": message}
+
+    def test_pam_diagnostic_exports_only_bound_event_types_and_time(self):
+        rows = [self.pam_record("pam_unix(gdm-password:auth): authentication failure; logname=PRIVATE_PAYLOAD uid=0 euid=0 tty=/dev/tty1 ruser= rhost=  user=vmtest"),
+                self.pam_record("pam_faillock(gdm-password:auth): Consecutive login failures for user vmtest account temporarily locked", "101"),
+                self.pam_record("pam_unix(gdm-password:session): session opened for user vmtest(uid=1000) by (uid=0)", "102")]
+        output, calls = self.pam_events(rows)
+        for event in ("authentication-failure", "account-locked", "session-opened"):
+            self.assertIn("pam_event=" + event, output)
+        self.assertIn("pam_query=ok", output)
+        self.assertIn("pam_events=3", output)
+        self.assertNotIn("PRIVATE_PAYLOAD", output)
+        self.assertNotIn("MESSAGE", output)
+        self.assertNotIn("/dev/tty1", output)
+        self.assertEqual(len(calls), 1)
+        self.assertIn("--boot=0", calls[0])
+        self.assertIn("--lines=129", calls[0])
+        self.assertIn("_SYSTEMD_UNIT=gdm.service", calls[0])
+        self.assertTrue(any(arg.startswith("--grep=^pam_") for arg in calls[0]))
+
+    def test_pam_diagnostic_does_not_attribute_foreign_accounts_or_unknown_messages(self):
+        rows = [self.pam_record("pam_unix(gdm-password:auth): authentication failure; rhost=user=vmtest user=other"),
+                self.pam_record("pam_unix(gdm-password:session): session opened for user vmtest(uid=1001) by (uid=0)"),
+                self.pam_record("pam_unix(gdm-password:auth): PRIVATE_PAYLOAD unexpected message")]
+        output, _ = self.pam_events(rows)
+        self.assertNotIn("pam_event=", output)
+        self.assertIn("pam_unclassified=3", output)
+        self.assertNotIn("PRIVATE_PAYLOAD", output)
+
+    def test_pam_diagnostic_rejects_entire_invalid_window(self):
+        good = self.pam_record("pam_unix(gdm-password:auth): authentication failure; user=vmtest")
+        for bad in (good | {"_SYSTEMD_UNIT": "other.service"}, good | {"_UID": "1000"},
+                    good | {"_TRANSPORT": "stdout"}, good | {"__MONOTONIC_TIMESTAMP": "PRIVATE_PAYLOAD"},
+                    good | {"MESSAGE": []}, []):
+            with self.subTest(bad=bad):
+                output, _ = self.pam_events([good, bad])
+                self.assertIn("pam_query=unknown", output)
+                self.assertNotIn("pam_event=", output)
+                self.assertNotIn("PRIVATE_PAYLOAD", output)
+        for raw in ("PRIVATE_PAYLOAD", '{"MESSAGE":"x","MESSAGE":"PRIVATE_PAYLOAD"}'):
+            output, _ = self.pam_events(raw=raw)
+            self.assertIn("pam_query=unknown", output)
+            self.assertNotIn("pam_event=", output)
+            self.assertNotIn("PRIVATE_PAYLOAD", output)
+
+    def test_pam_diagnostic_preserves_unknown_query_and_window_limit(self):
+        source = re.search(r"^emit_gnome_shell_lifecycle_diagnostic\(\) \{\n.*?<<'PY'\n(.*?)\nPY\n", VERIFY.read_text(), re.M | re.S).group(1)
+        import contextlib, io
+        ns = {"__name__": "pam_fixture"}; exec(compile(source, "actual-helper", "exec"), ns)
+        ns["query"] = lambda *args, **kwargs: None
+        output = io.StringIO()
+        with contextlib.redirect_stderr(output): ns["emit_pam_attribution"]("1000", "vmtest", "DIAGNOSTIC")
+        self.assertIn("pam_query=unknown", output.getvalue())
+        row = self.pam_record("pam_unix(gdm-password:auth): authentication failure; user=vmtest")
+        output, _ = self.pam_events([row] * 129)
+        self.assertIn("pam_rejection_reason=window-exhausted", output)
+        self.assertNotIn("pam_event=", output)
+        output, _ = self.pam_events([row] * 128)
+        self.assertIn("pam_events=128", output)
+
+    def test_authentication_failure_diagnostic_keeps_original_exit_status(self):
+        for phase, account in (("unlock", "vmtest"), ("fresh-user-login", "marblefresh"), ("return-user-login", "vmtest")):
+            for uid_status, diagnostic_status in ((0, 0), (0, 17), (19, 0)):
+                with self.subTest(phase=phase, uid_status=uid_status, diagnostic_status=diagnostic_status):
+                    script = "set -Eeuo pipefail\nphase=" + phase + "\nusername=vmtest\nmarker_prefix=STOCK\n"
+                    script += 'id(){ printf "1000\\n"; return ' + str(uid_status) + '; }\nemit_gnome_shell_lifecycle_diagnostic(){ printf "AUTH:%s:%s\\n" "$2" "$3" >&2; return ' + str(diagnostic_status) + '; }\n'
+                    script += function("guest_error") + '\ntrap \'guest_error "$LINENO" "$BASH_COMMAND"\' ERR\n(exit 23)\n'
+                    result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=5)
+                    self.assertEqual(result.returncode, 23, result.stderr)
+                    self.assertEqual(result.stderr.count("AUTH:authentication-failure:" + account), int(uid_status == 0))
+                    self.assertIn("status=23", result.stderr)
+                    self.assertNotIn("PASS", result.stdout)
+
+    def test_phase_progress_is_typed_without_exposing_invalid_values(self):
+        run = (ROOT / "tests/vm/run.sh").read_text()
+        helper = re.search(r"^emit_phase_progress\(\) \{\n.*?^\}", run, re.M | re.S).group(0)
+        script = "set -Eeuo pipefail\nscenario_id=minimal-ext4-systemdboot\nsource_commit=" + "a"*40 + "\nsource_tree=" + "b"*40 + "\nrun_id=minimal-fixture\n"
+        script += helper + '\nemit_phase_progress input-validation begin\nemit_phase_progress release-inputs end\nemit_phase_progress PRIVATE_PAYLOAD begin\n'
+        result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=5)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("phase=input-validation state=begin", result.stdout)
+        self.assertIn("phase=release-inputs state=end", result.stdout)
+        self.assertNotIn("PRIVATE_PAYLOAD", result.stdout)
+
     def test_repository_https_always_transfers_candidate_database_and_signature(self):
         import os, time
         with tempfile.TemporaryDirectory() as directory:
@@ -2821,7 +2922,7 @@ die(){ return 1; }
             with self.subTest(exit_code=exit_code), tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary); (root / "guest").mkdir(); (root / "guest/verify.sh").write_text(script_bytes)
                 response = json.dumps({"return": {"exited": True, "exitcode": exit_code, "out-data": base64.b64encode(marker.encode()).decode(), "err-data": "", "out-truncated": False}})
-                program = "set -euo pipefail\n" + body + "\n" + "\n".join(name + "=fixture" for name in globals_used)
+                program = "set -euo pipefail\n" + self.host_function("emit_phase_progress") + "\n" + body + "\n" + "\n".join(name + "=fixture" for name in globals_used)
                 program += r"""
 script_dir="$1" evidence="$1" response="$2" input_mode=staged marker_prefix=MINIMAL media_qualification=false gnome51_upgrade_manifest_sha256=-
 die(){ exit 2; }
@@ -2836,6 +2937,7 @@ printf 'VERIFY_CONTINUED
                 result = subprocess.run(["bash", "-c", program, "fixture", str(root), response], capture_output=True, text=True, timeout=5)
                 self.assertEqual(result.returncode, 0 if exit_code == 0 else 2, result.stderr)
                 self.assertEqual("VERIFY_CONTINUED" in result.stdout, exit_code == 0)
+                self.assertEqual("phase=firstboot state=end" in result.stdout, exit_code == 0)
                 request = json.loads((root / "transmitted-request.json").read_bytes())
                 self.assertLess(len(json.dumps(request).encode()), 1_048_576)
                 arguments = request["arguments"]
@@ -2848,8 +2950,105 @@ printf 'VERIFY_CONTINUED
                 self.assertEqual(execution.stdout, b"fixture\nphase=firstboot argc=27\n")
                 self.assertEqual(request["arguments"]["arg"][-2:], ["false", "-"])
 
+    def test_public_capture_conditional_caller_rejects_nested_failures(self):
+        import base64, hashlib, json
+        names = ["arch-linux.db", "arch-linux.db.sig", "arch-linux.db.tar.gz", "arch-linux.db.tar.gz.sig",
+                 "arch-linux.files", "arch-linux.files.sig", "arch-linux.files.tar.gz", "arch-linux.files.tar.gz.sig",
+                 "arch-linux.gpg", "primary-fingerprint", "signing-subkey-fingerprint"]
+        for package in (ROOT / "repository/package-set").read_text().splitlines():
+            names.extend([package + "-1-1-x86_64.pkg.tar.zst", package + "-1-1-x86_64.pkg.tar.zst.sig"])
+        manifest = {"architecture": "x86_64", "buildMetadataSha256": "fixture", "files": [
+            {"name": name, "sha256": "e" * 64, "size": 1} for name in sorted(names)],
+            "installerSha256": "fixture", "packageSetSha256": "fixture", "releaseVersion": "fixture",
+            "repository": "arch-linux", "schema": 2, "sourceCommit": "fixture", "sourceDateEpoch": 1,
+            "sourceTree": "fixture", "unsignedManifestSha256": "fixture"}
+        body = "\n".join(self.host_function(name) for name in (
+            "verify_retained_manifest_signature", "retain_repository_manifest", "repository_hash_from_tsv_from",
+            "append_repository_identity", "capture_public_repository_evidence"))
+        for case in ("success", "digest", "signature-digest", "invalid-signature", "rejected-signature",
+                     "wrong-signer", "schema", "hash-operation", "object-write", "retention", "identity"):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary); evidence = root / "evidence"; evidence.mkdir()
+                data = json.dumps(dict(manifest, schema=1) if case == "schema" else manifest).encode()
+                signature = b"signature fixture"
+                digest = "c" * 64 if case == "digest" else hashlib.sha256(data).hexdigest()
+                signature_digest = "d" * 64 if case == "signature-digest" else hashlib.sha256(signature).hexdigest()
+                (root / "stdout").write_text(
+                    "MARBLE_PUBLIC_SNAPSHOT_BINDING_PASS run_id=fixture snapshot_sha256=" + "a" * 64 +
+                    " release_sums_sha256=" + "b" * 64 + " repository_manifest_sha256=" + digest +
+                    " repository_manifest_signature_sha256=" + signature_digest +
+                    " pages_objects=25 package_signatures=7 database_signatures=2\n" +
+                    "PUBLIC_REPOSITORY_MANIFEST_BASE64 run_id=fixture value=" + base64.b64encode(data).decode() + "\n" +
+                    "PUBLIC_REPOSITORY_MANIFEST_SIGNATURE_BASE64 run_id=fixture value=" + base64.b64encode(signature).decode() + "\n")
+                if case == "identity": (root / "identity.txt").mkdir()
+                program = "set -Eeuo pipefail\n" + body + r'''
+run_root="$1" evidence="$1/evidence" repository_root="$2" fixture_case="$3"
+input_mode=public run_id=fixture snapshot_sha256="$(printf 'a%.0s' {1..64})" snapshot_verification=UNVERIFIED
+repository_primary_fingerprint="$(printf 'A%.0s' {1..40})" repository_signing_fingerprint="$(printf 'B%.0s' {1..40})"
+release_version=fixture source_commit=fixture source_tree=fixture installer_sha256=fixture
+repository_package_set_sha256=fixture build_metadata_sha256=fixture unsigned_manifest_sha256=fixture
+repository_database_sha256=- repository_database_signature_sha256=- repository_files_sha256=- repository_files_signature_sha256=-
+declare -A repository_package_hashes=()
+die(){ printf 'REJECTED:%s\n' "$*" >&2; return 1; }
+gpgv(){
+    [ "$fixture_case" != invalid-signature ] || return 2
+    [ "$fixture_case" != rejected-signature ] || printf '[GNUPG:] BADSIG rejected\n'
+    local signer="$repository_signing_fingerprint"
+    [ "$fixture_case" != wrong-signer ] || signer="$repository_primary_fingerprint"
+    printf '[GNUPG:] VALIDSIG %s 0 0 0 0 0 0 0 0 %s\n' "$signer" "$repository_primary_fingerprint"
+}
+sha256sum(){ command sha256sum "$@" || return 1; [ "$fixture_case" != hash-operation ] || return 17; }
+mv(){ [ "$fixture_case" != object-write ] || return 17; command mv "$@"; }
+install(){ [ "$fixture_case" != retention ] || return 17; command install "$@"; }
+if capture_public_repository_evidence "$run_root/stdout"; then printf 'ACCEPTED\n'; else printf 'REJECTED\n'; fi
+printf 'STATE=%s\n' "$snapshot_verification"
+'''
+                result = subprocess.run(["bash", "-c", program, "public-capture-fixture", str(root), str(ROOT), case],
+                                        capture_output=True, text=True, timeout=5)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                accepted = case == "success"
+                self.assertEqual("ACCEPTED\n" in result.stdout, accepted, result.stderr)
+                self.assertEqual("STATE=PUBLIC_RELEASE_PAGES_BINDING_PASS\n" in result.stdout, accepted, result.stderr)
+                if accepted:
+                    self.assertEqual((evidence / "repository-manifest.json").read_bytes(), data)
+                    self.assertEqual((evidence / "repository-manifest.json.sig").read_bytes(), signature)
+                    self.assertEqual(len((evidence / "repository-objects.tsv").read_text().splitlines()), 25)
+                    self.assertIn("repository_manifest_sha256=" + digest, (root / "identity.txt").read_text())
+
     def host_function(self, name):
         return re.search(r"^" + name + r"\(\) \{\n.*?^\}", (ROOT / "tests/vm/run.sh").read_text(), re.M | re.S).group(0)
+
+    def test_qga_conditional_caller_rejects_failed_or_invalid_guest_evidence(self):
+        import base64, json
+        marker = "MINIMAL_QEMU_GUEST_PASS run_id=fixture scenario=fixture phase=firstboot boot_id=00000000-0000-0000-0000-000000000001 target=fixture\n"
+        good = {"exited": True, "exitcode": 0, "out-data": base64.b64encode(marker.encode()).decode(), "err-data": ""}
+        cases = [("success", good, '{"return":{"pid":1}}', True),
+                 ("guest-failure", dict(good, exitcode=1), '{"return":{"pid":1}}', False),
+                 ("missing-marker", dict(good, **{"out-data": ""}), '{"return":{"pid":1}}', False),
+                 ("invalid-capture", dict(good, **{"err-data": "!"}), '{"return":{"pid":1}}', False),
+                 ("truncated", dict(good, **{"out-truncated": True}), '{"return":{"pid":1}}', False),
+                 ("invalid-pid", good, '{"return":{"pid":null}}', False),
+                 ("failed-start", good, 'FAIL', False),
+                 ("public-capture-failure", good, '{"return":{"pid":1}}', False)]
+        globals_used = "target_serial target_model run_id scenario_id repository_primary_fingerprint repository_signing_fingerprint release_version pages_url snapshot_sha256 source_commit source_tree installer_sha256 repository_package_set_sha256 build_metadata_sha256 unsigned_manifest_sha256 repository_public_key_sha256 target_disk_metadata".split()
+        for name, response, start, accepted in cases:
+            with self.subTest(case=name), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary); (root / "guest").mkdir(); (root / "guest/verify.sh").write_text("true\n")
+                program = "set -euo pipefail\n" + self.host_function("emit_phase_progress") + "\n" + self.host_function("qga_verify") + "\n"
+                program += "\n".join(variable + "=fixture" for variable in globals_used)
+                program += r'''
+script_dir="$1" evidence="$1" response="$2" fixture_start="$3" input_mode=staged marker_prefix=MINIMAL media_qualification=false gnome51_upgrade_manifest_sha256=-
+die(){ printf 'REJECTED:%s\n' "$*" >&2; return 1; }
+qga_call(){ if [[ "$1" != *'"execute":"guest-exec"'* ]]; then printf '%s\n' "$response"; elif [ "$fixture_start" = FAIL ]; then return 1; else printf '%s\n' "$fixture_start"; fi; }
+sleep(){ :; }
+if [ "$4" = public-capture-failure ]; then input_mode=public; fi
+capture_public_repository_evidence(){ return 1; }
+if qga_verify firstboot fixture; then printf 'ACCEPTED\n'; else printf 'REJECTED\n'; fi
+'''
+                result = subprocess.run(["bash", "-c", program, "fixture", str(root), json.dumps({"return": response}), start, name], capture_output=True, text=True, timeout=5)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual("ACCEPTED\n" in result.stdout, accepted, result.stderr)
+                self.assertEqual("phase=firstboot state=end" in result.stdout, accepted, result.stderr)
 
     def test_archiso_probe_requires_exact_complete_unique_current_nonce(self):
         body = self.host_function("serial_archiso_ready")
@@ -2921,7 +3120,7 @@ printf 'READY\n'
     def test_archiso_bootstrap_and_credentials_follow_readiness_once(self):
         source = (ROOT / 'tests/vm/run.sh').read_text()
         fragment = source.split("    current_phase='install-archiso'\n", 1)[1].split('    set +e\n', 1)[0]
-        program = 'set -euo pipefail\n' + r'''
+        program = 'set -euo pipefail\n' + self.host_function("emit_phase_progress") + '\n' + r'''
 mode="$1" bootstrap_command=INSTALLER scenario_id=minimal-ext4-systemdboot
 launch_qemu(){ printf 'LAUNCH\n'; }
 sleep(){ :; }
@@ -2933,8 +3132,10 @@ die(){ exit 1; }
         for mode in ('ready', 'timeout'):
             result = subprocess.run(['bash', '-c', program, 'fixture', mode], capture_output=True, text=True, timeout=5)
             self.assertEqual(result.returncode == 0, mode == 'ready', result.stderr)
-            self.assertEqual(result.stdout.splitlines(), ['LAUNCH', 'PROBE', 'BOOTSTRAP:INSTALLER', 'CREDENTIAL_GATE']
+            self.assertEqual([line for line in result.stdout.splitlines() if not line.startswith('QEMU_PROGRESS ')], ['LAUNCH', 'PROBE', 'BOOTSTRAP:INSTALLER', 'CREDENTIAL_GATE']
                              if mode == 'ready' else ['LAUNCH', 'PROBE'])
+            self.assertEqual('phase=install-archiso state=end' in result.stdout, mode == 'ready')
+            self.assertEqual('phase=installer-completion state=begin' in result.stdout, mode == 'ready')
 
     def test_hmp_public_probe_redirection_uses_complete_released_keys(self):
         import os, socket, threading

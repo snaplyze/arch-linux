@@ -898,15 +898,16 @@ with tempfile.TemporaryDirectory(prefix='arch-linux-capture-check-') as temporar
 # A successful guest command may emit harmless GPG/pacman diagnostics. Check the actual
 # wrapper: stderr alone is advisory, but an error or missing functional marker still fails.
 verify = re.search(r'(?ms)^qga_verify\(\) \{\n.*?^\}\n', run)
-if verify is None:
-    raise SystemExit('static check failed: guest verification wrapper is absent')
+progress = re.search(r'(?ms)^emit_phase_progress\(\) \{\n.*?^\}\n', run)
+if verify is None or progress is None:
+    raise SystemExit('static check failed: guest verification wrapper or phase observation is absent')
 import base64
 import json
 globals_used = '''target_serial target_model run_id scenario_id repository_primary_fingerprint
 repository_signing_fingerprint release_version pages_url snapshot_sha256 source_commit source_tree
 installer_sha256 repository_package_set_sha256 build_metadata_sha256 unsigned_manifest_sha256
 repository_public_key_sha256 target_disk_metadata'''.split()
-program = 'set -Eeuo pipefail\n' + verify.group() + '\n' + '\n'.join(
+program = 'set -Eeuo pipefail\n' + progress.group() + verify.group() + '\n' + '\n'.join(
     name + '=fixture' for name in globals_used) + '''
 script_dir="$1" evidence="$2" response="$3" input_mode=staged marker_prefix=MINIMAL media_qualification=false
 gnome51_upgrade_manifest_sha256=-
@@ -935,9 +936,13 @@ with tempfile.TemporaryDirectory(prefix='arch-linux-guest-status-check-') as tem
         result = subprocess.run(['/usr/bin/bash', '-c', program, 'guest-status-fixture',
             str(root / 'tests/vm'), temporary, response], capture_output=True, timeout=10,
             env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C'})
-        if result.returncode != (0 if accepted else 2) or result.stdout != (
+        output_lines = result.stdout.splitlines(keepends=True)
+        functional_output = b''.join(line for line in output_lines if not line.startswith(b'QEMU_PROGRESS '))
+        if result.returncode != (0 if accepted else 2) or functional_output != (
                 b'VERIFY_CONTINUED\n' if accepted else b''):
             raise SystemExit('static check failed: guest status handling changed functional outcome')
+        if (b'phase=firstboot state=end\n' in result.stdout) != accepted:
+            raise SystemExit('static check failed: rejected guest check emitted phase completion')
 
 grub = re.search(r'(?ms)^run_grub_mkconfig_for_regression\(\) \{\n.*?^\}\n', guest)
 if grub is None:

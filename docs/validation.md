@@ -2519,6 +2519,225 @@ complete at 22:54:09 UTC; log SHA-256
 The exact-source runtime observer returned no eligible record; that is not a
 global host-resource inventory. No publication or workstation update occurred.
 
+[PR81](https://github.com/snaplyze/arch-linux/pull/81) accepted final head
+`5e162f6656ae196d7aa438f46d3cc57e23be4d4a` (implementation parent
+`7c766594b8c86a9ca34387375caf9f6215128d26`). Exact-head CI 38001915628 /
+Source checks job 114061747912 passed: 160 runtime checks, all seventeen archive
+checks, full namespace/signer/14+18/no deferral and ShellCheck. CI log SHA-256
+`471bc1efa309895f1eb7a8f64ce49f4e48d0be2a86b895a963212dee18cff1b7`.
+The required check belongs to app 15368; exact head/base, clean/mergeable state
+and absence of unresolved review threads were checked before protected squash.
+Merge completed at 2026-10-09T23:03:03Z; main
+`2414cef10db033f1807bf0a3729a259c5bdea6af`, tree
+`2db191f5f9194d5cc95540f0ff1dbccc835b542e`, canonical SHA-256
+`6762d0ef84a3532950005e5317d0cf462970340232cfbedf74d4483e6e4f0478`.
+The sole checkout returned to main by fast-forward; index/working tree were clean
+before root-owned documentary receipt updates. Pre-freeze independent review
+inventoried all twenty-nine tracked Markdown files and found no mandatory stale
+release claim outside renderer blocks. README/installation child rendering and
+post-publication reconciliation remain separate gates. Fresh main CI 38002450811
+/ job 114063479730 passed; log SHA-256
+`f85c02651aa09972763d61e694980a8b72bf61a3abfe2170f205dfdda1b246a6`.
+
+[Release 38002781657](https://github.com/snaplyze/arch-linux/actions/runs/38002781657)
+prepared child `a5e41978f40e8596a6cee9d96b1139e6a11c93c2`, tree
+`bb96b604ad236c6817f63fe7bf3105100eea1036`, canonical SHA-256
+`659b492d48c4c584ca59d81ec7ec84f836f33278a3e1ace36410d6f88d13adcd`.
+Prepare job 114064561779 passed. Independent source artifact 11649849132 readback
+passed: ZIP SHA-256 `2979bd2b10e19443b2230a4d6f67f4b8ebbf75224eee5332c5b9206e333b37d4`,
+bundle `7a714abdc8a5f259e9a0b554b5c9d9fe30d40761e0ba27428c27290119e89f85`,
+receipt `a11334dc472fdbc3c0bd41a43482eccabf263a2966ece5ada73d9659eab29f33`.
+Main/child/deterministic transformation, exact installer and generated 1.0.7
+README/installation bootstrap pins were verified. Installer SHA-256
+`e6228b0f655d5551eaf5cc8d085ea8111b24df3930b27cc78700d0944432ff71`;
+frozen ten-file harness aggregate
+`bcf965237c5a9feb458b6d92e6b51101dd237075209e551cc82aef884d583960`.
+Clean build job 114064630959 and protected unsigned readback job 114066043084
+passed. Independent unsigned artifact 11649319044 readback passed: exact sixteen
+files/fourteen manifest rows, 212 immutable Git blobs/modes, seven package
+metadata/payload validators and 19,564 MTREE files. ZIP SHA-256
+`9c5abe3803e3bbdcc9b9176a86f29e97e641471df45eed470020c038ff8d2766`;
+BUILD-METADATA SHA-256
+`dfb16f7f6ae9ea0d05ac643f02f9853306e80b500a454a53046060e65a79bdaa`;
+UNSIGNED-SHA256SUMS SHA-256
+`cec8557a6db3f58e6a1beaaa0f4c6f5e94471a02b66bbbef7bd492303ed4dc37`;
+independent receipt SHA-256
+`21926bb31648a01e2c72217daf9b54fceda8ebd8189f91c684689908f5fe8892`.
+The independent validators are scoped checks, separate from protected CI and
+signing. Snapshot job 114066294101 passed, including both full repository runs,
+the root publication boundary and ordinary/privileged keyring modes. Snapshot
+job log SHA-256
+`541a6086b0f7c2068706acf9cfc908f8e3b1a08427a96be6184830aa7f19dc24`.
+Independent Phase-A artifact 11650196765 readback passed: fourteen assets,
+twelve signed checksum rows, three trust-bound signatures and twenty-five
+snapshot objects. ZIP SHA-256
+`9542201205f810177e77d507b1fd5e54f68d78002bb2806bc836a9117e3bf3b9`;
+RELEASE-SHA256SUMS SHA-256
+`e22a25679f247867a1fb6f3f19c9e37cf9bd45a9fb39c0e3ab65d3bebf73ffb3`;
+repository archive SHA-256
+`4d0a82cd4492be7c53c0511ed20b6bede5810f8464306c0f98d30d1e7e7ea446`;
+receipt SHA-256
+`414d7aa43bbde511e6748d6b5c2c62c54d72535c3fe848afe7778e28814b8462`.
+Nine fresh VM jobs materialized; Minimal job 114067261370 is active. A read-only
+outer-QGA metadata query was unavailable (guest agent not responding); this is
+an observer error, not a VM product verdict. No shared service was restarted.
+VM/final/public gates remain pending. No old child PASS belongs to these inputs.
+
+At 23:33 UTC the official AUR primary Git endpoints again answered both bounded
+`git ls-remote ... HEAD` checks with native status zero. Observed advisory HEADs:
+Plymouth `3347bb2b0ace31f6fa07e080f2886cd04e3fea1d`,
+Bibata `5d418e2c328f988b0b5c4fc51e6ca9619bfda293`. Accepted source pins remain
+unchanged. This endpoint check does not prove which transport an active VM used;
+that requires its installer evidence.
+
+Local documentary receipt checks after these updates passed:
+`PYTHONDONTWRITEBYTECODE=1 python3 tests/docs-checks.py` (twenty-nine files)
+and `git diff --check`. This is a local documentation check, not new source,
+package or VM acceptance. Log SHA-256
+`6a6e948ba88d743c6182cfdfb1313216dc038a3c3fa6032c9492e3538174d696`.
+
+Independent official-source freshness check at 2026-10-10 00:01 UTC found
+unchanged Arch metadata: [Shell](https://archlinux.org/packages/extra/x86_64/gnome-shell/)
+1:51.0-1, [Mutter](https://archlinux.org/packages/extra/x86_64/mutter/) 51.0-1,
+[GDM](https://archlinux.org/packages/extra/x86_64/gdm/) 51.0-1,
+[GTK4](https://archlinux.org/packages/extra/x86_64/gtk4/) 4.24.1-1,
+[libadwaita](https://archlinux.org/packages/extra/x86_64/libadwaita/) 1.10.0-1
+and [GJS](https://archlinux.org/packages/extra/x86_64/gjs/) 2:1.90.0-1.
+[GNOME MR !4214](https://gitlab.gnome.org/GNOME/gnome-shell/-/merge_requests/4214)
+remains open; the [Arch Shell recipe](https://gitlab.archlinux.org/archlinux/packaging/packages/gnome-shell/-/blob/main/PKGBUILD)
+still consumes the 51.0 tag without that shutdown correction. This is advisory
+research, not VM acceptance or causal proof. No source pins were changed.
+
+Narrow upstream control-flow review added previously missing evidence.
+At exact [51.0 source](https://gitlab.gnome.org/GNOME/gnome-shell/-/blob/2177bdf9624b2d285de7c1d34274073d3769d6b8/js/ui/extensionSystem.js#L54),
+the manager's shutdown callback deletes the recovery marker; it does not disable
+extensions. Its ordinary `_disableAllExtensions()` lifecycle/settings routine
+is not wired to whole-Shell shutdown. At [MR head](https://gitlab.gnome.org/GNOME/gnome-shell/-/blob/b0ee94efe41c77bb84ec0da1a11092e76ebbd0d7/js/ui/extensionSystem.js#L99),
+manager disable first drains pending operations, then synchronously disables
+active extensions in reverse order and removes the marker. The corresponding
+[main callback](https://gitlab.gnome.org/GNOME/gnome-shell/-/blob/b0ee94efe41c77bb84ec0da1a11092e76ebbd0d7/js/ui/main.js#L220)
+runs a GLib loop until its asynchronous shutdown handlers settle. This source
+inspection does not establish ordering against backend disposal, the VM crash
+cause, a faulty curated extension or a runtime fix. Do not port the candidate
+wholesale on this evidence; inspect the next bound symbolic/recovery receipts.
+
+The stalled read-only observer remained unavailable on a second finite QGA
+query. A strict, batch SSH alternative rejected an unknown host key; trust
+settings were preserved. The outer VM's CPU and disk counters continued to
+advance, but those unbound counters do not establish progress of the nested
+scenario. No shared daemon or VM was restarted. The current public job remains
+active without a product verdict; await its compact bound artifact.
+
+Read-only timeout review distinguishes the outer job from installer completion.
+The QEMU job has a 330-minute overall limit; the accepted-ISO transfer precedes
+the harness and uses curl retries without a per-transfer maximum. The harness
+starts its 7,200-second installer-marker wait only after ISO readiness and
+bootstrap. Job 114067261370 started at 23:16:55 UTC, so its outer deadline is
+approximately 04:46:55 UTC on October 10; elapsed time does not identify its
+current phase. Ordinary harness failure runs cleanup and writes a FAIL result
+for the always-run evidence upload. A hard job timeout can interrupt that upload.
+These are source-reviewed bounds, not an executed timeout or installer verdict.
+
+At the October 10 continuation, public terminal logs established that Minimal
+job 114067261370 downloaded the complete accepted ISO at 23:18:21 UTC, verified
+its hash and passed KVM preflight at 23:18:24. The outer job cancelled at
+04:47:08 after its overall limit; packaging found no completed result and no
+Minimal artifact was uploaded. The subsequent stalled harness stage remains
+unknown; the accepted-ISO transfer was not the cause of this delay.
+
+Three fresh FAIL artifacts were read back against exact child `a5e41978`, its
+tree, the ten-file harness aggregate and the four signed Phase-A input hashes.
+Their verdicts remain FAIL; the strict PASS consumer correctly rejected them.
+
+| Scenario / artifact | Run ID | Passed assertions | Failure receipt SHA-256 |
+| --- | --- | ---: | --- |
+| Core Marble / 11661472121 | `marble-20261010T052637Z-b587669b` | 4 | `b18c80648589b21a23b5849f1c93b3bb8dc1404eacfc5ee3bc737efed965520e` |
+| Core Stock LUKS/GRUB / 11661380256 | `luksgrub-20261010T044845Z-75c295a0` | 15 | `31a5f8f78cdaa0035b726d1418525ddce6aac6cb51cf8e044c7e6cd349cc37f3` |
+| Supplemental Stock ext4 / 11661984270 | `stock-20261010T061215Z-ca780fae` | 15 | `444bbbbde7ebda7b20324b0f2d16c485000fddad204117096cba70452cfffe31` |
+
+Marble failed the fresh named-user session wait (QGA script line 4827, frozen
+source line 4817 after its ten-line manifest/probe prefix). Before original-user
+logout, extensions remained enabled and the early-failure marker was absent.
+The filtered event window then recorded Shell killed with signal 9 and unit
+result `timeout`; the recovery unit started, but its later condition/ExecStart
+remain unknown. This is not the earlier SIGSEGV, and the stack query supplied
+no attributed frame. Authentication/UI readiness versus session startup remains
+unresolved. Stock carries no prefix in these phases: both errors map directly
+to source line 4913, the required `LockedHint=no` assertion after password input.
+An optional pre-input Stock screenshot showed a password field, but it does not
+prove PAM readiness, credential delivery or successful authentication. Preserve
+all real-login and unlock requirements; do not reset settings or disable guards.
+
+The cancellation request for the remaining release jobs succeeded after these
+mandatory core failures. The terminal inventory is three FAIL and six cancelled;
+the last active Stock job's runner cleanup completed at 06:55:46 UTC. This is
+job-bound cleanup evidence, not a global resource inventory. The supplemental observer stopped because of service usage
+limits; root owns remaining observation. A fresh finite outer-QGA probe after
+the job transition still reported an agent error, and the workstation remains
+unchanged. Next source work is bounded phase/authentication diagnostics before
+any unproven input or product correction; no repaired desktop/publication claim.
+
+### Subsequent local diagnostic candidate — 2026-10-10
+
+Host phase begin/end observations expose only controlled scenario/source/run
+identities. Authentication failure diagnostics retain bounded current-boot GDM
+PAM event types and monotonic timestamps for the selected account, never raw PAM
+messages. Invalid windows reject atomically; unknown queries remain unknown.
+These observations do not establish successful authentication or identify the
+desktop defect. Diagnostic or UID lookup failure preserves the original guest
+failure status; no settings, credentials or acceptance thresholds are changed.
+
+The actual `qga_verify` function, invoked by a conditional caller with `die`
+returning failure, incorrectly accepted six rejection cases: guest exit failure,
+missing marker, invalid capture, truncated output, invalid PID and failed start.
+The regression first failed all six cases, then passed after explicit returns
+were added to construction, transport, capture and evidence failure paths.
+Successful large-script stdin transport remains covered; rejected checks do not
+emit phase-end observations. This is a harness correction, not an attribution of
+the preceding VM authentication failures.
+
+`python3 tests/vm/runtime-checks.py` passed 167 tests (native exit 0).
+Its log SHA-256 is
+`f9a39a3b79b9a0ddf65a3104b9349b4e435a3c3eeddcc7503a671ccd21a729bd`;
+the conditional-caller RED and focused GREEN logs are respectively
+`55c73f7f9bb08a85549057f40b5ca693544c94173c2a1aef28050a9527a6f85e`
+and `03ebe586969d0c313493c684396484301c0f73da846ff5b2fc5127235d5b1ec8`.
+The first 166-test run failed three extracted-function fixtures because the new
+progress helper was missing; those fixtures now include the actual helper and
+retain readiness-before-bootstrap/credential-delivery assertions.
+The first complete source run stopped in another extracted-wrapper fixture,
+whose exact-stdout check lacked the actual progress helper. The fixture now
+checks functional output separately and requires an end observation only for a
+successful check; `bash tests/static-checks.sh` passed. Independent review also
+reproduced returning-error fallthrough in the public repository capture subtree.
+That finding is now corrected across capture, signature, retention and identity
+writing. The actual-helper regression replays only those four original HEAD
+helpers in memory: ten rejection cases falsely accepted before the fix; success
+and all ten rejection cases passed afterward. RED/GREEN log hashes are
+`c31713247398cc863fa6e3b99ea5349e8cfc4610b68bc068df731cf441267538`
+and `7353875edd6441957ed5d8c364864a1e9278c4e660b2ed4e5eaf77b41b407ebb`.
+The expanded runtime suite passed 168 tests, log SHA-256
+`58e9dda986f3aa94de951bb0fac72a1c67900d05d29a9b54a07dfdb27704753b`.
+An additional actual-QGA conditional-call case rejects a failed public capture
+without emitting an end observation. Independent read-only review found the P1
+resolved and no remaining material findings; four focused methods passed,
+including the eleven nested public-capture cases. Controlled GPG responses prove
+failure propagation, not actual signature or VM acceptance.
+
+`bash tests/source-tests.sh` passed (native exit 0), including 168 runtime tests,
+full repository acceptance (`namespace_fixtures=full scenarios=10 signer=passed
+release_closures=14+18 deferred=none`) and ShellCheck. The subsequent changes are
+only this result/checkpoint prose; the final documentation tree will be checked
+again before protected delivery. No PASS is transferred from the previously
+frozen child to these edits.
+
+At 2026-10-10T07:19 UTC, finite read-only `git ls-remote` checks against the
+official AUR succeeded for both Plymouth and Bibata. Availability is advisory:
+the observed HEADs do not authorize changing the reviewed recipe pins. The
+installer retains primary-first clones and falls back only after a primary clone
+failure to the [Arch-maintained mirror](https://archlinux.org/news/recent-services-outages/),
+using an independent attempt directory and the same immutable verification.
+
 The selected version is 1.0.7, UNPUBLISHED. Generated README and installation
 bootstrap pins and reviewed Unreleased notes were verified before freezing.
 This child contains the filtered lifecycle observer, post-logout/early-return

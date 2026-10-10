@@ -127,6 +127,15 @@ die() {
     return 1
 }
 
+emit_phase_progress() {
+    local phase="$1" state="$2"
+    [[ "${phase}" =~ ^[a-z0-9-]{1,64}$ ]] || return 0
+    [ "${state}" = begin ] || [ "${state}" = end ] || return 0
+    # Public phase observations carry no credentials, requests, paths or verdicts.
+    printf 'QEMU_PROGRESS scenario=%s source_commit=%s source_tree=%s run_id=%s phase=%s state=%s\n' \
+        "${scenario_id:--}" "${source_commit:--}" "${source_tree:--}" "${run_id:--}" "${phase}" "${state}"
+}
+
 # Only distribution-owned known matching firmware pairs are accepted; never create links.
 select_ovmf_pair() {
     local code vars
@@ -1312,38 +1321,41 @@ verify_retained_manifest_signature() {
     status="$(gpgv --status-fd 1 \
         --keyring "${repository_root}/repository/trust/arch-linux.gpg" \
         -- "${signature}" "${manifest}" 2>/dev/null)" ||
-        die 'retained repository manifest signature is invalid'
+        { die 'retained repository manifest signature is invalid'; return 1; }
     if grep -Eq '^\[GNUPG:\] (BADSIG|ERRSIG|EXPKEYSIG|REVKEYSIG|EXPSIG)\b' <<<"${status}"; then
         die 'retained repository manifest has a rejected signature status'
+        return 1
+    else
+        [ "$?" -eq 1 ] || return 1
     fi
     valid="$(awk '$1 == "[GNUPG:]" && $2 == "VALIDSIG" { print toupper($3) ":" toupper($NF) }' \
-        <<<"${status}")"
+        <<<"${status}")" || return 1
     [ "${valid}" = "${repository_signing_fingerprint}:${repository_primary_fingerprint}" ] ||
-        die 'retained repository manifest signer identity differs'
+        { die 'retained repository manifest signer identity differs'; return 1; }
 }
 
 retain_repository_manifest() {
     local manifest="$1" signature="$2" temporary_tsv package package_file package_hash pair
-    local actual_manifest_hash actual_signature_hash expected_names actual_names
+    local actual_manifest_hash actual_signature_hash expected_names actual_names sorted_names object_count
     local actual_database_hash actual_database_signature_hash actual_files_hash actual_files_signature_hash
     local source_file target_file
     local -a package_matches=()
     [ -f "${manifest}" ] && [ ! -L "${manifest}" ] && [ -s "${manifest}" ] ||
-        die 'repository manifest evidence is unsafe'
+        { die 'repository manifest evidence is unsafe'; return 1; }
     [ -f "${signature}" ] && [ ! -L "${signature}" ] && [ -s "${signature}" ] ||
-        die 'repository manifest signature evidence is unsafe'
-    actual_manifest_hash="$(sha256sum --binary -- "${manifest}" | awk '{ print $1 }')"
-    actual_signature_hash="$(sha256sum --binary -- "${signature}" | awk '{ print $1 }')"
+        { die 'repository manifest signature evidence is unsafe'; return 1; }
+    actual_manifest_hash="$(sha256sum --binary -- "${manifest}" | awk '{ print $1 }')" || return 1
+    actual_signature_hash="$(sha256sum --binary -- "${signature}" | awk '{ print $1 }')" || return 1
     if [ "${repository_manifest_sha256}" != - ]; then
         [ "${actual_manifest_hash}" = "${repository_manifest_sha256}" ] ||
-            die 'repository manifest digest differs from verified metadata'
+            { die 'repository manifest digest differs from verified metadata'; return 1; }
         [ "${actual_signature_hash}" = "${repository_manifest_signature_sha256}" ] ||
-            die 'repository manifest signature digest differs from verified metadata'
+            { die 'repository manifest signature digest differs from verified metadata'; return 1; }
     else
         repository_manifest_sha256="${actual_manifest_hash}"
         repository_manifest_signature_sha256="${actual_signature_hash}"
     fi
-    verify_retained_manifest_signature "${manifest}" "${signature}"
+    verify_retained_manifest_signature "${manifest}" "${signature}" || return 1
     jq -e --arg version "${release_version}" --arg source_commit "${source_commit}" \
         --arg source_tree "${source_tree}" --arg installer_sha256 "${installer_sha256}" \
         --arg package_set_sha256 "${repository_package_set_sha256}" \
@@ -1365,47 +1377,53 @@ retain_repository_manifest() {
           (.name | type == "string" and test("^[A-Za-z0-9][A-Za-z0-9+._-]*$")) and
           (.sha256 | type == "string" and test("^[a-f0-9]{64}$")) and
           (.size | type == "number" and . > 0 and floor == .)))
-    ' "${manifest}" >/dev/null || die 'repository manifest identity or schema differs'
+    ' "${manifest}" >/dev/null || { die 'repository manifest identity or schema differs'; return 1; }
 
     temporary_tsv="${run_root}/.repository-objects.tsv"
-    jq -r '.files[] | [.name,.sha256,(.size|tostring)] | @tsv' "${manifest}" >"${temporary_tsv}"
-    [ "$(wc -l <"${temporary_tsv}")" -eq 25 ] || die 'repository object closure is not 25 files'
-    actual_names="$(cut -f1 -- "${temporary_tsv}")"
-    [ "${actual_names}" = "$(printf '%s\n' "${actual_names}" | LC_ALL=C sort -u)" ] ||
-        die 'repository object names are not strictly sorted and unique'
+    jq -r '.files[] | [.name,.sha256,(.size|tostring)] | @tsv' "${manifest}" >"${temporary_tsv}" || return 1
+    object_count="$(wc -l <"${temporary_tsv}")" || return 1
+    [ "${object_count}" -eq 25 ] || { die 'repository object closure is not 25 files'; return 1; }
+    actual_names="$(cut -f1 -- "${temporary_tsv}")" || return 1
+    sorted_names="$(printf '%s\n' "${actual_names}" | LC_ALL=C sort -u)" || return 1
+    [ "${actual_names}" = "${sorted_names}" ] ||
+        { die 'repository object names are not strictly sorted and unique'; return 1; }
     expected_names="$(printf '%s\n' \
         arch-linux.db arch-linux.db.sig arch-linux.db.tar.gz arch-linux.db.tar.gz.sig \
         arch-linux.files arch-linux.files.sig arch-linux.files.tar.gz arch-linux.files.tar.gz.sig \
-        arch-linux.gpg primary-fingerprint signing-subkey-fingerprint | LC_ALL=C sort)"
+        arch-linux.gpg primary-fingerprint signing-subkey-fingerprint | LC_ALL=C sort)" || return 1
     while IFS= read -r package; do
-        mapfile -t package_matches < <(awk -F '\t' -v prefix="${package}-" '
-            index($1,prefix) == 1 && $1 ~ /[.]pkg[.]tar[.]zst$/ { print $1 }' "${temporary_tsv}")
-        [ "${#package_matches[@]}" -eq 1 ] || die "repository manifest package closure differs: ${package}"
+        package_matches=()
+        package_file="$(awk -F '\t' -v prefix="${package}-" '
+            index($1,prefix) == 1 && $1 ~ /[.]pkg[.]tar[.]zst$/ { print $1 }' "${temporary_tsv}")" || return 1
+        if [ -n "${package_file}" ]; then
+            mapfile -t package_matches <<<"${package_file}" || return 1
+        fi
+        [ "${#package_matches[@]}" -eq 1 ] || { die "repository manifest package closure differs: ${package}"; return 1; }
         package_file="${package_matches[0]}"
         grep -Fxq "${package_file}.sig" <<<"${actual_names}" ||
-            die "repository manifest package signature is missing: ${package}"
-        package_hash="$(awk -F '\t' -v name="${package_file}" '$1 == name { print $2 }' "${temporary_tsv}")"
+            { die "repository manifest package signature is missing: ${package}"; return 1; }
+        package_hash="$(awk -F '\t' -v name="${package_file}" '$1 == name { print $2 }' "${temporary_tsv}")" || return 1
         if [ -n "${repository_package_hashes[${package}]:-}" ]; then
             [ "${repository_package_hashes[${package}]}" = "${package_hash}" ] ||
-                die "repository package hash differs from verified metadata: ${package}"
+                { die "repository package hash differs from verified metadata: ${package}"; return 1; }
         else
             repository_package_hashes["${package}"]="${package_hash}"
         fi
         expected_names="$(printf '%s\n%s\n%s\n' "${expected_names}" "${package_file}" \
-            "${package_file}.sig" | LC_ALL=C sort)"
-    done <"${repository_root}/repository/package-set"
-    [ "${actual_names}" = "${expected_names}" ] || die 'repository manifest filename closure differs'
+            "${package_file}.sig" | LC_ALL=C sort)" || return 1
+    done <"${repository_root}/repository/package-set" || return 1
+    [ "${actual_names}" = "${expected_names}" ] || { die 'repository manifest filename closure differs'; return 1; }
 
-    actual_database_hash="$(repository_hash_from_tsv_from "${temporary_tsv}" arch-linux.db.tar.gz)"
-    actual_database_signature_hash="$(repository_hash_from_tsv_from "${temporary_tsv}" arch-linux.db.tar.gz.sig)"
-    actual_files_hash="$(repository_hash_from_tsv_from "${temporary_tsv}" arch-linux.files.tar.gz)"
-    actual_files_signature_hash="$(repository_hash_from_tsv_from "${temporary_tsv}" arch-linux.files.tar.gz.sig)"
+    actual_database_hash="$(repository_hash_from_tsv_from "${temporary_tsv}" arch-linux.db.tar.gz)" || return 1
+    actual_database_signature_hash="$(repository_hash_from_tsv_from "${temporary_tsv}" arch-linux.db.tar.gz.sig)" || return 1
+    actual_files_hash="$(repository_hash_from_tsv_from "${temporary_tsv}" arch-linux.files.tar.gz)" || return 1
+    actual_files_signature_hash="$(repository_hash_from_tsv_from "${temporary_tsv}" arch-linux.files.tar.gz.sig)" || return 1
     if [ "${repository_database_sha256}" != - ]; then
         [ "${repository_database_sha256}" = "${actual_database_hash}" ] &&
             [ "${repository_database_signature_sha256}" = "${actual_database_signature_hash}" ] &&
             [ "${repository_files_sha256}" = "${actual_files_hash}" ] &&
             [ "${repository_files_signature_sha256}" = "${actual_files_signature_hash}" ] ||
-            die 'repository database hashes differ from verified metadata'
+            { die 'repository database hashes differ from verified metadata'; return 1; }
     else
         repository_database_sha256="${actual_database_hash}"
         repository_database_signature_sha256="${actual_database_signature_hash}"
@@ -1414,11 +1432,11 @@ retain_repository_manifest() {
     fi
     if [ -e "${evidence}/repository-objects.tsv" ]; then
         cmp -s -- "${temporary_tsv}" "${evidence}/repository-objects.tsv" ||
-            die 'repository object evidence changed within one VM run'
-        rm -f -- "${temporary_tsv}"
+            { die 'repository object evidence changed within one VM run'; return 1; }
+        rm -f -- "${temporary_tsv}" || return 1
     else
-        chmod 0444 -- "${temporary_tsv}"
-        mv -- "${temporary_tsv}" "${evidence}/repository-objects.tsv"
+        chmod 0444 -- "${temporary_tsv}" || return 1
+        mv -- "${temporary_tsv}" "${evidence}/repository-objects.tsv" || return 1
     fi
     for pair in "${manifest}:repository-manifest.json" \
         "${signature}:repository-manifest.json.sig"; do
@@ -1426,9 +1444,9 @@ retain_repository_manifest() {
         target_file="${evidence}/${pair#*:}"
         if [ -e "${target_file}" ]; then
             cmp -s -- "${source_file}" "${target_file}" ||
-                die 'retained repository manifest evidence changed within one VM run'
+                { die 'retained repository manifest evidence changed within one VM run'; return 1; }
         else
-            install -m0444 -- "${source_file}" "${target_file}"
+            install -m0444 -- "${source_file}" "${target_file}" || return 1
         fi
     done
 }
@@ -1442,19 +1460,25 @@ repository_hash_from_tsv_from() {
 append_repository_identity() {
     local name checksum size
     [ "${repository_manifest_sha256}" != - ] || return 0
-    grep -Fq 'repository_manifest_sha256=' "${run_root}/identity.txt" 2>/dev/null && return 0
+    if [ -e "${run_root}/identity.txt" ]; then
+        if grep -Fq 'repository_manifest_sha256=' "${run_root}/identity.txt" 2>/dev/null; then
+            return 0
+        else
+            [ "$?" -eq 1 ] || return 1
+        fi
+    fi
     printf 'repository_manifest_sha256=%s\nrepository_manifest_signature_sha256=%s\nrepository_database_sha256=%s\nrepository_database_signature_sha256=%s\nrepository_files_sha256=%s\nrepository_files_signature_sha256=%s\n' \
         "${repository_manifest_sha256}" "${repository_manifest_signature_sha256}" \
         "${repository_database_sha256}" "${repository_database_signature_sha256}" \
         "${repository_files_sha256}" "${repository_files_signature_sha256}" \
-        >>"${run_root}/identity.txt"
+        >>"${run_root}/identity.txt" || return 1
     if [ "${release_sha256sums_sha256}" != - ]; then
         printf 'release_sha256sums_sha256=%s\n' "${release_sha256sums_sha256}" \
-            >>"${run_root}/identity.txt"
+            >>"${run_root}/identity.txt" || return 1
     fi
     while IFS=$'\t' read -r name checksum size; do
-        printf 'repository_object_sha256=%s name=%s size=%s\n' "${checksum}" "${name}" "${size}"
-    done <"${evidence}/repository-objects.tsv" >>"${run_root}/identity.txt"
+        printf 'repository_object_sha256=%s name=%s size=%s\n' "${checksum}" "${name}" "${size}" || return 1
+    done <"${evidence}/repository-objects.tsv" >>"${run_root}/identity.txt" || return 1
 }
 
 prepare_signed_repository_input() {
@@ -1870,42 +1894,48 @@ wait_qga() {
 
 capture_public_repository_evidence() {
     local stdout_file="$1" binding_line manifest_line signature_line manifest_b64 signature_b64
-    local temporary_manifest temporary_signature
+    local temporary_manifest temporary_signature actual_manifest_hash actual_signature_hash
+    local binding_count manifest_count signature_count
     [ "${input_mode}" = public ] || return 0
-    [ "$(grep -c '^MARBLE_PUBLIC_SNAPSHOT_BINDING_PASS ' "${stdout_file}")" -eq 1 ] ||
-        die 'public snapshot binding marker count differs'
-    binding_line="$(grep '^MARBLE_PUBLIC_SNAPSHOT_BINDING_PASS ' "${stdout_file}")"
+    binding_count="$(grep -c '^MARBLE_PUBLIC_SNAPSHOT_BINDING_PASS ' "${stdout_file}")" ||
+        { die 'public snapshot binding marker count differs'; return 1; }
+    [ "${binding_count}" -eq 1 ] ||
+        { die 'public snapshot binding marker count differs'; return 1; }
+    binding_line="$(grep '^MARBLE_PUBLIC_SNAPSHOT_BINDING_PASS ' "${stdout_file}")" || return 1
     [[ "${binding_line}" =~ ^MARBLE_PUBLIC_SNAPSHOT_BINDING_PASS\ run_id=${run_id}\ snapshot_sha256=${snapshot_sha256}\ release_sums_sha256=([a-f0-9]{64})\ repository_manifest_sha256=([a-f0-9]{64})\ repository_manifest_signature_sha256=([a-f0-9]{64})\ pages_objects=25\ package_signatures=7\ database_signatures=2$ ]] ||
-        die 'public snapshot binding marker differs'
+        { die 'public snapshot binding marker differs'; return 1; }
     release_sha256sums_sha256="${BASH_REMATCH[1]}"
     repository_manifest_sha256="${BASH_REMATCH[2]}"
     repository_manifest_signature_sha256="${BASH_REMATCH[3]}"
-    [ "$(grep -c '^PUBLIC_REPOSITORY_MANIFEST_BASE64 ' "${stdout_file}")" -eq 1 ] &&
-        [ "$(grep -c '^PUBLIC_REPOSITORY_MANIFEST_SIGNATURE_BASE64 ' "${stdout_file}")" -eq 1 ] ||
-        die 'public repository manifest evidence count differs'
-    manifest_line="$(grep '^PUBLIC_REPOSITORY_MANIFEST_BASE64 ' "${stdout_file}")"
-    signature_line="$(grep '^PUBLIC_REPOSITORY_MANIFEST_SIGNATURE_BASE64 ' "${stdout_file}")"
+    manifest_count="$(grep -c '^PUBLIC_REPOSITORY_MANIFEST_BASE64 ' "${stdout_file}")" ||
+        { die 'public repository manifest evidence count differs'; return 1; }
+    signature_count="$(grep -c '^PUBLIC_REPOSITORY_MANIFEST_SIGNATURE_BASE64 ' "${stdout_file}")" ||
+        { die 'public repository manifest evidence count differs'; return 1; }
+    [ "${manifest_count}" -eq 1 ] && [ "${signature_count}" -eq 1 ] ||
+        { die 'public repository manifest evidence count differs'; return 1; }
+    manifest_line="$(grep '^PUBLIC_REPOSITORY_MANIFEST_BASE64 ' "${stdout_file}")" || return 1
+    signature_line="$(grep '^PUBLIC_REPOSITORY_MANIFEST_SIGNATURE_BASE64 ' "${stdout_file}")" || return 1
     manifest_b64="${manifest_line#PUBLIC_REPOSITORY_MANIFEST_BASE64 run_id="${run_id}" value=}"
     signature_b64="${signature_line#PUBLIC_REPOSITORY_MANIFEST_SIGNATURE_BASE64 run_id="${run_id}" value=}"
     [ "${manifest_line}" != "${manifest_b64}" ] && [ "${signature_line}" != "${signature_b64}" ] ||
-        die 'public repository manifest evidence run identity differs'
+        { die 'public repository manifest evidence run identity differs'; return 1; }
     [[ "${manifest_b64}" =~ ^[A-Za-z0-9+/]+={0,2}$ ]] &&
         [[ "${signature_b64}" =~ ^[A-Za-z0-9+/]+={0,2}$ ]] ||
-        die 'public repository manifest evidence encoding is malformed'
+        { die 'public repository manifest evidence encoding is malformed'; return 1; }
     temporary_manifest="${run_root}/.public-repository-manifest.json"
     temporary_signature="${run_root}/.public-repository-manifest.json.sig"
     printf '%s' "${manifest_b64}" | base64 --decode >"${temporary_manifest}" ||
-        die 'cannot decode public repository manifest evidence'
+        { die 'cannot decode public repository manifest evidence'; return 1; }
     printf '%s' "${signature_b64}" | base64 --decode >"${temporary_signature}" ||
-        die 'cannot decode public repository manifest signature evidence'
-    [ "$(sha256sum --binary -- "${temporary_manifest}" | awk '{ print $1 }')" = \
-        "${repository_manifest_sha256}" ] || die 'public repository manifest evidence digest differs'
-    [ "$(sha256sum --binary -- "${temporary_signature}" | awk '{ print $1 }')" = \
-        "${repository_manifest_signature_sha256}" ] ||
-        die 'public repository manifest signature evidence digest differs'
-    retain_repository_manifest "${temporary_manifest}" "${temporary_signature}"
-    rm -f -- "${temporary_manifest}" "${temporary_signature}"
-    append_repository_identity
+        { die 'cannot decode public repository manifest signature evidence'; return 1; }
+    actual_manifest_hash="$(sha256sum --binary -- "${temporary_manifest}" | awk '{ print $1 }')" || return 1
+    actual_signature_hash="$(sha256sum --binary -- "${temporary_signature}" | awk '{ print $1 }')" || return 1
+    [ "${actual_manifest_hash}" = "${repository_manifest_sha256}" ] || { die 'public repository manifest evidence digest differs'; return 1; }
+    [ "${actual_signature_hash}" = "${repository_manifest_signature_sha256}" ] ||
+        { die 'public repository manifest signature evidence digest differs'; return 1; }
+    retain_repository_manifest "${temporary_manifest}" "${temporary_signature}" || return 1
+    rm -f -- "${temporary_manifest}" "${temporary_signature}" || return 1
+    append_repository_identity || return 1
     snapshot_verification='PUBLIC_RELEASE_PAGES_BINDING_PASS'
 }
 
@@ -1913,12 +1943,13 @@ qga_verify() {
     local phase="$1" stem="$2"
     local request start guest_pid status_request status_response=''
     local stdout_file stderr_file attempts=900 upgrade_contract='' probe_contract='' probe_hash='-'
+    emit_phase_progress "${phase}" begin
     if [ "${gnome51_upgrade_manifest_sha256}" != - ]; then
-        upgrade_contract="$(base64 -w0 -- "${evidence}/gnome51-upgrade-manifest.json")"
+        upgrade_contract="$(base64 -w0 -- "${evidence}/gnome51-upgrade-manifest.json")" || return 1
     fi
     if [ "${input_mode}:${scenario_id}" = staged:marble-gnome-btrfs-luks2-plymouth-systemdboot ]; then
-        probe_contract="$(base64 -w0 -- "${script_dir}/guest/extension-probe.js")"
-        probe_hash="$(sha256sum --binary -- "${script_dir}/guest/extension-probe.js" | awk '{print $1}')"
+        probe_contract="$(base64 -w0 -- "${script_dir}/guest/extension-probe.js")" || return 1
+        probe_hash="$(sha256sum --binary -- "${script_dir}/guest/extension-probe.js" | awk '{print $1}')" || return 1
     fi
     # Carry source bytes through QGA stdin, keeping exec arguments small. The fixed
     # loader reads FD 3 as its script and gives diagnostic commands /dev/null stdin.
@@ -1958,14 +1989,14 @@ qga_verify() {
             $repository_primary,$repository_signing,$input_mode,$release_version,$target_disk_metadata,$pages_url,$public_key_url,
             $snapshot_sha256,$source_commit,$source_tree,$installer_sha256,$package_set_sha256,
             $build_metadata_sha256,$unsigned_manifest_sha256,$public_key_sha256,
-             $legacy_release_version,$legacy_profile_version,$legacy_gtk3_version,$media_qualification,$gdm_worker_baseline]}}')"
-    printf '%s\n' "${request}" | jq -cS . >"${evidence}/${stem}.request.json"
-    start="$(qga_call "${request}")" || die "QGA verification did not start: ${phase}"
-    printf '%s\n' "${start}" | jq -cS . >"${evidence}/${stem}.start.json"
+             $legacy_release_version,$legacy_profile_version,$legacy_gtk3_version,$media_qualification,$gdm_worker_baseline]}}')" || return 1
+    printf '%s\n' "${request}" | jq -cS . >"${evidence}/${stem}.request.json" || return 1
+    start="$(qga_call "${request}")" || { die "QGA verification did not start: ${phase}"; return 1; }
+    printf '%s\n' "${start}" | jq -cS . >"${evidence}/${stem}.start.json" || return 1
     guest_pid="$(jq -er '.return.pid | select(type == "number" and . > 0)' <<<"${start}")" ||
-        die "QGA verification PID is invalid: ${phase}"
+        { die "QGA verification PID is invalid: ${phase}"; return 1; }
     status_request="$(jq -cn --argjson pid "${guest_pid}" \
-        '{execute:"guest-exec-status",arguments:{pid:$pid}}')"
+        '{execute:"guest-exec-status",arguments:{pid:$pid}}')" || return 1
     { [ "${phase}" = update ] || [ "${phase}" = migration-update ] || [ "${phase}" = gnome51-upgrade ]; } && attempts=3600
     for ((attempt = 0; attempt < attempts; attempt++)); do
         if status_response="$(qga_call "${status_request}")" &&
@@ -1974,29 +2005,30 @@ qga_verify() {
         fi
         sleep 2
     done
-    [ -n "${status_response}" ] || die "QGA verification produced no status: ${phase}"
-    printf '%s\n' "${status_response}" | jq -cS . >"${evidence}/${stem}.status.json"
+    [ -n "${status_response}" ] || { die "QGA verification produced no status: ${phase}"; return 1; }
+    printf '%s\n' "${status_response}" | jq -cS . >"${evidence}/${stem}.status.json" || return 1
     stdout_file="${evidence}/${stem}.stdout"
     stderr_file="${evidence}/${stem}.stderr"
-    jq -r '.return["out-data"] // ""' <<<"${status_response}" | base64 --decode >"${stdout_file}"
-    jq -r '.return["err-data"] // ""' <<<"${status_response}" | base64 --decode >"${stderr_file}"
+    jq -r '.return["out-data"] // ""' <<<"${status_response}" | base64 --decode >"${stdout_file}" || return 1
+    jq -r '.return["err-data"] // ""' <<<"${status_response}" | base64 --decode >"${stderr_file}" || return 1
     jq -e '.return.exited == true and .return.exitcode == 0 and
         (.return["out-truncated"] // false) == false and
         (.return["err-truncated"] // false) == false' <<<"${status_response}" >/dev/null ||
-        die "guest verification failed: ${phase}"
+        { die "guest verification failed: ${phase}"; return 1; }
     if [ -s "${stderr_file}" ]; then
         printf 'QEMU_DIAGNOSTIC_WARNING: successful guest check wrote stderr: %s\n' "${phase}" >&2
     fi
     grep -aFq -- "${marker_prefix}_QEMU_GUEST_PASS run_id=${run_id} scenario=${scenario_id} phase=${phase}" \
-        "${stdout_file}" || die "guest verification marker is missing: ${phase}"
-    last_boot_id="$(sed -n 's/^.* boot_id=\([a-f0-9-]\{36\}\) .*$/\1/p' "${stdout_file}" | head -n1)"
-    [[ "${last_boot_id}" =~ ^[a-f0-9-]{36}$ ]] || die "guest boot id is missing: ${phase}"
+        "${stdout_file}" || { die "guest verification marker is missing: ${phase}"; return 1; }
+    last_boot_id="$(sed -n 's/^.* boot_id=\([a-f0-9-]\{36\}\) .*$/\1/p' "${stdout_file}" | head -n1)" || return 1
+    [[ "${last_boot_id}" =~ ^[a-f0-9-]{36}$ ]] || { die "guest boot id is missing: ${phase}"; return 1; }
     if [[ "${phase}" = gdm-activation-* ]]; then
-        parse_gdm_activation_evidence "${stdout_file}" "${phase}" || die 'GDM activation evidence is malformed'
+        parse_gdm_activation_evidence "${stdout_file}" "${phase}" || { die 'GDM activation evidence is malformed'; return 1; }
     fi
     if [ "${input_mode}" = public ] && { [ "${phase}" = prelogin ] || [ "${phase}" = firstboot ]; }; then
-        capture_public_repository_evidence "${stdout_file}"
+        capture_public_repository_evidence "${stdout_file}" || return 1
     fi
+    emit_phase_progress "${phase}" end
 }
 
 prepare_public_media_readback() {
@@ -2557,6 +2589,7 @@ main() {
         esac
     done
 
+    emit_phase_progress input-validation begin
     for command_name in awk base64 bash bsdtar cmp curl du find genisoimage git gpgv grep gzip install jq openssl \
         python3 qemu-img qemu-system-x86_64 readlink sed sha256sum sort stat; do
         require_command "${command_name}"
@@ -2620,7 +2653,10 @@ main() {
             die "runtime source is not tracked: ${member}"
     done
 
+    emit_phase_progress input-validation end
+    emit_phase_progress source-binding begin
     bind_vm_source_identities
+    emit_phase_progress source-binding end
     installer_sha256="$(sha256sum --binary -- "${repository_root}/arch-linux-installer.sh" | awk '{ print $1 }')"
     bootstrap_sha256="$(sha256sum --binary -- "${repository_root}/install.sh" | awk '{ print $1 }')"
     if [ "${media_qualification}" = true ]; then
@@ -2684,6 +2720,7 @@ main() {
             "${harness_commit}" "${harness_tree}" "${source_commit}" "${source_tree}" "${media_qualification}" \
             >"${run_root}/harness-source.txt"
     fi
+    emit_phase_progress release-inputs begin
     if [ "${input_mode}" = staged ]; then
         verify_staged_release_input
         prepare_signed_repository_input
@@ -2700,6 +2737,7 @@ main() {
         fi
         snapshot_verification='PENDING_PUBLIC_RELEASE_PAGES_BINDING'
     fi
+    emit_phase_progress release-inputs end
     if [ "${input_mode}" = staged ] && scenario_needs_repository "${scenario_id}"; then
         start_marble_repository_runtime
     fi
@@ -2796,6 +2834,7 @@ main() {
         "${evidence}/initial-qemu-img-info.json" >/dev/null || die 'new target qcow2 identity is invalid'
 
     current_phase='install-archiso'
+    emit_phase_progress install-archiso begin
     launch_qemu install true
     # Allow the ISO's firmware/menu countdown to finish before any keyboard input.
     sleep 60
@@ -2803,6 +2842,8 @@ main() {
     hmp_request type "${bootstrap_command}"
     [ "${scenario_id}" != minimal-dualboot-ext4-systemdboot ] || bootstrap_timeout=1800
     deliver_installer_credentials
+    emit_phase_progress install-archiso end
+    emit_phase_progress installer-completion begin
     set +e
     wait_for_install_outcome "${evidence}/install-serial.log" \
         "${marker_prefix}_QEMU_INSTALL_COMPLETE run_id=${run_id} scenario=${scenario_id} powering_off=yes" \
@@ -2819,6 +2860,7 @@ main() {
     wait_qemu_exit install 300
     grep -aFq -- "${marker_prefix}_QEMU_INSTALLER_EXIT status=0" "${evidence}/install-serial.log" ||
         die 'installer zero-exit marker is missing'
+    emit_phase_progress installer-completion end
     "${qemu_img}" check -- "${run_root}/target.qcow2" >"${evidence}/postinstall-qemu-img-check.txt"
     if [ "${input_mode}" = public ]; then
         record_assertion accepted-public-bootstrap-installer \
