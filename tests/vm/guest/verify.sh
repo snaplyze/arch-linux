@@ -20,8 +20,16 @@ guest_error() {
                 "${diagnostic_account}" || true
         fi
     fi
+    if [ "${BASH_SUBSHELL}" -eq 0 ] &&
+        [[ "${phase:-}" =~ ^extension-(firstlogin|upgrade|postreboot)-native- ]] &&
+        declare -F load_desktop_native_state >/dev/null &&
+        load_desktop_native_state &&
+        [ -f "${desktop_native_trusted}/settings.json" ] && [ ! -L "${desktop_native_trusted}/settings.json" ] &&
+        [ "$(stat -c '%u:%a:%h' "${desktop_native_trusted}/settings.json")" = 0:600:1 ]; then
+        desktop_native_restore_settings >/dev/null 2>&1 || true
+    fi
     if declare -F restore_extension_probe_settings >/dev/null &&
-        [ -n "${probe_state:-}" ] && [ -f "${probe_state}/settings.json" ]; then
+        [ -n "${probe_state:-}" ] && [ -n "${probe_trusted:-}" ] && [ -f "${probe_trusted}/settings.json" ]; then
         restore_extension_probe_settings >/dev/null 2>&1 || true
     fi
     printf '%s_QEMU_GUEST_FAIL phase=%s line=%s status=%s command=%q\n' \
@@ -86,7 +94,7 @@ stock-gnome-btrfs-luks2-plymouth-systemdboot)
     ;;
 stock-gnome-btrfs-luks2-plymouth-grub)
     marker_prefix='LUKSGRUB'
-    case "${phase}" in gdm-activation-baseline | gdm-activation-check | prelogin | firstlogin | lock | unlock | update | postreboot-prelogin | secondlogin) ;; *) exit 2 ;; esac
+    case "${phase}" in gdm-activation-baseline | gdm-activation-check | prelogin | firstlogin | lock | unlock | update | postreboot-prelogin | secondlogin | extension-firstlogin-* | extension-postreboot-*) ;; *) exit 2 ;; esac
     [[ "${expected_serial}" =~ ^ALI100G[A-F0-9]{12}$ ]]
     [[ "${expected_model}" =~ ^ALI_GRB_[A-F0-9]{8}$ ]]
     [[ "${run_id}" =~ ^luksgrub-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}$ ]]
@@ -95,7 +103,7 @@ marble-gnome-btrfs-luks2-plymouth-systemdboot)
     marker_prefix='MARBLE'
     case "${phase}" in
     gdm-activation-baseline | gdm-activation-check | prelogin | firstlogin | lock | unlock | update | postreboot-prelogin | secondlogin | \
-        extension-upgrade-* | extension-postreboot-* | \
+        extension-firstlogin-* | extension-upgrade-* | extension-postreboot-* | \
         legacy-install | legacy-login | migration-update | migrated-login | \
         gnome51-baseline-install | gnome51-baseline-login | gnome51-upgrade | gnome51-upgraded-login | \
         gtk4-app-smoke-light | gtk4-app-smoke-dark | fresh-user-prepare | \
@@ -166,6 +174,8 @@ public)
     esac
     case "${phase}" in
     gdm-activation-baseline | gdm-activation-check | media-readback-prepare | firstboot | postreboot | prelogin | firstlogin | lock | unlock | update | postreboot-prelogin | secondlogin) ;;
+    extension-firstlogin-* | extension-postreboot-*)
+        [ "${scenario}" = marble-gnome-btrfs-luks2-plymouth-systemdboot ] ;;
     *) exit 2 ;;
     esac
     [ "${pages_url}" = "https://snaplyze.github.io/arch-linux/repo/\$arch" ]
@@ -3967,8 +3977,9 @@ restart_gdm_after_profile_transition() {
 emit_marble_action_pass() {
     local detail="$1" boot_id
     boot_id="$(tr -d '\n' </proc/sys/kernel/random/boot_id)"
-    printf 'MARBLE_QEMU_GUEST_PASS run_id=%s scenario=%s phase=%s boot_id=%s action=%s failed_units=0\n' \
-        "${run_id}" "${scenario}" "${phase}" "${boot_id}" "${detail}"
+    [[ "${boot_id}" =~ ^[a-f0-9-]{36}$ ]]
+    printf '%s_QEMU_GUEST_PASS run_id=%s scenario=%s phase=%s boot_id=%s action=%s failed_units=0\n' \
+        "${marker_prefix}" "${run_id}" "${scenario}" "${phase}" "${boot_id}" "${detail}"
 }
 
 wait_for_named_user_logout() {
@@ -4408,11 +4419,47 @@ probe_source='/run/arch-linux-qemu-extension-probe.js'
 probe_trusted=''
 
 load_extension_probe_state() {
-    [ "${input_mode}:${scenario}" = staged:marble-gnome-btrfs-luks2-plymouth-systemdboot ]
-    [[ "${phase}" =~ ^extension-(upgrade|postreboot)-([a-z-]+)$ ]]
+    [[ "${phase}" =~ ^extension-(firstlogin|upgrade|postreboot)-([a-z-]+)$ ]]
     probe_round="${BASH_REMATCH[1]}"
+    [[ "${run_id}" =~ ^(marble|luksgrub)-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}$ ]]
+    case "${scenario}:${input_mode}:${probe_round}" in
+    stock-gnome-btrfs-luks2-plymouth-grub:staged:firstlogin | stock-gnome-btrfs-luks2-plymouth-grub:staged:postreboot | \
+        marble-gnome-btrfs-luks2-plymouth-systemdboot:staged:upgrade | marble-gnome-btrfs-luks2-plymouth-systemdboot:staged:postreboot | \
+        marble-gnome-btrfs-luks2-plymouth-systemdboot:public:firstlogin | marble-gnome-btrfs-luks2-plymouth-systemdboot:public:postreboot) ;;
+    *) return 1 ;;
+    esac
     probe_state="/run/user/$(id -u "${username}")/arch-linux-qemu-extension-${run_id}-${probe_round}"
-    probe_trusted="${gnome51_migration_state}/extension-${probe_round}"
+    probe_trusted="/run/arch-linux-qemu-desktop-gtk/${run_id}/${probe_round}"
+}
+
+verify_stock_gnome_settings() {
+    [ "${scenario}" = stock-gnome-btrfs-luks2-plymouth-grub ]
+    verify_stock_session
+}
+
+verify_marble_profile_settings() {
+    [ "${scenario}" = marble-gnome-btrfs-luks2-plymouth-systemdboot ]
+    verify_marble_user_session marble
+}
+
+verify_extension_profile_settings() {
+    if [ "${scenario}" = stock-gnome-btrfs-luks2-plymouth-grub ]; then
+        verify_stock_gnome_settings
+    else
+        verify_marble_profile_settings
+    fi
+}
+
+require_extension_platform() {
+    local package version
+    for package in gnome-shell mutter gdm; do
+        version="$(installed_package_version_exact "${package}")"
+        [[ "${version#*:}" = 51.* ]] || return 1
+    done
+    if [ "${input_mode}:${scenario}" = staged:marble-gnome-btrfs-luks2-plymouth-systemdboot ]; then
+        gnome51_require_platform
+        [ -f "${gnome51_migration_state}/transaction-proven" ]
+    fi
 }
 
 extension_settings_schema() {
@@ -4435,16 +4482,22 @@ set_extension_setting() {
 prepare_extension_probe() {
     local uid favorites desktop application path value encoded
     uid="$(id -u "${username}")"
-    gnome51_require_platform
-    [ -f "${gnome51_migration_state}/transaction-proven" ]
+    require_extension_platform
+    provision_gnome51_migration_dependencies
     [ ! -e "${probe_state}" ] && [ ! -L "${probe_state}" ]
-    verify_marble_user_session marble
+    verify_extension_profile_settings
     [ ! -e "${probe_trusted}" ] && [ ! -L "${probe_trusted}" ]
+    for path in /run/arch-linux-qemu-desktop-gtk "/run/arch-linux-qemu-desktop-gtk/${run_id}"; do
+        if [ ! -e "${path}" ] && [ ! -L "${path}" ]; then install -d -o0 -g0 -m0700 -- "${path}"; fi
+        [ -d "${path}" ] && [ ! -L "${path}" ] && [ "$(stat -c '%u:%a' "${path}")" = 0:700 ]
+    done
     install -d -o0 -g0 -m0700 -- "${probe_trusted}"
+    [ -f "${probe_source}" ] && [ ! -L "${probe_source}" ]
+    [ "$(stat -c '%u:%a' "${probe_source}")" = 0:500 ]
     run_in_user_session "${uid}" mkdir -m0700 -- "${probe_state}"
     install -o "${uid}" -g "$(id -g "${username}")" -m0500 -- /run/arch-linux-qemu-extension-probe.js "${probe_state}/probe.js"
     sha256sum --binary -- "${probe_state}/probe.js" | awk '{print $1}' >"${probe_state}/probe.sha256"
-    printf '[]\n' >"${probe_state}/settings.json"
+    printf '[]\n' >"${probe_trusted}/settings.json"
     # Save only scoped, ephemeral test values; restore unset keys with dconf reset.
     for path in /org/gnome/shell/favorite-apps \
         /org/gnome/shell/extensions/dash-to-dock/hot-keys /org/gnome/shell/extensions/dash-to-dock/app-hotkey-1 \
@@ -4455,8 +4508,8 @@ prepare_extension_probe() {
         /org/gnome/shell/extensions/no-screenshot-box/screenshot-on-release; do
         value="$(run_in_user_session "${uid}" dconf read "${path}")"
         jq --arg path "${path}" --arg value "${value}" '. + [{path:$path,value:$value}]' \
-            "${probe_state}/settings.json" >"${probe_state}/settings.next"
-        mv -- "${probe_state}/settings.next" "${probe_state}/settings.json"
+            "${probe_trusted}/settings.json" >"${probe_trusted}/settings.next"
+        mv -- "${probe_trusted}/settings.next" "${probe_trusted}/settings.json"
     done
     application="org.archlinux.QemuExtensionProbe.${probe_round}"
     desktop="/home/${username}/.local/share/applications/${application}.desktop"
@@ -4638,15 +4691,48 @@ wait_extension_screenshot() {
 }
 
 restore_extension_probe_settings() {
-    local uid path encoded value
+    local uid path encoded value rows
     uid="$(id -u "${username}")"
+    # Validate a complete root-owned snapshot before restoring any scoped key.
+    rows="$(python3 - "${probe_trusted}" <<'EXTENSION_SETTINGS_ROWS_PY'
+import base64, json, pathlib, stat, sys
+root = pathlib.Path(sys.argv[1])
+assert root.resolve() == root
+for directory in [root.parent.parent, root.parent, root]:
+    info = directory.lstat()
+    assert stat.S_ISDIR(info.st_mode) and info.st_uid == 0 and stat.S_IMODE(info.st_mode) == 0o700
+path = root / 'settings.json'; info = path.lstat()
+assert stat.S_ISREG(info.st_mode) and info.st_uid == 0 and stat.S_IMODE(info.st_mode) == 0o600 and info.st_nlink == 1
+assert info.st_size <= 65536
+values = json.loads(path.read_text())
+expected = {
+    '/org/gnome/shell/favorite-apps',
+    '/org/gnome/shell/extensions/dash-to-dock/hot-keys',
+    '/org/gnome/shell/extensions/dash-to-dock/app-hotkey-1',
+    '/org/gnome/shell/extensions/clipboard-indicator/enable-keybindings',
+    '/org/gnome/shell/extensions/clipboard-indicator/prev-entry',
+    '/org/gnome/shell/extensions/clipboard-indicator/next-entry',
+    '/org/gnome/shell/extensions/clipboard-indicator/paste-on-select',
+    '/org/gnome/shell/extensions/clipboard-indicator/move-item-first',
+    '/org/gnome/shell/extensions/no-screenshot-box/remove-preselected-box',
+    '/org/gnome/shell/extensions/no-screenshot-box/screenshot-on-release',
+}
+assert isinstance(values, list) and len(values) == len(expected)
+assert all(isinstance(item, dict) and set(item) == {'path', 'value'} and
+           isinstance(item['path'], str) and isinstance(item['value'], str) and
+           '\0' not in item['value'] for item in values)
+assert {item['path'] for item in values} == expected
+for item in values:
+    print(item['path'] + '\t' + base64.b64encode(item['value'].encode()).decode())
+EXTENSION_SETTINGS_ROWS_PY
+)" || return 1
     while IFS=$'\t' read -r path encoded; do
         value="$(printf '%s' "${encoded}" | base64 --decode)"
         if [ -n "${value}" ]; then run_in_user_session "${uid}" dconf write "${path}" "${value}"
         else run_in_user_session "${uid}" dconf reset "${path}"
         fi
         [ "$(run_in_user_session "${uid}" dconf read "${path}")" = "${value}" ]
-    done < <(jq -r '.[] | [.path,(.value|@base64)] | @tsv' "${probe_state}/settings.json")
+    done <<<"${rows}"
 }
 
 cleanup_extension_probe() {
@@ -4679,14 +4765,16 @@ for path in root.iterdir():
 root.rmdir()
 EXTENSION_CLEANUP_PY
     rm -- "${probe_trusted}/identity.json"
+    rm -- "${probe_trusted}/settings.json"
     rmdir -- "${probe_trusted}"
-    verify_marble_user_session marble
+    verify_extension_profile_settings
     emit_marble_action_pass extension-probe-settings-restored-owned-files-removed
 }
 
 run_extension_probe_phase() {
     local operation uid hash pid marker
     load_extension_probe_state
+    require_extension_platform
     operation="${phase#extension-"${probe_round}"-}"
     uid="$(id -u "${username}")"
     case "${operation}" in
@@ -5304,6 +5392,22 @@ elif [[ "${scenario}" = minimal-* ]]; then
     verify_minimal
 elif [ "${phase}" = lock ] || [ "${phase}" = unlock ]; then
     run_lock_phase
+elif [[ "${phase}" =~ ^extension-(firstlogin|upgrade|postreboot)-native- ]]; then
+    [ -f /run/arch-linux-qemu-desktop-native.sh ] && [ ! -L /run/arch-linux-qemu-desktop-native.sh ]
+    [ "$(stat -c '%u:%a:%h' /run/arch-linux-qemu-desktop-native.sh)" = 0:500:1 ]
+    # shellcheck source=tests/vm/guest/desktop-native.sh
+    source /run/arch-linux-qemu-desktop-native.sh
+    if [[ "${phase}" = *-native-round-profile ]]; then
+        load_desktop_native_state
+        desktop_native_require_session >/dev/null
+        [ ! -e "${desktop_native_state}" ] && [ ! -L "${desktop_native_state}" ]
+        verify_extension_profile_settings
+    else
+        run_desktop_native_phase
+    fi
+    emit_marble_action_pass desktop-native-observed
+elif [[ "${phase}" = extension-* ]]; then
+    run_extension_probe_phase
 elif [[ "${scenario}" = marble-gnome-* ]]; then
     run_marble_phase
 elif [ "${phase}" = prelogin ] || [ "${phase}" = postreboot-prelogin ]; then

@@ -426,7 +426,10 @@ for harness_file in \
     tests/vm/run.sh tests/vm/frame-evidence.py tests/vm/qga-client.py tests/vm/https-server.py \
     tests/vm/prepare-marble-repository.sh tests/vm/prepare-gnome51-upgrade-inputs.py \
     tests/vm/gnome51-upgrade-baseline.json tests/vm/guest/bootstrap.sh tests/vm/guest/verify.sh \
-    tests/vm/guest/extension-probe.js; do
+    tests/vm/guest/extension-probe.js tests/vm/guest/desktop-native.sh \
+    tests/vm/guest/desktop-receipt.py tests/vm/guest/desktop-extension-observer.js \
+    tests/vm/guest/desktop-shell-probe.js tests/vm/guest/desktop-service-probe.js \
+    tests/vm/guest/desktop-service-runner.js; do
     cp -- "$repo_root/$harness_file" "$fixture_project/$harness_file"
 done
 for package in arch-linux-keyring arch-linux-gnome-extensions arch-linux-marble-profile; do
@@ -1090,6 +1093,7 @@ for index,(scenario,prefix,serial_code) in enumerate(scenarios,1):
     log=f'{marker}_QEMU_INSTALLER_EXIT status=0\n{marker}_QEMU_INSTALL_COMPLETE run_id={run_id}\n'.encode()
     if prefix=='marble':
         log+=b'GNOME51_UPGRADE_BASELINE_PASS synthetic_unit_fixture=1\nGNOME51_UPGRADE_RECOVERY_PASS synthetic_unit_fixture=1\n'
+    if prefix in ('luksgrub', 'marble'):
         log+=upgrade_fixture.functional_log(source, run_id)
     write(evidence/'scenario.log.gz',gzip.compress(log,mtime=0))
     write(evidence/'final-qemu-img-check.txt',b'No errors were found on the image.\n')
@@ -1257,19 +1261,6 @@ for scenario, _, _ in scenarios:
                               {'evidence/scenario.log.gz': gzip.compress(log.replace(marker, b'MISSING'), mtime=0)}))
             negatives.append(('upgrade duplicate marker ' + marker.decode(), payloads |
                               {'evidence/scenario.log.gz': gzip.compress(log + marker + b'\n', mtime=0)}))
-        log = gzip.decompress(payloads['evidence/scenario.log.gz'])
-        for phase in ('upgrade', 'postreboot'):
-            for feature in ('clipboard', 'dash', 'screenshot'):
-                marker = f'EXTENSION_FUNCTIONAL_PASS phase={phase} feature={feature} '.encode()
-                negatives.append(('missing functional receipt ' + phase + '/' + feature, payloads |
-                    {'evidence/scenario.log.gz': gzip.compress(log.replace(marker, b'MISSING '), mtime=0)}))
-        for label, changed in (
-                ('stale run', log.replace(b'feature=clipboard run_id=', b'feature=clipboard run_id=stale-')),
-                ('stale probe', log.replace(b'probe_sha256=', b'probe_sha256=f')),
-                ('mixed session', log.replace(b'feature=dash run_id=' + run_id.encode() + b' session=c2',
-                                             b'feature=dash run_id=' + run_id.encode() + b' session=c3'))):
-            negatives.append(('functional ' + label, payloads |
-                {'evidence/scenario.log.gz': gzip.compress(changed, mtime=0)}))
         negatives += [
             ('legacy signature', payloads | {'evidence/legacy-repository-manifest.json.sig': repository_signature}),
             ('missing legacy manifest', {name:value for name,value in payloads.items()
@@ -1282,6 +1273,24 @@ for scenario, _, _ in scenarios:
     if result['screenshots']:
         image = 'evidence/' + result['screenshots'][0]
         negatives.append(('malformed diagnostic PPM', payloads | {image: b'P6\n16 16\n255\nshort'}))
+    if scenario in am.SCENARIOS[1:]:
+        log = gzip.decompress(payloads['evidence/scenario.log.gz'])
+        phases = ('upgrade', 'postreboot') if scenario == am.SCENARIOS[2] else ('firstlogin', 'postreboot')
+        features = ['clipboard', 'dash', 'screenshot', 'appindicator', 'caffeine', 'blur', 'just-perfection']
+        if scenario == am.SCENARIOS[2]:
+            features.append('user-theme')
+        for phase in phases:
+            for feature in features:
+                marker = f'EXTENSION_FUNCTIONAL_PASS phase={phase} feature={feature} '.encode()
+                negatives.append(('missing functional receipt ' + phase + '/' + feature, payloads |
+                    {'evidence/scenario.log.gz': gzip.compress(log.replace(marker, b'MISSING '), mtime=0)}))
+        for label, changed in (
+                ('stale run', log.replace(b'feature=clipboard run_id=', b'feature=clipboard run_id=stale-')),
+                ('stale probe', log.replace(b'probe_sha256=', b'probe_sha256=f')),
+                ('mixed session', log.replace(b'feature=dash run_id=' + result['runId'].encode() + b' session=c2',
+                                             b'feature=dash run_id=' + result['runId'].encode() + b' session=c3'))):
+            negatives.append(('functional ' + label, payloads |
+                {'evidence/scenario.log.gz': gzip.compress(changed, mtime=0)}))
     for label, values in negatives:
         try:
             check(values)

@@ -22,12 +22,23 @@ def digest(raw: bytes) -> str:
 
 def functional_log(source: Path, run_id: str) -> bytes:
     """Synthetic finalizer input; never a record of actual extension behavior."""
-    probe = digest((source / 'tests/vm/guest/extension-probe.js').read_bytes())
+    marble = run_id.startswith("marble-")
+    probes = {
+        "clipboard": "extension-probe.js", "dash": "extension-probe.js",
+        "screenshot": "extension-probe.js", "appindicator": "desktop-service-runner.js",
+        "caffeine": "desktop-service-runner.js", "blur": "desktop-shell-probe.js",
+        "just-perfection": "desktop-shell-probe.js",
+    }
+    if marble:
+        probes["user-theme"] = "desktop-shell-probe.js"
+    phases = ("upgrade", "postreboot") if marble else ("firstlogin", "postreboot")
+    hashes = {feature: digest((source / "tests/vm/guest" / name).read_bytes())
+              for feature, name in probes.items()}
     return ''.join(
         f'EXTENSION_FUNCTIONAL_PASS phase={phase} feature={feature} run_id={run_id} '
         f'session=c2 probe_sha256={probe} synthetic_unit_fixture=1\n'
-        for phase in ('upgrade', 'postreboot')
-        for feature in ('clipboard', 'dash', 'screenshot')).encode()
+        for phase in phases
+        for feature, probe in hashes.items()).encode()
 
 
 def write(path: Path, raw: bytes) -> None:

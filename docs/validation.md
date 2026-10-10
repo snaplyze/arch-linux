@@ -3100,12 +3100,214 @@ tests, full namespace10/signer14+18/deferrednone and ShellCheck; retained log
 SHA-256 `9e37d3f0ee1df623c160175ad65ad8ada93eabbc92bcd9d666b246942cad22c7`.
 Only receipt prose followed; final documentation/diff checks are repeated.
 
+Documentation [PR85](https://github.com/snaplyze/arch-linux/pull/85) binds the historical-heading
+correction and retained attempt evidence to head `6975a6ec2a79db5deeb67604034290b2eb31b38e`,
+tree `6fd5f0bdcb1fcdf0efee8151f8ebe57425c46054`, canonical SHA-256
+`a277fd803424df5b0d766683455d9283281a7aa0339c7f2d1d13c4ebd69ff866`.
+Exact-head CI38045178691/job114193147981 passed; retained log SHA-256
+`e025f0f8f0bf60d6b6b4d222039bf7913181498ca9da262a906a9866780672a0`.
+Protected squash merge completed at 2026-10-10T10:35:25Z; main is
+`09e30447552bde29b748d508f675a95ef03670ee`, with the same tree/canonical
+source identity. The sole checkout returned by fast-forward; the uncommitted
+root evidence note remained byte-identical and the index clear. Main
+CI38045432264 passed; retained log SHA-256
+`8191cfb1a3db3291bfcbcb7579d184dc69fbcb9df61704dc8a6874c2989f73a0`.
+Configured release38045648678 is preparing a new immutable child; fresh
+source/package/VM/public acceptance remains required.
+
+Configured [release38045648678](https://github.com/snaplyze/arch-linux/actions/runs/38045648678)
+prepared child `daec8e9f22ab64c0364c28f07799468c2ab7f142`, tree
+`44daf5f1e686da2983413b4725aa759fed4d67a6`, canonical SHA-256
+`5509025ca368b11a62d1ce226cc97bca2eb4a1141144ba2e49b7c36f2c80e13f`.
+Prepare/job114194516866 passed. Independent source artifact11666728168 readback
+verified ZIP SHA-256 `3974c7d8ed74481bd8bda8e993d3d3d8afb569725b49554feff70c66db643d0a`,
+bundle SHA-256 `8cc2477ec300d1190c6717e181e039d3ac402823873545a91485a9d0ee993330`,
+origin/child identities and deterministic derivation. Generated README/installation
+1.0.7 pins and the historical release-process heading passed exact-child review.
+Source-readback receipt SHA-256 `ba31768f74ab8fc7db2654f54402953ffc542afa686eb638d16c028f3a8d520b`.
+Clean build/job114194560506 and protected readback/job114195461008 passed.
+Independent unsigned artifact11667189401 readback verified seven packages,
+sixty-four pinned source blobs and 42,193 MTREE rows; transport SHA-256
+`d69e47f69e88004f210281b080fe5ba0896d06a33d9a70fd042df21f1c8956e2`,
+build-metadata SHA-256 `3c0f0e56819dc87baeffab51bf2e29512dd8de19bcc0f3135feb4f5697b53b7a`,
+unsigned-manifest SHA-256 `cec8557a6db3f58e6a1beaaa0f4c6f5e94471a02b66bbbef7bd492303ed4dc37`.
+Readback receipt SHA-256 `16022431d9fb8305472b1007faef81ba3f5e764db39952a1dc1ea4f09b3de83f`.
+Snapshot/job114195626252 passed all five release-host gates and signing.
+Retained job-log SHA-256 `c8b34e705226e38fa1faf25f8a7c7d5c3b7da5dff47d42183e89eae43e563663`.
+Independent Phase-A artifact11667439518 readback passed: exact fourteen assets,
+twelve signed manifest rows, three outer signatures and twenty-five snapshot objects.
+Transport SHA-256 `b7b708f75795ea7ff8b2761e51604f3d8a590fa3dfd593c7999d38552a1b5e01`,
+release-manifest SHA-256 `d705a47c9a873d07b0e563106c8d94df03b2b8a8c0d7dbc9aa8a472cccd84095`,
+repository archive SHA-256 `0b88db06db72a0983a3f09b8f2b56f5ca4c2188411daf0d0464925c31cfd0e7e`.
+Build/unsigned identities match the independently verified unsigned input.
+Core Minimal/job114196260752 passed at 2026-10-10T11:10:32Z, run
+`minimal-20261010T105208Z-db6d2d70`. Independent artifact11668646035 readback
+and the frozen strict core consumer passed all fourteen assertions: installation,
+UEFI/GPT/ext4/systemd-boot, TTY firstboot, active network/DNS/no failed units,
+real full `pacman -Syu`, distinct-boot reboot/TTY return/no failed units,
+shutdown, clean image and no owned QEMU process. Transport SHA-256
+`53e8f901c202f652e46f9ec968255fbca98e11586aa3b4f0c09bb578c34076d9`,
+archive SHA-256 `6187a54bae42a4c99acaea22c158bd40bbac411a409311e290f40f297d68d4b2`,
+result SHA-256 `2c80b7f64c28dee41b0115c82355097e97b054e136aca45dc8bd8721d4214e05`,
+frozen consumer SHA-256 `ed131e3312b0fd846a4affb3866fb3a7c36aad17af1966849b06fe467de5e522`.
+Retained terminal log SHA-256 `cd1c5b3d87c3ace1afcf145eddd7a0a2f3c458f22670cb097712bdf3d63e54c1`.
+This exact-child Minimal result does not establish GNOME or public acceptance.
+Core Stock Btrfs/LUKS2/GRUB/job114196260700 passed at 2026-10-10T12:34:30Z,
+run `luksgrub-20261010T111246Z-e638a253`. Independent artifact11670495311
+readback and the frozen strict core consumer passed all twenty-two assertions:
+exact installation, encrypted boot/storage/GRUB, real GDM password login,
+desktop/network/locale/shortcuts, same-session lock/password unlock, full Syu,
+GRUB/package integrity, reboot/second login, shutdown/image/process cleanup.
+Transport SHA-256 `106dfca9cd0564b294393a317440e17cc3f2822795ece91d169258de31b4c5fc`,
+archive SHA-256 `26b1f0e5ec14cb8bb4dbc527e69bc2633a62bd0b981be924bb4151e40490be7b`,
+result SHA-256 `59ae00a61a52e471401e0c8f6a08f011bd22b8c8ad5c00850df40801c7d71ea1`.
+The frozen consumer SHA-256 matches the Minimal consumer recorded above.
+Retained terminal log SHA-256 `18758a1fff392b0add6f37bfe8043df5614dc968fee2653aa515a1cad1969952`.
+Core Marble/job114196260751 failed at 2026-10-10T13:37:35Z in
+`fresh-user-login`, before extension migration/functionality. Independent frozen
+artifact11671741833 failure binding retained four earlier PASS assertions and
+exit1: transport SHA-256 `2cf28f4796c4e707520ed960ac1bc3ce27c55cb9515d7ebc94eb2ddaa828b1fa`,
+archive SHA-256 `ce0daca0fa2573f0fa3f0049a14b7721aa9fb5c6053e69718dc561bdf96eda4e`,
+result SHA-256 `51e72565b503b3339a061686d0edca23c21183aff6c31ee2112ac5b12adf2335`.
+The historical FAIL consumer is not relabelled as strict PASS. Run38045648678
+was normally cancelled before finalization/publication; remaining six staged
+scenarios provide no accepted result. Compact diagnostics show an authentication
+failure for the fresh account without a PAM session-opened event; earlier original
+Shell stop timed out separately. The cause is still under investigation.
+Marble migration/extension functionality, remaining VM, final eighteen-asset
+closure and public acceptance remain required. Stock baseline acceptance does
+not establish Marble migration or all extension functional behavior.
+Independent read-only acceptance audit confirmed a remaining coverage gap:
+`run_extension_functional_acceptance` exercises Dash, Clipboard and No Screenshot
+Box only in Marble upgrade/postreboot. `verify_stock_session` and
+`verify_marble_user_session` check exact enabled UUID sets, not functional effects
+of AppIndicator, Blur, Caffeine, Just Perfection and User Themes; Stock lacks the
+three existing functional rounds too. Thus the all-extension requirement in
+AGENTS.md and Blur/Just Perfection behavior promises in testing.md remain open.
+Current core PASS results must not be widened to cover that gap. Pinned extension
+and actual Shell 51 source review identified native applied-effect observations,
+public StatusNotifier registration and SessionManager inhibition as suitable
+positive/control outcomes. The official interactive Looking Glass path is
+separate from remote Shell.Eval and does not require changing unsafe mode.
+Implementation/regression/native acceptance remain required; no claim that these
+new probes have run. Its Marble FAIL is retained; this attempt is terminal CANCELLED before
+immutable publication.
+
+The new observer's local predicate/controller checks passed:
+`gjs -m tests/vm/desktop-extension-observer-checks.js` reports 91 fake-native
+checks after duplicate monitor-widget, unmapped shown-panel and closed-overview
+negative controls. Its finite read-only bootstrap preserves normal Looking Glass and rejects
+unsafe mode, wrong identity/source hashes, malformed/reordered commands and
+unapplied native effects. This is source-tool evidence, not a live Shell result.
+The separate AppIndicator/Caffeine helper passed 63 isolated D-Bus checks with
+`timeout 60 env GIO_USE_VFS=local DESKTOP_SERVICE_PROBE_PRIVATE_BUS=1
+dbus-run-session -- gjs -m tests/vm/desktop-service-probe-checks.js`.
+The actual functional-round producer and fixed-input regressions first failed
+against the old harness, then passed after integration: eight functional cases and
+five fixed keyboard cases. They cover shared seven features and the eighth User
+Themes feature on Marble. Frozen old results keep their original ten-file closure;
+new source uses sixteen runtime files and requires Stock36/Marble43 assertions.
+Integration includes normal Looking Glass input, exact scoped setting restoration,
+Stock first/postreboot and staged Marble upgrade/postreboot plus public Marble
+first/postreboot. Runtime shell/observer checks remain actual-VM NOT_TESTED.
+Independent review reproduced a restoration parser error that could falsely
+succeed with an empty loop and completion that could ignore original native
+preferences. Synchronous validation of all ten scoped dconf paths now precedes
+writes; completion requires exact raw setting readback and matching restored Blur,
+panel and theme receipts. Process custody also binds boot ID. Thirty offline
+custody/restoration checks passed. A source import substitution was reproduced;
+four code files now live under root-owned non-writable code ancestors, separate
+from user-owned metadata/receipts. Fifty-one service protocol/file checks passed.
+A separate cleanup pathname substitution was reproduced in owned temporary
+fixtures, then corrected with descriptor-based unlink and pathname identity
+checks. Independent rereview and the actual foreign-file preservation regression
+passed. The named GDM path now waits for one stable new worker after submitting
+the username once; four delayed/failure fixtures changed from RED to GREEN. This
+closes a test input guard gap, not the unproved cause of the prior PAM failure.
+No source-tool PASS proves a native GNOME session or public update delivery. Root
+`PYTHONDONTWRITEBYTECODE=1 bash tests/source-tests.sh` subsequently completed
+exit0 (runtime174/full namespace10/signer14+18/no deferral), log SHA-256
+`883f5d5f11b6faee5b35480c0665e9d48aed96988bed8a47d8d5f793ab843dbf`.
+A later narrow phase restriction and documentation changes have focused checks;
+a new clean candidate still requires its own full suite and downstream gates.
+Required GJS/private-bus test dependencies were added to the Ubuntu CI and Arch
+package-build source-check environments; `bash tests/static-checks.sh` passed.
+
+Clean local commit `fb00dba0f6b847ceb9e4ca49261567e092dc9241`, tree
+`5a9014644886f40e4e45cf83c05d801fb4bd85b9`, canonical SHA-256
+`7220e66c24a0546d2ddac19541a712b1722ae7813419db9a1548d7ee06c08835`,
+passed its separate full source suite exit0, including runtime174 and repository
+full10/signing14+18/no deferral; log SHA-256
+`fdc677c8cb5e3cc9837bc7db0fec4fbca042abd693353b4f049d4b650d55091c`.
+PR86 exact-head CI38057799588/job114229732392 failed four native cases after GJS
+became installed in the Ubuntu container: GTK4's typelib was absent, and the Gio
+lookup fixture assumed the host org.gnome.shell schema. This is a source-tool
+portability failure, not a GNOME repair verdict. Add explicit GTK4 introspection
+and GLib compiler dependencies, and compile the minimal settings schema inside
+owned fixtures. Native identity checks and exact favorite/desktop/Exec controls
+remain active; no skip or unknown-as-PASS fallback. The exact pinned Ubuntu image
+passed both native cases, service runner51, observer91 and private-D-Bus63 as
+nonroot with read-only source, 2 CPUs, 1 GiB and a fifteen-minute bound. A first
+diagnostic container stopped at an existing UID1000 before tests; the corrected
+run used that existing user and exited0. Independent focused review found no
+material issue. The follow-up full source command
+`PYTHONDONTWRITEBYTECODE=1 bash tests/source-tests.sh` exited0, including
+runtime174, all native fixtures and full repository10/signing14+18/deferrednone;
+log SHA-256 `94b06cbf9968ae85f5de040204235e05e080d4c6462e34dcadad3a3553f298ab`.
+Documentation/contract checks were repeated after these checkpoint edits.
+This is a working-source result; new exact-head CI is pending.
+
+At 2026-10-10T14:00 UTC, bounded official AUR and Arch-maintained mirror probes
+again returned matching Plymouth and bibata-cursor-theme-bin HEADs as recorded
+above. Availability checks remain advisory and do not promote any recipe update.
+
 At 2026-10-10T07:19 UTC, finite read-only `git ls-remote` checks against the
 official AUR succeeded for both Plymouth and Bibata. Availability is advisory:
 the observed HEADs do not authorize changing the reviewed recipe pins. The
 installer retains primary-first clones and falls back only after a primary clone
 failure to the [Arch-maintained mirror](https://archlinux.org/news/recent-services-outages/),
 using an independent attempt directory and the same immutable verification.
+
+At 2026-10-10T12:01 UTC, bounded primary AUR `git ls-remote` probes passed
+again for Plymouth and Bibata. The Arch-maintained mirror responded with matching
+branch HEADs (`6c040c458108213626650a2dbc943517308dfd2a` and
+`5d418e2c328f988b0b5c4fc51e6ca9619bfda293`, respectively). This is availability
+evidence only, not approval of a newer recipe or new pin. Read-only source review
+confirmed both primary and mirror clones have 300-second deadlines with TERM/KILL
+cleanup, independent attempt directories and the same immutable identity gate.
+Core Stock/job114196260700 was still active; no exact live VM phase or new
+GNOME verdict was available from the public job status.
+
+At 2026-10-10T12:19–12:23 UTC, current runner/inner-guest observation became
+available through the existing dedicated SSH identity and known-hosts file;
+strict host-key verification passed without changing trust, keys or services.
+The outer domain UUID and loopback listener were bound to the existing runner,
+and the project QGA client matched the frozen source SHA-256. The inner QGA
+socket owner/device/inode and exact QEMU PID were validated before requests.
+Core Stock run `luksgrub-20261010T111246Z-e638a253` was still installing.
+An initial process-only query observed pacman and archive pipelines, including
+1,100 gpg child zombies. Subsequent queries observed pacman and those zombies
+gone, then unprivileged makepkg/fakeroot with active bsdtar/zstd compression.
+These changing process observations establish installation progress, not a
+deadlock, GNOME login, or the cause of prior desktop failures. No raw process
+arguments, environment, password or installer journal was exposed; no runner,
+guest or workstation configuration was changed. Root-owned compact diagnostic
+outputs remain outside the source tree. The live job has not produced a verdict.
+The live assertions subsequently recorded `accepted-official-arch-iso=PASS`
+and `actual-installer-executes=PASS`: the accepted installer exited zero and
+the harness advanced to firstboot. The installed package database reported
+Shell/Mutter/GDM 51.0, GTK 4.24.1, libadwaita 1.10.0, curated extensions
+1.0.0-7 and Plymouth 26.134.222-3 while Bibata was still being built. These
+are intermediate observations, not session or final package-integrity acceptance.
+Inner QGA diagnostics stopped before firstboot to avoid competing with the
+active harness; subsequent observation reads only the outer evidence files.
+At 12:30 UTC the live assertion file contained sixteen PASS entries, including
+encrypted firstboot, real GDM password login, desktop/network/locale/shortcut
+checks and `lock-password-unlock`. The exact unlock guest-exec status reported
+`exited=true, exitcode=0`. The unmodified password-input/unlock contract passed
+in this current guest; this does not retrospectively establish the cause of an
+older failure. Full Syu, reboot, second login, cleanup and the final artifact
+consumer subsequently passed as recorded above.
 
 The selected version is 1.0.7, UNPUBLISHED. Generated README and installation
 bootstrap pins and reviewed Unreleased notes were verified before freezing.

@@ -51,6 +51,9 @@ HARNESS_FILES = (
     "tests/vm/prepare-gnome51-upgrade-inputs.py", "tests/vm/gnome51-upgrade-baseline.json",
     "tests/vm/guest/bootstrap.sh", "tests/vm/guest/verify.sh",
     "tests/vm/guest/extension-probe.js",
+    "tests/vm/guest/desktop-native.sh", "tests/vm/guest/desktop-receipt.py",
+    "tests/vm/guest/desktop-extension-observer.js", "tests/vm/guest/desktop-shell-probe.js",
+    "tests/vm/guest/desktop-service-probe.js", "tests/vm/guest/desktop-service-runner.js",
 )
 EXPECTED_ASSERTIONS = {
     SCENARIOS[0]: (
@@ -68,9 +71,24 @@ EXPECTED_ASSERTIONS = {
         "grub-config-encrypted-root-contract", "first-grub-plymouth-luks-framebuffer",
         "first-luks-unlock-to-gdm", "real-gdm-password-login-first",
         "stock-network-dns-zero-failures", "luks2-btrfs-health",
-        "locale-keyboard-formats-shortcuts", "lock-password-unlock", "pacman-syu",
+        "locale-keyboard-formats-shortcuts",
+        "clipboard-history-copy-paste",
+        "dash-extension-app-activation",
+        "no-screenshot-box-capture-on-release",
+        "appindicator-synthetic-item-lifecycle",
+        "caffeine-keyboard-inhibition-cycle",
+        "blur-overview-native-effects",
+        "just-perfection-panel-control",
+        "lock-password-unlock", "pacman-syu",
         "grub-regeneration-qkk", "reboot-and-second-grub-plymouth-luks",
         "second-unlock-gdm-login", "reboot-preserves-encrypted-grub-contract",
+        "clipboard-history-copy-paste-postreboot",
+        "dash-extension-app-activation-postreboot",
+        "no-screenshot-box-capture-on-release-postreboot",
+        "appindicator-synthetic-item-lifecycle-postreboot",
+        "caffeine-keyboard-inhibition-cycle-postreboot",
+        "blur-overview-native-effects-postreboot",
+        "just-perfection-panel-control-postreboot",
         "clean-shutdown-image-no-qemu",
     ),
     SCENARIOS[2]: (
@@ -81,6 +99,11 @@ EXPECTED_ASSERTIONS = {
         "gnome51-signed-extension-owner-migration",
         "clipboard-history-copy-paste", "dash-extension-app-activation",
         "no-screenshot-box-capture-on-release",
+        "appindicator-synthetic-item-lifecycle",
+        "caffeine-keyboard-inhibition-cycle",
+        "blur-overview-native-effects",
+        "just-perfection-panel-control",
+        "user-theme-native-stylesheet-switch",
         "gdm-user-password-no-autologin", "first-gdm-login-wayland", "marble-shell-active",
         "colloid-gtk3-gtk4-icons-bibata", "user-themes-extension-profile",
         "gdm-process-scoped-overlays", "user-shell-overlay-isolation", "vendor-paths-clean",
@@ -88,6 +111,11 @@ EXPECTED_ASSERTIONS = {
         "reboot-plymouth-gdm-reactivation", "second-gdm-login-wayland",
         "clipboard-history-copy-paste-postreboot", "dash-extension-app-activation-postreboot",
         "no-screenshot-box-capture-on-release-postreboot",
+        "appindicator-synthetic-item-lifecycle-postreboot",
+        "caffeine-keyboard-inhibition-cycle-postreboot",
+        "blur-overview-native-effects-postreboot",
+        "just-perfection-panel-control-postreboot",
+        "user-theme-native-stylesheet-switch-postreboot",
         "gdm-helper-failure-honest", "gdm-explicit-deactivation",
         "gdm-stock-fallback-and-restore", "marble-package-removal-stock", "marble-package-reinstall",
         "clean-poweroff-image-health-hygiene",
@@ -974,15 +1002,26 @@ def validate_identity_record(raw: bytes, result: dict[str, object], scenario: st
         fail("QEMU target serial differs from its scenario")
 
 
-def validate_extension_functional_log(log: str, run_id: str, probe_sha256: str) -> None:
+def validate_extension_functional_log(log: str, run_id: str, probes: dict[str, str],
+                                      scenario: str = SCENARIOS[2]) -> None:
     """Require distinct behavior observations for this harness/run after both logins."""
-    expected = {(phase, feature) for phase in ("upgrade", "postreboot")
-                for feature in ("clipboard", "dash", "screenshot")}
+    if scenario not in SCENARIOS[1:] or not run_id.startswith(PREFIXES[scenario] + "-"):
+        fail("extension functional scenario identity differs")
+    features = {"clipboard", "dash", "screenshot", "appindicator", "caffeine",
+                "blur", "just-perfection"}
+    if scenario == SCENARIOS[2]:
+        features.add("user-theme")
+    if (not isinstance(probes, dict) or set(probes) != features or
+            any(not isinstance(value, str) or HEX64.fullmatch(value) is None or value == "0" * 64
+                for value in probes.values())):
+        fail("extension functional source closure differs")
+    phases = ("upgrade", "postreboot") if scenario == SCENARIOS[2] else ("firstlogin", "postreboot")
+    expected = {(phase, feature) for phase in phases for feature in features}
     observed: set[tuple[str, str]] = set()
     sessions: dict[str, str] = {}
     pattern = re.compile(
-        r"EXTENSION_FUNCTIONAL_PASS phase=(upgrade|postreboot) "
-        r"feature=(clipboard|dash|screenshot) run_id=([A-Za-z0-9-]+) "
+        r"EXTENSION_FUNCTIONAL_PASS phase=(firstlogin|upgrade|postreboot) "
+        r"feature=(clipboard|dash|screenshot|appindicator|caffeine|blur|just-perfection|user-theme) run_id=([A-Za-z0-9-]+) "
         r"session=([A-Za-z0-9_-]{1,64}) probe_sha256=([a-f0-9]{64})(?: [^\r\n]*)?\Z")
     for line in log.splitlines():
         if not line.startswith("EXTENSION_FUNCTIONAL_PASS"):
@@ -992,7 +1031,7 @@ def validate_extension_functional_log(log: str, run_id: str, probe_sha256: str) 
             fail("extension functional receipt syntax differs")
         phase, feature, recorded_run, session, recorded_probe = match.groups()
         key = (phase, feature)
-        if (key in observed or recorded_run != run_id or recorded_probe != probe_sha256 or
+        if (key not in expected or key in observed or recorded_run != run_id or recorded_probe != probes[feature] or
                 sessions.get(phase, session) != session):
             fail("extension functional receipt identity differs or repeats")
         observed.add(key)
@@ -1054,8 +1093,18 @@ def validate_runtime_markers(read: Callable[[str, int], bytes], result: dict[str
             f"{markers[scenario]}_QEMU_INSTALL_COMPLETE" not in log or
             re.search(r"QEMU_HOST_FAIL|_QEMU_GUEST_FAIL|exit_status=[1-9]", log)):
         fail("QEMU compact scenario log lacks success or contains failure")
+    if scenario in SCENARIOS[1:]:
+        probe_sources = {
+            "clipboard": "extension-probe.js", "dash": "extension-probe.js",
+            "screenshot": "extension-probe.js", "appindicator": "desktop-service-runner.js",
+            "caffeine": "desktop-service-runner.js", "blur": "desktop-shell-probe.js",
+            "just-perfection": "desktop-shell-probe.js",
+        }
+        if scenario == SCENARIOS[2]:
+            probe_sources["user-theme"] = "desktop-shell-probe.js"
+        validate_extension_functional_log(log, run_id,
+            {feature: harness["tests/vm/guest/" + source] for feature, source in probe_sources.items()}, scenario)
     if scenario == SCENARIOS[2]:
-        validate_extension_functional_log(log, run_id, harness["tests/vm/guest/extension-probe.js"])
         for marker in ("GNOME51_UPGRADE_BASELINE_PASS", "GNOME51_UPGRADE_RECOVERY_PASS"):
             if len(re.findall(r"(?m)^" + marker + r"(?:[ \t].*)?$", log)) != 1:
                 fail("GNOME 51 upgrade real-session marker missing or repeated")

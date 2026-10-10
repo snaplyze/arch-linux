@@ -894,17 +894,28 @@ PY
 qmp_extension_input() {
     local operation="$1" width="${2:-0}" height="${3:-0}"
     python3 - "${script_dir}/frame-evidence.py" "${qmp_socket}" "${qmp_socket_identity}" \
-        "${qemu_pid}" "${qemu_start_time}" "${operation}" "${width}" "${height}" <<'EXTENSION_INPUT_PY'
-import importlib.util, json, pathlib, sys, time
-module_path, socket_path, expected_identity, pid, start, operation, width, height = sys.argv[1:]
+        "${qemu_pid}" "${qemu_start_time}" "${operation}" "${width}" "${height}" "${run_id}" <<'EXTENSION_INPUT_PY'
+import importlib.util, json, pathlib, re, sys, time
+module_path, socket_path, expected_identity, pid, start, operation, width, height = sys.argv[1:9]
+run_id = sys.argv[9] if len(sys.argv) == 10 else ''
 spec = importlib.util.spec_from_file_location('extension_input_boundary', module_path)
 boundary = importlib.util.module_from_spec(spec); sys.modules[spec.name] = boundary; spec.loader.exec_module(boundary)
 path = pathlib.Path(socket_path); info = path.lstat()
 boundary.demand(f'{info.st_dev}:{info.st_ino}' == expected_identity, 'QMP socket replaced')
 keys = {'dash': ['meta_l', 'f6'], 'copy': ['ctrl', 'c'], 'paste': ['ctrl', 'v'],
         'previous': ['ctrl', 'f11'], 'next': ['ctrl', 'f12'], 'print': ['print'],
-        'selection': ['s'], 'capture': ['ret'], 'escape': ['esc']}
-boundary.demand(operation in {*keys, 'drag'}, 'unsupported functional input')
+        'selection': ['s'], 'capture': ['ret'], 'escape': ['esc'],
+        'overview': ['meta_l'], 'caffeine': ['meta_l', 'f7']}
+boundary.demand(operation in {*keys, 'drag', 'looking-glass'}, 'unsupported functional input')
+bootstrap = None
+if operation == 'looking-glass':
+    boundary.demand(re.fullmatch(r'[1-9][0-9]{0,9}', width) is not None and int(width) <= 4294967294,
+                    'invalid observer UID')
+    boundary.demand(height in ('firstlogin', 'upgrade', 'postreboot') and
+                    re.fullmatch(r'(?:marble|luksgrub)-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}', run_id) is not None,
+                    'invalid observer round identity')
+    bootstrap = ("await import('file:///run/arch-linux-qemu-desktop-code/" +
+                 run_id + '/' + height + "/desktop-shell-probe.js')")
 class InputQMP(boundary.QMP):
     def execute(self, command, arguments):
         boundary.demand(command in ('qmp_capabilities', 'send-key', 'input-send-event'), 'unsupported input command')
@@ -913,7 +924,25 @@ class InputQMP(boundary.QMP):
         boundary.demand('return' in response and 'error' not in response, 'QMP input rejected')
 connection = InputQMP(path, int(pid), start)
 try:
-    if operation in keys:
+    if operation == 'looking-glass':
+        def press(stroke):
+            connection.execute('send-key', {'keys': [{'type': 'qcode', 'data': key} for key in stroke], 'hold-time': 60})
+            time.sleep(0.08)
+        press(['alt', 'f2']); time.sleep(1)
+        for stroke in (['l'], ['g'], ['ret']): press(stroke)
+        time.sleep(1)
+        plain = {' ': 'spc', "'": 'apostrophe', '/': 'slash', '-': 'minus', '.': 'dot'}
+        shifted = {'(': '9', ')': '0', ':': 'semicolon'}
+        for char in bootstrap:
+            if char in plain: stroke = [plain[char]]
+            elif char in shifted: stroke = ['shift', shifted[char]]
+            elif 'A' <= char <= 'Z': stroke = ['shift', char.lower()]
+            else:
+                boundary.demand('a' <= char <= 'z' or '0' <= char <= '9', 'invalid fixed observer character')
+                stroke = [char]
+            press(stroke)
+        press(['ret'])
+    elif operation in keys:
         connection.execute('send-key', {'keys': [{'type': 'qcode', 'data': key} for key in keys[operation]], 'hold-time': 60})
     else:
         width, height = int(width), int(height)
@@ -940,9 +969,14 @@ EXTENSION_INPUT_PY
 }
 
 run_extension_functional_acceptance() {
-    local round="$1" width height suffix=''
-    [ "${input_mode}:${scenario_id}" = staged:marble-gnome-btrfs-luks2-plymouth-systemdboot ] || return 1
-    case "${round}" in upgrade) ;; postreboot) suffix='-postreboot' ;; *) return 1 ;; esac
+    local round="$1" width height uid suffix=''
+    case "${scenario_id}:${input_mode}:${round}" in
+    stock-gnome-btrfs-luks2-plymouth-grub:staged:firstlogin|stock-gnome-btrfs-luks2-plymouth-grub:staged:postreboot|\
+    marble-gnome-btrfs-luks2-plymouth-systemdboot:staged:upgrade|marble-gnome-btrfs-luks2-plymouth-systemdboot:staged:postreboot|\
+    marble-gnome-btrfs-luks2-plymouth-systemdboot:public:firstlogin|marble-gnome-btrfs-luks2-plymouth-systemdboot:public:postreboot) ;;
+    *) return 1 ;;
+    esac
+    [ "${round}" != postreboot ] || suffix='-postreboot'
     qga_verify "extension-${round}-prepare" "extension-${round}-prepare"
     qmp_extension_input dash
     qga_verify "extension-${round}-dash" "extension-${round}-dash"
@@ -974,9 +1008,49 @@ run_extension_functional_acceptance() {
     qmp_extension_input drag "${width}" "${height}"
     qga_verify "extension-${round}-positive-captured" "extension-${round}-positive-captured"
     qga_verify "extension-${round}-cleanup" "extension-${round}-cleanup"
+    qga_verify "extension-${round}-native-prepare" "extension-${round}-native-prepare"
+    uid="$(sed -n "s/^DESKTOP_PROBE_IDENTITY uid=\([1-9][0-9]*\) round=${round}$/\1/p" "${evidence}/extension-${round}-native-prepare.stdout")"
+    [[ "${uid}" =~ ^[1-9][0-9]*$ ]] || die 'native observer identity is absent'
+    qmp_extension_input looking-glass "${uid}" "${round}"
+    qga_verify "extension-${round}-native-ready" "extension-${round}-native-ready"
+    qmp_extension_input escape
+    qga_verify "extension-${round}-native-indicator-register" "extension-${round}-native-indicator-register"
+    qga_verify "extension-${round}-native-indicator-remove" "extension-${round}-native-indicator-remove"
+    qga_verify "extension-${round}-native-caffeine-baseline" "extension-${round}-native-caffeine-baseline"
+    qmp_extension_input caffeine
+    qga_verify "extension-${round}-native-caffeine-on" "extension-${round}-native-caffeine-on"
+    qmp_extension_input caffeine
+    qga_verify "extension-${round}-native-caffeine-off" "extension-${round}-native-caffeine-off"
+    qga_verify "extension-${round}-native-blur-enable" "extension-${round}-native-blur-enable"
+    qmp_extension_input overview
+    qga_verify "extension-${round}-native-blur-on" "extension-${round}-native-blur-on"
+    qga_verify "extension-${round}-native-blur-disable" "extension-${round}-native-blur-disable"
+    qga_verify "extension-${round}-native-blur-off" "extension-${round}-native-blur-off"
+    qmp_extension_input overview
+    qga_verify "extension-${round}-native-panel-shown" "extension-${round}-native-panel-shown"
+    qga_verify "extension-${round}-native-panel-hidden" "extension-${round}-native-panel-hidden"
+    qga_verify "extension-${round}-native-panel-overview-prepare" "extension-${round}-native-panel-overview-prepare"
+    qmp_extension_input overview
+    qga_verify "extension-${round}-native-panel-overview-only" "extension-${round}-native-panel-overview-only"
+    qga_verify "extension-${round}-native-panel-restore" "extension-${round}-native-panel-restore"
+    if [ "${scenario_id}" = marble-gnome-btrfs-luks2-plymouth-systemdboot ]; then
+        qga_verify "extension-${round}-native-theme-stock" "extension-${round}-native-theme-stock"
+        qga_verify "extension-${round}-native-theme-marble" "extension-${round}-native-theme-marble"
+    fi
+    # Keep the overview open while checking restored blur/panel/theme effects.
+    qga_verify "extension-${round}-native-cleanup" "extension-${round}-native-cleanup"
+    qmp_extension_input overview
+    qga_verify "extension-${round}-native-round-profile" "extension-${round}-native-round-profile"
     record_assertion "clipboard-history-copy-paste${suffix}" 'real copy keys, extension history shortcuts and real paste restored both synthetic values'
     record_assertion "dash-extension-app-activation${suffix}" 'a unique Dash binding launched the absent probe app and activated its real GTK window'
     record_assertion "no-screenshot-box-capture-on-release${suffix}" 'real drag saved a geometry-matched PNG on release; disabled control required a separate capture key'
+    record_assertion "appindicator-synthetic-item-lifecycle${suffix}" 'the real Shell watcher registered the owned standard status item and removed it with exact signal and property controls'
+    record_assertion "caffeine-keyboard-inhibition-cycle${suffix}" 'a real scoped shortcut produced the extension-specific SessionManager inhibitor and the second shortcut removed it'
+    record_assertion "blur-overview-native-effects${suffix}" 'actual overview input exposed distinct mapped per-monitor widgets with enabled native blur effects; disabling removed them'
+    record_assertion "just-perfection-panel-control${suffix}" 'scoped settings produced shown, hidden and overview-only native panel states and restored the original state'
+    if [ "${scenario_id}" = marble-gnome-btrfs-luks2-plymouth-systemdboot ]; then
+        record_assertion "user-theme-native-stylesheet-switch${suffix}" 'normal User Themes settings changed both selected and live application stylesheet through Stock control and Marble, then restored the original'
+    fi
 }
 
 hmp_type_password() {
@@ -1951,14 +2025,28 @@ capture_public_repository_evidence() {
 qga_verify() {
     local phase="$1" stem="$2"
     local request start guest_pid status_request status_response=''
-    local stdout_file stderr_file attempts=900 upgrade_contract='' probe_contract='' probe_hash='-'
+    local stdout_file stderr_file attempts=900 upgrade_contract='' probe_contract='' probe_hash='-' desktop_contract='' source_name source_bytes source_hash
     emit_phase_progress "${phase}" begin
     if [ "${gnome51_upgrade_manifest_sha256}" != - ]; then
         upgrade_contract="$(base64 -w0 -- "${evidence}/gnome51-upgrade-manifest.json")" || return 1
     fi
-    if [ "${input_mode}:${scenario_id}" = staged:marble-gnome-btrfs-luks2-plymouth-systemdboot ]; then
+    if [[ "${phase}" = extension-* ]] && { [ "${scenario_id}" = marble-gnome-btrfs-luks2-plymouth-systemdboot ] || [ "${scenario_id}" = stock-gnome-btrfs-luks2-plymouth-grub ]; }; then
         probe_contract="$(base64 -w0 -- "${script_dir}/guest/extension-probe.js")" || return 1
         probe_hash="$(sha256sum --binary -- "${script_dir}/guest/extension-probe.js" | awk '{print $1}')" || return 1
+        # Fixed root originals for the read-only native observer and scoped controls.
+        # Bytes stay in QGA stdin; no user metadata selects executable source.
+        desktop_contract=$'set -Eeuo pipefail\n'
+        for source_name in desktop-native.sh desktop-receipt.py desktop-shell-probe.js \
+            desktop-extension-observer.js desktop-service-runner.js desktop-service-probe.js; do
+            source_bytes="$(base64 -w0 -- "${script_dir}/guest/${source_name}")" || return 1
+            source_hash="$(sha256sum --binary -- "${script_dir}/guest/${source_name}" | awk '{print $1}')" || return 1
+            desktop_contract+="p=/run/arch-linux-qemu-${source_name}"$'\n'
+            desktop_contract+="if [ ! -e \"\$p\" ] && [ ! -L \"\$p\" ]; then printf %s ${source_bytes} | base64 --decode >\"\$p\"; chmod 0500 -- \"\$p\"; fi"$'\n'
+            # shellcheck disable=SC2016 # Expanded only by the fixed guest loader.
+            desktop_contract+='[ -f "$p" ] && [ ! -L "$p" ] && [ "$(stat -c %u:%a:%h -- "$p")" = 0:500:1 ]'$'\n'
+            # shellcheck disable=SC2016 # Expanded only by the fixed guest loader.
+            desktop_contract+='actual=$(sha256sum --binary -- "$p"); [ "${actual%% *}" = '"${source_hash}"' ]'$'\n'
+        done
     fi
     # Carry source bytes through QGA stdin, keeping exec arguments small. The fixed
     # loader reads FD 3 as its script and gives diagnostic commands /dev/null stdin.
@@ -1980,6 +2068,7 @@ qga_verify() {
         --arg legacy_profile_version "${legacy_profile_version:--}" \
         --arg legacy_gtk3_version "${legacy_gtk3_version:--}" --arg media_qualification "${media_qualification}" \
         --arg probe_contract "${probe_contract}" --arg probe_hash "${probe_hash}" \
+        --arg desktop_contract "${desktop_contract}" \
         --arg upgrade_contract "${upgrade_contract}" --arg upgrade_hash "${gnome51_upgrade_manifest_sha256}" \
         --arg gdm_worker_baseline "${gdm_worker_baseline:--}" '
         {execute:"guest-exec",arguments:{path:"/usr/bin/bash","capture-output":true,
@@ -1993,7 +2082,7 @@ qga_verify() {
             "set -Eeuo pipefail\np=/run/arch-linux-qemu-extension-probe.js\n" +
             "if [ ! -e \"$p\" ]; then printf %s " + $probe_contract + " | base64 --decode >\"$p\"; chmod 0500 -- \"$p\"; fi\n" +
             "[ -f \"$p\" ] && [ ! -L \"$p\" ]\nactual=$(sha256sum --binary -- \"$p\"); [ \"${actual%% *}\" = " + $probe_hash + " ]\n"
-            end) + $script | @base64),
+            end) + $desktop_contract + $script | @base64),
           arg:["-c","exec 3<&0 </dev/null; exec /usr/bin/bash /dev/fd/3 \"$@\"","minimal-verify",$phase,$serial,$vendor,$model,$username,$scenario,$run_id,
             $repository_primary,$repository_signing,$input_mode,$release_version,$target_disk_metadata,$pages_url,$public_key_url,
             $snapshot_sha256,$source_commit,$source_tree,$installer_sha256,$package_set_sha256,
@@ -2134,10 +2223,37 @@ marble_gdm_login() {
 }
 
 marble_named_gdm_login() {
-    local phase="$1" stem="$2" account="$3"
-    sleep 3
-    hmp_request type "${account}"
-    sleep 1
+    local phase="$1" stem="$2" account="$3" attempt boot daemon greeter worker='' ready=false
+    local gdm_worker_baseline=-
+    case "${account}" in marblefresh|vmtest) ;; *) return 1 ;; esac
+    qga_verify gdm-activation-baseline "${stem}-activation-baseline" || return 1
+    gdm_worker_baseline="${last_gdm_worker_ids}"
+    boot="${last_boot_id}" daemon="${last_gdm_daemon_identity}" greeter="${last_gdm_greeter_session}"
+    capture_screen "${stem}-username-prompt"
+    hmp_request type "${account}" || return 1
+    # Shell 51 starts verification asynchronously after the Username response.
+    # Do not retype the username or submit any secret until one new worker stays
+    # bound to this greeter. Worker readiness still does not prove entry focus.
+    for ((attempt = 0; attempt < 30; attempt++)); do
+        qga_verify gdm-activation-check "${stem}-activation-check" || return 1
+        [ "${last_boot_id}" = "${boot}" ] && [ "${last_gdm_daemon_identity}" = "${daemon}" ] &&
+            [ "${last_gdm_greeter_session}" = "${greeter}" ] || return 1
+        if [ "${last_gdm_activation_status}" = started ]; then
+            worker="${last_gdm_new_worker_identity}"
+            sleep 3
+            qga_verify gdm-activation-check "${stem}-activation-settled" || return 1
+            [ "${last_boot_id}" = "${boot}" ] && [ "${last_gdm_daemon_identity}" = "${daemon}" ] &&
+                [ "${last_gdm_greeter_session}" = "${greeter}" ] &&
+                [ "${last_gdm_activation_status}" = started ] &&
+                [ "${last_gdm_new_worker_identity}" = "${worker}" ] || return 1
+            ready=true
+            break
+        fi
+        [ "${last_gdm_activation_status}" = pending ] || return 1
+        sleep 2
+    done
+    [ "${ready}" = true ] || { die 'named GDM conversation timed out; password withheld'; return 1; }
+    capture_screen "${stem}-password-prompt"
     hmp_type_password
     printf 'phase=%s\ntransport=hmp-virtual-keyboard\nusername=%s\ncredential_length=48\nsubmit_key=enter\nsecret_recorded=no\n' \
         "${phase}" "${account}" >"${evidence}/${stem}-login-input.txt"
@@ -2203,6 +2319,9 @@ run_marble_acceptance() {
         run_extension_functional_acceptance upgrade
     else
         marble_gdm_login firstlogin firstboot firstboot-gdm-password
+        if [ "${scenario_id}" = marble-gnome-btrfs-luks2-plymouth-systemdboot ]; then
+            run_extension_functional_acceptance firstlogin
+        fi
     fi
     capture_screen firstboot-desktop
     record_assertion gdm-user-password-no-autologin \
@@ -2255,7 +2374,7 @@ run_marble_acceptance() {
     marble_gdm_login secondlogin postreboot
     record_assertion second-gdm-login-wayland \
         'the second real GDM password authentication reached Marble GNOME Wayland with storage, isolation and Qkk intact'
-    if [ "${input_mode}:${scenario_id}" = staged:marble-gnome-btrfs-luks2-plymouth-systemdboot ]; then
+    if [ "${scenario_id}" = marble-gnome-btrfs-luks2-plymouth-systemdboot ]; then
         run_extension_functional_acceptance postreboot
     fi
     if [ "${input_mode}" = staged ] && [[ "${scenario_id}" != *-stock-gdm ]]; then
@@ -2491,6 +2610,12 @@ main() {
         tests/vm/guest/bootstrap.sh
         tests/vm/guest/verify.sh
         tests/vm/guest/extension-probe.js
+        tests/vm/guest/desktop-native.sh
+        tests/vm/guest/desktop-receipt.py
+        tests/vm/guest/desktop-extension-observer.js
+        tests/vm/guest/desktop-shell-probe.js
+        tests/vm/guest/desktop-service-probe.js
+        tests/vm/guest/desktop-service-runner.js
     )
 
     [ "$#" -ge 1 ] || { usage; exit 2; }
@@ -3032,6 +3157,7 @@ main() {
         if is_encrypted_grub_scenario; then
             record_assertion locale-keyboard-formats-shortcuts \
                 'Stock retained en_US.UTF-8 locale and Formats, primary Latin plus Russian layouts, both GNOME switch directions, and all 12 Ptyxis Latin/Cyrillic shortcut pairs'
+            run_extension_functional_acceptance firstlogin
         fi
         qga_verify lock firstboot-lock-start
         hmp_request key ret
@@ -3092,6 +3218,9 @@ main() {
         else
             record_assertion gdm-second-real-login 'Stock GDM accepted a second virtual-keyboard password login into GNOME on Wayland'
             record_assertion failed-units-zero-secondlogin 'systemctl --failed remains empty after reboot and the second login'
+        fi
+        if is_encrypted_grub_scenario; then
+            run_extension_functional_acceptance postreboot
         fi
         if [ "${scenario_id}" = stock-gnome-btrfs-grub ]; then
             run_snapshot_acceptance

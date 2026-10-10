@@ -70,7 +70,12 @@ bash tests/source-tests.sh
 ```
 
 The package-migration checks require `vercmp`. On Ubuntu 24.04 it is supplied by
-`makepkg`; the CI dependency setup installs that package explicitly.
+`makepkg`; the CI dependency setup installs that package explicitly. GJS and a
+private D-Bus daemon are also required for the observer/controller and isolated
+StatusNotifier/SessionManager checks; they do not access the host desktop bus.
+Native GTK-probe identity checks require GTK4 introspection, while Gio desktop
+lookup fixtures compile their own minimal Shell settings schema with GLib tools.
+They must not depend on the host GNOME schema or installed desktop preferences.
 
 It executes:
 
@@ -249,18 +254,36 @@ guest proves the old installation before plain `pacman -Syu` and real GDM login,
 then checks package replacement, settings, original-directory custody and eight
 active extensions. The finalizer requires that assertion and the bound evidence.
 This extends the GTK3 migration test with its platform-specific legacy baseline.
-Enabled-state checks alone cannot establish extension behavior. The harness additionally requires real
-keyboard/pointer actions after migration and after reboot: an otherwise unused
-Dash extension shortcut must launch a disposable GTK app; Clipboard history must
-restore and paste two synthetic values; No Screenshot Box must save the selected
-area on pointer release, with a disabled-setting control requiring an explicit
-capture action. The finalizer requires all six distinct behavior assertions and
-compact receipts bound to the run, actual session and hashed probe source.
-Missing observations, stale receipts and enabled-state-only results fail.
-The app and captured guest images are temporary test outputs, not a visual
-evidence framework. These checks leave Blur rendering, menu appearance and the
-remaining behavioral checks below separate; they are not executed VM acceptance
-until the exact signed candidate is actually run.
+Enabled-state checks alone cannot establish extension behavior. The core Stock
+first-login/postreboot rounds require seven features; staged Marble upgrade/postreboot
+and public Marble first-login/postreboot rounds require eight. Real keyboard and
+pointer actions must launch a disposable GTK app through Dash, restore and paste
+two Clipboard values, and capture a selected area on pointer release through No
+Screenshot Box, with a disabled control requiring a separate capture key.
+
+The same rounds require an owned standard StatusNotifier item to register and
+unregister through the actual Shell watcher, and the scoped Caffeine shortcut to
+create and remove its exact SessionManager inhibitor. Normal overview input must
+expose distinct mapped per-monitor widgets with enabled native Blur effects, then
+remove them when disabled. Scoped Just Perfection settings must produce shown,
+hidden and overview-only panel states. Marble additionally switches User Themes
+through Stock control and its actual selected/live stylesheet. Restore every
+scoped setting to its original raw dconf value and verify the restored native
+Blur, panel and stylesheet before completing the round.
+
+A fixed read-only native observer is loaded once through ordinary interactive
+Looking Glass. Do not use remote Shell.Eval, enable unsafe mode or call extension
+callbacks as acceptance. Root-owned code files and ancestors remain separate from
+user-owned commands/receipts; root custody binds source hashes, exact sequence,
+process start time, boot ID and actual GDM session. Retain compact receipts and
+reject missing, stale, substituted or enabled-state-only results. Stop the
+observers before removing only their exact files through retained directory
+handles. Recheck the selected desktop profile after returning from the overview.
+The staged finalizer requires fourteen Stock and sixteen Marble behavior assertions,
+within the sixteen-file harness closure. Screenshots remain optional diagnostics;
+native effects and applied stylesheets do not alone prove visual equivalence.
+Offline/private-bus source-tool checks are separate from execution in a real
+GNOME session with the exact signed candidate.
 
 Real acceptance must bind the older installed state, new signed package set, GNOME/GTK/libadwaita
 versions and harness inputs, then execute these checks in a disposable installation:
