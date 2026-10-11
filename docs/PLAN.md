@@ -12,21 +12,31 @@ VM or publication obligation; a PASS never transfers between trees, children or 
 
 ## Current state — 2026-10-11
 
-- **Main:** `b73bc58` (PR #101, REL-SRC-PERF). On 2026-10-11 the owner assigned execution
-  of the whole agreed plan (G51-02…G51-05, REL-SRC-PERF, LOOP-01). Since REL-INTENT-01 a merge never
-  starts a release; a release needs an explicit `release.yml` dispatch on `main` after its push CI
-  passed.
+- **Main:** `e12fea0` (PR #103, G51-02 harness correction). On 2026-10-11 the owner assigned the
+  whole agreed plan (G51-02…G51-05, REL-SRC-PERF, LOOP-01). A release needs an explicit
+  `release.yml` dispatch on `main` after its push CI passed; merges never start one.
 - **Latest published release:** 1.0.6 (2026-10-04). 1.0.7 is unpublished; no 1.0.7 tag, asset or
   Pages change exists.
-- **Open problem resolved locally:** the 914ec4d Stock `extension-firstlogin-dash` failure was
-  reproduced on its exact signed inputs and traced to three harness defects plus a Stock fixture
-  defect, none in the product ([validation](validation.md#local-reproduction-2026-10-11)). The
-  correction is on branch `fix/g51-02-stock-functional-harness`.
-- **Next ready task:** publish the correction and dispatch one release; LOOP-01 is measured on that
-  candidate. Local exploration of the Stock postreboot round and of Marble (inputs prepared:
-  upgrade manifest `944168e2…`, legacy 1.0.3 assets) stopped on host memory: the staged guest needs
-  8 GiB available, the shared workstation held 7.7 GiB with swap nearly full, and other projects'
-  VMs and the runner VM were not touched. If the release run fails there, reproduce locally first.
+- **Runner:** OFFLINE by owner decision (2026-10-11). A local Marble VM run, together with the
+  runner's nested release scenarios, exhausted host memory; the kernel OOM-killed the runner VM
+  `ubuntu-actions` at 17:34 MSK. Lesson, binding for this host: never run a local staged VM while
+  CI VM scenarios run on the shared runner. Required PR checks cannot run until the owner brings the
+  runner back; development is moving to another machine.
+- **Release run 38141287882** (child `bcae140`, main `e12fea0`): CANCELLED after the OOM, the
+  second release run counted for LOOP-01. Phase-A signed; Minimal PASS; Stock LUKS2/GRUB FAILED at
+  `install-archiso` before the first prompt (installer exit 1, no installer log; cause NOT_PROVEN,
+  likely the single-attempt pinned Gum download; the same child installed and passed locally);
+  Marble core FAILED at `marble-lifecycle`/`incompatible-fixture` (`restart_gdm_after_profile_transition`,
+  after 39 assertions including both 8-extension rounds); Stock ext4 lost its runner (OOM); five
+  supplemental scenarios not run.
+- **Local results on child `bcae140`** (not CI acceptance): Stock LUKS2/GRUB staged PASS with all 36
+  strict assertions (run `luksgrub-20261011T133159Z-3a56bf69`, result `0fc19099…`); Marble failed at
+  `extension-postreboot-native-cleanup` (`terminate-service`) during the host OOM, so that run is
+  confounded and NOT_PROVEN.
+- **Next ready tasks:** (1) publish `fix/installer-gum-download-retry` (Gum retry, `reason=download`
+  classification) once required checks can run; (2) reproduce the Marble `incompatible-fixture`
+  GDM restart failure locally on the new machine with the exact child inputs, correct it; (3) one
+  release dispatch passing all nine scenarios (LOOP-01 already exceeds one run: 38141287882 failed).
 - **CI:** mode `self-hosted` (contract record). All 16 runner jobs use the owner's Linux labels;
   two jobs only call reusable workflows. `ci.yml` skips fork PRs. No workflow is incompatible with
   this mode. If the runner or Actions is unavailable, continue with direct local commands and record
@@ -111,7 +121,7 @@ Open and recent tasks. Findings are in [Review findings](#review-findings).
 | ID | Finding | Pri | Status | Depends on | Result and acceptance | Next step |
 | --- | --- | --- | --- | --- | --- | --- |
 | DIAG-01 | F-17 | P1 | DONE (source) | — | `qga_verify` records the failing guest phase, stem and exit status; the classifier reads that phase's own stderr (a fixture showed the old last-32 lexical slice dropping it; whether it did in the 914ec4d run is unproven) and emits allowlisted `[a-z0-9-]` `stage`/`reason`/`feature` rows; caps, no free text, password-row drop; rows retained in `scenario.log.gz`, `result.json` contract unchanged. Hypotheses: H1 confirmed, H2 refuted for ordering, H3 true but not the cause. Commit `4507338`; harness regressions. A real VM failure is NOT_TESTED | — |
-| G51-02 | — | P1 | IN_PROGRESS | DIAG-01 | See sequence above | Local Stock reproduction on the 914ec4d inputs |
+| G51-02 | — | P1 | IN_PROGRESS | DIAG-01 | See sequence above; Stock harness fixed (PR #103) and passed locally on `bcae140` | Marble `incompatible-fixture` GDM restart; Gum download retry; release |
 | SAFE-04 | F-19 | P2 | DONE (source) | — | Identity helpers return 1 for structurally unidentifiable nodes (empty reader, zram-like disk) and 2 for operational probe failures; uniqueness stops on 2 and skips 1 (such a node cannot equal a valid identity). A naive "any failure rejects" would have refused every disk next to an empty card reader. Commit `71a8ede`; function-checks regressions. Live ISO NOT_TESTED | — |
 | SIMPLIFY-01 | F-20 | P3 | DONE (source) | — | Cause confirmed: `papers` is required by `sushi` (gnome group), so its removal always failed silently. One `pacman -Qq` query and one `pacman -Rn` of the installed subset; real failures stop; provider lines never remove the provider; `papers` dropped. Commits `16ab695`, `0d0198c`. A slim Stock/Marble VM install is NOT_TESTED (runs in the next staged candidate) | — |
 | SIMPLIFY-02 | F-21, F-22 | P3 | DONE (source) | — | One `lsblk -P` per node, one inventory per picker/validation pass, idle check against the selected disk's forward topology by device number (review caught a path-only match; fixed in `0d0198c`). Stubbed `lsblk` calls before→after at 2/8/32 disks: picker 49/415/5479→8/20/68, validation 125/395/1475→24/54/174, idle 6→1. Identity material unchanged (differential fixture against the frozen old helpers); first redundant destructive-target proof removed, the recheck and handle checks stay. Commit `57463af`. Live ISO NOT_TESTED | — |
@@ -122,7 +132,7 @@ Open and recent tasks. Findings are in [Review findings](#review-findings).
 | G51-05 | — | P2 | TODO | G51-02 | See G51 table | — |
 | REL-INTENT-01 | F-15 | P1 | DONE | — | Release only by explicit dispatch on `main` with successful push CI for the exact head (PR #95, `bfb29bc`). A real dispatch is NOT_TESTED | — |
 | CI-FORK-01 | F-16 | P1 | DONE | — | `ci.yml` skips fork PRs on main (PR #93, `5d16a08`) | — |
-| LOOP-01 | F-18 | P1 | IN_PROGRESS | DIAG-01 | Rule written: local reproduction before a release dispatch (AGENTS.md, Development and fixes). Accept when the next accepted correction reaches release PASS with at most one release run | Measured on the next candidate |
+| LOOP-01 | F-18 | P1 | IN_PROGRESS | DIAG-01 | Rule written: local reproduction before a release dispatch (AGENTS.md, Development and fixes). Accept when the next accepted correction reaches release PASS with at most one release run. Run 38141287882 (after local Stock reproduction) did not pass: the Stock install failure did not reproduce locally and Marble had not been reproduced locally (host memory) | Reproduce Marble locally before the next dispatch |
 | DOC-02 | F-25 | P3 | DONE | — | PLAN and validation compacted (PR #97, `c248eae`) | — |
 
 Closed registry (detail at `bfb29bc`; evidence in validation). Residual limits are recorded, not
