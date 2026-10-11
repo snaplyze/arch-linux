@@ -12,20 +12,19 @@ VM or publication obligation; a PASS never transfers between trees, children or 
 
 ## Current state — 2026-10-11
 
-- **Main:** audit fixes branch `fix/audit-2026-10-10-tasks` on top of `c248eae`. Releases are paused at
-  the owner's request (2026-10-10). Since REL-INTENT-01 a merge never starts a release; a release
-  needs an explicit `release.yml` dispatch on `main` after its push CI passed.
+- **Main:** `49d72a9` (PR #99, 2026-10-10 audit fixes). On 2026-10-11 the owner assigned execution
+  of the whole agreed plan (G51-02…G51-05, REL-SRC-PERF, LOOP-01). Since REL-INTENT-01 a merge never
+  starts a release; a release needs an explicit `release.yml` dispatch on `main` after its push CI
+  passed.
 - **Latest published release:** 1.0.6 (2026-10-04). 1.0.7 is unpublished; no 1.0.7 tag, asset or
   Pages change exists.
 - **Open problem:** the 914ec4d Stock scenario failed at `extension-firstlogin-dash` with the
   cause NOT_PROVEN. DIAG-01 now makes the next failure record its phase, exit status and reason
   tokens; the old evidence cannot be re-read.
-- **Pause scope:** the owner paused releases and asked that product development start only on a
-  separate assignment. Nothing may be dispatched to `release.yml` until the owner resumes releases;
-  DIAG-01 and local disposable-VM work may start as soon as the owner assigns development.
-- **Next ready task:** the G51-02 local reproduction of the Stock failure (needs an owner
-  development assignment; a release dispatch also needs the owner's resume). The 2026-10-10 audit
-  queue is otherwise closed; LOOP-01 is measured on the next candidate.
+- **Next ready task:** G51-02 local reproduction of the Stock failure on the exact 914ec4d inputs
+  (Phase-A artifact kept until 2026-10-24). The staged Stock guest needs 8 GiB available host memory;
+  other workloads on the shared workstation currently leave less, so the run waits for memory rather
+  than overcommitting. LOOP-01 is measured on the next candidate.
 - **CI:** mode `self-hosted` (contract record). All 16 runner jobs use the owner's Linux labels;
   two jobs only call reusable workflows. `ci.yml` skips fork PRs. No workflow is incompatible with
   this mode. If the runner or Actions is unavailable, continue with direct local commands and record
@@ -40,7 +39,7 @@ release. Do not update or restart the owner's workstation; the owner updates aft
 | ID | Result and acceptance | Status | Depends on |
 | --- | --- | --- | --- |
 | G51-01 | Installed package/session state and upstream compatibility diagnosed against versions and sources | DONE | — |
-| G51-02 | — | P1 | BLOCKED | Owner assignment/resume | See sequence above; DIAG-01 is done | Local reproduction of the Stock failure |
+| G51-02 | Stock Dash failure reproduced and corrected locally, then all nine staged scenarios, signed final closure, Pages and public VM on one fresh child | IN_PROGRESS | DIAG-01 |
 | G51-03 | Deterministic release documentation rendering with differing source/document/release versions (58 regressions; 914ec4d frozen 29-file inventory PASS) | DONE (source) | — |
 | G51-04 | All affected Markdown reconciled with the released inputs and results | TODO | G51-02 publication |
 | G51-05 | Independent review, affected checks and full source suite on the final candidate; package, VM and publication results recorded separately | TODO | G51-02 |
@@ -108,13 +107,13 @@ Open and recent tasks. Findings are in [Review findings](#review-findings).
 | ID | Finding | Pri | Status | Depends on | Result and acceptance | Next step |
 | --- | --- | --- | --- | --- | --- | --- |
 | DIAG-01 | F-17 | P1 | DONE (source) | — | `qga_verify` records the failing guest phase, stem and exit status; the classifier reads that phase's own stderr (a fixture showed the old last-32 lexical slice dropping it; whether it did in the 914ec4d run is unproven) and emits allowlisted `[a-z0-9-]` `stage`/`reason`/`feature` rows; caps, no free text, password-row drop; rows retained in `scenario.log.gz`, `result.json` contract unchanged. Hypotheses: H1 confirmed, H2 refuted for ordering, H3 true but not the cause. Commit `4507338`; harness regressions. A real VM failure is NOT_TESTED | — |
-| G51-02 | — | P1 | BLOCKED | DIAG-01 | See sequence above | After DIAG-01 |
+| G51-02 | — | P1 | IN_PROGRESS | DIAG-01 | See sequence above | Local Stock reproduction on the 914ec4d inputs |
 | SAFE-04 | F-19 | P2 | DONE (source) | — | Identity helpers return 1 for structurally unidentifiable nodes (empty reader, zram-like disk) and 2 for operational probe failures; uniqueness stops on 2 and skips 1 (such a node cannot equal a valid identity). A naive "any failure rejects" would have refused every disk next to an empty card reader. Commit `71a8ede`; function-checks regressions. Live ISO NOT_TESTED | — |
 | SIMPLIFY-01 | F-20 | P3 | DONE (source) | — | Cause confirmed: `papers` is required by `sushi` (gnome group), so its removal always failed silently. One `pacman -Qq` query and one `pacman -Rn` of the installed subset; real failures stop; provider lines never remove the provider; `papers` dropped. Commits `16ab695`, `0d0198c`. A slim Stock/Marble VM install is NOT_TESTED (runs in the next staged candidate) | — |
 | SIMPLIFY-02 | F-21, F-22 | P3 | DONE (source) | — | One `lsblk -P` per node, one inventory per picker/validation pass, idle check against the selected disk's forward topology by device number (review caught a path-only match; fixed in `0d0198c`). Stubbed `lsblk` calls before→after at 2/8/32 disks: picker 49/415/5479→8/20/68, validation 125/395/1475→24/54/174, idle 6→1. Identity material unchanged (differential fixture against the frozen old helpers); first redundant destructive-target proof removed, the recheck and handle checks stay. Commit `57463af`. Live ISO NOT_TESTED | — |
 | CI-PIN-01 | F-23 | P3 | DONE | — | All 18 `download-artifact` uses pin the reviewed v5.0.0 `634f93cb`; `maintenance.yml` used v8.0.1 under a v5.0.0 comment. Commit `db6dac0`. Next scheduled maintenance run NOT_TESTED | — |
 | TEST-01 | F-24 | P3 | DONE | — | Full `tests/source-tests.sh`, interleaved A/B on the same workstation and background load, two rounds: 204.3/217.5 s at `c248eae` → 171.3/172.1 s. Service probe 33 s → about 7 s (optional `{callMs, waitMs}` may only shorten timeouts; 63 checks kept + 10); release-source-checks about 29 s → 13 s (19 exact reruns removed, baseline built once per variant; 39 distinct tests). Marker-contract tests are not duplicates (unit vs finalizer integration vs producer). New SIMPLIFY-02 fixtures add about 4 s. Commit `13e4d58` | — |
-| REL-SRC-PERF | TEST-01 | P3 | TODO | — | `repository/release-source.py` spawns about 18,800 `git` processes per `release-source-checks.py` run (per-file `show`, `hash-object`, `update-index` in `blob`/`source_hash`/`replace_tree`). Batch with `cat-file --batch`, `update-index --index-info` or `hash-object --stdin-paths`; accept with identical prepared trees/hashes and fewer subprocesses, measured A/B | Ready |
+| REL-SRC-PERF | TEST-01 | P3 | DONE (source) | — | `source_hash` and `transformed_tree` read a tree through one `git cat-file --batch`; `replace_tree` hashes all replacements with one `hash-object -w --no-filters --stdin-paths` and stages them with one `update-index -z --index-info`. Differential check: identical `source_hash` (including the recorded 914ec4d canonical hash) and transformed trees. `release-source-checks.py` (40 tests) with a PATH `git` counter, two runs each at similar load (3.2–3.9): 7688 → 3893 `git` processes (the rest are mostly fixture setup), 22.0/21.7 s → 12.9/12.9 s. Regression for exact bytes, modes, odd paths and missing/non-blob objects | — |
 | G51-04 | — | P2 | TODO | G51-02 | See sequence | — |
 | G51-05 | — | P2 | TODO | G51-02 | See G51 table | — |
 | REL-INTENT-01 | F-15 | P1 | DONE | — | Release only by explicit dispatch on `main` with successful push CI for the exact head (PR #95, `bfb29bc`). A real dispatch is NOT_TESTED | — |
