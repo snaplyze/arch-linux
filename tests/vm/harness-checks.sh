@@ -219,10 +219,11 @@ fi
     # shellcheck disable=SC2329 # Avoid a real UI pause in this behavioral fixture.
     sleep() { :; }
     run_fresh_marble_user_round_trip
+    # Escape did not close GNOME 51's welcome dialog (G51-02); the --no-prompt logout does not need it.
     expected=(verify:fresh-user-prepare login:fresh-user-login:marblefresh
-        key:key:esc verify:fresh-user-logout login:return-user-login:vmtest)
+        verify:fresh-user-logout login:return-user-login:vmtest)
     [ "${calls[*]}" = "${expected[*]}" ] ||
-        fail 'fresh-user login, Welcome dismissal, logout and return are out of order'
+        fail 'fresh-user login, logout and return are out of order'
 )
 grep -Fq -- 'fresh-user-login | fresh-user-logout | return-user-login' "${verify}" ||
     fail 'fresh-user logout is not registered as a separate guest phase'

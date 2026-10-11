@@ -127,6 +127,13 @@ run_in_user_session() {
                 result = subprocess.run(["bash", "--noprofile", "--norc", "-c", script, "fixture", scenario],
                                         text=True, capture_output=True, timeout=5)
                 self.assertEqual((result.returncode, result.stdout.strip()), (0, expected), result.stderr)
+        # A Stock system that gained the User Themes schema is no longer the Stock profile.
+        result = subprocess.run(["bash", "--noprofile", "--norc", "-c",
+                                 script.replace(
+                                     '''[ "$scenario" != stock-gnome-btrfs-luks2-plymouth-grub ] || { echo 'No such schema' >&2; return 1; }''', ''),
+                                 "fixture", "stock-gnome-btrfs-luks2-plymouth-grub"],
+                                text=True, capture_output=True, timeout=5)
+        self.assertNotEqual(result.returncode, 0)
 
     def test_first_login_round_follows_the_lock_cycle_that_closes_the_welcome_dialog(self):
         source = (ROOT / "tests/vm/run.sh").read_text()
@@ -136,6 +143,13 @@ run_in_user_session() {
             unlock = flow.index("qga_verify unlock firstboot-lock-finish")
             self.assertGreater(flow.index("run_extension_functional_acceptance firstlogin"), unlock)
             self.assertNotIn("run_extension_functional_acceptance firstlogin", flow[:unlock])
+        # The staged Stock finalizer requires its exact canonical assertion order.
+        manifest = (ROOT / "repository/acceptance-manifest.py").read_text()
+        stock_tuple = manifest.split('"locale-keyboard-formats-shortcuts",', 1)[1]
+        self.assertLess(stock_tuple.index('"just-perfection-panel-control"'),
+                        stock_tuple.index('"lock-password-unlock"'))
+        self.assertLess(stock.index("run_extension_functional_acceptance firstlogin"),
+                        stock.index("record_assertion lock-password-unlock"))
 
     def test_probe_reads_focus_through_the_gjs_property(self):
         # GJS 1.90 resolves `window.is_active` to the boolean property; calling it threw

@@ -95,8 +95,10 @@ With these four conditions emulated (dialog dismissed by click, focus receipts c
 
 Classification and correction:
 - All of these are harness defects. The product's welcome dialog, Dash binding and extensions worked.
-- Correction (commit "Fix the GNOME 51 extension acceptance harness"):
-  - the first-login round runs after the lock cycle, which closes the welcome dialog;
+- Correction (commits "Fix the GNOME 51 extension acceptance harness" and its review follow-up). Stock still records `lock-password-unlock` after the extension round, matching the finalizer's canonical order:
+  - the first-login round runs after the lock cycle. GNOME Shell 51 `main.js` closes the welcome dialog when the session mode loses the run dialog, as it does on the lock screen. That comes from the source, not from these runs, which closed it by click; the release run confirms it;
+  - the Marble fresh-user flow no longer sends Escape, which did not close the dialog. Its `--no-prompt` logout passed in runs 14 and 16 regardless;
+  - Stock asserts that the User Themes schema is absent;
   - the probe reads the `is-active` property;
   - the desktop entry and favorites are written first, with at least 10 s before the key;
   - Stock uses the default Shell theme without a User Themes read.

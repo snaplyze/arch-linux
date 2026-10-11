@@ -2298,10 +2298,8 @@ marble_named_gdm_login() {
 run_fresh_marble_user_round_trip() {
     qga_verify fresh-user-prepare fresh-user-prepare
     marble_named_gdm_login fresh-user-login fresh-user marblefresh
-    # GNOME's first-login Welcome dialog binds Escape to Skip. Close it through
-    # the virtual keyboard before asking GNOME to open its end-session dialog.
-    hmp_request key esc
-    sleep 1
+    # The first-login welcome dialog may still be open: on GNOME 51 it ignored virtual
+    # keyboard Escape (G51-02), and the --no-prompt logout needs no end-session dialog.
     qga_verify fresh-user-logout fresh-user-logout
     marble_named_gdm_login return-user-login return-user vmtest
 }
@@ -3205,11 +3203,12 @@ main() {
         capture_screen firstboot-lock
         hmp_type_password
         qga_verify unlock firstboot-lock-finish
-        record_assertion lock-password-unlock \
-            'the real Stock GNOME session entered LockedHint=yes and only HMP password input restored the same gdm-password Wayland session'
         if is_encrypted_grub_scenario; then
             run_extension_functional_acceptance firstlogin
         fi
+        # Recorded after the extension round to keep the finalizer's canonical assertion order.
+        record_assertion lock-password-unlock \
+            'the real Stock GNOME session entered LockedHint=yes and only HMP password input restored the same gdm-password Wayland session'
         current_phase='full-system-update'
         qga_verify update firstboot-update
         record_assertion pacman-syu 'pacman -Syu completed successfully inside the installed guest'

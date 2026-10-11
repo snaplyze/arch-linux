@@ -69,7 +69,10 @@ desktop_native_schema() {
 # so its Shell theme is the default stylesheet rather than an unreadable setting.
 desktop_native_theme_name() {
     case "${scenario}" in
-        stock-*) printf "''\n" ;;
+        stock-*)
+            if run_in_user_session "${desktop_native_uid}" /usr/bin/gsettings list-keys \
+                org.gnome.shell.extensions.user-theme >/dev/null 2>&1; then return 1; fi
+            printf "''\n" ;;
         *) desktop_native_setting get theme name ;;
     esac
 }
