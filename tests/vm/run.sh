@@ -395,7 +395,7 @@ extension_fail=re.compile(f"EXTENSION_FUNCTIONAL_FAIL phase={token} feature={tok
 extension_probe=re.compile("EXTENSION_PROBE_DIAGNOSTIC phase={t} process={f} activated={f} mapped={f} focused={f} desktop_gio={f} desktop_exec={f} favorite_first={f} reason={t}".format(t=token,f=flag))
 classes=(
     ("package-missing", r"error: target not found:|could not find all required packages|could not resolve all dependencies"),
-    ("download", r"failed retrieving file|failed to download|Could not resolve host|Connection timed out|The requested URL returned error|fatal: unable to access|TLS connect error|GnuTLS, handshake failed|unexpected eof while reading|TLS connection was non-properly terminated"),
+    ("download", r"failed retrieving file|failed to download|Could not resolve host|Connection timed out|The requested URL returned error|fatal: unable to access|TLS connect error|GnuTLS, handshake failed|unexpected eof while reading|TLS connection was non-properly terminated|Error downloading pinned Gum archive|curl: \([1-9][0-9]{0,2}\)"),
     ("package-trust", r"invalid or corrupted package|unknown trust|invalid PGP|signature from .* is unknown"),
     ("package-conflict", r"conflicting dependencies|conflicting files|exists in filesystem"),
     ("disk-full", r"No space left on device"),
