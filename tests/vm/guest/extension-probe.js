@@ -64,7 +64,9 @@ app.connect('activate', () => {
     });
     window.connect('map', () => receipt('window-mapped'));
     window.connect('notify::is-active', () => {
-        if (window.is_active()) {
+        // GJS resolves `is_active` to the boolean `is-active` property, so the
+        // `is_active()` method form throws inside this handler (GJS 1.90).
+        if (window.isActive) {
             receipt('window-focused');
             receipt('dash-ready');
         }

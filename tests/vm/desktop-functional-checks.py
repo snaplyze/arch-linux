@@ -99,5 +99,51 @@ record_assertion() { printf 'ASSERT %s\n' "$1"; }
         self.assertNotIn("ASSERT ", result.stdout)
 
 
+class FunctionalRoundPreconditions(unittest.TestCase):
+    """Defects reproduced by the local 914ec4d Stock runs (G51-02)."""
+
+    def test_stock_theme_needs_no_user_themes_schema(self):
+        source = (ROOT / "tests/vm/guest/desktop-native.sh").read_text()
+        functions = "".join(
+            source[source.index(f"{name}() {{"):].split("\n}\n", 1)[0] + "\n}\n"
+            for name in ("desktop_native_schema", "desktop_native_theme_name", "desktop_native_setting"))
+        script = r'''
+set -Eeuo pipefail
+scenario=$1; desktop_native_uid=1000
+run_in_user_session() {
+    shift
+    case "$*" in
+    *org.gnome.shell.extensions.user-theme*)
+        [ "$scenario" != stock-gnome-btrfs-luks2-plymouth-grub ] || { echo 'No such schema' >&2; return 1; }
+        printf "'ArchLinux-Marble-Blue-Filled-Dark'\n" ;;
+    *) return 1 ;;
+    esac
+}
+''' + functions + 'desktop_native_theme_name\n'
+        for scenario, expected in (("stock-gnome-btrfs-luks2-plymouth-grub", "''"),
+                                   ("marble-gnome-btrfs-luks2-plymouth-systemdboot",
+                                    "'ArchLinux-Marble-Blue-Filled-Dark'")):
+            with self.subTest(scenario=scenario):
+                result = subprocess.run(["bash", "--noprofile", "--norc", "-c", script, "fixture", scenario],
+                                        text=True, capture_output=True, timeout=5)
+                self.assertEqual((result.returncode, result.stdout.strip()), (0, expected), result.stderr)
+
+    def test_first_login_round_follows_the_lock_cycle_that_closes_the_welcome_dialog(self):
+        source = (ROOT / "tests/vm/run.sh").read_text()
+        marble = source.split("run_marble_acceptance() {", 1)[1].split("\n}\n", 1)[0]
+        stock = source.split("record_assertion locale-keyboard-formats-shortcuts", 1)[1]
+        for flow in (marble, stock):
+            unlock = flow.index("qga_verify unlock firstboot-lock-finish")
+            self.assertGreater(flow.index("run_extension_functional_acceptance firstlogin"), unlock)
+            self.assertNotIn("run_extension_functional_acceptance firstlogin", flow[:unlock])
+
+    def test_probe_reads_focus_through_the_gjs_property(self):
+        # GJS 1.90 resolves `window.is_active` to the boolean property; calling it threw
+        # inside the notify handler, so no focus or dash receipt was ever written.
+        probe = (ROOT / "tests/vm/guest/extension-probe.js").read_text()
+        self.assertIn("if (window.isActive)", probe)
+        self.assertNotRegex(probe, r"\.is_active\s*\(")
+
+
 if __name__ == "__main__":
     unittest.main()

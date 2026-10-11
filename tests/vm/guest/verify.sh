@@ -4562,7 +4562,7 @@ EXTENSION_CODE_CLEANUP_PY
 }
 
 prepare_extension_probe() {
-    local uid favorites desktop application path value encoded
+    local uid favorites desktop application path value encoded favorites_written
     uid="$(id -u "${username}")"
     require_extension_platform
     provision_gnome51_migration_dependencies
@@ -4577,7 +4577,6 @@ prepare_extension_probe() {
     [ -f "${probe_source}" ] && [ ! -L "${probe_source}" ]
     [ "$(stat -c '%u:%a' "${probe_source}")" = 0:500 ]
     run_in_user_session "${uid}" mkdir -m0700 -- "${probe_state}"
-    prepare_extension_probe_code
     printf '[]\n' >"${probe_trusted}/settings.json"
     # Save only scoped, ephemeral test values; restore unset keys with dconf reset.
     for path in /org/gnome/shell/favorite-apps \
@@ -4610,6 +4609,7 @@ print(repr([sys.argv[2]] + values))
 EXTENSION_FAVORITES_PY
 )"
     run_in_user_session "${uid}" gsettings set org.gnome.shell favorite-apps "${favorites}"
+    favorites_written="${SECONDS}"
     set_extension_setting "${uid}" dash hot-keys true
     set_extension_setting "${uid}" dash app-hotkey-1 "['<Super>F6']"
     set_extension_setting "${uid}" clipboard enable-keybindings true
@@ -4617,7 +4617,11 @@ EXTENSION_FAVORITES_PY
     set_extension_setting "${uid}" clipboard next-entry "['<Control>F12']"
     set_extension_setting "${uid}" clipboard paste-on-select false
     set_extension_setting "${uid}" clipboard move-item-first false
-    sleep 2
+    prepare_extension_probe_code
+    # The Dash binding activates whatever icon is first when the key arrives. The Shell
+    # application cache and Dash to Dock redisplay lagged the favorites write by about
+    # 3 s in the reproduced runs, and an early key launched the previous first favorite.
+    while [ $((SECONDS - favorites_written)) -lt 10 ]; do sleep 0.5; done
     [ ! -e "${probe_state}/dash-ready.json" ]
     emit_marble_action_pass extension-probe-prepared-not-launched
 }
