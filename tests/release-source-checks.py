@@ -382,6 +382,26 @@ class ReleaseSourceChecks(ReleaseSourceFixture, unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.module.verify(self.root, forged, self.main, "1.0.2")
 
+    def test_batched_object_access_keeps_exact_bytes_modes_and_rejects_missing_objects(self) -> None:
+        changes = {"bin/empty": ("100755", b""), "docs/ü space.md": ("100644", b"a\r\nb\n\n"),
+                   "blob.bin": ("100644", bytes(range(256)) * 3)}
+        tree = self.module.replace_tree(self.root, self.main, changes)
+        commit = self.git("commit-tree", tree, "-p", self.main, input_data=b"fixture\n")
+        entries = self.module.tree_entries(self.root, commit)
+        contents = self.module.tree_blobs(self.root, entries)
+        for name, (mode, payload) in changes.items():
+            self.assertEqual((entries[name][0], contents[name]), (mode, payload))
+        for name, (mode, object_id) in entries.items():
+            self.assertEqual(contents[name], self.module.blob(self.root, commit, name))
+        rows = sorted(f"{'0755' if mode == '100755' else '0644'} "
+                      f"{hashlib.sha256(self.module.blob(self.root, commit, name)).hexdigest()} *{name}\n"
+                      for name, (mode, _) in entries.items())
+        self.assertEqual(self.module.source_hash(self.root, commit), hashlib.sha256("".join(rows).encode()).hexdigest())
+        with self.assertRaises(ValueError):
+            self.module.tree_blobs(self.root, {"absent": ("100644", "0" * 40)})
+        with self.assertRaises(ValueError):
+            self.module.tree_blobs(self.root, {"tree-object": ("100644", tree)})
+
     def test_origin_binds_reviewed_parent_and_transform(self) -> None:
         identity = self.prepare()
         origin = json.loads(self.module.blob(self.root, identity["source_commit"], "repository/release-origin.json"))

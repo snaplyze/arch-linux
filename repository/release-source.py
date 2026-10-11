@@ -152,13 +152,43 @@ def tree_entries(root: Path, commit: str) -> dict[str, tuple[str, str]]:
     return entries
 
 
+def tree_blobs(root: Path, entries: dict[str, tuple[str, str]]) -> dict[str, bytes]:
+    """Read every listed blob through one `git cat-file --batch` process."""
+    names = sorted(entries)
+    raw = git(root, "cat-file", "--batch", data="".join(f"{entries[name][1]}\n" for name in names).encode())
+    contents, offset = {}, 0
+    for name in names:
+        end = raw.index(b"\n", offset)
+        header = raw[offset:end].decode("ascii").split()
+        if len(header) != 3 or header[0] != entries[name][1] or header[1] != "blob":
+            raise ValueError("release Git object operation failed")
+        start, size = end + 1, int(header[2])
+        if raw[start + size:start + size + 1] != b"\n":
+            raise ValueError("release Git object operation failed")
+        contents[name], offset = raw[start:start + size], start + size + 1
+    if offset != len(raw):
+        raise ValueError("release Git object operation failed")
+    return contents
+
+
 def replace_tree(root: Path, base: str, changes: dict[str, tuple[str, bytes]]) -> str:
     with tempfile.TemporaryDirectory(prefix="arch-linux-release-index-") as temporary:
         environment = {"GIT_INDEX_FILE": str(Path(temporary) / "index")}
         git(root, "read-tree", base, extra_env=environment)
-        for path, (mode, content) in sorted(changes.items()):
-            object_id = git(root, "hash-object", "-w", "--stdin", data=content).decode().strip()
-            git(root, "update-index", "--add", "--cacheinfo", mode, object_id, path, extra_env=environment)
+        paths = sorted(changes)
+        files = []
+        for number, path in enumerate(paths):
+            file = Path(temporary) / f"blob-{number}"
+            file.write_bytes(changes[path][1])
+            files.append(f"{file}\n")
+        # --no-filters keeps the exact bytes, as `hash-object --stdin` did.
+        object_ids = git(root, "hash-object", "-w", "--no-filters", "--stdin-paths",
+                         data="".join(files).encode()).decode().split()
+        if len(object_ids) != len(paths):
+            raise ValueError("release Git object operation failed")
+        git(root, "update-index", "-z", "--add", "--index-info", extra_env=environment,
+            data=b"".join(f"{changes[path][0]} {object_id}\t{path}\0".encode()
+                          for path, object_id in zip(paths, object_ids)))
         return git(root, "write-tree", extra_env=environment).decode().strip()
 
 
@@ -555,10 +585,17 @@ def transformed_tree(root: Path, main: str, version: str) -> str:
     entries = tree_entries(root, main)
     if ORIGIN in entries:
         raise ValueError("a release child cannot be used as reviewed main")
-    transformer = blob(root, main, TRANSFORMER)
+    contents = tree_blobs(root, entries)
+
+    def read(path: str) -> bytes:
+        if path not in contents:
+            raise ValueError("release Git object operation failed")
+        return contents[path]
+
+    transformer = read(TRANSFORMER)
     if transformer != Path(__file__).read_bytes():
         raise ValueError("release transformation code differs from reviewed main")
-    installer = blob(root, main, "arch-linux-installer.sh")
+    installer = read("arch-linux-installer.sh")
     match = re.search(rb"^readonly VERSION='([^']+)'$", installer, re.M)
     if match is None:
         raise ValueError("reviewed installer version is absent")
@@ -576,7 +613,7 @@ def transformed_tree(root: Path, main: str, version: str) -> str:
             installer, b"readonly VERSION='" + match.group(1) + b"'",
             b"readonly VERSION='" + new + b"'", "installer version")),
     }
-    bootstrap = blob(root, main, "install.sh")
+    bootstrap = read("install.sh")
     for before, after, label in (
         (f"readonly BOOTSTRAP_VERSION='{old}'", f"readonly BOOTSTRAP_VERSION='{version}'", "bootstrap version"),
         (f"readonly BOOTSTRAP_RELEASE_URL='https://github.com/snaplyze/arch-linux/releases/download/{old}'",
@@ -591,25 +628,25 @@ def transformed_tree(root: Path, main: str, version: str) -> str:
     for path in BOOTSTRAP_DOCUMENTS:
         if path not in entries:
             raise ValueError(f"release bootstrap document is missing: {path}")
-        changes[path] = entries[path][0], release_bootstrap_document(blob(root, main, path), path, version)
+        changes[path] = entries[path][0], release_bootstrap_document(read(path), path, version)
     changes["README.md"] = entries["README.md"][0], release_overview(changes["README.md"][1], version)
     if "CHANGELOG.md" not in entries:
         raise ValueError("release changelog document is missing")
-    changes["CHANGELOG.md"] = entries["CHANGELOG.md"][0], release_changelog(blob(root, main, "CHANGELOG.md"), version)
+    changes["CHANGELOG.md"] = entries["CHANGELOG.md"][0], release_changelog(read("CHANGELOG.md"), version)
     for path in CHECKPOINT_DOCUMENTS:
         if path not in entries:
             raise ValueError(f"release checkpoint document is missing: {path}")
-        changes[path] = entries[path][0], release_checkpoint_document(blob(root, main, path), path, main, version)
+        changes[path] = entries[path][0], release_checkpoint_document(read(path), path, main, version)
 
     revisions = {}
-    packages = blob(root, main, "repository/package-set").decode("ascii").splitlines()
+    packages = read("repository/package-set").decode("ascii").splitlines()
     if len(packages) != len(set(packages)) or not packages:
         raise ValueError("reviewed package closure is malformed")
     for package in packages:
         if re.fullmatch(r"arch-linux-[a-z0-9-]+", package) is None:
             raise ValueError("reviewed package name is malformed")
         pkgbuild_name, srcinfo_name = f"packages/{package}/PKGBUILD", f"packages/{package}/.SRCINFO"
-        pkgbuild, srcinfo = blob(root, main, pkgbuild_name), blob(root, main, srcinfo_name)
+        pkgbuild, srcinfo = read(pkgbuild_name), read(srcinfo_name)
         matches = re.findall(rb"^pkgrel=([1-9][0-9]{0,8})$", pkgbuild, re.M)
         if len(matches) != 1:
             raise ValueError("automatic package revisions require one bounded integer pkgrel")
@@ -639,8 +676,10 @@ def transformed_tree(root: Path, main: str, version: str) -> str:
 
 
 def source_hash(root: Path, commit: str) -> str:
-    rows = [f"{'0755' if mode == '100755' else '0644'} {hashlib.sha256(blob(root, commit, name)).hexdigest()} *{name}\n"
-            for name, (mode, _) in tree_entries(root, commit).items()]
+    entries = tree_entries(root, commit)
+    contents = tree_blobs(root, entries)
+    rows = [f"{'0755' if mode == '100755' else '0644'} {hashlib.sha256(contents[name]).hexdigest()} *{name}\n"
+            for name, (mode, _) in entries.items()]
     return hashlib.sha256("".join(sorted(rows)).encode()).hexdigest()
 
 
