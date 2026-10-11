@@ -22,10 +22,11 @@ VM or publication obligation; a PASS never transfers between trees, children or 
   reproduced on its exact signed inputs and traced to three harness defects plus a Stock fixture
   defect, none in the product ([validation](validation.md#local-reproduction-2026-10-11)). The
   correction is on branch `fix/g51-02-stock-functional-harness`.
-- **Next ready task:** finish the local exploration of the later Stock phases (postreboot round),
-  then publish the correction and dispatch one release. Staged VM runs need 8 GiB available host
-  memory and wait for it on this shared workstation rather than overcommitting. LOOP-01 is measured
-  on that candidate.
+- **Next ready task:** publish the correction and dispatch one release; LOOP-01 is measured on that
+  candidate. Local exploration of the Stock postreboot round and of Marble (inputs prepared:
+  upgrade manifest `944168e2…`, legacy 1.0.3 assets) stopped on host memory: the staged guest needs
+  8 GiB available, the shared workstation held 7.7 GiB with swap nearly full, and other projects'
+  VMs and the runner VM were not touched. If the release run fails there, reproduce locally first.
 - **CI:** mode `self-hosted` (contract record). All 16 runner jobs use the owner's Linux labels;
   two jobs only call reusable workflows. `ci.yml` skips fork PRs. No workflow is incompatible with
   this mode. If the runner or Actions is unavailable, continue with direct local commands and record
@@ -80,7 +81,7 @@ extensions; Marble and supplemental scenarios were cancelled without a verdict. 
 
 Remaining sequence for G51-02 (after the owner resumes):
 
-1. DONE except the postreboot exploration: DIAG-01; the Stock Dash failure reproduced locally on
+1. DONE: DIAG-01; the Stock Dash failure reproduced locally on
    the exact 914ec4d inputs and corrected with regressions. A modified harness cannot run in staged
    mode against older signed inputs, so the correction was proved locally by equivalent
    interventions on the unchanged child, and the release run confirms it (rule in AGENTS.md).
