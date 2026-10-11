@@ -7817,7 +7817,7 @@ gum_init() {
     gum_member="gum_${GUM_VERSION}_Linux_x86_64/gum"
     gum_verified="${SCRIPT_TMP_DIR}/gum.verified"
     if ! curl --proto '=https' --proto-redir '=https' --fail --location --silent --show-error \
-        --connect-timeout 5 --max-time 60 --max-filesize 33554432 \
+        --retry 3 --connect-timeout 5 --max-time 60 --max-filesize 33554432 \
         --output "$archive" -- "$dl_url"; then
         echo "Error downloading pinned Gum archive" >&2
         exit 1

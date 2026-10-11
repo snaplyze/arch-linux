@@ -616,6 +616,25 @@ if gum_archive_is_safe "${gum_archive_test_dir}/traversal.tar.gz"; then
 fi
 command rm -rf -- "$gum_archive_test_dir"
 
+# The only network fetch before the configuration prompt retries transient failures like the
+# installer's other downloads, then stops with an explicit, classifiable message.
+if [ ! -e /usr/local/bin/gum ] && [ ! -L /usr/local/bin/gum ]; then
+    gum_download_dir="$(mktemp -d)"
+    gum_download_result="$(
+        GUM=/usr/local/bin/gum SCRIPT_TMP_DIR="$gum_download_dir"
+        clear() { :; }
+        curl() { printf '%s\n' "$@" >"${gum_download_dir}/curl-args"; return 56; }
+        gum_status=0; (gum_init) 2>&1 >/dev/null || gum_status=$?; printf 'status=%s' "$gum_status"
+    )"
+    if [[ "$gum_download_result" != *'Error downloading pinned Gum archive'*'status=1' ]] ||
+        ! grep -Fxq -- '--retry' "${gum_download_dir}/curl-args" ||
+        [ "$(grep -Fx -A1 -- '--retry' "${gum_download_dir}/curl-args" | tail -n1)" != 3 ]; then
+        echo 'function check failed: pinned Gum download does not retry or report its failure' >&2
+        exit 1
+    fi
+    command rm -rf -- "$gum_download_dir"
+fi
+
 gum_override_test_dir="$(mktemp -d)"
 gum_override_file="${gum_override_test_dir}/arbitrary-root-target"
 printf 'must remain unchanged\n' >"$gum_override_file"

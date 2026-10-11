@@ -530,7 +530,7 @@ for name in ("capture_failure_diagnostic", "remove_secret_bearing_evidence", "co
     match=re.search(r"^"+name+r"\(\) \{\n.*?^\}",source,re.M|re.S)
     assert match, "missing production failure diagnostic helper: "+name
     functions.append(match.group())
-for case in ("installer", "guest", "credential", "tls-openssl", "tls-gnutls", "unknown", "symlink", "oversize"):
+for case in ("installer", "guest", "credential", "tls-openssl", "tls-gnutls", "tls-gum", "unknown", "symlink", "oversize"):
     with tempfile.TemporaryDirectory(prefix="qa-failure-diagnostic-") as tmp, tempfile.TemporaryDirectory(prefix="qa-failure-foreign-") as other:
         root=Path(tmp); evidence=root/"evidence"; evidence.mkdir(); secret="fixture-runtime-credential"
         phase="install-archiso" if case != "guest" else "firstboot"
@@ -540,6 +540,7 @@ for case in ("installer", "guest", "credential", "tls-openssl", "tls-gnutls", "u
         elif case=="credential":raw.write_text("error: target not found: "+secret+"\nraw /hidden/key\n")
         elif case=="tls-openssl":raw.write_text("fatal: unable to access 'https://"+secret+"@private.example/recipe.git/': TLS connect error: error:0A000126:SSL routines::unexpected eof while reading\n")
         elif case=="tls-gnutls":raw.write_text("GnuTLS, handshake failed: The TLS connection was non-properly terminated. "+secret+" /hidden/key\n")
+        elif case=="tls-gum":raw.write_text("curl: (56) Recv failure: "+secret+" /hidden/key\n")
         elif case=="unknown":raw.write_text("raw /hidden/key token=value\n")
         elif case=="symlink":
             foreign=Path(other)/"foreign";foreign.write_text("error: target not found: "+secret+"\n");raw.symlink_to(foreign)
