@@ -69,6 +69,41 @@ stderr, not evidence of the failure. It exited normally (owned PID 3395998 verif
 strict SSH); no raw private stderr persisted and no guest, session or configuration action was
 performed.
 
+#### Local reproduction (2026-10-11)
+
+Diagnostic runs on the owner workstation, not acceptance. Inputs:
+- the canonical checkout detached at the exact child `914ec4d` (tree `0040165`);
+- the accepted ISO `684ded26…`;
+- the downloaded Phase-A artifact: archive `fd06f9da…`, BUILD-METADATA `a11ce8fc…`, UNSIGNED-SHA256SUMS `8776c016…`;
+- `bash tests/vm/run.sh stock-gnome-btrfs-luks2-plymouth-grub --mode staged …`;
+- the unmodified 914ec4d harness, observed from the host through QMP `screendump` and short guest-agent queries.
+
+Run 1 reproduced the CI failure exactly: `process=no … favorite_first=yes reason=not-started`. Later runs added one diagnostic intervention each:
+
+| Observation | Result |
+| --- | --- |
+| Screen at first login | GNOME's system-modal "Welcome to Arch Linux" dialog covers the overview |
+| Esc/Tab/Return through QMP and HMP | Reach the guest keyboard device held by the user Shell, but do not close the dialog |
+| Dock state | The probe is first in the dock |
+| Pointer click on Skip | Closes the dialog; the Dash binding then fires |
+| Early key (prepare ends 2 s after the favorites write) | Launched the previous first favorite (Web) |
+| Key once the dock updated (about 3 s after the favorites write) | Launched the probe, which mapped its window |
+| Focus receipt | Never written: GJS 1.90 resolves `window.is_active` to the boolean property, so `is_active()` threw in the focus handler (confirmed in an isolated headless Mutter) |
+| Stock native preparation | Read the User Themes setting, but Stock installs no User Themes schema |
+
+With these four conditions emulated (dialog dismissed by click, focus receipts copied from the mapped-window receipt, a temporary User Themes schema in the disposable guest), every first-login check ran: Dash, Clipboard, No Screenshot Box, AppIndicator, Caffeine, Blur, Just Perfection, native cleanup, lock/unlock, update, reboot and the second login. The postreboot Dash round then hit the same dock timing (`process=no`).
+
+Classification and correction:
+- All of these are harness defects. The product's welcome dialog, Dash binding and extensions worked.
+- Correction (commit "Fix the GNOME 51 extension acceptance harness"):
+  - the first-login round runs after the lock cycle, which closes the welcome dialog;
+  - the probe reads the `is-active` property;
+  - the desktop entry and favorites are written first, with at least 10 s before the key;
+  - Stock uses the default Shell theme without a User Themes read.
+- A changed harness cannot run in staged mode against older signed inputs. The corrected chain is therefore NOT_TESTED until the next release candidate.
+
+Unrelated CI event: PR #101's first `Source checks` run failed once in `runtime-checks.py`, "TLS fixture did not become ready" within its 5 s readiness budget. It happened while these local VMs loaded the shared host, and the failed-job rerun of the same commit passed.
+
 Owner pause and cleanup. The owner asked to complete the current result and pause. Root verified
 run 38079578147 / head `5676fd8` and requested cancellation; the run is terminal CANCELLED.
 Read-only runner checks verified no owned Minimal/Stock QEMU PID or run directory, no old Stock
