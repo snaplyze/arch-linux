@@ -2298,16 +2298,14 @@ marble_named_gdm_login() {
 run_fresh_marble_user_round_trip() {
     qga_verify fresh-user-prepare fresh-user-prepare
     marble_named_gdm_login fresh-user-login fresh-user marblefresh
-    # GNOME's first-login Welcome dialog binds Escape to Skip. Close it through
-    # the virtual keyboard before asking GNOME to open its end-session dialog.
-    hmp_request key esc
-    sleep 1
+    # The first-login welcome dialog may still be open: on GNOME 51 it ignored virtual
+    # keyboard Escape (G51-02), and the --no-prompt logout needs no end-session dialog.
     qga_verify fresh-user-logout fresh-user-logout
     marble_named_gdm_login return-user-login return-user vmtest
 }
 
 run_marble_acceptance() {
-    local first_boot_id post_boot_id
+    local first_boot_id post_boot_id first_login_extension_round=false
 
     qga_verify prelogin firstboot-prelogin
     first_boot_id="${last_boot_id}"
@@ -2354,9 +2352,9 @@ run_marble_acceptance() {
         run_extension_functional_acceptance upgrade
     else
         marble_gdm_login firstlogin firstboot firstboot-gdm-password
-        if [ "${scenario_id}" = marble-gnome-btrfs-luks2-plymouth-systemdboot ]; then
-            run_extension_functional_acceptance firstlogin
-        fi
+        # The first-login extension round runs after the lock cycle closes GNOME's
+        # system-modal welcome dialog, which otherwise blocks extension keybindings.
+        first_login_extension_round=true
     fi
     capture_screen firstboot-desktop
     record_assertion gdm-user-password-no-autologin \
@@ -2390,6 +2388,10 @@ run_marble_acceptance() {
     qga_verify unlock firstboot-lock-finish
     record_assertion lock-password-unlock \
         'only the real password unlock restored the same locked GNOME Wayland session'
+    if [ "${first_login_extension_round}" = true ] &&
+        [ "${scenario_id}" = marble-gnome-btrfs-luks2-plymouth-systemdboot ]; then
+        run_extension_functional_acceptance firstlogin
+    fi
 
     qga_verify update firstboot-update
     record_assertion update-hooks-safe \
@@ -3192,14 +3194,19 @@ main() {
         if is_encrypted_grub_scenario; then
             record_assertion locale-keyboard-formats-shortcuts \
                 'Stock retained en_US.UTF-8 locale and Formats, primary Latin plus Russian layouts, both GNOME switch directions, and all 12 Ptyxis Latin/Cyrillic shortcut pairs'
-            run_extension_functional_acceptance firstlogin
         fi
+        # A first login shows GNOME's system-modal welcome dialog, which blocks extension
+        # keybindings; entering the lock screen closes it, as it would for a real user.
         qga_verify lock firstboot-lock-start
         hmp_request key ret
         sleep 2
         capture_screen firstboot-lock
         hmp_type_password
         qga_verify unlock firstboot-lock-finish
+        if is_encrypted_grub_scenario; then
+            run_extension_functional_acceptance firstlogin
+        fi
+        # Recorded after the extension round to keep the finalizer's canonical assertion order.
         record_assertion lock-password-unlock \
             'the real Stock GNOME session entered LockedHint=yes and only HMP password input restored the same gdm-password Wayland session'
         current_phase='full-system-update'

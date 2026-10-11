@@ -65,6 +65,18 @@ desktop_native_schema() {
     esac
 }
 
+# Stock installs no User Themes extension or schema (only Marble adds gnome-shell-extensions),
+# so its Shell theme is the default stylesheet rather than an unreadable setting.
+desktop_native_theme_name() {
+    case "${scenario}" in
+        stock-*)
+            if run_in_user_session "${desktop_native_uid}" /usr/bin/gsettings list-keys \
+                org.gnome.shell.extensions.user-theme >/dev/null 2>&1; then return 1; fi
+            printf "''\n" ;;
+        *) desktop_native_setting get theme name ;;
+    esac
+}
+
 desktop_native_setting() {
     local operation="$1" kind="$2" key="$3"; shift 3
     local -a schema=()
@@ -150,7 +162,7 @@ const settings=new Gio.Settings({settings_schema:schema});
 if (!settings.get_value("pipelines").equal(settings.get_default_value("pipelines"))) imports.system.exit(1);
 ' "${blur_schema[0]}" "${blur_schema[1]}"
     local original_theme
-    original_theme="$(desktop_native_setting get theme name)"
+    original_theme="$(desktop_native_theme_name)"
     case "${original_theme}" in "''"|"'ArchLinux-Marble-Blue-Filled-Dark'") ;; *) return 1 ;; esac
     if [ "${scenario}" = stock-gnome-btrfs-luks2-plymouth-grub ]; then [ "${original_theme}" = "''" ]; fi
     [ ! -e "${desktop_native_state}" ] && [ ! -L "${desktop_native_state}" ]
@@ -270,7 +282,7 @@ cleanup_desktop_native_probe() {
         desktop_native_command shell blur-off
     fi
     desktop_native_verify_panel_setting
-    case "$(desktop_native_setting get theme name)" in
+    case "$(desktop_native_theme_name)" in
         "''") desktop_native_command shell theme-stock ;;
         "'ArchLinux-Marble-Blue-Filled-Dark'") desktop_native_command shell theme-marble ;;
         *) return 1 ;;

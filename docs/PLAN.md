@@ -12,19 +12,21 @@ VM or publication obligation; a PASS never transfers between trees, children or 
 
 ## Current state — 2026-10-11
 
-- **Main:** `49d72a9` (PR #99, 2026-10-10 audit fixes). On 2026-10-11 the owner assigned execution
+- **Main:** `b73bc58` (PR #101, REL-SRC-PERF). On 2026-10-11 the owner assigned execution
   of the whole agreed plan (G51-02…G51-05, REL-SRC-PERF, LOOP-01). Since REL-INTENT-01 a merge never
   starts a release; a release needs an explicit `release.yml` dispatch on `main` after its push CI
   passed.
 - **Latest published release:** 1.0.6 (2026-10-04). 1.0.7 is unpublished; no 1.0.7 tag, asset or
   Pages change exists.
-- **Open problem:** the 914ec4d Stock scenario failed at `extension-firstlogin-dash` with the
-  cause NOT_PROVEN. DIAG-01 now makes the next failure record its phase, exit status and reason
-  tokens; the old evidence cannot be re-read.
-- **Next ready task:** G51-02 local reproduction of the Stock failure on the exact 914ec4d inputs
-  (Phase-A artifact kept until 2026-10-24). The staged Stock guest needs 8 GiB available host memory;
-  other workloads on the shared workstation currently leave less, so the run waits for memory rather
-  than overcommitting. LOOP-01 is measured on the next candidate.
+- **Open problem resolved locally:** the 914ec4d Stock `extension-firstlogin-dash` failure was
+  reproduced on its exact signed inputs and traced to three harness defects plus a Stock fixture
+  defect, none in the product ([validation](validation.md#local-reproduction-2026-10-11)). The
+  correction is on branch `fix/g51-02-stock-functional-harness`.
+- **Next ready task:** publish the correction and dispatch one release; LOOP-01 is measured on that
+  candidate. Local exploration of the Stock postreboot round and of Marble (inputs prepared:
+  upgrade manifest `944168e2…`, legacy 1.0.3 assets) stopped on host memory: the staged guest needs
+  8 GiB available, the shared workstation held 7.7 GiB with swap nearly full, and other projects'
+  VMs and the runner VM were not touched. If the release run fails there, reproduce locally first.
 - **CI:** mode `self-hosted` (contract record). All 16 runner jobs use the owner's Linux labels;
   two jobs only call reusable workflows. `ci.yml` skips fork PRs. No workflow is incompatible with
   this mode. If the runner or Actions is unavailable, continue with direct local commands and record
@@ -79,8 +81,10 @@ extensions; Marble and supplemental scenarios were cancelled without a verdict. 
 
 Remaining sequence for G51-02 (after the owner resumes):
 
-1. DIAG-01, then reproduce the Stock Dash failure locally on a disposable VM, correct it with a
-   regression and pass the scenario locally before any release dispatch (rule in AGENTS.md).
+1. DONE: DIAG-01; the Stock Dash failure reproduced locally on
+   the exact 914ec4d inputs and corrected with regressions. A modified harness cannot run in staged
+   mode against older signed inputs, so the correction was proved locally by equivalent
+   interventions on the unchanged child, and the release run confirms it (rule in AGENTS.md).
 2. On one fresh child, pass all nine staged scenarios. Stock and Marble need real GDM password
    login, lock/unlock, full `pacman -Syu` and another boot; every expected extension (seven Stock,
    eight Marble) in both real-session rounds; strict core consumers require 36 Stock and 43 Marble
